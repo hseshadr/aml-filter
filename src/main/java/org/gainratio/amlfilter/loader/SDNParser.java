@@ -23,6 +23,7 @@ public class SDNParser implements Parser<Sanctions> {
     @PostConstruct
     void init() throws Exception {
         logger.info("url={}", url);
+        // TODO: Move this to the loader
         parse();
     }
 
