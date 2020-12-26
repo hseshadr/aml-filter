@@ -2,7 +2,7 @@ package org.gainratio.amlfilter.loader;
 
 
 import org.gainratio.amlfilter.BaseUnitTest;
-import org.gainratio.amlfilter.parser.SDNParser;
+import org.gainratio.amlfilter.parser.ofac.SDNParser;
 import org.gainratio.amlfilter.sdn.Sanctions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

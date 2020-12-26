@@ -1,15 +1,18 @@
-package org.gainratio.amlfilter.loader;
+package org.gainratio.amlfilter.service;
 
 import lombok.AllArgsConstructor;
 import org.gainratio.amlfilter.model.Entity;
-import org.gainratio.amlfilter.parser.Parser;
+import org.gainratio.amlfilter.parser.ofac.Parser;
 import org.gainratio.amlfilter.sdn.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import javax.annotation.PostConstruct;
+import java.time.LocalDate;
 import java.util.List;
+import java.util.Set;
+import java.util.TreeSet;
 
 @Component
 @AllArgsConstructor
@@ -25,8 +28,14 @@ public class LoaderService {
 
     public void load() throws Exception {
         Sanctions sanctions = sdnParser.parse();
+        LocalDate sanctionsDate = getSanctionsDate(sanctions);
+        logger.info("sanctionsDate={}", sanctionsDate);
+        int version = getSanctionsVersion(sanctions);
+        logger.info("version={}", version);
+        getSanctionCountries(sanctions);
+
+
         List<DistinctPartySchemaType> distinctPartySchemaTypeList = sanctions.getDistinctParties().getDistinctParty();
-        // distinctPartySchemaTypeList = distinctPartySchemaTypeList.subList(0, 5);
         for (DistinctPartySchemaType dpst : distinctPartySchemaTypeList) {
             Entity entity = new Entity();
             List<DistinctPartySchemaType.Profile> profileList = dpst.getProfile();
@@ -52,5 +61,22 @@ public class LoaderService {
             }
             //logger.info(new ObjectMapper().writerWithDefaultPrettyPrinter().writeValueAsString(dpst));
         }
+    }
+
+    private LocalDate getSanctionsDate(Sanctions sanctions) {
+        Day day = sanctions.getDateOfIssue().getDay();
+        Month month = sanctions.getDateOfIssue().getMonth();
+        Year year = sanctions.getDateOfIssue().getYear();
+        return LocalDate.of(year.getValue().intValue(), month.getValue().intValue(), day.getValue().intValue());
+    }
+
+    private int getSanctionsVersion(Sanctions sanctions) {
+        return sanctions.getVersion().intValue();
+    }
+
+    private void getSanctionCountries(Sanctions sanctions) {
+        Set<String> countryIdList = new TreeSet<>();
+        sanctions.getReferenceValueSets().getCountryValues();
+        logger.info("countryIdList={}", countryIdList);
     }
 }
