@@ -80,6 +80,7 @@ dependencies {
 	compile group: 'commons-collections', name: 'commons-collections', version: '3.2.2'
 	// https://mvnrepository.com/artifact/commons-codec/commons-codec
 	compile group: 'commons-codec', name: 'commons-codec', version: '1.15'
+	compile 'org.springdoc:springdoc-openapi-ui:1.5.2'
 
 	compileOnly 'org.projectlombok:lombok'
 	annotationProcessor 'org.springframework.boot:spring-boot-configuration-processor'

@@ -1,4 +1,4 @@
-package org.gainratio.amlfilter.parser;
+package org.gainratio.amlfilter.parser.ofac;
 
 import lombok.Data;
 import org.gainratio.amlfilter.sdn.Sanctions;
