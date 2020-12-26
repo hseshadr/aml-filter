@@ -267,3 +267,6 @@ build/classes/java/main/org/gainratio/amlfilter/controller/UserController.class
 build/classes/java/main/org/gainratio/amlfilter/AmlFilterApplication.class
 build/bootJarMainClassName
 HELP.md
+/build/
+.idea/uiDesigner.xml
+*.bin

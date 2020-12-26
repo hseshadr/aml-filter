@@ -1,4 +1,4 @@
-package org.gainratio.amlfilter.loader;
+package org.gainratio.amlfilter.parser;
 
 public interface Parser<T> {
     T parse() throws Exception;

@@ -1,0 +1,3697 @@
+[
+  {
+    "id": 1,
+    "word": "AUSTINE",
+    "synonym": "AGUSTINA"
+  },
+  {
+    "id": 12,
+    "word": "AYASTUI",
+    "synonym": "AYASTUY"
+  },
+  {
+    "id": 15,
+    "word": "BABESNE",
+    "synonym": "AMPARO"
+  },
+  {
+    "id": 16,
+    "word": "BABOL",
+    "synonym": "AMAPOLA"
+  },
+  {
+    "id": 18,
+    "word": "BAKAR",
+    "synonym": "SOLEDAD"
+  },
+  {
+    "id": 19,
+    "word": "BAKARNE",
+    "synonym": "SOLEDAD"
+  },
+  {
+    "id": 20,
+    "word": "BAKENE",
+    "synonym": "IRENE"
+  },
+  {
+    "id": 21,
+    "word": "BALADI",
+    "synonym": "BLAS"
+  },
+  {
+    "id": 23,
+    "word": "BALE",
+    "synonym": "BASEL"
+  },
+  {
+    "id": 24,
+    "word": "BALENDIN",
+    "synonym": "VALENTIN"
+  },
+  {
+    "id": 25,
+    "word": "BALERE",
+    "synonym": "VALERIA"
+  },
+  {
+    "id": 26,
+    "word": "BALEREN",
+    "synonym": "VALERIO"
+  },
+  {
+    "id": 32,
+    "word": "BANDEIRANTES",
+    "synonym": "BANDEIRANTE"
+  },
+  {
+    "id": 44,
+    "word": "BARAXIL",
+    "synonym": "BASILIO"
+  },
+  {
+    "id": 45,
+    "word": "BARDOL",
+    "synonym": "BARTOLOME"
+  },
+  {
+    "id": 46,
+    "word": "BARTOLOMEU",
+    "synonym": "BARTOLOME"
+  },
+  {
+    "id": 47,
+    "word": "BARTOMEU",
+    "synonym": "BARTOLOME"
+  },
+  {
+    "id": 51,
+    "word": "BAZIL",
+    "synonym": "BASILIO"
+  },
+  {
+    "id": 52,
+    "word": "BAZKOARE",
+    "synonym": "PASCUAL"
+  },
+  {
+    "id": 60,
+    "word": "BENAT",
+    "synonym": "BERNARDO"
+  },
+  {
+    "id": 61,
+    "word": "BENEDITO",
+    "synonym": "BENITO"
+  },
+  {
+    "id": 64,
+    "word": "BENET",
+    "synonym": "BENITO"
+  },
+  {
+    "id": 67,
+    "word": "BENVIDO",
+    "synonym": "BIENVENIDO"
+  },
+  {
+    "id": 69,
+    "word": "BERBIZ",
+    "synonym": "RESURRECCION"
+  },
+  {
+    "id": 71,
+    "word": "BERNALDINO",
+    "synonym": "BERNARDO"
+  },
+  {
+    "id": 73,
+    "word": "BERNAT",
+    "synonym": "BERNARDO"
+  },
+  {
+    "id": 75,
+    "word": "BERTHOUD",
+    "synonym": "BURGDORF"
+  },
+  {
+    "id": 76,
+    "word": "BERTOL",
+    "synonym": "BARTOLOME"
+  },
+  {
+    "id": 77,
+    "word": "BESAGAITZ",
+    "synonym": "ETSAIN"
+  },
+  {
+    "id": 78,
+    "word": "BETIKO",
+    "synonym": "BETISA"
+  },
+  {
+    "id": 79,
+    "word": "BETIRI",
+    "synonym": "PEDRO"
+  },
+  {
+    "id": 80,
+    "word": "BIBINE",
+    "synonym": "VIVIANA"
+  },
+  {
+    "id": 81,
+    "word": "BIDANE",
+    "synonym": "CAMINO"
+  },
+  {
+    "id": 82,
+    "word": "BIDARI",
+    "synonym": "VIATOR"
+  },
+  {
+    "id": 83,
+    "word": "BIEITA",
+    "synonym": "BENITA"
+  },
+  {
+    "id": 84,
+    "word": "BIEITO",
+    "synonym": "BENITO"
+  },
+  {
+    "id": 85,
+    "word": "BIETO",
+    "synonym": "BENITO"
+  },
+  {
+    "id": 86,
+    "word": "BIHOTZ",
+    "synonym": "CORAZON"
+  },
+  {
+    "id": 87,
+    "word": "BIKENDI",
+    "synonym": "VICENTE"
+  },
+  {
+    "id": 88,
+    "word": "BINGENE",
+    "synonym": "VICENTA"
+  },
+  {
+    "id": 89,
+    "word": "BINGENT",
+    "synonym": "VICENTE"
+  },
+  {
+    "id": 91,
+    "word": "BIRJAIO",
+    "synonym": "RENATO"
+  },
+  {
+    "id": 92,
+    "word": "BITTOR",
+    "synonym": "VICTOR"
+  },
+  {
+    "id": 93,
+    "word": "BITTORE",
+    "synonym": "VICTORIA"
+  },
+  {
+    "id": 94,
+    "word": "BITTORI",
+    "synonym": "VICTORIA"
+  },
+  {
+    "id": 95,
+    "word": "BITXI",
+    "synonym": "GEMA"
+  },
+  {
+    "id": 96,
+    "word": "BITXILORE",
+    "synonym": "MARGARITA"
+  },
+  {
+    "id": 97,
+    "word": "BIXENTA",
+    "synonym": "VICENTA"
+  },
+  {
+    "id": 98,
+    "word": "BIXINTXO",
+    "synonym": "VICENTE"
+  },
+  {
+    "id": 99,
+    "word": "BIZI",
+    "synonym": "VIDAL"
+  },
+  {
+    "id": 100,
+    "word": "BLADI",
+    "synonym": "BLAS"
+  },
+  {
+    "id": 101,
+    "word": "BLAI",
+    "synonym": "BLAS"
+  },
+  {
+    "id": 106,
+    "word": "BOAVENTURA",
+    "synonym": "BUENAVENTURA"
+  },
+  {
+    "id": 109,
+    "word": "BONAVENTURA",
+    "synonym": "BUENAVENTURA"
+  },
+  {
+    "id": 110,
+    "word": "BONIFAC",
+    "synonym": "BONIFACIO"
+  },
+  {
+    "id": 116,
+    "word": "BRAIS",
+    "synonym": "BLAS"
+  },
+  {
+    "id": 117,
+    "word": "BRANCA",
+    "synonym": "BLANCA"
+  },
+  {
+    "id": 129,
+    "word": "BRIXIDA",
+    "synonym": "BRIGIDA"
+  },
+  {
+    "id": 142,
+    "word": "CAETANO",
+    "synonym": "CAYETANO"
+  },
+  {
+    "id": 144,
+    "word": "CAIO",
+    "synonym": "CAYETANO"
+  },
+  {
+    "id": 148,
+    "word": "CAITAN",
+    "synonym": "CAYETANO"
+  },
+  {
+    "id": 152,
+    "word": "CALISTO",
+    "synonym": "CALIXTO"
+  },
+  {
+    "id": 153,
+    "word": "CALROS",
+    "synonym": "CARLOS"
+  },
+  {
+    "id": 157,
+    "word": "CAMI",
+    "synonym": "CAMINO"
+  },
+  {
+    "id": 162,
+    "word": "CARIDADE",
+    "synonym": "CARIDAD"
+  },
+  {
+    "id": 163,
+    "word": "CARITAT",
+    "synonym": "CARIDAD"
+  },
+  {
+    "id": 166,
+    "word": "CARMEL",
+    "synonym": "CARMELO"
+  },
+  {
+    "id": 167,
+    "word": "CARMELA",
+    "synonym": "CARMEN"
+  },
+  {
+    "id": 171,
+    "word": "CATERINA",
+    "synonym": "CATALINA"
+  },
+  {
+    "id": 174,
+    "word": "CEL",
+    "synonym": "CIELO"
+  },
+  {
+    "id": 175,
+    "word": "CELDONI",
+    "synonym": "CELEDONIO"
+  },
+  {
+    "id": 176,
+    "word": "CELESTI",
+    "synonym": "CELESTINO"
+  },
+  {
+    "id": 178,
+    "word": "CELONI",
+    "synonym": "CELEDONIO"
+  },
+  {
+    "id": 189,
+    "word": "CEU",
+    "synonym": "CIELO"
+  },
+  {
+    "id": 191,
+    "word": "CHELO",
+    "synonym": "CONSUELO"
+  },
+  {
+    "id": 192,
+    "word": "CHEM",
+    "synonym": "CHEMICAL"
+  },
+  {
+    "id": 194,
+    "word": "CHEMS",
+    "synonym": "CHEMICAL"
+  },
+  {
+    "id": 197,
+    "word": "CHRISTIANIA",
+    "synonym": "CHRISTIANA"
+  },
+  {
+    "id": 205,
+    "word": "CLAUDI",
+    "synonym": "CLAUDIO"
+  },
+  {
+    "id": 206,
+    "word": "CLAVELL",
+    "synonym": "CLAVEL"
+  },
+  {
+    "id": 208,
+    "word": "CLIMENT",
+    "synonym": "CLEMENTE"
+  },
+  {
+    "id": 209,
+    "word": "CLODIA",
+    "synonym": "CLAUDIA"
+  },
+  {
+    "id": 210,
+    "word": "CLODIO",
+    "synonym": "CLAUDIO"
+  },
+  {
+    "id": 211,
+    "word": "CNTRL",
+    "synonym": "CENTRAL"
+  },
+  {
+    "id": 212,
+    "word": "CO",
+    "synonym": "COMPANY"
+  },
+  {
+    "id": 213,
+    "word": "COLL",
+    "synonym": "COLLECTION"
+  },
+  {
+    "id": 218,
+    "word": "COMBA",
+    "synonym": "PALOMA"
+  },
+  {
+    "id": 229,
+    "word": "COMML",
+    "synonym": "COMMERCIAL"
+  },
+  {
+    "id": 231,
+    "word": "COMP",
+    "synonym": "COMPANY"
+  },
+  {
+    "id": 237,
+    "word": "COMPT",
+    "synonym": "COMPTROLLER"
+  },
+  {
+    "id": 244,
+    "word": "CONSOL",
+    "synonym": "CONSUELO"
+  },
+  {
+    "id": 247,
+    "word": "CONST",
+    "synonym": "CONSTRUCTION"
+  },
+  {
+    "id": 268,
+    "word": "COR",
+    "synonym": "CORAZON"
+  },
+  {
+    "id": 269,
+    "word": "CORP",
+    "synonym": "CORPORATION"
+  },
+  {
+    "id": 275,
+    "word": "CR",
+    "synonym": "CREDIT"
+  },
+  {
+    "id": 276,
+    "word": "CRED",
+    "synonym": "CREDIT"
+  },
+  {
+    "id": 283,
+    "word": "CREU",
+    "synonym": "CRUZ"
+  },
+  {
+    "id": 284,
+    "word": "CRISTO",
+    "synonym": "CHRIST"
+  },
+  {
+    "id": 285,
+    "word": "CRISTOVO",
+    "synonym": "CRISTOBAL"
+  },
+  {
+    "id": 288,
+    "word": "CTRL",
+    "synonym": "CONTROL"
+  },
+  {
+    "id": 293,
+    "word": "CUR",
+    "synonym": "CURRENT"
+  },
+  {
+    "id": 299,
+    "word": "DEI",
+    "synonym": "ANUNCIACION"
+  },
+  {
+    "id": 300,
+    "word": "DEINE",
+    "synonym": "ANUNCIACION"
+  },
+  {
+    "id": 306,
+    "word": "DEM",
+    "synonym": "DEMOCRATIC"
+  },
+  {
+    "id": 308,
+    "word": "DENIS",
+    "synonym": "DIONISIO"
+  },
+  {
+    "id": 319,
+    "word": "DEPT",
+    "synonym": "DEPARTMENT"
+  },
+  {
+    "id": 322,
+    "word": "DEUNORO",
+    "synonym": "SANTOS"
+  },
+  {
+    "id": 330,
+    "word": "DEV",
+    "synonym": "DEVELOPMENT"
+  },
+  {
+    "id": 331,
+    "word": "DEVEL",
+    "synonym": "DEVELOPMENT"
+  },
+  {
+    "id": 336,
+    "word": "DIDAC",
+    "synonym": "DIEGO"
+  },
+  {
+    "id": 338,
+    "word": "DIEGOTXE",
+    "synonym": "DIEGO"
+  },
+  {
+    "id": 339,
+    "word": "DIN",
+    "synonym": "ALDIN"
+  },
+  {
+    "id": 340,
+    "word": "DINIS",
+    "synonym": "DIONISIO"
+  },
+  {
+    "id": 341,
+    "word": "DIOCELINA",
+    "synonym": "DIOSELINA"
+  },
+  {
+    "id": 342,
+    "word": "DIONIS",
+    "synonym": "DIONISIO"
+  },
+  {
+    "id": 344,
+    "word": "DISC",
+    "synonym": "DISCOUNT"
+  },
+  {
+    "id": 346,
+    "word": "DIST",
+    "synonym": "DISTRICT"
+  },
+  {
+    "id": 347,
+    "word": "DISTIRA",
+    "synonym": "FULGENCIA"
+  },
+  {
+    "id": 348,
+    "word": "DISTIRATSU",
+    "synonym": "FULGENCIO"
+  },
+  {
+    "id": 351,
+    "word": "DIV",
+    "synonym": "DIVISION"
+  },
+  {
+    "id": 354,
+    "word": "DOATASUN",
+    "synonym": "BUENAVENTURA"
+  },
+  {
+    "id": 355,
+    "word": "DOLC",
+    "synonym": "DULCE"
+  },
+  {
+    "id": 358,
+    "word": "DOMEKA",
+    "synonym": "DOMINGA"
+  },
+  {
+    "id": 359,
+    "word": "DOMENEC",
+    "synonym": "DOMINGO"
+  },
+  {
+    "id": 360,
+    "word": "DOMIKU",
+    "synonym": "DOMINGO"
+  },
+  {
+    "id": 361,
+    "word": "DOMIKUZA",
+    "synonym": "DOMINGA"
+  },
+  {
+    "id": 368,
+    "word": "DOMINIX",
+    "synonym": "DOMINGO"
+  },
+  {
+    "id": 371,
+    "word": "DONETZINE",
+    "synonym": "BENITA"
+  },
+  {
+    "id": 372,
+    "word": "DORES",
+    "synonym": "DOLORES"
+  },
+  {
+    "id": 374,
+    "word": "DUNIXE",
+    "synonym": "DIONISIA"
+  },
+  {
+    "id": 375,
+    "word": "DUNIXI",
+    "synonym": "DIONISIO"
+  },
+  {
+    "id": 378,
+    "word": "EA",
+    "synonym": "EAST"
+  },
+  {
+    "id": 380,
+    "word": "ECHEBARRI",
+    "synonym": "ECHEVARRIA"
+  },
+  {
+    "id": 382,
+    "word": "ECHEBE",
+    "synonym": "ECHEVERRIA"
+  },
+  {
+    "id": 392,
+    "word": "EDORTA",
+    "synonym": "EDUARDO"
+  },
+  {
+    "id": 395,
+    "word": "EDURNE",
+    "synonym": "NIEVES"
+  },
+  {
+    "id": 396,
+    "word": "EDUVIXES",
+    "synonym": "EDUVIGIS"
+  },
+  {
+    "id": 399,
+    "word": "EGUNTSENTI",
+    "synonym": "AURORA"
+  },
+  {
+    "id": 400,
+    "word": "EGUZKINE",
+    "synonym": "SOL"
+  },
+  {
+    "id": 403,
+    "word": "EKHINE",
+    "synonym": "SOL"
+  },
+  {
+    "id": 405,
+    "word": "ELAZAR",
+    "synonym": "LAZARO"
+  },
+  {
+    "id": 406,
+    "word": "ELEAZAR",
+    "synonym": "LAZARO"
+  },
+  {
+    "id": 417,
+    "word": "ELGADAFI",
+    "synonym": "GADAFI"
+  },
+  {
+    "id": 418,
+    "word": "ELGADDAFI",
+    "synonym": "GADDAFI"
+  },
+  {
+    "id": 419,
+    "word": "ELGADHAFI",
+    "synonym": "GADHAFI"
+  },
+  {
+    "id": 420,
+    "word": "ELI",
+    "synonym": "ELIAS"
+  },
+  {
+    "id": 422,
+    "word": "ELIONOR",
+    "synonym": "LEONOR"
+  },
+  {
+    "id": 423,
+    "word": "ELISABET",
+    "synonym": "ISABEL"
+  },
+  {
+    "id": 424,
+    "word": "ELISABETE",
+    "synonym": "ISABEL"
+  },
+  {
+    "id": 426,
+    "word": "ELIXABETE",
+    "synonym": "ISABEL"
+  },
+  {
+    "id": 427,
+    "word": "ELIXIO",
+    "synonym": "ELOY"
+  },
+  {
+    "id": 428,
+    "word": "ELKAZZAFI",
+    "synonym": "KADDAFI"
+  },
+  {
+    "id": 429,
+    "word": "ELLANDE",
+    "synonym": "FERNANDO"
+  },
+  {
+    "id": 430,
+    "word": "ELNILEIN",
+    "synonym": "NILEIN"
+  },
+  {
+    "id": 433,
+    "word": "EMPLOYEES",
+    "synonym": "EMPLOYEE"
+  },
+  {
+    "id": 434,
+    "word": "ENAUT",
+    "synonym": "FERNANDO"
+  },
+  {
+    "id": 435,
+    "word": "ENDIKA",
+    "synonym": "ENRIQUE"
+  },
+  {
+    "id": 436,
+    "word": "ENDIRA",
+    "synonym": "ENRIQUE"
+  },
+  {
+    "id": 440,
+    "word": "ENRIC",
+    "synonym": "ENRIQUE"
+  },
+  {
+    "id": 441,
+    "word": "ENRIQUE",
+    "synonym": "HENRY"
+  },
+  {
+    "id": 444,
+    "word": "ERDINE",
+    "synonym": "PARTO"
+  },
+  {
+    "id": 445,
+    "word": "EREINOTZ",
+    "synonym": "LAUREANO"
+  },
+  {
+    "id": 446,
+    "word": "ERISENDA",
+    "synonym": "LEIRE"
+  },
+  {
+    "id": 447,
+    "word": "ERLANTZ",
+    "synonym": "FERNANDO"
+  },
+  {
+    "id": 448,
+    "word": "ERMINE",
+    "synonym": "HERMINIA"
+  },
+  {
+    "id": 449,
+    "word": "ERMISENDA",
+    "synonym": "LEIRE"
+  },
+  {
+    "id": 450,
+    "word": "ERRAMU",
+    "synonym": "RAMOS"
+  },
+  {
+    "id": 451,
+    "word": "ERRAMUN",
+    "synonym": "RAMON"
+  },
+  {
+    "id": 452,
+    "word": "ERRAMUNE",
+    "synonym": "RAMONA"
+  },
+  {
+    "id": 453,
+    "word": "ERRANDO",
+    "synonym": "FERNANDO"
+  },
+  {
+    "id": 454,
+    "word": "ERRAPEL",
+    "synonym": "RAFAEL"
+  },
+  {
+    "id": 455,
+    "word": "ERREGINA",
+    "synonym": "REGINA"
+  },
+  {
+    "id": 456,
+    "word": "ERRITE",
+    "synonym": "RITA"
+  },
+  {
+    "id": 457,
+    "word": "ERROLAN",
+    "synonym": "ROLDAN"
+  },
+  {
+    "id": 458,
+    "word": "ERROMAN",
+    "synonym": "ROMAN"
+  },
+  {
+    "id": 459,
+    "word": "ERROMANE",
+    "synonym": "ROMANA"
+  },
+  {
+    "id": 460,
+    "word": "ERROSALI",
+    "synonym": "ROSARIO"
+  },
+  {
+    "id": 461,
+    "word": "ERRUKI",
+    "synonym": "PIO"
+  },
+  {
+    "id": 462,
+    "word": "ERRUKINE",
+    "synonym": "PIEDAD"
+  },
+  {
+    "id": 463,
+    "word": "ESKARNE",
+    "synonym": "MERCEDES"
+  },
+  {
+    "id": 470,
+    "word": "EST",
+    "synonym": "ESTABLISHMENT"
+  },
+  {
+    "id": 472,
+    "word": "ESTANISLAU",
+    "synonym": "ESTANISLAO"
+  },
+  {
+    "id": 475,
+    "word": "ESTEBE",
+    "synonym": "ESTEBAN"
+  },
+  {
+    "id": 476,
+    "word": "ESTEBENI",
+    "synonym": "ESTEFANIA"
+  },
+  {
+    "id": 477,
+    "word": "ESTELA",
+    "synonym": "ESTRELLA"
+  },
+  {
+    "id": 478,
+    "word": "ESTEVE",
+    "synonym": "ESTEBAN"
+  },
+  {
+    "id": 479,
+    "word": "ESTEVO",
+    "synonym": "ESTEBAN"
+  },
+  {
+    "id": 480,
+    "word": "1ST",
+    "synonym": "FIRST"
+  },
+  {
+    "id": 481,
+    "word": "2ND",
+    "synonym": "SECOND"
+  },
+  {
+    "id": 482,
+    "word": "3RD",
+    "synonym": "THIRD"
+  },
+  {
+    "id": 483,
+    "word": "5TH",
+    "synonym": "FIFTH"
+  },
+  {
+    "id": 485,
+    "word": "ABARNE",
+    "synonym": "RAMOS"
+  },
+  {
+    "id": 486,
+    "word": "ABD AL",
+    "synonym": "ABDUL"
+  },
+  {
+    "id": 487,
+    "word": "ABD EL",
+    "synonym": "ABDUL"
+  },
+  {
+    "id": 488,
+    "word": "ABDEL",
+    "synonym": "ABDUL"
+  },
+  {
+    "id": 493,
+    "word": "ACCT",
+    "synonym": "ACCOUNT"
+  },
+  {
+    "id": 495,
+    "word": "ACHIVALDO",
+    "synonym": "ARCHIBALDO"
+  },
+  {
+    "id": 497,
+    "word": "ADAME",
+    "synonym": "ADAN"
+  },
+  {
+    "id": 498,
+    "word": "ADMIN",
+    "synonym": "ADMINISTRATION"
+  },
+  {
+    "id": 501,
+    "word": "ADONINE",
+    "synonym": "ANTONIA"
+  },
+  {
+    "id": 503,
+    "word": "ADVTG",
+    "synonym": "ADVERTISING"
+  },
+  {
+    "id": 515,
+    "word": "AGATA",
+    "synonym": "AGUEDA"
+  },
+  {
+    "id": 516,
+    "word": "AGATE",
+    "synonym": "AGUEDA"
+  },
+  {
+    "id": 523,
+    "word": "AGNES",
+    "synonym": "INES"
+  },
+  {
+    "id": 524,
+    "word": "AGOSTI",
+    "synonym": "AGUSTIN"
+  },
+  {
+    "id": 526,
+    "word": "AGOSTINO",
+    "synonym": "AGUSTIN"
+  },
+  {
+    "id": 533,
+    "word": "AGURNE",
+    "synonym": "ROSARIO"
+  },
+  {
+    "id": 534,
+    "word": "AGURTZANE",
+    "synonym": "ROSARIO"
+  },
+  {
+    "id": 540,
+    "word": "AINGERU",
+    "synonym": "ANGEL"
+  },
+  {
+    "id": 542,
+    "word": "AINTZA",
+    "synonym": "GLORIA"
+  },
+  {
+    "id": 543,
+    "word": "AINTZANE",
+    "synonym": "GLORIA"
+  },
+  {
+    "id": 544,
+    "word": "AIORA",
+    "synonym": "LEIRE"
+  },
+  {
+    "id": 546,
+    "word": "AKKRA",
+    "synonym": "ACCRA"
+  },
+  {
+    "id": 547,
+    "word": "ALADAI",
+    "synonym": "ALDAY"
+  },
+  {
+    "id": 548,
+    "word": "ALATZ",
+    "synonym": "MILAGROS"
+  },
+  {
+    "id": 549,
+    "word": "ALAZNE",
+    "synonym": "MILAGROS"
+  },
+  {
+    "id": 550,
+    "word": "ALBASHIR",
+    "synonym": "BASHIR"
+  },
+  {
+    "id": 552,
+    "word": "ALBI",
+    "synonym": "ALBINO"
+  },
+  {
+    "id": 554,
+    "word": "ALEIXO",
+    "synonym": "ALEJO"
+  },
+  {
+    "id": 557,
+    "word": "ALESANDER",
+    "synonym": "ALEJANDRO"
+  },
+  {
+    "id": 558,
+    "word": "ALEXANDER",
+    "synonym": "ALEJANDRO"
+  },
+  {
+    "id": 560,
+    "word": "ALEXANDRE",
+    "synonym": "ALEJANDRO"
+  },
+  {
+    "id": 566,
+    "word": "ALGERIENNE",
+    "synonym": "ALGERIAN"
+  },
+  {
+    "id": 567,
+    "word": "ALHARAKAT",
+    "synonym": "HARAKAT"
+  },
+  {
+    "id": 569,
+    "word": "ALIZE",
+    "synonym": "ALICIA"
+  },
+  {
+    "id": 570,
+    "word": "ALJAMAHIRIYA",
+    "synonym": "JAMAHIRIYA"
+  },
+  {
+    "id": 571,
+    "word": "ALKADAFI",
+    "synonym": "KADAFI"
+  },
+  {
+    "id": 572,
+    "word": "ALKADDAFI",
+    "synonym": "KADDAFI"
+  },
+  {
+    "id": 573,
+    "word": "ALKARTUM",
+    "synonym": "KHARTOUM"
+  },
+  {
+    "id": 574,
+    "word": "ALKHADDAFI",
+    "synonym": "KADDAFI"
+  },
+  {
+    "id": 575,
+    "word": "ALKHARTOUM",
+    "synonym": "KHARTOUM"
+  },
+  {
+    "id": 576,
+    "word": "ALKHARTUM",
+    "synonym": "KHARTOUM"
+  },
+  {
+    "id": 577,
+    "word": "ALLANDE",
+    "synonym": "ARNALDO"
+  },
+  {
+    "id": 580,
+    "word": "ALQADHDHAFI",
+    "synonym": "ALQADHAFI"
+  },
+  {
+    "id": 581,
+    "word": "ALQASSAM",
+    "synonym": "QASSAM"
+  },
+  {
+    "id": 586,
+    "word": "ALZAWAHIRI",
+    "synonym": "ZAWAHIRI"
+  },
+  {
+    "id": 587,
+    "word": "AMATZA",
+    "synonym": "ERMITA"
+  },
+  {
+    "id": 589,
+    "word": "AMER",
+    "synonym": "AMERICA"
+  },
+  {
+    "id": 598,
+    "word": "ANAEAXI",
+    "synonym": "ENGRACIA"
+  },
+  {
+    "id": 599,
+    "word": "ANAUT",
+    "synonym": "ARNALDO"
+  },
+  {
+    "id": 600,
+    "word": "ANDER",
+    "synonym": "ANDRES"
+  },
+  {
+    "id": 601,
+    "word": "ANDIMA",
+    "synonym": "ANTIMO"
+  },
+  {
+    "id": 602,
+    "word": "ANDOLIN",
+    "synonym": "ANTOLIN"
+  },
+  {
+    "id": 604,
+    "word": "ANDONE",
+    "synonym": "ANTONIA"
+  },
+  {
+    "id": 605,
+    "word": "ANDONI",
+    "synonym": "ANTONIO"
+  },
+  {
+    "id": 608,
+    "word": "ANES",
+    "synonym": "INES"
+  },
+  {
+    "id": 610,
+    "word": "ANIXI",
+    "synonym": "ANISIO"
+  },
+  {
+    "id": 612,
+    "word": "ANNE",
+    "synonym": "ANA"
+  },
+  {
+    "id": 619,
+    "word": "ANTON",
+    "synonym": "ANTONIO"
+  },
+  {
+    "id": 622,
+    "word": "ANTTON",
+    "synonym": "ANTONIO"
+  },
+  {
+    "id": 623,
+    "word": "ANTWERPSE",
+    "synonym": "ANTWERP"
+  },
+  {
+    "id": 624,
+    "word": "ANTXONE",
+    "synonym": "ANTONIA"
+  },
+  {
+    "id": 627,
+    "word": "ANXO",
+    "synonym": "ANGEL"
+  },
+  {
+    "id": 628,
+    "word": "ANXOS",
+    "synonym": "ANGELA"
+  },
+  {
+    "id": 629,
+    "word": "APAL",
+    "synonym": "MODESTO"
+  },
+  {
+    "id": 634,
+    "word": "ARANCHA",
+    "synonym": "ARANZAZU"
+  },
+  {
+    "id": 635,
+    "word": "ARANTXA",
+    "synonym": "ARANZAZU"
+  },
+  {
+    "id": 636,
+    "word": "ARANTZA",
+    "synonym": "ARANZAZU"
+  },
+  {
+    "id": 641,
+    "word": "ARGI",
+    "synonym": "LUZ"
+  },
+  {
+    "id": 642,
+    "word": "ARGINE",
+    "synonym": "LUZ"
+  },
+  {
+    "id": 643,
+    "word": "ARNAU",
+    "synonym": "ARNALDO"
+  },
+  {
+    "id": 645,
+    "word": "ARROSA",
+    "synonym": "ROSA"
+  },
+  {
+    "id": 646,
+    "word": "ARROSALI",
+    "synonym": "ROSARIO"
+  },
+  {
+    "id": 648,
+    "word": "ARTZAI",
+    "synonym": "PASTOR"
+  },
+  {
+    "id": 655,
+    "word": "ASSN",
+    "synonym": "ASSOCIATION"
+  },
+  {
+    "id": 656,
+    "word": "ASSOC",
+    "synonym": "ASSOCIATION"
+  },
+  {
+    "id": 660,
+    "word": "ASST",
+    "synonym": "ASSISTANT"
+  },
+  {
+    "id": 661,
+    "word": "ASSUDAN",
+    "synonym": "SUDAN"
+  },
+  {
+    "id": 663,
+    "word": "ATERBE",
+    "synonym": "PATROCINIO"
+  },
+  {
+    "id": 666,
+    "word": "ATSEGINE",
+    "synonym": "CONSUELO"
+  },
+  {
+    "id": 667,
+    "word": "ATT",
+    "synonym": "ATTENTION"
+  },
+  {
+    "id": 668,
+    "word": "ATTIQUE",
+    "synonym": "ATTICA"
+  },
+  {
+    "id": 669,
+    "word": "ATTN",
+    "synonym": "ATTENTION"
+  },
+  {
+    "id": 670,
+    "word": "ATXIRICA",
+    "synonym": "ACHIRICA"
+  },
+  {
+    "id": 671,
+    "word": "AUGUST",
+    "synonym": "AUGUSTO"
+  },
+  {
+    "id": 672,
+    "word": "AURI",
+    "synonym": "AUREO"
+  },
+  {
+    "id": 673,
+    "word": "AURKEN",
+    "synonym": "PRESENTACION"
+  },
+  {
+    "id": 674,
+    "word": "AURKENE",
+    "synonym": "PRESENTACION"
+  },
+  {
+    "id": 675,
+    "word": "AURO",
+    "synonym": "ARCE"
+  },
+  {
+    "id": 676,
+    "word": "ESTRELA",
+    "synonym": "ESTRELLA"
+  },
+  {
+    "id": 679,
+    "word": "ETOR",
+    "synonym": "HECTOR"
+  },
+  {
+    "id": 680,
+    "word": "ETORNE",
+    "synonym": "HECTOR"
+  },
+  {
+    "id": 681,
+    "word": "ETXABE",
+    "synonym": "ECHAVE"
+  },
+  {
+    "id": 682,
+    "word": "ETXARTE",
+    "synonym": "ECHARTE"
+  },
+  {
+    "id": 683,
+    "word": "ETXAVE",
+    "synonym": "ECHAVE"
+  },
+  {
+    "id": 684,
+    "word": "ETXEBARRI",
+    "synonym": "ECHEVARRIA"
+  },
+  {
+    "id": 685,
+    "word": "ETXEBARRIA",
+    "synonym": "ECHEVARRIA"
+  },
+  {
+    "id": 686,
+    "word": "ETXEBE",
+    "synonym": "ECHEVERRIA"
+  },
+  {
+    "id": 687,
+    "word": "ETXEBERRI",
+    "synonym": "ECHEVERRIA"
+  },
+  {
+    "id": 688,
+    "word": "ETXEBERRIA",
+    "synonym": "ECHEVERRIA"
+  },
+  {
+    "id": 689,
+    "word": "ETXEBESTE",
+    "synonym": "ECHEVESTE"
+  },
+  {
+    "id": 690,
+    "word": "ETXEGARAI",
+    "synonym": "ECHEGARAY"
+  },
+  {
+    "id": 691,
+    "word": "ETXEGARAY",
+    "synonym": "ECHEGARAY"
+  },
+  {
+    "id": 692,
+    "word": "ETXEVARRI",
+    "synonym": "ECHEVARRIA"
+  },
+  {
+    "id": 693,
+    "word": "ETXEVARRIA",
+    "synonym": "ECHEVARRIA"
+  },
+  {
+    "id": 694,
+    "word": "ETXEVE",
+    "synonym": "ECHEVERRIA"
+  },
+  {
+    "id": 695,
+    "word": "ETXEVERRI",
+    "synonym": "ECHEVERRIA"
+  },
+  {
+    "id": 696,
+    "word": "ETXEVERRIA",
+    "synonym": "ECHEVERRIA"
+  },
+  {
+    "id": 697,
+    "word": "ETXEVESTE",
+    "synonym": "ECHEVESTE"
+  },
+  {
+    "id": 698,
+    "word": "EULARI",
+    "synonym": "EULALIA"
+  },
+  {
+    "id": 713,
+    "word": "EZTEBE",
+    "synonym": "ESTEBAN"
+  },
+  {
+    "id": 718,
+    "word": "FCO",
+    "synonym": "FRANCISCO"
+  },
+  {
+    "id": 719,
+    "word": "FED",
+    "synonym": "FEDERAL"
+  },
+  {
+    "id": 723,
+    "word": "FELEIZIA",
+    "synonym": "LABIANO"
+  },
+  {
+    "id": 725,
+    "word": "FELICITAS",
+    "synonym": "FELICIDAD"
+  },
+  {
+    "id": 727,
+    "word": "FERNAN",
+    "synonym": "FERNANDO"
+  },
+  {
+    "id": 728,
+    "word": "FERRAN",
+    "synonym": "FERNANDO"
+  },
+  {
+    "id": 744,
+    "word": "FINIA",
+    "synonym": "LEATXE"
+  },
+  {
+    "id": 746,
+    "word": "FIRENZE",
+    "synonym": "FLORENCE"
+  },
+  {
+    "id": 747,
+    "word": "FIRMINO",
+    "synonym": "FERMIN"
+  },
+  {
+    "id": 748,
+    "word": "FIZ",
+    "synonym": "FELIX"
+  },
+  {
+    "id": 753,
+    "word": "FLORENTXI",
+    "synonym": "FLORENCIA"
+  },
+  {
+    "id": 754,
+    "word": "FLORO",
+    "synonym": "FLORENCIO"
+  },
+  {
+    "id": 758,
+    "word": "FORTUN",
+    "synonym": "FORTUNIO"
+  },
+  {
+    "id": 765,
+    "word": "FRANCESC",
+    "synonym": "FRANCISCO"
+  },
+  {
+    "id": 767,
+    "word": "FRANTSESA",
+    "synonym": "FRANCISCA"
+  },
+  {
+    "id": 768,
+    "word": "FRANTXA",
+    "synonym": "FRANCISCA"
+  },
+  {
+    "id": 769,
+    "word": "FRANTZES",
+    "synonym": "FRANCISCO"
+  },
+  {
+    "id": 770,
+    "word": "FRANTZISKA",
+    "synonym": "FRANCISCA"
+  },
+  {
+    "id": 771,
+    "word": "FRANTZIZKO",
+    "synonym": "FRANCISCO"
+  },
+  {
+    "id": 773,
+    "word": "FREDERIC",
+    "synonym": "FEDERICO"
+  },
+  {
+    "id": 776,
+    "word": "FREDERIK",
+    "synonym": "FEDERICO"
+  },
+  {
+    "id": 780,
+    "word": "FRUITUTSU",
+    "synonym": "FRUCTUOSA"
+  },
+  {
+    "id": 784,
+    "word": "GABONE",
+    "synonym": "NATIVIDAD"
+  },
+  {
+    "id": 786,
+    "word": "GADAFFY",
+    "synonym": "GADAFI"
+  },
+  {
+    "id": 789,
+    "word": "GADDAFFY",
+    "synonym": "GADDAFI"
+  },
+  {
+    "id": 792,
+    "word": "GADHAFFY",
+    "synonym": "GADHAFI"
+  },
+  {
+    "id": 794,
+    "word": "GAIETA",
+    "synonym": "CAYETANO"
+  },
+  {
+    "id": 795,
+    "word": "GAIZKA",
+    "synonym": "SALVADOR"
+  },
+  {
+    "id": 796,
+    "word": "GALLARET",
+    "synonym": "AMAPOLA"
+  },
+  {
+    "id": 797,
+    "word": "GALLEN",
+    "synonym": "GALL"
+  },
+  {
+    "id": 798,
+    "word": "GALLISCHE",
+    "synonym": "GALL"
+  },
+  {
+    "id": 800,
+    "word": "GALLOIS",
+    "synonym": "GALL"
+  },
+  {
+    "id": 801,
+    "word": "GANIX",
+    "synonym": "JUAN"
+  },
+  {
+    "id": 802,
+    "word": "GARAILE",
+    "synonym": "VICTOR"
+  },
+  {
+    "id": 803,
+    "word": "GARAINE",
+    "synonym": "VICTORIA"
+  },
+  {
+    "id": 804,
+    "word": "GARAITZ",
+    "synonym": "VICTORIA"
+  },
+  {
+    "id": 805,
+    "word": "GARAZI",
+    "synonym": "GRACIANA"
+  },
+  {
+    "id": 806,
+    "word": "GARBI",
+    "synonym": "INMACULADA"
+  },
+  {
+    "id": 807,
+    "word": "GARBIKUNDE",
+    "synonym": "INMACULADA"
+  },
+  {
+    "id": 808,
+    "word": "GARBINE",
+    "synonym": "INMACULADA"
+  },
+  {
+    "id": 811,
+    "word": "GARTZEN",
+    "synonym": "GRACIANO"
+  },
+  {
+    "id": 812,
+    "word": "GARTZENE",
+    "synonym": "GRACIA"
+  },
+  {
+    "id": 813,
+    "word": "GARTZI",
+    "synonym": "GRACIA"
+  },
+  {
+    "id": 814,
+    "word": "GAXAN",
+    "synonym": "GRACIAN"
+  },
+  {
+    "id": 815,
+    "word": "GAXUXA",
+    "synonym": "GRACIOSA"
+  },
+  {
+    "id": 817,
+    "word": "GEAXI",
+    "synonym": "ENGRACIA"
+  },
+  {
+    "id": 819,
+    "word": "GEN",
+    "synonym": "GENERAL"
+  },
+  {
+    "id": 824,
+    "word": "GENETXEA",
+    "synonym": "GUENECHEA"
+  },
+  {
+    "id": 828,
+    "word": "GENTZA",
+    "synonym": "PAZ"
+  },
+  {
+    "id": 829,
+    "word": "GENTZANE",
+    "synonym": "PAZ"
+  },
+  {
+    "id": 830,
+    "word": "GEO",
+    "synonym": "GEORGE"
+  },
+  {
+    "id": 832,
+    "word": "GERAXAN",
+    "synonym": "GRACIAN"
+  },
+  {
+    "id": 833,
+    "word": "GERAXANE",
+    "synonym": "GRACIANA"
+  },
+  {
+    "id": 834,
+    "word": "GERAZAN",
+    "synonym": "GRACIAN"
+  },
+  {
+    "id": 840,
+    "word": "GHADDAFY",
+    "synonym": "GADDAFI"
+  },
+  {
+    "id": 841,
+    "word": "GHEDDAFI",
+    "synonym": "GADDAFI"
+  },
+  {
+    "id": 842,
+    "word": "GIL",
+    "synonym": "GUILLERMO"
+  },
+  {
+    "id": 843,
+    "word": "GILEN",
+    "synonym": "GUILLERMO"
+  },
+  {
+    "id": 845,
+    "word": "GISELLE",
+    "synonym": "GISELA"
+  },
+  {
+    "id": 847,
+    "word": "GOI",
+    "synonym": "CIELO"
+  },
+  {
+    "id": 849,
+    "word": "GOIRIZELAIA",
+    "synonym": "GOIRICELAYA"
+  },
+  {
+    "id": 851,
+    "word": "GOIZARGI",
+    "synonym": "AURORA"
+  },
+  {
+    "id": 852,
+    "word": "GORANE",
+    "synonym": "EXALTACION"
+  },
+  {
+    "id": 853,
+    "word": "GORATZE",
+    "synonym": "EXALTACION"
+  },
+  {
+    "id": 854,
+    "word": "GOREN",
+    "synonym": "AUGUSTO"
+  },
+  {
+    "id": 855,
+    "word": "GORKA",
+    "synonym": "JORGE"
+  },
+  {
+    "id": 856,
+    "word": "GOTTARDO",
+    "synonym": "GOTHARD"
+  },
+  {
+    "id": 857,
+    "word": "GOTZON",
+    "synonym": "ANGEL"
+  },
+  {
+    "id": 858,
+    "word": "GOTZONE",
+    "synonym": "ANGEL"
+  },
+  {
+    "id": 859,
+    "word": "GOVT",
+    "synonym": "GOVERNMENT"
+  },
+  {
+    "id": 860,
+    "word": "GOZO",
+    "synonym": "DULCE"
+  },
+  {
+    "id": 864,
+    "word": "GRAXI",
+    "synonym": "GRACIANA"
+  },
+  {
+    "id": 871,
+    "word": "GRP",
+    "synonym": "GROUP"
+  },
+  {
+    "id": 873,
+    "word": "GUENETXEA",
+    "synonym": "GUENECHEA"
+  },
+  {
+    "id": 874,
+    "word": "GUILLEM",
+    "synonym": "GUILLERMO"
+  },
+  {
+    "id": 876,
+    "word": "GURE",
+    "synonym": "NUESTRA"
+  },
+  {
+    "id": 877,
+    "word": "GURRUTXAGA",
+    "synonym": "GURRUCHAGA"
+  },
+  {
+    "id": 878,
+    "word": "GURUTZ",
+    "synonym": "CRUZ"
+  },
+  {
+    "id": 879,
+    "word": "GURUTZE",
+    "synonym": "CRUZ"
+  },
+  {
+    "id": 880,
+    "word": "GURUZNE",
+    "synonym": "CRUZ"
+  },
+  {
+    "id": 883,
+    "word": "HAITZ",
+    "synonym": "PEDRO"
+  },
+  {
+    "id": 886,
+    "word": "HANNI",
+    "synonym": "ANIANO"
+  },
+  {
+    "id": 889,
+    "word": "HARKAITZ",
+    "synonym": "PEDRO"
+  },
+  {
+    "id": 894,
+    "word": "HENRIQUE",
+    "synonym": "HENRY"
+  },
+  {
+    "id": 895,
+    "word": "HENRIQUES",
+    "synonym": "HENRY"
+  },
+  {
+    "id": 901,
+    "word": "HEZBOLLAH",
+    "synonym": "HIZBALLAH"
+  },
+  {
+    "id": 903,
+    "word": "HILARGI",
+    "synonym": "LUNA"
+  },
+  {
+    "id": 906,
+    "word": "HITZEDER",
+    "synonym": "EULOGIO"
+  },
+  {
+    "id": 921,
+    "word": "IAGO",
+    "synonym": "SANTIAGO"
+  },
+  {
+    "id": 922,
+    "word": "IBAN",
+    "synonym": "JUAN"
+  },
+  {
+    "id": 923,
+    "word": "IBON",
+    "synonym": "IVON"
+  },
+  {
+    "id": 924,
+    "word": "IBONE",
+    "synonym": "IVON"
+  },
+  {
+    "id": 927,
+    "word": "IGNASI",
+    "synonym": "IGNACIO"
+  },
+  {
+    "id": 928,
+    "word": "IGON",
+    "synonym": "ASCENSION"
+  },
+  {
+    "id": 929,
+    "word": "IGONE",
+    "synonym": "ASCENSION"
+  },
+  {
+    "id": 930,
+    "word": "IHAZINTU",
+    "synonym": "JACINTO"
+  },
+  {
+    "id": 931,
+    "word": "IHINTZA",
+    "synonym": "ROCIO"
+  },
+  {
+    "id": 932,
+    "word": "IKERNE",
+    "synonym": "VISITACION"
+  },
+  {
+    "id": 934,
+    "word": "ILAZKI",
+    "synonym": "LUNA"
+  },
+  {
+    "id": 936,
+    "word": "IMANOL",
+    "synonym": "MANUEL"
+  },
+  {
+    "id": 939,
+    "word": "INAKI",
+    "synonym": "IGNACIO"
+  },
+  {
+    "id": 940,
+    "word": "INC",
+    "synonym": "INCORPORATED"
+  },
+  {
+    "id": 942,
+    "word": "INDARTSU",
+    "synonym": "ROBUSTIANO"
+  },
+  {
+    "id": 952,
+    "word": "INGARTZE",
+    "synonym": "ENGRACIA"
+  },
+  {
+    "id": 953,
+    "word": "INGUMA",
+    "synonym": "MARIPOSA"
+  },
+  {
+    "id": 954,
+    "word": "INIGO",
+    "synonym": "IGNACIO"
+  },
+  {
+    "id": 955,
+    "word": "INS",
+    "synonym": "INSURANCE"
+  },
+  {
+    "id": 960,
+    "word": "INT",
+    "synonym": "INTERNATIONAL"
+  },
+  {
+    "id": 976,
+    "word": "INTL",
+    "synonym": "INTERNATIONAL"
+  },
+  {
+    "id": 977,
+    "word": "INTZA",
+    "synonym": "ROCIO"
+  },
+  {
+    "id": 978,
+    "word": "INV",
+    "synonym": "INVESTMENT"
+  },
+  {
+    "id": 988,
+    "word": "IRAGARTE",
+    "synonym": "ANUNCIACION"
+  },
+  {
+    "id": 989,
+    "word": "IRAKUSNE",
+    "synonym": "EPIFANIA"
+  },
+  {
+    "id": 992,
+    "word": "IRAUNKOR",
+    "synonym": "CONSTANCIO"
+  },
+  {
+    "id": 993,
+    "word": "IRUNE",
+    "synonym": "TRINIDAD"
+  },
+  {
+    "id": 994,
+    "word": "IRV",
+    "synonym": "IRVING"
+  },
+  {
+    "id": 995,
+    "word": "ISIDOR",
+    "synonym": "ISIDORO"
+  },
+  {
+    "id": 996,
+    "word": "ISL",
+    "synonym": "ISLAND"
+  },
+  {
+    "id": 997,
+    "word": "ISLAMIYA",
+    "synonym": "ALISLAMIYYA"
+  },
+  {
+    "id": 998,
+    "word": "ISLAMIYYA",
+    "synonym": "ALISLAMIYYA"
+  },
+  {
+    "id": 1011,
+    "word": "ITSASNE",
+    "synonym": "MAR"
+  },
+  {
+    "id": 1012,
+    "word": "ITSASO",
+    "synonym": "MAR"
+  },
+  {
+    "id": 1013,
+    "word": "ITXARO",
+    "synonym": "ESPERANZA"
+  },
+  {
+    "id": 1014,
+    "word": "ITZAL",
+    "synonym": "AMPARO"
+  },
+  {
+    "id": 1015,
+    "word": "IVAN",
+    "synonym": "JUAN"
+  },
+  {
+    "id": 1016,
+    "word": "IVOIRE",
+    "synonym": "IVORY"
+  },
+  {
+    "id": 1017,
+    "word": "IVOIRIENNE",
+    "synonym": "IVORY"
+  },
+  {
+    "id": 1018,
+    "word": "IXAKA",
+    "synonym": "ISAAC"
+  },
+  {
+    "id": 1019,
+    "word": "IXIDOR",
+    "synonym": "ISIDORO"
+  },
+  {
+    "id": 1020,
+    "word": "IXONE",
+    "synonym": "CALMA"
+  },
+  {
+    "id": 1021,
+    "word": "IZAR",
+    "synonym": "ESTRELLA"
+  },
+  {
+    "id": 1023,
+    "word": "JACOBO",
+    "synonym": "SANTIAGO"
+  },
+  {
+    "id": 1024,
+    "word": "JAIONE",
+    "synonym": "NATIVIDAD"
+  },
+  {
+    "id": 1025,
+    "word": "JAKES",
+    "synonym": "SANTIAGO"
+  },
+  {
+    "id": 1026,
+    "word": "JAKINDE",
+    "synonym": "JACINTA"
+  },
+  {
+    "id": 1027,
+    "word": "JAKOBE",
+    "synonym": "SANTIAGO"
+  },
+  {
+    "id": 1028,
+    "word": "JAKUE",
+    "synonym": "SANTIAGO"
+  },
+  {
+    "id": 1031,
+    "word": "JANPIER",
+    "synonym": "JUAN PEDRO"
+  },
+  {
+    "id": 1037,
+    "word": "JOANES",
+    "synonym": "JUAN"
+  },
+  {
+    "id": 1041,
+    "word": "JOKIN",
+    "synonym": "JOAQUIN"
+  },
+  {
+    "id": 1042,
+    "word": "JOKINE",
+    "synonym": "JOAQUINA"
+  },
+  {
+    "id": 1043,
+    "word": "JON",
+    "synonym": "JUAN"
+  },
+  {
+    "id": 1044,
+    "word": "JONE",
+    "synonym": "JUANA"
+  },
+  {
+    "id": 1048,
+    "word": "JORDI",
+    "synonym": "JORGE"
+  },
+  {
+    "id": 1049,
+    "word": "JOSEBA",
+    "synonym": "JOSE"
+  },
+  {
+    "id": 1050,
+    "word": "JOSEBE",
+    "synonym": "JOSEFA"
+  },
+  {
+    "id": 1051,
+    "word": "JOSELIN",
+    "synonym": "JOSE"
+  },
+  {
+    "id": 1054,
+    "word": "JOSEPE",
+    "synonym": "JOSE"
+  },
+  {
+    "id": 1055,
+    "word": "JOSU",
+    "synonym": "JESUS"
+  },
+  {
+    "id": 1056,
+    "word": "JOSUNE",
+    "synonym": "JESUSA"
+  },
+  {
+    "id": 1057,
+    "word": "JOXEPA",
+    "synonym": "JOSEFA"
+  },
+  {
+    "id": 1060,
+    "word": "JULEN",
+    "synonym": "JULIAN"
+  },
+  {
+    "id": 1061,
+    "word": "JULENE",
+    "synonym": "JULIANA"
+  },
+  {
+    "id": 1062,
+    "word": "JURGI",
+    "synonym": "JORGE"
+  },
+  {
+    "id": 1064,
+    "word": "JUSTINO",
+    "synonym": "JUSTO"
+  },
+  {
+    "id": 1066,
+    "word": "KADAFFY",
+    "synonym": "KADAFI"
+  },
+  {
+    "id": 1069,
+    "word": "KADDAFFY",
+    "synonym": "KADDAFI"
+  },
+  {
+    "id": 1072,
+    "word": "KADHAFFY",
+    "synonym": "KADHAFI"
+  },
+  {
+    "id": 1074,
+    "word": "KAIET",
+    "synonym": "CAYETANO"
+  },
+  {
+    "id": 1075,
+    "word": "KALARE",
+    "synonym": "CLARA"
+  },
+  {
+    "id": 1078,
+    "word": "KARITATE",
+    "synonym": "CARIDAD"
+  },
+  {
+    "id": 1079,
+    "word": "KARMEL",
+    "synonym": "CARMELO"
+  },
+  {
+    "id": 1080,
+    "word": "KARMELE",
+    "synonym": "CARMEN"
+  },
+  {
+    "id": 1082,
+    "word": "KATALIN",
+    "synonym": "CATALINA"
+  },
+  {
+    "id": 1083,
+    "word": "KATERIN",
+    "synonym": "CATALINA"
+  },
+  {
+    "id": 1084,
+    "word": "KATIXA",
+    "synonym": "CATALINA"
+  },
+  {
+    "id": 1085,
+    "word": "KATTARIN",
+    "synonym": "CATALINA"
+  },
+  {
+    "id": 1086,
+    "word": "KAULDI",
+    "synonym": "CLAUDIO"
+  },
+  {
+    "id": 1087,
+    "word": "KAZZAFI",
+    "synonym": "KADDAFI"
+  },
+  {
+    "id": 1088,
+    "word": "KELEMEN",
+    "synonym": "CLEMENTE"
+  },
+  {
+    "id": 1089,
+    "word": "KEPA",
+    "synonym": "PEDRO"
+  },
+  {
+    "id": 1091,
+    "word": "KHADAFY",
+    "synonym": "KADAFI"
+  },
+  {
+    "id": 1095,
+    "word": "KISTINE",
+    "synonym": "CRISTINA"
+  },
+  {
+    "id": 1099,
+    "word": "KOLDO",
+    "synonym": "LUIS"
+  },
+  {
+    "id": 1100,
+    "word": "KOLDOBIKA",
+    "synonym": "LUIS"
+  },
+  {
+    "id": 1101,
+    "word": "KOLDOBIKE",
+    "synonym": "LUISA"
+  },
+  {
+    "id": 1102,
+    "word": "KONTXESI",
+    "synonym": "CONCEPCION"
+  },
+  {
+    "id": 1103,
+    "word": "KONTZEZIONA",
+    "synonym": "CONCEPCION"
+  },
+  {
+    "id": 1105,
+    "word": "KP",
+    "synonym": "NORTH KOREA"
+  },
+  {
+    "id": 1106,
+    "word": "KRABELIN",
+    "synonym": "CLAVEL"
+  },
+  {
+    "id": 1109,
+    "word": "KUBANISCH",
+    "synonym": "KUBA"
+  },
+  {
+    "id": 1110,
+    "word": "KUBANISCHE",
+    "synonym": "KUBA"
+  },
+  {
+    "id": 1111,
+    "word": "KUBINSKAYA",
+    "synonym": "KUBA"
+  },
+  {
+    "id": 1112,
+    "word": "KUBINSKOYE",
+    "synonym": "KUBA"
+  },
+  {
+    "id": 1113,
+    "word": "KUTSUGE",
+    "synonym": "PURA"
+  },
+  {
+    "id": 1116,
+    "word": "LAGUNTZANE",
+    "synonym": "SOCORRO"
+  },
+  {
+    "id": 1118,
+    "word": "LANDER",
+    "synonym": "LEANDRO"
+  },
+  {
+    "id": 1119,
+    "word": "LARRETXEA",
+    "synonym": "LARRECHEA"
+  },
+  {
+    "id": 1122,
+    "word": "LAURENDI",
+    "synonym": "LORENZO"
+  },
+  {
+    "id": 1123,
+    "word": "LAURENTZI",
+    "synonym": "LORENZO"
+  },
+  {
+    "id": 1124,
+    "word": "LDN",
+    "synonym": "LONDON"
+  },
+  {
+    "id": 1127,
+    "word": "LEHEN",
+    "synonym": "PRIMITIVO"
+  },
+  {
+    "id": 1128,
+    "word": "LEHOI",
+    "synonym": "LEON"
+  },
+  {
+    "id": 1130,
+    "word": "LER",
+    "synonym": "PINO"
+  },
+  {
+    "id": 1136,
+    "word": "LIBERDADE",
+    "synonym": "LIBERTAD"
+  },
+  {
+    "id": 1138,
+    "word": "LIDE",
+    "synonym": "LIDIA"
+  },
+  {
+    "id": 1139,
+    "word": "LILI",
+    "synonym": "LIRIO"
+  },
+  {
+    "id": 1140,
+    "word": "LINEA",
+    "synonym": "LINE"
+  },
+  {
+    "id": 1141,
+    "word": "LINEAS",
+    "synonym": "LINE"
+  },
+  {
+    "id": 1143,
+    "word": "LIRAIN",
+    "synonym": "PRIMOROSA"
+  },
+  {
+    "id": 1144,
+    "word": "LIZAR",
+    "synonym": "FRESNO"
+  },
+  {
+    "id": 1145,
+    "word": "LLATZER",
+    "synonym": "LAZARO"
+  },
+  {
+    "id": 1146,
+    "word": "LLEO",
+    "synonym": "LEON"
+  },
+  {
+    "id": 1147,
+    "word": "LLIRI",
+    "synonym": "LIRIO"
+  },
+  {
+    "id": 1148,
+    "word": "LLORENC",
+    "synonym": "LORENZO"
+  },
+  {
+    "id": 1150,
+    "word": "LLUC",
+    "synonym": "LUCIANO"
+  },
+  {
+    "id": 1151,
+    "word": "LLUCIA",
+    "synonym": "LUZ"
+  },
+  {
+    "id": 1155,
+    "word": "LND",
+    "synonym": "LONDON"
+  },
+  {
+    "id": 1156,
+    "word": "LOCAIA",
+    "synonym": "LEOCADIA?ÿ"
+  },
+  {
+    "id": 1160,
+    "word": "LONORE",
+    "synonym": "LEONOR"
+  },
+  {
+    "id": 1161,
+    "word": "LORDA",
+    "synonym": "LOURDES"
+  },
+  {
+    "id": 1162,
+    "word": "LORE",
+    "synonym": "FLORA"
+  },
+  {
+    "id": 1163,
+    "word": "LOREA",
+    "synonym": "FLORA"
+  },
+  {
+    "id": 1166,
+    "word": "LTD",
+    "synonym": "LIMITED"
+  },
+  {
+    "id": 1167,
+    "word": "LTDA",
+    "synonym": "LIMITED"
+  },
+  {
+    "id": 1169,
+    "word": "LUCAS",
+    "synonym": "LUCIANO"
+  },
+  {
+    "id": 1171,
+    "word": "LUCIA",
+    "synonym": "LUZ"
+  },
+  {
+    "id": 1174,
+    "word": "LUKEN",
+    "synonym": "LUCIANO"
+  },
+  {
+    "id": 1175,
+    "word": "LUKENE",
+    "synonym": "LUCIANA"
+  },
+  {
+    "id": 1177,
+    "word": "LUREA",
+    "synonym": "LAUREANO"
+  },
+  {
+    "id": 1178,
+    "word": "LUX",
+    "synonym": "LUXEMBOURG"
+  },
+  {
+    "id": 1184,
+    "word": "MA",
+    "synonym": "MARIA"
+  },
+  {
+    "id": 1187,
+    "word": "MAHERBE",
+    "synonym": "MACHERBE"
+  },
+  {
+    "id": 1188,
+    "word": "MAHLERBE",
+    "synonym": "MACHERBE"
+  },
+  {
+    "id": 1189,
+    "word": "MAHMOUD",
+    "synonym": "MOHAMMAD"
+  },
+  {
+    "id": 1190,
+    "word": "MAHMUD",
+    "synonym": "MOHAMMAD"
+  },
+  {
+    "id": 1191,
+    "word": "MAIA",
+    "synonym": "MARIA"
+  },
+  {
+    "id": 1192,
+    "word": "MAIALEN",
+    "synonym": "MAGDALENA"
+  },
+  {
+    "id": 1193,
+    "word": "MAITAGARRI",
+    "synonym": "AMADA"
+  },
+  {
+    "id": 1194,
+    "word": "MAITE",
+    "synonym": "AMADA"
+  },
+  {
+    "id": 1195,
+    "word": "MAITEDER",
+    "synonym": "AMADA"
+  },
+  {
+    "id": 1196,
+    "word": "MAITENA",
+    "synonym": "AMADA"
+  },
+  {
+    "id": 1197,
+    "word": "MAKATZA",
+    "synonym": "SILVESTRE"
+  },
+  {
+    "id": 1198,
+    "word": "MALARBE",
+    "synonym": "MACHERBE"
+  },
+  {
+    "id": 1200,
+    "word": "MALEN",
+    "synonym": "MAGDALENA"
+  },
+  {
+    "id": 1201,
+    "word": "MALERBE",
+    "synonym": "MACHERBE"
+  },
+  {
+    "id": 1202,
+    "word": "MALERVA",
+    "synonym": "MACHERBE"
+  },
+  {
+    "id": 1203,
+    "word": "MALMERME",
+    "synonym": "MACHERBE"
+  },
+  {
+    "id": 1207,
+    "word": "MANEX",
+    "synonym": "JUAN"
+  },
+  {
+    "id": 1209,
+    "word": "MANU",
+    "synonym": "MANUEL"
+  },
+  {
+    "id": 1215,
+    "word": "MARCEL",
+    "synonym": "MARCELO"
+  },
+  {
+    "id": 1217,
+    "word": "MARCO",
+    "synonym": "MARK"
+  },
+  {
+    "id": 1218,
+    "word": "MARCOS",
+    "synonym": "MARK"
+  },
+  {
+    "id": 1219,
+    "word": "MAREN",
+    "synonym": "MARIANO"
+  },
+  {
+    "id": 1220,
+    "word": "MARGARIDA",
+    "synonym": "MARGARITA"
+  },
+  {
+    "id": 1225,
+    "word": "MARITXU",
+    "synonym": "MARIA"
+  },
+  {
+    "id": 1226,
+    "word": "MARKEL",
+    "synonym": "MARCIAL"
+  },
+  {
+    "id": 1228,
+    "word": "MARKO",
+    "synonym": "MARCOS"
+  },
+  {
+    "id": 1233,
+    "word": "MARTXEL",
+    "synonym": "MARCELO"
+  },
+  {
+    "id": 1234,
+    "word": "MARTXELIN",
+    "synonym": "MARCELINO"
+  },
+  {
+    "id": 1235,
+    "word": "MARTXELINE",
+    "synonym": "MARCELINA"
+  },
+  {
+    "id": 1236,
+    "word": "MARZ",
+    "synonym": "MARCOS"
+  },
+  {
+    "id": 1240,
+    "word": "MATEUS",
+    "synonym": "MATEO"
+  },
+  {
+    "id": 1241,
+    "word": "MATIA",
+    "synonym": "MATEO"
+  },
+  {
+    "id": 1242,
+    "word": "MATIAS",
+    "synonym": "MATEO"
+  },
+  {
+    "id": 1243,
+    "word": "MATTIN",
+    "synonym": "MARTIN"
+  },
+  {
+    "id": 1244,
+    "word": "MATXIN",
+    "synonym": "MARTIN"
+  },
+  {
+    "id": 1251,
+    "word": "MEDER",
+    "synonym": "EMETERIO"
+  },
+  {
+    "id": 1252,
+    "word": "MEDERI",
+    "synonym": "EMETERIO"
+  },
+  {
+    "id": 1256,
+    "word": "MELARBE",
+    "synonym": "MACHERBE"
+  },
+  {
+    "id": 1257,
+    "word": "MENDIKO",
+    "synonym": "SILVANO"
+  },
+  {
+    "id": 1258,
+    "word": "MENDOIA",
+    "synonym": "OLAGUE"
+  },
+  {
+    "id": 1259,
+    "word": "MERARDO",
+    "synonym": "EMETERIO"
+  },
+  {
+    "id": 1263,
+    "word": "MERCE",
+    "synonym": "MERCEDES"
+  },
+  {
+    "id": 1264,
+    "word": "MERCES",
+    "synonym": "MERCEDES"
+  },
+  {
+    "id": 1266,
+    "word": "MERTXE",
+    "synonym": "MARIA JESUS"
+  },
+  {
+    "id": 1267,
+    "word": "MERY",
+    "synonym": "MARIA"
+  },
+  {
+    "id": 1270,
+    "word": "MEX",
+    "synonym": "MEXICO"
+  },
+  {
+    "id": 1275,
+    "word": "MFG",
+    "synonym": "MANUFACTURING"
+  },
+  {
+    "id": 1276,
+    "word": "MGMT",
+    "synonym": "MANAGEMENT"
+  },
+  {
+    "id": 1277,
+    "word": "MGR",
+    "synonym": "MANAGER"
+  },
+  {
+    "id": 1278,
+    "word": "MGT",
+    "synonym": "MANAGEMENT"
+  },
+  {
+    "id": 1284,
+    "word": "MIKEL",
+    "synonym": "MIGUEL"
+  },
+  {
+    "id": 1285,
+    "word": "MIKELE",
+    "synonym": "MICAELA"
+  },
+  {
+    "id": 1286,
+    "word": "MIKOLAS",
+    "synonym": "NICOLAS"
+  },
+  {
+    "id": 1302,
+    "word": "MIRARI",
+    "synonym": "MILAGROS"
+  },
+  {
+    "id": 1303,
+    "word": "MIREN",
+    "synonym": "MARIA"
+  },
+  {
+    "id": 1304,
+    "word": "MITXEL",
+    "synonym": "MIGUEL"
+  },
+  {
+    "id": 1305,
+    "word": "MITXOLETA",
+    "synonym": "AMAPOLA"
+  },
+  {
+    "id": 1308,
+    "word": "MOAMAR",
+    "synonym": "MUAMMAR"
+  },
+  {
+    "id": 1309,
+    "word": "MOAMER",
+    "synonym": "MUAMMAR"
+  },
+  {
+    "id": 1314,
+    "word": "MOHAMED",
+    "synonym": "MOHAMMAD"
+  },
+  {
+    "id": 1316,
+    "word": "MOMAR",
+    "synonym": "MUAMMAR"
+  },
+  {
+    "id": 1317,
+    "word": "MOMMAR",
+    "synonym": "MUAMMAR"
+  },
+  {
+    "id": 1319,
+    "word": "MONTXO",
+    "synonym": "DOMINGO"
+  },
+  {
+    "id": 1329,
+    "word": "MUHAMED",
+    "synonym": "MOHAMMAD"
+  },
+  {
+    "id": 1331,
+    "word": "MUHAMMED",
+    "synonym": "MOHAMMAD"
+  },
+  {
+    "id": 1333,
+    "word": "MUJIKA",
+    "synonym": "MUGICA"
+  },
+  {
+    "id": 1336,
+    "word": "MUNTASIR",
+    "synonym": "MONTASSIR"
+  },
+  {
+    "id": 1340,
+    "word": "NADAL",
+    "synonym": "NATIVIDAD"
+  },
+  {
+    "id": 1341,
+    "word": "NALHERBE",
+    "synonym": "MACHERBE"
+  },
+  {
+    "id": 1342,
+    "word": "NAPOLI",
+    "synonym": "NAPLES"
+  },
+  {
+    "id": 1347,
+    "word": "NATIVITAT",
+    "synonym": "NATIVIDAD"
+  },
+  {
+    "id": 1348,
+    "word": "NATL",
+    "synonym": "NATIONAL"
+  },
+  {
+    "id": 1350,
+    "word": "NAVIDAD",
+    "synonym": "NATIVIDAD"
+  },
+  {
+    "id": 1361,
+    "word": "NEUS",
+    "synonym": "NIEVES"
+  },
+  {
+    "id": 1367,
+    "word": "NIKOLA",
+    "synonym": "NICOLAS"
+  },
+  {
+    "id": 1385,
+    "word": "OCIEL",
+    "synonym": "OSIEL"
+  },
+  {
+    "id": 1387,
+    "word": "OFF",
+    "synonym": "OFFICE"
+  },
+  {
+    "id": 1388,
+    "word": "OFFS",
+    "synonym": "OFFICE"
+  },
+  {
+    "id": 1394,
+    "word": "OLENTZERO",
+    "synonym": "NOEL"
+  },
+  {
+    "id": 1396,
+    "word": "ONBERA",
+    "synonym": "BENIGNO"
+  },
+  {
+    "id": 1397,
+    "word": "ONGILE",
+    "synonym": "BONIFACIO"
+  },
+  {
+    "id": 1399,
+    "word": "OPER",
+    "synonym": "OPERATION"
+  },
+  {
+    "id": 1409,
+    "word": "ORTZI",
+    "synonym": "CIELO"
+  },
+  {
+    "id": 1410,
+    "word": "OSASUN",
+    "synonym": "SALUSTIANO"
+  },
+  {
+    "id": 1411,
+    "word": "OSKARBI",
+    "synonym": "CIELO"
+  },
+  {
+    "id": 1413,
+    "word": "OSPETSU",
+    "synonym": "HONORATO"
+  },
+  {
+    "id": 1415,
+    "word": "OSTARGI",
+    "synonym": "AURORA"
+  },
+  {
+    "id": 1421,
+    "word": "PABLO",
+    "synonym": "PAUL"
+  },
+  {
+    "id": 1429,
+    "word": "PASKAL",
+    "synonym": "PASCUAL"
+  },
+  {
+    "id": 1432,
+    "word": "PATXI",
+    "synonym": "FRANCISCO"
+  },
+  {
+    "id": 1433,
+    "word": "PAU",
+    "synonym": "PABLO"
+  },
+  {
+    "id": 1434,
+    "word": "PAUL",
+    "synonym": "PABLO"
+  },
+  {
+    "id": 1435,
+    "word": "PAULIN",
+    "synonym": "PABLO"
+  },
+  {
+    "id": 1438,
+    "word": "PEIO",
+    "synonym": "PEDRO"
+  },
+  {
+    "id": 1440,
+    "word": "PELI",
+    "synonym": "FELIX"
+  },
+  {
+    "id": 1444,
+    "word": "PEO",
+    "synonym": "PEOPLE"
+  },
+  {
+    "id": 1445,
+    "word": "PEOP",
+    "synonym": "PEOPLE"
+  },
+  {
+    "id": 1447,
+    "word": "PEPE",
+    "synonym": "JOSE"
+  },
+  {
+    "id": 1448,
+    "word": "PERE",
+    "synonym": "PEDRO"
+  },
+  {
+    "id": 1449,
+    "word": "PERPETUA",
+    "synonym": "BETISA"
+  },
+  {
+    "id": 1450,
+    "word": "PERRANDO",
+    "synonym": "FERNANDO"
+  },
+  {
+    "id": 1451,
+    "word": "PERU",
+    "synonym": "PEDRO"
+  },
+  {
+    "id": 1452,
+    "word": "PERUANTON",
+    "synonym": "PEDRO ANTONIO"
+  },
+  {
+    "id": 1453,
+    "word": "PERUTXO",
+    "synonym": "PEDRO"
+  },
+  {
+    "id": 1454,
+    "word": "PETRA",
+    "synonym": "BETISA"
+  },
+  {
+    "id": 1455,
+    "word": "PETRI",
+    "synonym": "PEDRO"
+  },
+  {
+    "id": 1457,
+    "word": "PHANOR",
+    "synonym": "FANOR"
+  },
+  {
+    "id": 1463,
+    "word": "PIARRES",
+    "synonym": "PEDRO"
+  },
+  {
+    "id": 1464,
+    "word": "PIEDADE",
+    "synonym": "PIEDAD"
+  },
+  {
+    "id": 1465,
+    "word": "PIETAT",
+    "synonym": "PIEDAD"
+  },
+  {
+    "id": 1467,
+    "word": "PIUS",
+    "synonym": "PIO"
+  },
+  {
+    "id": 1470,
+    "word": "POLENTZI",
+    "synonym": "FLORENCIO"
+  },
+  {
+    "id": 1474,
+    "word": "POMBA",
+    "synonym": "PALOMA"
+  },
+  {
+    "id": 1482,
+    "word": "POZ",
+    "synonym": "GAUDENCIO"
+  },
+  {
+    "id": 1485,
+    "word": "PRIMITIU",
+    "synonym": "PRIMITIVO"
+  },
+  {
+    "id": 1486,
+    "word": "PRISCA",
+    "synonym": "PRISCILA"
+  },
+  {
+    "id": 1503,
+    "word": "PURIFICACION",
+    "synonym": "INMACULADA"
+  },
+  {
+    "id": 1505,
+    "word": "QADAFFY",
+    "synonym": "QADAFI"
+  },
+  {
+    "id": 1506,
+    "word": "QADDAFFY",
+    "synonym": "QADDAFI"
+  },
+  {
+    "id": 1509,
+    "word": "QADHAFFY",
+    "synonym": "QADHAFI"
+  },
+  {
+    "id": 1511,
+    "word": "QADHDHAFI",
+    "synonym": "QADHAFI"
+  },
+  {
+    "id": 1512,
+    "word": "QASSIM",
+    "synonym": "ALQASSIM"
+  },
+  {
+    "id": 1513,
+    "word": "QATHAFFI",
+    "synonym": "QADHAFI"
+  },
+  {
+    "id": 1514,
+    "word": "QATHAFI",
+    "synonym": "QADHAFI"
+  },
+  {
+    "id": 1515,
+    "word": "QUATHAFFI",
+    "synonym": "QADHAFI"
+  },
+  {
+    "id": 1516,
+    "word": "QUATHAFI",
+    "synonym": "QADHAFI"
+  },
+  {
+    "id": 1517,
+    "word": "QUDHAFFI",
+    "synonym": "QADHAFI"
+  },
+  {
+    "id": 1518,
+    "word": "QUDHAFFY",
+    "synonym": "QADHAFI"
+  },
+  {
+    "id": 1522,
+    "word": "RAPHAEL",
+    "synonym": "RAFAEL"
+  },
+  {
+    "id": 1523,
+    "word": "RCELLI",
+    "synonym": "MARCELINO"
+  },
+  {
+    "id": 1524,
+    "word": "RD",
+    "synonym": "ROAD"
+  },
+  {
+    "id": 1530,
+    "word": "REIS",
+    "synonym": "REYES"
+  },
+  {
+    "id": 1531,
+    "word": "REMIR",
+    "synonym": "RAMIRO"
+  },
+  {
+    "id": 1545,
+    "word": "ROSA",
+    "synonym": "ROSALBA"
+  },
+  {
+    "id": 1546,
+    "word": "ROSALIA",
+    "synonym": "ROSARIO"
+  },
+  {
+    "id": 1547,
+    "word": "ROSELLA",
+    "synonym": "AMAPOLA"
+  },
+  {
+    "id": 1548,
+    "word": "ROSER",
+    "synonym": "ROSARIO"
+  },
+  {
+    "id": 1549,
+    "word": "ROTLLAN",
+    "synonym": "ROLDAN"
+  },
+  {
+    "id": 1555,
+    "word": "RUI",
+    "synonym": "RODRIGO"
+  },
+  {
+    "id": 1556,
+    "word": "RUISKO",
+    "synonym": "RODRIGO"
+  },
+  {
+    "id": 1560,
+    "word": "SABI",
+    "synonym": "SABINO"
+  },
+  {
+    "id": 1563,
+    "word": "SADURNI",
+    "synonym": "SATURNINO"
+  },
+  {
+    "id": 1565,
+    "word": "SALBATORE",
+    "synonym": "SALVADOR"
+  },
+  {
+    "id": 1567,
+    "word": "SALUD",
+    "synonym": "SALUSTIANO"
+  },
+  {
+    "id": 1568,
+    "word": "SANDAILI",
+    "synonym": "ELIAS"
+  },
+  {
+    "id": 1569,
+    "word": "SANDURU",
+    "synonym": "SANTOS"
+  },
+  {
+    "id": 1571,
+    "word": "SANTI",
+    "synonym": "SANTIAGO"
+  },
+  {
+    "id": 1572,
+    "word": "SANTIO",
+    "synonym": "SANTIAGO"
+  },
+  {
+    "id": 1573,
+    "word": "SANTUTXO",
+    "synonym": "SANTIAGO"
+  },
+  {
+    "id": 1574,
+    "word": "SATORDI",
+    "synonym": "SATURNINO"
+  },
+  {
+    "id": 1587,
+    "word": "SEBER",
+    "synonym": "SEVERO"
+  },
+  {
+    "id": 1589,
+    "word": "SERV",
+    "synonym": "SERVICE"
+  },
+  {
+    "id": 1594,
+    "word": "SERXIO",
+    "synonym": "SEGIO"
+  },
+  {
+    "id": 1595,
+    "word": "SEVER",
+    "synonym": "SEVERO"
+  },
+  {
+    "id": 1596,
+    "word": "SEYHAN",
+    "synonym": "ADANA"
+  },
+  {
+    "id": 1597,
+    "word": "SHEIHK",
+    "synonym": "SHAYKH"
+  },
+  {
+    "id": 1598,
+    "word": "SHEIK",
+    "synonym": "SHAYKH"
+  },
+  {
+    "id": 1599,
+    "word": "SHEIKH",
+    "synonym": "SHAYKH"
+  },
+  {
+    "id": 1604,
+    "word": "SILBAN",
+    "synonym": "SILVANO"
+  },
+  {
+    "id": 1605,
+    "word": "SILVA",
+    "synonym": "SILVANO"
+  },
+  {
+    "id": 1607,
+    "word": "SIMPLON",
+    "synonym": "SEMPIONE"
+  },
+  {
+    "id": 1618,
+    "word": "SOIDADE",
+    "synonym": "SOLEDAD"
+  },
+  {
+    "id": 1626,
+    "word": "ST.",
+    "synonym": "SAINT"
+  },
+  {
+    "id": 1636,
+    "word": "SURINAME",
+    "synonym": "SURINAM"
+  },
+  {
+    "id": 1647,
+    "word": "TAREIXA",
+    "synonym": "TERESA"
+  },
+  {
+    "id": 1658,
+    "word": "TIBALT",
+    "synonym": "TEOBALDO"
+  },
+  {
+    "id": 1663,
+    "word": "TODOR",
+    "synonym": "TEODORO"
+  },
+  {
+    "id": 1666,
+    "word": "TORRES",
+    "synonym": "TORRE"
+  },
+  {
+    "id": 1667,
+    "word": "TOUFAILI",
+    "synonym": "TUFAYLI"
+  },
+  {
+    "id": 1669,
+    "word": "TR",
+    "synonym": "TRUST"
+  },
+  {
+    "id": 1676,
+    "word": "TRINDADE",
+    "synonym": "TRINIDAD"
+  },
+  {
+    "id": 1677,
+    "word": "TRINITAT",
+    "synonym": "TRINIDAD"
+  },
+  {
+    "id": 1680,
+    "word": "TUFELLEH",
+    "synonym": "TUFAYLI"
+  },
+  {
+    "id": 1681,
+    "word": "TUFHAILI",
+    "synonym": "TUFAYLI"
+  },
+  {
+    "id": 1690,
+    "word": "TXANTON",
+    "synonym": "JOSE ANTONIO"
+  },
+  {
+    "id": 1691,
+    "word": "TXERU",
+    "synonym": "CIELO"
+  },
+  {
+    "id": 1692,
+    "word": "TXOMIN",
+    "synonym": "DOMINGO"
+  },
+  {
+    "id": 1694,
+    "word": "UGUTZ",
+    "synonym": "BAUTISTA"
+  },
+  {
+    "id": 1711,
+    "word": "UXIA",
+    "synonym": "EUGENIA"
+  },
+  {
+    "id": 1712,
+    "word": "UXIO",
+    "synonym": "EUGENIO"
+  },
+  {
+    "id": 1714,
+    "word": "VALENTE",
+    "synonym": "VALENTIN?ÿ"
+  },
+  {
+    "id": 1716,
+    "word": "VASQUES",
+    "synonym": "VAZQUEZ"
+  },
+  {
+    "id": 1718,
+    "word": "VENCESLAO",
+    "synonym": "WENCESLAO"
+  },
+  {
+    "id": 1719,
+    "word": "VENCESLAU",
+    "synonym": "WENCESLAO"
+  },
+  {
+    "id": 1720,
+    "word": "VENEZIA",
+    "synonym": "VENICE"
+  },
+  {
+    "id": 1728,
+    "word": "VICENC",
+    "synonym": "VICENTE"
+  },
+  {
+    "id": 1729,
+    "word": "VICENT",
+    "synonym": "VICENTE"
+  },
+  {
+    "id": 1730,
+    "word": "VICENZO",
+    "synonym": "VICENTE"
+  },
+  {
+    "id": 1731,
+    "word": "VIRXILIO",
+    "synonym": "VIRGILIO"
+  },
+  {
+    "id": 1750,
+    "word": "XABAT",
+    "synonym": "SALVADOR"
+  },
+  {
+    "id": 1751,
+    "word": "XABIER",
+    "synonym": "JAVIER"
+  },
+  {
+    "id": 1754,
+    "word": "XACOBO",
+    "synonym": "SANTIAGO"
+  },
+  {
+    "id": 1756,
+    "word": "XALBADOR",
+    "synonym": "SALVADOR"
+  },
+  {
+    "id": 1758,
+    "word": "XANTI",
+    "synonym": "SANTIAGO"
+  },
+  {
+    "id": 1759,
+    "word": "XARLES",
+    "synonym": "CARLOS"
+  },
+  {
+    "id": 1761,
+    "word": "XEFE",
+    "synonym": "CEFERINO"
+  },
+  {
+    "id": 1768,
+    "word": "XEROME",
+    "synonym": "JERONIMO"
+  },
+  {
+    "id": 1770,
+    "word": "XERTRUDE",
+    "synonym": "GERTRUDIS"
+  },
+  {
+    "id": 1773,
+    "word": "XIL",
+    "synonym": "GUILLERMO"
+  },
+  {
+    "id": 1774,
+    "word": "XILBERTE",
+    "synonym": "GILBERTO"
+  },
+  {
+    "id": 1779,
+    "word": "XIMUN",
+    "synonym": "SIMON"
+  },
+  {
+    "id": 1780,
+    "word": "XOAN",
+    "synonym": "JUAN"
+  },
+  {
+    "id": 1792,
+    "word": "XURXO",
+    "synonym": "JORGE"
+  },
+  {
+    "id": 1804,
+    "word": "ZADORNIN",
+    "synonym": "SATURNINO"
+  },
+  {
+    "id": 1807,
+    "word": "ZEFERI",
+    "synonym": "CEFERINO"
+  },
+  {
+    "id": 1808,
+    "word": "ZELEDON",
+    "synonym": "CELEDONIO"
+  },
+  {
+    "id": 1809,
+    "word": "ZERNIN",
+    "synonym": "SATURNINO"
+  },
+  {
+    "id": 1810,
+    "word": "ZERU",
+    "synonym": "CIELO"
+  },
+  {
+    "id": 1811,
+    "word": "ZERUKO",
+    "synonym": "CELESTINO"
+  },
+  {
+    "id": 1815,
+    "word": "ZORION",
+    "synonym": "FELIX"
+  },
+  {
+    "id": 1816,
+    "word": "ZUARA",
+    "synonym": "ZUWARAH"
+  },
+  {
+    "id": 1819,
+    "word": "ZURI",
+    "synonym": "BLANCO"
+  },
+  {
+    "id": 1820,
+    "word": "ZURIKO",
+    "synonym": "ALBINO"
+  },
+  {
+    "id": 1821,
+    "word": "ZUZEN",
+    "synonym": "JUSTO"
+  },
+  {
+    "id": 1828,
+    "word": "PIERRE",
+    "synonym": "PEDRO"
+  },
+  {
+    "id": 1829,
+    "word": "PETER",
+    "synonym": "PEDRO"
+  }
+]

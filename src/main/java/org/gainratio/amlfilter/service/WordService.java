@@ -1,5 +1,7 @@
 package org.gainratio.amlfilter.service;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.Data;
 import org.gainratio.amlfilter.model.Word;
 import org.gainratio.amlfilter.repository.WordRepository;
@@ -7,9 +9,17 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+import org.springframework.util.ResourceUtils;
 
 import javax.annotation.PostConstruct;
-import java.util.*;
+import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.IOException;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 
 /**
@@ -25,8 +35,10 @@ import java.util.*;
 @Data
 public class WordService implements WordServiceInterface {
     private static final Logger logger = LoggerFactory.getLogger(WordService.class);
+    private static final ObjectMapper objectMapper = new ObjectMapper();
     public static double MIN_POSSIBLE_WEIGHT = 0.001d;
-    private final Map<String, Word> wordMap = new HashMap<>();
+    private File resourceFile;
+    private Map<String, Word> wordMap = new HashMap<>();
     private int informationLevelScale = 10;
     private int maximumWordFrequency = Integer.MAX_VALUE;
     private double maximumFrequencyNaturalLog = 0f;
@@ -34,7 +46,6 @@ public class WordService implements WordServiceInterface {
     private double minimumFrequencyNaturalLog = 0f;
     private Set<String> lowWeightWordsSet;
     private float defaultLowWeight;
-    private boolean shouldLoadWords = true;
     private boolean loadWordSimilaritiesFlag = false;
 
     @Autowired
@@ -43,6 +54,49 @@ public class WordService implements WordServiceInterface {
     @PostConstruct
     public void init() throws Exception {
         loadAll();
+    }
+
+    public void loadAll() throws Exception {
+        List<Word> wordList = getWordRepository().findAll();
+        if (wordList.isEmpty()) {
+            wordList = loadFromFileResource();
+            wordList = wordRepository.saveAll(wordList);
+        }
+        loadAllWords(wordList);
+
+        if (Integer.MAX_VALUE == getMaximumWordFrequency()) {
+            setMaximumWordFrequency(getWordRepository().findFirstByOrderByNumTimesFoundDesc().getNumTimesFound());
+        }
+        if (-1 == getMinimumWordFrequency()) {
+            setMinimumWordFrequency(getWordRepository().findFirstByOrderByNumTimesFoundAsc().getNumTimesFound());
+        }
+
+        logger.info("maximumWordFrequency={}", getMaximumWordFrequency());
+        logger.info("minimumWordFrequency={}", getMinimumWordFrequency());
+        logger.info("maximumFrequencyNaturalLog={}", getMaximumFrequencyNaturalLog());
+        logger.info("minimumFrequencyNaturalLog={}", getMinimumFrequencyNaturalLog());
+    }
+
+    /**
+     * Load all the words from the database to the word map
+     */
+    public void loadAllWords(List<Word> wordList) throws IOException {
+        Map<String, Word> tmpWordMap = wordList
+                .stream().collect(Collectors.toMap(e -> e.getWord(), e -> e));
+        wordMap = tmpWordMap;
+        logger.info("Loaded all the words from the database, count = {}", wordList.size());
+    }
+
+    private File getFileResource() throws FileNotFoundException {
+        return ResourceUtils.getFile(
+                "classpath:word.json");
+    }
+
+    private List<Word> loadFromFileResource() throws IOException {
+        List<Word> wordList = objectMapper.readValue(getFileResource(), new TypeReference<List<Word>>() {
+        });
+        logger.info("Loading from resourceFile={}, wordList={}", resourceFile, wordList);
+        return wordList;
     }
 
     public void setMaximumWordFrequency(int pMaximumWordFrequency) {
@@ -120,28 +174,6 @@ public class WordService implements WordServiceInterface {
     }
 
     /**
-     * Load all the words from the database to the word map
-     */
-    public void loadAllWords() {
-        final String methodSignature = "void loadAllWords()";
-
-        List<Word> words = null;
-        synchronized (this) {
-            words = getWordRepository().findAll();
-
-            Iterator<Word> wordsIterator = words.iterator();
-
-            while (wordsIterator.hasNext()) {
-                Word word = wordsIterator.next();
-                setWord(word.getWord(), word);
-            }
-        }
-
-        logger.info("Loaded all the words from the database, count = {}", words.size());
-    }
-
-
-    /**
      * Get name information level
      */
     public float getNameInformationLevel(String pName) {
@@ -160,27 +192,5 @@ public class WordService implements WordServiceInterface {
 
         }
         return fullInformationLevel;
-    }
-
-    /**
-     * Load all the constructs
-     */
-    public void loadAll() throws Exception {
-        if (isShouldLoadWords()) {
-            loadAllWords();
-
-            if (Integer.MAX_VALUE == getMaximumWordFrequency()) {
-                setMaximumWordFrequency(getWordRepository().findMaximumWordFrequency());
-            }
-            if (-1 == getMinimumWordFrequency()) {
-                setMinimumWordFrequency(getWordRepository().findMinimumWordFrequency());
-            }
-
-            logger.info("maximumWordFrequency={}", getMaximumWordFrequency());
-            logger.info("minimumWordFrequency={}", getMinimumWordFrequency());
-            logger.info("maximumFrequencyNaturalLog={}", getMaximumFrequencyNaturalLog());
-            logger.info("minimumFrequencyNaturalLog={}", getMinimumFrequencyNaturalLog());
-
-        }
     }
 }

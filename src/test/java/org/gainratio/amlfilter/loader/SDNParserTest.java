@@ -2,11 +2,10 @@ package org.gainratio.amlfilter.loader;
 
 
 import org.gainratio.amlfilter.BaseUnitTest;
+import org.gainratio.amlfilter.parser.SDNParser;
 import org.gainratio.amlfilter.sdn.Sanctions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-
-import java.net.URL;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
