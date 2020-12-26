@@ -1,4 +1,4 @@
-package org.gainratio.amlfilter.loader;
+package org.gainratio.amlfilter.parser;
 
 import lombok.Data;
 import org.gainratio.amlfilter.sdn.Sanctions;
@@ -23,8 +23,6 @@ public class SDNParser implements Parser<Sanctions> {
     @PostConstruct
     void init() throws Exception {
         logger.info("url={}", url);
-        // TODO: Move this to the loader
-        parse();
     }
 
     @Override
