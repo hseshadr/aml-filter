@@ -9,13 +9,13 @@ import org.gainratio.amlfilter.repository.SynonymRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Service;
-import org.springframework.util.ResourceUtils;
 
 import javax.annotation.PostConstruct;
 import java.io.File;
-import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.InputStream;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -69,13 +69,13 @@ public class SynonymService implements SynonymServiceInterface {
         logger.info("Loaded all the synonyms from the database, count = {}", synonymMap.size());
     }
 
-    private File getFileResource() throws FileNotFoundException {
-        return ResourceUtils.getFile(
-                "classpath:synonym.json");
+    private InputStream getResourceInputStream() throws IOException {
+        return new ClassPathResource(
+                "classpath:synonym.json").getInputStream();
     }
 
     private List<Synonym> loadFromFileResource() throws IOException {
-        List<Synonym> synonymList = objectMapper.readValue(getFileResource(), new TypeReference<List<Synonym>>() {
+        List<Synonym> synonymList = objectMapper.readValue(getResourceInputStream(), new TypeReference<List<Synonym>>() {
         });
         logger.info("Loading from resourceFile={}, synonymList={}", resourceFile, synonymList);
         return synonymList;

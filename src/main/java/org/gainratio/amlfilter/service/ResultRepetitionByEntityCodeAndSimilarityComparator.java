@@ -1,5 +1,3 @@
-
-
 package org.gainratio.amlfilter.service;
 
 import org.gainratio.amlfilter.model.Result;

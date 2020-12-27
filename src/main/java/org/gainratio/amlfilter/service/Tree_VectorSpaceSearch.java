@@ -1,6 +1,7 @@
 package org.gainratio.amlfilter.service;
 
 import lombok.Data;
+import lombok.EqualsAndHashCode;
 import org.gainratio.amlfilter.model.Result;
 import org.gainratio.amlfilter.model.SearchRecord;
 import org.gainratio.amlfilter.search.NameSearch;
@@ -20,6 +21,7 @@ import java.util.*;
  * performs a vector space search.
  */
 @Data
+@EqualsAndHashCode(callSuper = false)
 @Service
 public class Tree_VectorSpaceSearch extends NameSearch {
     private static final Logger logger = LoggerFactory.getLogger(Tree_VectorSpaceSearch.class);

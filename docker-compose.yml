@@ -1,0 +1,20 @@
+version: "3"
+services:
+  api-database:
+    image: mongo:3.2.4
+    container_name: "api-database"
+    ports:
+      - 27018:27017
+    command: --smallfiles
+  api:
+    image: api-docker-image
+    command: env
+    ports:
+      - 8081:8080
+    environment:
+      DB_HOST: api-database
+      DB_PORT: 27017
+      JAVA_OPTIONS: -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005
+
+    depends_on:
+      - api-database
