@@ -7,8 +7,6 @@ import java.util.Map;
 
 public interface SynonymServiceInterface {
     void loadAll() throws Exception;
-
-    List<String> getSynonymName(@NonNull String pName);
-
+    String getSynonymName(@NonNull String pName);
     Map<String, String> getSynonymMap();
 }

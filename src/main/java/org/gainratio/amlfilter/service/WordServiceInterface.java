@@ -7,4 +7,5 @@ public interface WordServiceInterface {
 
     void loadAll() throws Exception;
 
+    float getWordLength(String name2Token);
 }

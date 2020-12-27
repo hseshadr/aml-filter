@@ -117,6 +117,7 @@ public class WordService implements WordServiceInterface {
         getWordMap().put(pWordStr.toUpperCase(), pWordObj);
     }
 
+    @Override
     public float getWordLength(String pWordName) {
         if (null == pWordName || pWordName.trim().equals("")) {
             return 0f;

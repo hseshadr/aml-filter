@@ -25,7 +25,7 @@ public class SynonymController {
     }
 
     @GetMapping("/synonym/{name}")
-    List<String> synonyms(@PathVariable String name) {
+    String synonyms(@PathVariable String name) {
         return synonymService.getSynonymName(name);
     }
 }

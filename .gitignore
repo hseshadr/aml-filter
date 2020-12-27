@@ -5,6 +5,15 @@ gradlew
 .idea/**
 .gradle/**
 gradle/**
-build/*
+build/**
 
 *.class
+/build/classes
+*.class
+*.class
+build/classes/java/main/org/gainratio/amlfilter/service/AlgorithmsService.class
+build/classes/java/main/org/gainratio/amlfilter/service/SynonymService.class
+build/classes/java/main/org/gainratio/amlfilter/service/SynonymServiceInterface.class
+build/classes/java/main/org/gainratio/amlfilter/service/WordService.class
+build/classes/java/main/org/gainratio/amlfilter/service/WordServiceInterface.class
+build/classes/java/main/org/gainratio/amlfilter/util/AlgorithmUtils.class
