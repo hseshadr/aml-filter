@@ -10,7 +10,10 @@ import org.springframework.stereotype.Component;
 
 import javax.annotation.PostConstruct;
 import java.time.LocalDate;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 @Component
 @AllArgsConstructor
@@ -29,12 +32,12 @@ public class LoaderService implements LoaderServiceInterface {
         Sanctions sanctions = sdnParser.parse();
         LocalDate sanctionsDate = getSanctionsDate(sanctions);
         int version = getSanctionsVersion(sanctions);
-        Map<String,String> aliasIdToAliasTypeMap = getAliasTypeMap(sanctions);
-        Map<String,String> areaIdToAreaCodeMap = getAreaCodeMap(sanctions);
-        Map<String,String> areaIdToAreaCodeTypeMap = getAreaCodeTypeMap(sanctions);
-        Map<String,String> calendarTypeIdToCalendarTypeMap = getCalendarTypeMap(sanctions);
-        Map<String,String> countryIdToNameMap = getCountryNameMap(sanctions);
-        Map<String,String> detailReferenceMap = getDetailReferenceMap(sanctions);
+        Map<String, String> aliasIdToAliasTypeMap = getAliasTypeMap(sanctions);
+        Map<String, String> areaIdToAreaCodeMap = getAreaCodeMap(sanctions);
+        Map<String, String> areaIdToAreaCodeTypeMap = getAreaCodeTypeMap(sanctions);
+        Map<String, String> calendarTypeIdToCalendarTypeMap = getCalendarTypeMap(sanctions);
+        Map<String, String> countryIdToNameMap = getCountryNameMap(sanctions);
+        Map<String, String> detailReferenceMap = getDetailReferenceMap(sanctions);
 
     }
 
@@ -54,8 +57,8 @@ public class LoaderService implements LoaderServiceInterface {
         return sanctionVersion;
     }
 
-    private Map<String,String> getAliasTypeMap(Sanctions sanctions) {
-        Map<String,String> aliasIdToAliasTypeMap = new HashMap<>();
+    private Map<String, String> getAliasTypeMap(Sanctions sanctions) {
+        Map<String, String> aliasIdToAliasTypeMap = new HashMap<>();
         ReferenceValueSetsSchemaType.AliasTypeValues aliasTypeValues
                 = sanctions.getReferenceValueSets().getAliasTypeValues();
         List<ReferenceValueSetsSchemaType.AliasTypeValues.AliasType> areaCodeList = aliasTypeValues.getAliasType();
@@ -66,8 +69,8 @@ public class LoaderService implements LoaderServiceInterface {
         return aliasIdToAliasTypeMap;
     }
 
-    private Map<String,String> getAreaCodeMap(Sanctions sanctions) {
-        Map<String,String> areaIdToAreaCodeMap = new HashMap<>();
+    private Map<String, String> getAreaCodeMap(Sanctions sanctions) {
+        Map<String, String> areaIdToAreaCodeMap = new HashMap<>();
         ReferenceValueSetsSchemaType.AreaCodeValues areaCodeValues
                 = sanctions.getReferenceValueSets().getAreaCodeValues();
         List<ReferenceValueSetsSchemaType.AreaCodeValues.AreaCode> areaCodeList = areaCodeValues.getAreaCode();
@@ -78,8 +81,8 @@ public class LoaderService implements LoaderServiceInterface {
         return areaIdToAreaCodeMap;
     }
 
-    private Map<String,String> getAreaCodeTypeMap(Sanctions sanctions) {
-        Map<String,String> areaIdToAreaCodeTypeMap = new HashMap<>();
+    private Map<String, String> getAreaCodeTypeMap(Sanctions sanctions) {
+        Map<String, String> areaIdToAreaCodeTypeMap = new HashMap<>();
         ReferenceValueSetsSchemaType.AreaCodeTypeValues areaCodeTypeValues
                 = sanctions.getReferenceValueSets().getAreaCodeTypeValues();
         List<ReferenceValueSetsSchemaType.AreaCodeTypeValues.AreaCodeType> areaCodeTypeList
@@ -91,8 +94,8 @@ public class LoaderService implements LoaderServiceInterface {
         return areaIdToAreaCodeTypeMap;
     }
 
-    private Map<String,String> getCalendarTypeMap(Sanctions sanctions) {
-        Map<String,String> calendarIdToCalendarType = new HashMap<>();
+    private Map<String, String> getCalendarTypeMap(Sanctions sanctions) {
+        Map<String, String> calendarIdToCalendarType = new HashMap<>();
         ReferenceValueSetsSchemaType.CalendarTypeValues calendarTypeValues
                 = sanctions.getReferenceValueSets().getCalendarTypeValues();
         List<ReferenceValueSetsSchemaType.CalendarTypeValues.CalendarType> calendarTypeList
@@ -104,8 +107,8 @@ public class LoaderService implements LoaderServiceInterface {
         return calendarIdToCalendarType;
     }
 
-    private Map<String,String> getCountryNameMap(Sanctions sanctions) {
-        Map<String,String> countryIdToNameMap = new HashMap<>();
+    private Map<String, String> getCountryNameMap(Sanctions sanctions) {
+        Map<String, String> countryIdToNameMap = new HashMap<>();
         ReferenceValueSetsSchemaType.CountryValues countryValues = sanctions.getReferenceValueSets().getCountryValues();
         List<ReferenceValueSetsSchemaType.CountryValues.Country> countryList = countryValues.getCountry();
         for (ReferenceValueSetsSchemaType.CountryValues.Country country : countryList) {
@@ -115,8 +118,8 @@ public class LoaderService implements LoaderServiceInterface {
         return countryIdToNameMap;
     }
 
-    private Map<String,String> getDetailReferenceMap(Sanctions sanctions) {
-        Map<String,String> detailReferenceIdToNameMap = new HashMap<>();
+    private Map<String, String> getDetailReferenceMap(Sanctions sanctions) {
+        Map<String, String> detailReferenceIdToNameMap = new HashMap<>();
         ReferenceValueSetsSchemaType.DetailReferenceValues detailReferenceValues
                 = sanctions.getReferenceValueSets().getDetailReferenceValues();
         List<ReferenceValueSetsSchemaType.DetailReferenceValues.DetailReference> detailReferenceList

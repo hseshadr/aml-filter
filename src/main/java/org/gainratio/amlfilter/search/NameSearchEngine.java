@@ -1,5 +1,3 @@
-
- 
 package org.gainratio.amlfilter.search;
 
 import lombok.Data;
@@ -21,8 +19,7 @@ import java.util.Map;
  */
 @Data
 @Component
-public class NameSearchEngine
-{
+public class NameSearchEngine {
     private ResultsServiceInterface resultsService;
     private List<NameSearch> nameSearchComponents = new ArrayList<NameSearch>();
 
@@ -31,37 +28,35 @@ public class NameSearchEngine
      * This is done by invoking all the search components
      * registered and invoking one by one, gathering the
      * results and then merging them.
+     *
      * @throws Exception
      */
     public List<Result> searchForNameInWatchList(String pNameToSearch,
-                                                   Map pParametersMap)
-                                                   throws Exception
-    {
+                                                 Map pParametersMap)
+            throws Exception {
         final String methodSignature = "List<Result> searchForNameInWatchList(String, Map): ";
         Iterator<NameSearch> nameSearchComponentsIterator = getNameSearchComponents().iterator();
         List<Result> cumulativeResults = new ArrayList<Result>();
         List<Result> results = null;
-		// Iterate through all name search components and execute the search
-		while (nameSearchComponentsIterator.hasNext())
-		{
-			NameSearch nameSearchComponent = (NameSearch) nameSearchComponentsIterator.next();
-			results = nameSearchComponent.executeNameSearch(pParametersMap);
-			cumulativeResults.addAll(results);
-		}
+        // Iterate through all name search components and execute the search
+        while (nameSearchComponentsIterator.hasNext()) {
+            NameSearch nameSearchComponent = nameSearchComponentsIterator.next();
+            results = nameSearchComponent.executeNameSearch(pParametersMap);
+            cumulativeResults.addAll(results);
+        }
 
-		if (cumulativeResults.size() > 0)
-		{
-			// Remove the result repetitions from multiple searches
-			// *******************************************************************
-			cumulativeResults = getResultsService().removeResultRepetitionsByNameAndSimilarity(cumulativeResults);
+        if (cumulativeResults.size() > 0) {
+            // Remove the result repetitions from multiple searches
+            // *******************************************************************
+            cumulativeResults = getResultsService().removeResultRepetitionsByNameAndSimilarity(cumulativeResults);
 
-			// Remove the result repetitions by entity code and similarity
-			cumulativeResults = getResultsService().removeResultRepetitionsByEntityCodeAndSimilarity(cumulativeResults);
-			// Remove the result synonyms
-			// *******************************************************************
-			cumulativeResults = getResultsService().removeResultSynonyms(cumulativeResults);
-		}
-		// Finally return the results
-		return cumulativeResults;
+            // Remove the result repetitions by entity code and similarity
+            cumulativeResults = getResultsService().removeResultRepetitionsByEntityCodeAndSimilarity(cumulativeResults);
+            // Remove the result synonyms
+            // *******************************************************************
+            cumulativeResults = getResultsService().removeResultSynonyms(cumulativeResults);
+        }
+        // Finally return the results
+        return cumulativeResults;
     }
 }

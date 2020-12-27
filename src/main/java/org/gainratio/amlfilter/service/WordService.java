@@ -8,13 +8,13 @@ import org.gainratio.amlfilter.repository.WordRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Component;
-import org.springframework.util.ResourceUtils;
 
 import javax.annotation.PostConstruct;
 import java.io.File;
-import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.InputStream;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -87,13 +87,13 @@ public class WordService implements WordServiceInterface {
         logger.info("Loaded all the words from the database, count = {}", wordList.size());
     }
 
-    private File getFileResource() throws FileNotFoundException {
-        return ResourceUtils.getFile(
-                "classpath:word.json");
+    private InputStream getResourceInputStream() throws IOException {
+        return new ClassPathResource(
+                "classpath:word.json").getInputStream();
     }
 
     private List<Word> loadFromFileResource() throws IOException {
-        List<Word> wordList = objectMapper.readValue(getFileResource(), new TypeReference<List<Word>>() {
+        List<Word> wordList = objectMapper.readValue(getResourceInputStream(), new TypeReference<List<Word>>() {
         });
         logger.info("Loading from resourceFile={}, wordList={}", resourceFile, wordList);
         return wordList;
