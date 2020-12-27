@@ -56,9 +56,11 @@ public class SynonymService implements SynonymServiceInterface {
         loadAllSynonyms(synonymList);
     }
 
-    public List<String> getSynonymName(@NonNull String pName) {
-        return Arrays.stream(pName.split(" "))
-                .map(s -> getSynonymMap().get(s)).collect(Collectors.toList());
+    @Override
+    public String getSynonymName(@NonNull String name) {
+        name = AlgorithmsService.cleanString(name);
+        return Arrays.stream(name.split(" "))
+                .map(s -> getSynonymMap().get(s)).collect(Collectors.joining(" "));
     }
 
     private void loadAllSynonyms(List<Synonym> synonymList) throws IOException {
