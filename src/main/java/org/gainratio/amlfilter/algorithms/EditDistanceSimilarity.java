@@ -1,5 +1,3 @@
-
-
 package org.gainratio.amlfilter.algorithms;
 
 import org.apache.commons.lang3.StringUtils;

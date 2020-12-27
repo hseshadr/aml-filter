@@ -1,5 +1,3 @@
-
-
 package org.gainratio.amlfilter.search.dataFiles;
 
 import org.gainratio.amlfilter.search.vectorSpace.VectorSpace;

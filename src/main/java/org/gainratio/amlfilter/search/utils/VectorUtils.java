@@ -1,5 +1,3 @@
-
-
 package org.gainratio.amlfilter.search.utils;
 
 import org.gainratio.amlfilter.search.comparisonCriteria.VsComparisonCriteriaHandler;

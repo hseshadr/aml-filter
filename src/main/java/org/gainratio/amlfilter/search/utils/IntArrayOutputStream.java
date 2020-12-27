@@ -1,5 +1,3 @@
-
-
 package org.gainratio.amlfilter.search.utils;
 
 import java.io.OutputStream;

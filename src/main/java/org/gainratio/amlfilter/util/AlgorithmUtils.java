@@ -1,5 +1,3 @@
-
-
 package org.gainratio.amlfilter.util;
 
 import java.util.ArrayList;

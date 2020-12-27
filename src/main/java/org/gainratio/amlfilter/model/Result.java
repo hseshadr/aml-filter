@@ -1,15 +1,12 @@
-
 package org.gainratio.amlfilter.model;
 
 import lombok.Data;
 
-import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.List;
 
 @Data
-public class Result
-{
+public class Result {
     private String description = "";
     private String uncleanedSearchName;
     private String searchName;
@@ -25,9 +22,9 @@ public class Result
     private String searchId;
 
     public String getSearchId() {
-    	if (null == searchId) {
-    		searchId = getSearchRecord().getUniqueId();
-    	}
-    	return searchId;
+        if (null == searchId) {
+            searchId = getSearchRecord().getUniqueId();
+        }
+        return searchId;
     }
 }

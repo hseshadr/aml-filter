@@ -1,5 +1,3 @@
-
-
 package org.gainratio.amlfilter.search.comparisonCriteria;
 
 import org.gainratio.amlfilter.search.vectorSpace.TreeResult;

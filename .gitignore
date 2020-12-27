@@ -7,9 +7,7 @@ gradlew
 gradle/**
 build/**
 
-*.class
-/build/classes
-*.class
+/build/classes/**
 *.class
 build/classes/java/main/org/gainratio/amlfilter/service/AlgorithmsService.class
 build/classes/java/main/org/gainratio/amlfilter/service/SynonymService.class

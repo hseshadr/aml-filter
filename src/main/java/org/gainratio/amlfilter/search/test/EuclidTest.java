@@ -1,5 +1,3 @@
-
-
 package org.gainratio.amlfilter.search.test;
 
 import org.gainratio.amlfilter.search.utils.VectorUtils;

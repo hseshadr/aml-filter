@@ -1,4 +1,3 @@
-
 package org.gainratio.amlfilter.service;
 
 import lombok.Data;

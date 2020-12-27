@@ -1,5 +1,3 @@
-
-
 package org.gainratio.amlfilter.search.vectorSpace;
 
 import java.util.Comparator;
