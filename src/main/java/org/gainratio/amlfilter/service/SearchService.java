@@ -39,14 +39,8 @@ public class SearchService {
     private List<Result> filterResults(List<Result> results) {
         List<Result> filteredResults = new ArrayList<>();
         if (results.size() > 0) {
-            // Remove the result repetitions from multiple searches
-            // *******************************************************************
             filteredResults = getResultsService().removeResultRepetitionsByNameAndSimilarity(results);
-
-            // Remove the result repetitions by entity code and similarity
             filteredResults = getResultsService().removeResultRepetitionsByEntityCodeAndSimilarity(filteredResults);
-            // Remove the result synonyms
-            // *******************************************************************
             filteredResults = getResultsService().removeResultSynonyms(filteredResults);
         }
         return filteredResults;
