@@ -32,7 +32,7 @@ public class VectorSpaceService {
         createVectorSpaceFlat();
     }
 
-    private void createVectorSpaceFlat() {
+    public void createVectorSpaceFlat() {
         VectorSpaceFlat vectorSpaceFlat
                 = new VectorSpaceFlat();
         List<VectorDataFlat> vectorDataFlatList = new ArrayList<>();

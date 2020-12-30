@@ -1,6 +1,7 @@
 package org.gainratio.amlfilter.service;
 
 import lombok.AllArgsConstructor;
+import org.apache.commons.lang3.StringUtils;
 import org.gainratio.amlfilter.model.Entity;
 import org.gainratio.amlfilter.parser.ofac.Parser;
 import org.gainratio.amlfilter.repository.EntityRepository;
@@ -31,7 +32,7 @@ public class LoaderService implements LoaderServiceInterface {
     }
 
     @Override
-    public void load() throws Exception {
+    public List<Entity> load() throws Exception {
         Sanctions sanctions = sdnParser.parse();
         LocalDate sanctionsDate = getSanctionsDate(sanctions);
         int version = getSanctionsVersion(sanctions);
@@ -45,6 +46,7 @@ public class LoaderService implements LoaderServiceInterface {
         List<Entity> entitites = getEntities(sanctions);
         logger.info("Saving entities.size(): {}", entitites.size());
         entityRepository.saveAll(entitites);
+        return entitites;
     }
 
     private LocalDate getSanctionsDate(Sanctions sanctions) {
@@ -156,9 +158,13 @@ public class LoaderService implements LoaderServiceInterface {
                                     = documentedNameSchemaType.getDocumentedNamePart();
                             for (DocumentedNameSchemaType.DocumentedNamePart documentedNamePart : documentedNamePartList) {
                                 DocumentedNameSchemaType.DocumentedNamePart.NamePartValue namePartValue = documentedNamePart.getNamePartValue();
+                                String cleanedName = AlgorithmUtils.cleanString(namePartValue.getValue());
+                                if (StringUtils.isBlank(cleanedName)) {
+                                    continue;
+                                }
                                 entity.getEntityNameSet().add(namePartValue.getValue());
                                 entity.getCleanedEntityNames()
-                                        .add(AlgorithmUtils.cleanString(namePartValue.getValue()));
+                                        .add(cleanedName);
                             }
                         }
                     }
