@@ -22,15 +22,13 @@ public class ResultsService implements ResultsServiceInterface {
     @Autowired
     private WordService wordService;
 
-    public Result createResult(SearchRecord searchRecord,
-                               String searchName,
+    public Result createResult(String searchName,
                                String resultName,
                                String entityCode,
                                String listName,
                                float textSimilarity) {
         Result result = new Result();
         result.setSearchName(searchName);
-        result.setSearchRecord(searchRecord);
         result.setResultName(resultName);
         result.setResultNameInformationLevel(getWordService().getNameInformationLevel(resultName));
         result.setEntityCodeInSource(entityCode);

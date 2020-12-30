@@ -16,8 +16,7 @@ public class SearchResultAnalyzerService {
     private static final Logger logger = LoggerFactory.getLogger(SearchResultAnalyzerService.class);
     @Autowired
     private TextSimilarityMappingPathService textSimilarityMappingPathService;
-    private float wholeNameHighTextSimilarityThreshold = 0.9f;
-    private float wholeNameMediumTextSimilarityThreshold = 0.7f;
+    private float wholeNameHighTextSimilarityThreshold = 0.8f;
 
     public ResultMatch resultMatch(String pName1, String pName2, Result pResult) {
         float textSimilarity = getTextSimilarityMappingPathService().getTextSimilarity(pName1, pName2);

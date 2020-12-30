@@ -164,7 +164,7 @@ public class Tree_VectorSpaceSearch extends NameSearch {
             for (int i = 0; i < resultNames.size(); i++) {
                 resultName = resultNames.get(i);
                 hitTime = System.currentTimeMillis();
-                result = getResultsService().createResult(pSearchRecord,
+                result = getResultsService().createResult(
                         searchName,
                         resultName,
                         null,
