@@ -1,6 +1,7 @@
 package org.gainratio.amlfilter.model;
 
 import lombok.Data;
+import org.springframework.data.annotation.Id;
 
 import java.time.LocalDate;
 import java.util.Set;
@@ -8,6 +9,7 @@ import java.util.TreeSet;
 
 @Data
 public class Entity {
+    @Id
     private String entityCodeInSource = "";
     private String gender = "";
     private String listName;
