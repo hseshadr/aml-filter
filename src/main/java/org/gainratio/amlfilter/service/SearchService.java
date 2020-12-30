@@ -1,6 +1,7 @@
 package org.gainratio.amlfilter.service;
 
 import lombok.Data;
+import org.apache.commons.lang3.StringUtils;
 import org.gainratio.amlfilter.model.*;
 import org.gainratio.amlfilter.util.AlgorithmUtils;
 import org.gainratio.amlfilter.vector.filter.TextSimilarityMappedWordsSearchFilter;
@@ -9,6 +10,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -35,6 +38,7 @@ public class SearchService {
         return SearchResponse.builder().searchRecordResultList(searchRecordResultsList).build();
     }
 
+
     private List<Result> filterResults(List<Result> results) {
         List<Result> filteredResults = new ArrayList<>();
         if (results.size() > 0) {
@@ -42,12 +46,21 @@ public class SearchService {
             filteredResults = getResultsService().removeResultRepetitionsByEntityCodeAndSimilarity(filteredResults);
             filteredResults = getResultsService().removeResultSynonyms(filteredResults);
         }
+        Collections.sort(filteredResults, new Comparator<Result>() {
+            @Override
+            public int compare(Result o1, Result o2) {
+                return o2.getTextSimilarity().compareTo((o1.getTextSimilarity()));
+            }
+        });
         return filteredResults;
     }
 
     private List<Result> searchVariants(SearchRecord searchRecord) {
         List<Result> resultList = new ArrayList<>();
         String searchName = AlgorithmUtils.cleanString(searchRecord.getFullName());
+        if (StringUtils.isBlank(searchName)) {
+            return resultList;
+        }
         List<Result> results1 = search(searchName, searchRecord);
         resultList.addAll(results1);
         String synonymicName = getSynonymService().getSynonymName(searchName);
