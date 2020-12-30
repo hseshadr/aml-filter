@@ -11,6 +11,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
+import java.util.Arrays;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -33,7 +34,7 @@ class SearchServiceTest extends BaseUnitTest {
             e.getEntityNameSet().stream().forEach(name -> {
                 SearchRequest searchRequest = SearchRequest
                         .builder()
-                        .searchRecordList(List.of(SearchRecord.builder().fullName(name).build())).build();
+                        .searchRecordList(Arrays.asList(SearchRecord.builder().fullName(name).build())).build();
                 SearchResponse searchResponse = searchService.search(searchRequest);
                 logger.info("searchResponse={}", searchResponse);
 
@@ -57,7 +58,7 @@ class SearchServiceTest extends BaseUnitTest {
         String name = "فندق الجلاء";
         SearchRequest searchRequest = SearchRequest
                 .builder()
-                .searchRecordList(List.of(SearchRecord.builder().fullName(name).build())).build();
+                .searchRecordList(Arrays.asList(SearchRecord.builder().fullName(name).build())).build();
         SearchResponse searchResponse = searchService.search(searchRequest);
         logger.info("searchResponse={}", searchResponse);
         List<Result> resultList = searchResponse.getSearchRecordResultList().get(0).getResults();
