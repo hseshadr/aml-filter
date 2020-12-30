@@ -3,7 +3,9 @@ package org.gainratio.amlfilter.service;
 import lombok.AllArgsConstructor;
 import org.gainratio.amlfilter.model.Entity;
 import org.gainratio.amlfilter.parser.ofac.Parser;
+import org.gainratio.amlfilter.repository.EntityRepository;
 import org.gainratio.amlfilter.sdn.*;
+import org.gainratio.amlfilter.util.AlgorithmUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -20,6 +22,7 @@ import java.util.Map;
 public class LoaderService implements LoaderServiceInterface {
     private static final Logger logger = LoggerFactory.getLogger(LoaderService.class);
     private final Parser<Sanctions> sdnParser;
+    private final EntityRepository entityRepository;
 
     @PostConstruct
     void init() throws Exception {
@@ -39,6 +42,9 @@ public class LoaderService implements LoaderServiceInterface {
         Map<String, String> countryIdToNameMap = getCountryNameMap(sanctions);
         Map<String, String> detailReferenceMap = getDetailReferenceMap(sanctions);
 
+        List<Entity> entitites = getEntities(sanctions);
+        logger.info("Saving entities.size(): {}", entitites.size());
+        entityRepository.saveAll(entitites);
     }
 
     private LocalDate getSanctionsDate(Sanctions sanctions) {
@@ -136,6 +142,8 @@ public class LoaderService implements LoaderServiceInterface {
         List<DistinctPartySchemaType> distinctPartySchemaTypeList = sanctions.getDistinctParties().getDistinctParty();
         for (DistinctPartySchemaType dpst : distinctPartySchemaTypeList) {
             Entity entity = new Entity();
+            entity.setListName("OFAC");
+            entity.setEntityCodeInSource(dpst.getFixedRef());
             List<DistinctPartySchemaType.Profile> profileList = dpst.getProfile();
             for (DistinctPartySchemaType.Profile profile : profileList) {
                 List<IdentitySchemaType> identitySchemaTypeList = profile.getIdentity();
@@ -144,19 +152,20 @@ public class LoaderService implements LoaderServiceInterface {
                     for (IdentitySchemaType.Alias alias : aliasList) {
                         List<DocumentedNameSchemaType> documentedNameSchemaTypeList = alias.getDocumentedName();
                         for (DocumentedNameSchemaType documentedNameSchemaType : documentedNameSchemaTypeList) {
-                            List<DocumentedNameSchemaType.DocumentedNameCountry> documentedNameCountryList = documentedNameSchemaType.getDocumentedNameCountry();
-                            for (DocumentedNameSchemaType.DocumentedNameCountry documentedNameCountry : documentedNameCountryList) {
-                                documentedNameCountry.getCountryID();
+                            List<DocumentedNameSchemaType.DocumentedNamePart> documentedNamePartList
+                                    = documentedNameSchemaType.getDocumentedNamePart();
+                            for (DocumentedNameSchemaType.DocumentedNamePart documentedNamePart : documentedNamePartList) {
+                                DocumentedNameSchemaType.DocumentedNamePart.NamePartValue namePartValue = documentedNamePart.getNamePartValue();
+                                entity.getEntityNameSet().add(namePartValue.getValue());
+                                entity.getCleanedEntityNames()
+                                        .add(AlgorithmUtils.cleanString(namePartValue.getValue()));
                             }
-                            List<IDRegDocumentReference> idRegDocumentReferenceList = documentedNameSchemaType.getIDRegDocumentReference();
-                            for (IDRegDocumentReference idRegDocumentReference : idRegDocumentReferenceList) {
-                                idRegDocumentReference.getIDRegDocumentID();
-                            }
-
                         }
                     }
                 }
             }
+            //logger.info("entity={}", entity);
+            entityList.add(entity);
         }
         return entityList;
     }

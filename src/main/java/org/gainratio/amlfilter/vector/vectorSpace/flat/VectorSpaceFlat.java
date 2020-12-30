@@ -14,7 +14,6 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 @Data
-@AllArgsConstructor
 public class VectorSpaceFlat {
     private static final Logger logger = LoggerFactory.getLogger(VectorSpaceFlat.class);
     private static final String vectorTemplate = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ ";
@@ -23,7 +22,8 @@ public class VectorSpaceFlat {
     public static VectorSpaceFlat createTestVectorSpaceFlat() {
         List<VectorDataFlat> vectorDataFlatList = new ArrayList<>();
         VectorSpaceFlat vectorSpaceFlat
-                = new VectorSpaceFlat(vectorDataFlatList);
+                = new VectorSpaceFlat();
+        vectorSpaceFlat.setVectorDataList(vectorDataFlatList);
         VectorDataFlat vectorDataFlat = vectorSpaceFlat.createVector("1", "Harish Seshadri");
         vectorDataFlatList.add(vectorDataFlat);
         // Second entry
@@ -57,9 +57,8 @@ public class VectorSpaceFlat {
     private VectorDataFlat createVector(String id,
                                         String name,
                                         final byte[] incomingData) {
-        VectorDataFlat vectorDataFlat = new VectorDataFlat();
-        vectorDataFlat.setId(id);
-        vectorDataFlat.setData(name);
+        VectorDataFlat vectorDataFlat = VectorDataFlat.builder()
+                .id(id).data(name).build();
         byte[] vector = new byte[37];
         int spaceIndex = 36;
         int startNumberOffset = 48;
