@@ -5,9 +5,10 @@ import lombok.EqualsAndHashCode;
 import org.gainratio.amlfilter.model.Result;
 import org.gainratio.amlfilter.model.SearchRecord;
 import org.gainratio.amlfilter.search.NameSearch;
-import org.gainratio.amlfilter.search.vectorSpace.TreeResult;
-import org.gainratio.amlfilter.search.vectorSpace.VectorData4Tree;
-import org.gainratio.amlfilter.search.vectorSpace.VectorSpace;
+import org.gainratio.amlfilter.util.AlgorithmUtils;
+import org.gainratio.amlfilter.vector.vectorSpace.TreeResult;
+import org.gainratio.amlfilter.vector.vectorSpace.VectorData;
+import org.gainratio.amlfilter.vector.vectorSpace.VectorSpace;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -50,9 +51,9 @@ public class Tree_VectorSpaceSearch extends NameSearch {
             if (null == vs) {
                 throw new IllegalStateException(methodSignature + "The vector space is not set. Is the configuration of this process set properly in the database?");
             }
-            String searchName = searchRecord.getCleanedSearchName();
+            String searchName = AlgorithmUtils.cleanString(searchRecord.getFullName());
 
-            VectorData4Tree vector2Search = null;
+            VectorData vector2Search = null;
             Map<String, List<String>> searchResultsMap = null;
             List<TreeResult> treeResults = null;
 
@@ -164,15 +165,11 @@ public class Tree_VectorSpaceSearch extends NameSearch {
                 resultName = resultNames.get(i);
                 hitTime = System.currentTimeMillis();
                 result = getResultsService().createResult(pSearchRecord,
-                        null,
-                        uncleanedSearchName,
                         searchName,
                         resultName,
                         null,
                         null,
-                        null,
-                        -1f,
-                        hitTime);
+                        -1f);
                 results.add(result);
             }
         }
@@ -205,7 +202,7 @@ public class Tree_VectorSpaceSearch extends NameSearch {
 
         long startTime = System.currentTimeMillis();
         TreeResult treeResult = null;
-        VectorData4Tree treeVectorData = null;
+        VectorData treeVectorData = null;
         List<String> names = new ArrayList<String>();
         Map<String, List<String>> searchResultMap = new HashMap<String, List<String>>();
 

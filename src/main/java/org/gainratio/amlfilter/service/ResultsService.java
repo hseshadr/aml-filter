@@ -22,30 +22,20 @@ public class ResultsService implements ResultsServiceInterface {
     @Autowired
     private WordService wordService;
 
-    public Result createResult(SearchRecord pSearchRecord,
-                               String pDescription,
-                               String pUncleanedSearchName,
-                               String pSearchName,
-                               String pResultName,
-                               String pResultDescription,
-                               String pEntityCodeInSource,
-                               String pListName,
-                               float pTextSimilarity,
-                               long pHitTime) {
+    public Result createResult(SearchRecord searchRecord,
+                               String searchName,
+                               String resultName,
+                               String entityCode,
+                               String listName,
+                               float textSimilarity) {
         Result result = new Result();
-        result.setSearchRecord(pSearchRecord);
-        result.setDescription(pDescription);
-        result.setUncleanedSearchName(pUncleanedSearchName);
-        result.setSearchName(pSearchName);
-        result.setResultName(pResultName);
-        result.setResultNameInformationLevel(getWordService().getNameInformationLevel(pResultName));
-        result.setResultDescription(pResultDescription);
-        result.setEntityCodeInSource(pEntityCodeInSource);
-        result.setListName(pListName);
-        result.setTextSimilarity(pTextSimilarity);
-        result.setHitTime(pHitTime);
-
-        result.setResultNameInformationLevel(getWordService().getNameInformationLevel(pResultName));
+        result.setSearchName(searchName);
+        result.setSearchRecord(searchRecord);
+        result.setResultName(resultName);
+        result.setResultNameInformationLevel(getWordService().getNameInformationLevel(resultName));
+        result.setEntityCodeInSource(entityCode);
+        result.setListName(listName);
+        result.setTextSimilarity(textSimilarity);
         return result;
     }
 
@@ -53,22 +43,11 @@ public class ResultsService implements ResultsServiceInterface {
      * Remove result repetitions; the criteria used is by name. Mutiple
      * searches (e.g. original, synonymic) cascaded can return the same results
      * corresponding to the same entity name; this takes care of it.
-     *
-     * @param pResults The results
-     * @return A new list of de-duplicated results
      */
     public final List<Result> removeResultRepetitionsByNameAndSimilarity(List<Result> pResults) {
-        final String methodSignature = "List<Result> removeResultRepetitionsByNameAndSimilarity(List<Result>): ";
-
-        // Sort the collection by blackListMember ID + similarity
-        Collections.sort(pResults, ResultRepetitionByNameAndSimilarityComparator.getInstance());
-
-        // Create a new result array that will contain the de-duplicated results
+        Collections.sort(pResults, new ResultRepetitionByNameAndSimilarityComparator());
         List<Result> newResults = new ArrayList<Result>();
-
-        // The results size
         int resultsSize = pResults.size();
-
         String lastName = "";
         for (int i = 0; i < resultsSize; i++) {
             Result result = pResults.get(i);
@@ -76,10 +55,8 @@ public class ResultsService implements ResultsServiceInterface {
             if (!name.equals(lastName)) {
                 newResults.add(result);
             }
-
             lastName = name;
         }
-
         return newResults;
     }
 
@@ -90,54 +67,28 @@ public class ResultsService implements ResultsServiceInterface {
      * @return A new list of de-duplicated results
      */
     public final List<Result> removeResultRepetitionsByEntityCodeAndSimilarity(List<Result> pResults) {
-        final String methodSignature = "List<Result> removeResultRepetitionsByEntityCodeAndSimilarity(final List<Result>): ";
-
-        Collections.sort(pResults, ResultRepetitionByEntityCodeAndSimilarityComparator.getInstance());
-
-        // Create a new result array that will contain the de-duplicated results
+        Collections.sort(pResults, new ResultRepetitionByEntityCodeAndSimilarityComparator());
         List<Result> newResults = new ArrayList<Result>();
-
-        // The results size
         int resultsSize = pResults.size();
-
         String lastEntityCodeInSource = "";
         for (int i = 0; i < resultsSize; i++) {
             Result result = pResults.get(i);
-
             String entityCodeInSource = result.getEntityCodeInSource();
             if (!entityCodeInSource.equals(lastEntityCodeInSource)) {
                 newResults.add(result);
             }
-
             lastEntityCodeInSource = entityCodeInSource;
         }
-
         return newResults;
     }
 
     /**
      * Remove result synonyms; the criteria used is by entity code in list, list
      * name, and the uncleaned name
-     *
-     * @param pResults The results to de-duplicate
-     * @return A new list of de-duplicated results
      */
     public final List<Result> removeResultSynonyms(final List<Result> pResults) {
-        final String methodSignature = "List<Result> removeResultRepetitions(final List<Result>): ";
-
-        // getLogger().info(getClass(), methodSignature + "pResults: " +
-        // getResultsAsString(pResults));
-        // Sort the collection by SDN key + blackListName + listName +
-        // Similarity
-        Collections.sort(pResults, ResultSynonymComparator.getInstance());
-
-        // getLogger().info(getClass(), methodSignature + "Sorted pResults: " +
-        // getResultsAsString(pResults));
-
-        // Create a new result array that will contain the de-duplicated results
+        Collections.sort(pResults, new ResultSynonymComparator());
         List<Result> newResults = new ArrayList<Result>();
-
-        // The results size
         int resultsSize = pResults.size();
 
         String lastComparisonToken = "";
@@ -160,9 +111,6 @@ public class ResultsService implements ResultsServiceInterface {
 
             lastComparisonToken = comparisonToken;
         }
-
-        // getLogger().info(getClass(), methodSignature +
-        // "De-duplicated pResults: " + getResultsAsString(newResults));
         return newResults;
     }
 }

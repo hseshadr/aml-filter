@@ -60,7 +60,7 @@ public class SynonymService implements SynonymServiceInterface {
     public String getSynonymName(@NonNull String name) {
         name = AlgorithmsService.cleanString(name);
         return Arrays.stream(name.split(" "))
-                .map(s -> getSynonymMap().get(s)).collect(Collectors.joining(" "));
+                .map(s -> getSynonymMap().getOrDefault(s.trim(), s)).collect(Collectors.joining(" "));
     }
 
     private void loadAllSynonyms(List<Synonym> synonymList) throws IOException {

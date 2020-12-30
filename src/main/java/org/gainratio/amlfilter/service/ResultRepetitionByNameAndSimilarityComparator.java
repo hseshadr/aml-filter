@@ -7,36 +7,15 @@ import java.util.Comparator;
 
 /**
  * Comparator for comparing black list name and similarity between results
- *
- * @author Harish Seshadri
- * @version $Id$
  */
-public class ResultRepetitionByNameAndSimilarityComparator implements Comparator {
-    private static ResultRepetitionByNameAndSimilarityComparator mResultRepetitionByBlackListNameAndSimilarityComparator;
-
-
-    /**
-     * Get the result repetition by black list name and similarity comparator instance
-     *
-     * @return The result repetition by black list name and similarity comparator instance
-     */
-    public static ResultRepetitionByNameAndSimilarityComparator getInstance() {
-        if (null == mResultRepetitionByBlackListNameAndSimilarityComparator) {
-            mResultRepetitionByBlackListNameAndSimilarityComparator = new ResultRepetitionByNameAndSimilarityComparator();
-        }
-        return mResultRepetitionByBlackListNameAndSimilarityComparator;
-    }
+public class ResultRepetitionByNameAndSimilarityComparator implements Comparator<Result> {
 
     /**
      * Compare the results by uncleaned result name to remove synonym duplicate too
-     *
-     * @param pResult1 The first result
-     * @param pResult2 The second result
-     * @return The integer comparison value
      */
-    public int compare(Object pResult1, Object pResult2) {
-        Result result1Obj = (Result) pResult1;
-        Result result2Obj = (Result) pResult2;
+    public int compare(Result pResult1, Result pResult2) {
+        Result result1Obj = pResult1;
+        Result result2Obj = pResult2;
 
         String blackListName1 = result1Obj.getResultName();
         String blackListName2 = result2Obj.getResultName();

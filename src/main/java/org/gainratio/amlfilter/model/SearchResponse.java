@@ -1,12 +1,13 @@
 package org.gainratio.amlfilter.model;
 
+import lombok.Builder;
 import lombok.Data;
 
-import java.util.ArrayList;
 import java.util.List;
 
 @Data
+@Builder
 public class SearchResponse {
-    private List<SearchRecordResults> searchRecordResults = new ArrayList<SearchRecordResults>();
-
+    private List<SearchRecordResults> searchRecordResultList;
+    private Long totalTime;
 }

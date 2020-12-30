@@ -3,7 +3,7 @@ package org.gainratio.amlfilter.search;
 
 import lombok.Data;
 import org.gainratio.amlfilter.model.Result;
-import org.gainratio.amlfilter.search.filter.NameSearchFilter;
+import org.gainratio.amlfilter.vector.filter.NameSearchFilter;
 
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -31,7 +31,7 @@ public abstract class NameSearch {
             NameSearchFilter nameSearchFilterComponent = (NameSearchFilter) nameSearchFilterComponentsIterator.next();
 
             // Invoke the filter
-            nameSearchFilterComponent.filterSearchResults(results, pParametersMap);
+            nameSearchFilterComponent.filterSearchResults(results);
         }
 
         // Return the final results objects

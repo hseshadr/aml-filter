@@ -1,16 +1,28 @@
 package org.gainratio.amlfilter.model;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.Builder;
 import lombok.Data;
 
-import java.util.ArrayList;
+import java.io.IOException;
 import java.util.List;
 
 @Data
+@Builder
 public class SearchRequest {
-    private Long hitTime;
-    private Long totalTime;
-    private String remoteAddr;
-    private String remoteHost;
-    private List<SearchRecord> mSearchRecordList = new ArrayList<SearchRecord>();
+    private String searchDate;
+    private List<SearchRecord> searchRecordList;
 
+    public static void main(String[] args) throws IOException {
+        ObjectMapper objectMapper = new ObjectMapper();
+        SearchRecord searchRecord1 = SearchRecord.testSearchRecord("Harish Seshadri");
+        SearchRecord searchRecord2 = SearchRecord.testSearchRecord("John Smith");
+        SearchRequest searchRequest = SearchRequest.builder().searchDate("2020-12-29")
+                .searchRecordList(List.of(searchRecord1, searchRecord2)).build();
+
+        String searchRequestAsJson = objectMapper.writerWithDefaultPrettyPrinter()
+                .writeValueAsString(searchRequest);
+        System.err.println(searchRequestAsJson);
+
+    }
 }

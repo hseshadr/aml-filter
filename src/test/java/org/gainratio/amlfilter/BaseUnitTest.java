@@ -16,7 +16,7 @@ public abstract class BaseUnitTest {
     @BeforeEach
     public void initMocks() {
         // all @Mock and @Spy annotated objects should have a clean state so no need to reset.
-        MockitoAnnotations.initMocks(this);
+        MockitoAnnotations.openMocks(this);
     }
 
     protected void attachLogAppender() {

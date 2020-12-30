@@ -5,13 +5,13 @@ import org.gainratio.amlfilter.model.Result;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-
-import java.util.Map;
+import org.springframework.stereotype.Service;
 
 /**
  * Analyzes the search results, using decision trees to accept/reject possbile matches
  */
 @Data
+@Service
 public class SearchResultAnalyzerService {
     private static final Logger logger = LoggerFactory.getLogger(SearchResultAnalyzerService.class);
     @Autowired
@@ -19,7 +19,7 @@ public class SearchResultAnalyzerService {
     private float wholeNameHighTextSimilarityThreshold = 0.9f;
     private float wholeNameMediumTextSimilarityThreshold = 0.7f;
 
-    public boolean doesResultMatch(String pName1, String pName2, Result pResult, Map pParametersMap) {
+    public ResultMatch resultMatch(String pName1, String pName2, Result pResult) {
         float textSimilarity = getTextSimilarityMappingPathService().getTextSimilarity(pName1, pName2);
         logger.info("Text Similarity: " + textSimilarity);
         pResult.setTextSimilarity(textSimilarity);
@@ -27,6 +27,7 @@ public class SearchResultAnalyzerService {
         // ********************
         // If the text similarity is very high, it look like we found the match
         logger.info("*PASS* CASE 1: High relative similarity: " + pName1 + "/" + pName2 + "  SIM: " + textSimilarity + " %");
-        return textSimilarity >= wholeNameHighTextSimilarityThreshold;
+        boolean match = textSimilarity >= wholeNameHighTextSimilarityThreshold;
+        return new ResultMatch(pResult, textSimilarity, match);
     }
 }
