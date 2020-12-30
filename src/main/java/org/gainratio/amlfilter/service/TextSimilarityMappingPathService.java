@@ -5,6 +5,7 @@ import org.gainratio.amlfilter.algorithms.PairSimilarity;
 import org.gainratio.amlfilter.util.GeneralConstants;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.config.PropertyPlaceholderConfigurer;
 import org.springframework.beans.factory.xml.XmlBeanFactory;
 import org.springframework.core.io.FileSystemResource;
@@ -19,7 +20,9 @@ import java.util.Set;
 public class TextSimilarityMappingPathService {
     public static final float PHONETIC_PERCENT_WEIGHT = 0.8f;
     private Logger logger = LoggerFactory.getLogger(getClass());
-    private WordServiceInterface wordService;
+    @Autowired
+    private WordService wordService;
+    @Autowired
     private TextSimilarityService textSimilarityService;
 
     private static String simTableInfoToString(

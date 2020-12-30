@@ -7,36 +7,15 @@ import java.util.Comparator;
 
 /**
  * Comparator by entity code in source and similarity
- *
- * @author Harish Seshadri
- * @version $Id$
  */
-public class ResultRepetitionByEntityCodeAndSimilarityComparator implements Comparator {
-    private static ResultRepetitionByEntityCodeAndSimilarityComparator mResultRepetitionByBlackListNameAndSimilarityComparator;
-
-
-    /**
-     * Get the result repetition by entity code in source and similarity instance
-     *
-     * @return The result repetition by entity code in source and similarity instance
-     */
-    public static ResultRepetitionByEntityCodeAndSimilarityComparator getInstance() {
-        if (null == mResultRepetitionByBlackListNameAndSimilarityComparator) {
-            mResultRepetitionByBlackListNameAndSimilarityComparator = new ResultRepetitionByEntityCodeAndSimilarityComparator();
-        }
-        return mResultRepetitionByBlackListNameAndSimilarityComparator;
-    }
+public class ResultRepetitionByEntityCodeAndSimilarityComparator implements Comparator<Result> {
 
     /**
      * Compare the results by entity code in source and similarity
-     *
-     * @param pResult1 The first result
-     * @param pResult2 The second result
-     * @return The integer comparison value
      */
-    public int compare(Object pResult1, Object pResult2) {
-        Result result1Obj = (Result) pResult1;
-        Result result2Obj = (Result) pResult2;
+    public int compare(Result pResult1, Result pResult2) {
+        Result result1Obj = pResult1;
+        Result result2Obj = pResult2;
 
         String entityCodeInSource1 = result1Obj.getEntityCodeInSource();
         String entityCodeInSource2 = result2Obj.getEntityCodeInSource();

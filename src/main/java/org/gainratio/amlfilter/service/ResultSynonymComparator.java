@@ -7,39 +7,14 @@ import java.util.Comparator;
 
 /**
  * Comparator for comparing entity codes in source
- *
- * @author Harish Seshadri
- * @version $Id: ResultSynonymComparator.java,v 1.1 2007/01/28 07:13:33 hseshadr Exp $
  */
-public class ResultSynonymComparator implements Comparator {
-    /*
-     * The result entity code in source comparator instance
-     */
-    private static ResultSynonymComparator mResultEntityCodeInSourceComparator;
-
-
-    /**
-     * Get the result entity code in source comparator instance
-     *
-     * @return The result entity code in source comparator instance
-     */
-    public static ResultSynonymComparator getInstance() {
-        if (null == mResultEntityCodeInSourceComparator) {
-            mResultEntityCodeInSourceComparator = new ResultSynonymComparator();
-        }
-        return mResultEntityCodeInSourceComparator;
-    }
-
+public class ResultSynonymComparator implements Comparator<Result> {
     /**
      * Compare the results by uncleaned result name to remove synonym duplicate too
-     *
-     * @param pResult1 The first result
-     * @param pResult2 The second result
-     * @return The integer comparison value
      */
-    public int compare(Object pResult1, Object pResult2) {
-        Result result1Obj = (Result) pResult1;
-        Result result2Obj = (Result) pResult2;
+    public int compare(Result pResult1, Result pResult2) {
+        Result result1Obj = pResult1;
+        Result result2Obj = pResult2;
 
         String entityCodeInSource1 = result1Obj.getEntityCodeInSource().trim();
         String entityCodeInSource2 = result2Obj.getEntityCodeInSource().trim();

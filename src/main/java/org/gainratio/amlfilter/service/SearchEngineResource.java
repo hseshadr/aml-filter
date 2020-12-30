@@ -1,6 +1,6 @@
 package org.gainratio.amlfilter.service;
 
-import org.gainratio.amlfilter.search.vectorSpace.VectorSpace;
+import org.gainratio.amlfilter.vector.vectorSpace.VectorSpace;
 
 import java.io.Serializable;
 import java.util.HashMap;
