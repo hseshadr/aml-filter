@@ -26,7 +26,6 @@ public class SearchService {
 
     public SearchResponse search(SearchRequest searchRequest) {
         List<SearchRecordResults> searchRecordResultsList = new ArrayList<>();
-        SearchRecordResults searchRecordResults = null;
         for (SearchRecord searchRecord : searchRequest.getSearchRecordList()) {
             List<Result> resultList = searchVariants(searchRecord);
             resultList = filterResults(resultList);
@@ -70,7 +69,7 @@ public class SearchService {
     private List<Result> convertVectorResultListToSearchResultList(String searchName,
                                                                    SearchRecord searchRecord,
                                                                    List<VectorResult> vectorResultList) {
-        return vectorResultList.stream().map(vr -> resultsService.createResult(searchRecord,
+        return vectorResultList.stream().map(vr -> resultsService.createResult(
                 searchName, vr.getName(), vr.getFoundVectorDataFlat().getId(), "", -1f))
                 .collect(Collectors.toList());
     }

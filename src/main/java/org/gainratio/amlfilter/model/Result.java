@@ -10,5 +10,4 @@ public class Result {
     private String listName;
     private Float textSimilarity;
     private Float resultNameInformationLevel;
-    private SearchRecord searchRecord;
 }
