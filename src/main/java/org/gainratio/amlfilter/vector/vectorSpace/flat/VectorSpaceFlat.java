@@ -17,6 +17,7 @@ import java.util.stream.Collectors;
 @AllArgsConstructor
 public class VectorSpaceFlat {
     private static final Logger logger = LoggerFactory.getLogger(VectorSpaceFlat.class);
+    private static final String vectorTemplate = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ ";
     private List<VectorDataFlat> vectorDataList;
 
     public static VectorSpaceFlat createTestVectorSpaceFlat() {
@@ -59,9 +60,20 @@ public class VectorSpaceFlat {
         VectorDataFlat vectorDataFlat = new VectorDataFlat();
         vectorDataFlat.setId(id);
         vectorDataFlat.setData(name);
-        byte[] vector = new byte[256];
+        byte[] vector = new byte[37];
+        int spaceIndex = 36;
+        int startNumberOffset = 48;
+        int startAlphabetOffset = 65 - 10;
         for (byte b : incomingData) {
-            vector[b] += 1;
+            if (b == ' ') {
+                vector[spaceIndex] += 1;
+            } else if (b >= '0' && b <= '9') {
+                vector[b - startNumberOffset] += 1;
+            } else if (b >= 'A' && b <= 'Z') {
+                vector[b - startAlphabetOffset] += 1;
+            } else {
+                throw new IllegalArgumentException(String.format("Unidentified byte=%d", b));
+            }
         }
         vectorDataFlat.setByteCoordinates(vector);
 
