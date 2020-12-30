@@ -2,6 +2,5 @@
 .DS_Store
 .idea/
 build/
-*.class
 *.sql
 *.class
