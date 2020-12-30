@@ -8,3 +8,5 @@ gradle/
 /build/
 
 *.class
+*.sql
+*.class
