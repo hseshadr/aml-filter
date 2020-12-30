@@ -5,6 +5,7 @@ import lombok.Builder;
 import lombok.Data;
 
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.List;
 
 @Data
@@ -18,7 +19,7 @@ public class SearchRequest {
         SearchRecord searchRecord1 = SearchRecord.testSearchRecord("Harish Seshadri");
         SearchRecord searchRecord2 = SearchRecord.testSearchRecord("John Smith");
         SearchRequest searchRequest = SearchRequest.builder().searchDate("2020-12-29")
-                .searchRecordList(List.of(searchRecord1, searchRecord2)).build();
+                .searchRecordList(Arrays.asList(searchRecord1, searchRecord2)).build();
 
         String searchRequestAsJson = objectMapper.writerWithDefaultPrettyPrinter()
                 .writeValueAsString(searchRequest);

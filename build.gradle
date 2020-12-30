@@ -6,7 +6,7 @@ plugins {
 
 group = 'org.gainratio'
 version = '0.0.1-SNAPSHOT'
-sourceCompatibility = '15'
+sourceCompatibility = '8'
 
 configurations {
 	compileOnly {
