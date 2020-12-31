@@ -3,15 +3,6 @@ package org.gainratio.amlfilter.algorithms;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-
-/**
- * Text similarity comparator which defines an abstract
- * method called getSimilarity which must be implemented.
- *
- * @author Harish Seshadri
- * @version $Id: PairSimilarity.java,v 1.2 2007/12/15 23:29:59 sss Exp $
- */
-
 public class PairSimilarity extends SimilarityComparator {
 
     private final Logger logger = LoggerFactory.getLogger(getClass());
@@ -46,8 +37,8 @@ public class PairSimilarity extends SimilarityComparator {
         }
 
         if (logger.isDebugEnabled()) {
-            logger.debug("Pair Array 1: " + new String(pairsArray1));
-            logger.debug("Pair Array 2: " + new String(pairsArray2));
+            //logger.debug("Pair Array 1: " + new String(pairsArray1));
+            //logger.debug("Pair Array 2: " + new String(pairsArray2));
         }
 
         for (int i = 0; i < pairsArray1.length - 1; i += 2) {
@@ -57,8 +48,7 @@ public class PairSimilarity extends SimilarityComparator {
             char nextCharForArray1 = pairsArray1[i + 1];
 
             if (logger.isDebugEnabled()) {
-                logger.debug("firstCharForArray1 = " + firstCharForArray1 +
-                        "; nextCharForArray1 = " + nextCharForArray1);
+                //logger.debug("firstCharForArray1 = " + firstCharForArray1 +"; nextCharForArray1 = " + nextCharForArray1);
             }
 
             for (int j = 0; j < pairsArray2.length - 1; j += 2) {
@@ -68,8 +58,7 @@ public class PairSimilarity extends SimilarityComparator {
                 char nextCharForArray2 = pairsArray2[j + 1];
 
                 if (logger.isDebugEnabled()) {
-                    logger.debug("\tfirstCharForArray2 = " + firstCharForArray2 +
-                            "; nextCharForArray2 = " + nextCharForArray2);
+                    //logger.debug("\tfirstCharForArray2 = " + firstCharForArray2 +"; nextCharForArray2 = " + nextCharForArray2);
                 }
 
                 if (firstCharForArray1 == firstCharForArray2 &&
@@ -82,7 +71,7 @@ public class PairSimilarity extends SimilarityComparator {
                     pairsArray2[j + 1] = 0xFF;
 
                     if (logger.isDebugEnabled()) {
-                        logger.debug("Found\n");
+                        //logger.debug("Found\n");
                     }
                     // I have found the pair so break out
                     break;
@@ -93,9 +82,9 @@ public class PairSimilarity extends SimilarityComparator {
         float similarity = (float) ((intersection * 2) / union);
 
         if (logger.isDebugEnabled()) {
-            logger.debug("Union: " + union);
-            logger.debug("Intersection: " + intersection);
-            logger.debug("Similarity: " + similarity);
+            //logger.debug("Union: " + union);
+            //logger.debug("Intersection: " + intersection);
+            //logger.debug("Similarity: " + similarity);
         }
 
         return similarity;

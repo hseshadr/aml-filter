@@ -78,8 +78,7 @@ dependencies {
 	compile group: 'commons-io', name: 'commons-io', version: '2.6'
 	// https://mvnrepository.com/artifact/org.apache.commons/commons-lang3
 	compile group: 'org.apache.commons', name: 'commons-lang3', version: '3.11'
-	// https://mvnrepository.com/artifact/commons-collections/commons-collections
-	compile group: 'commons-collections', name: 'commons-collections', version: '3.2.2'
+	compile 'org.apache.commons:commons-collections4:4.1'
 	// https://mvnrepository.com/artifact/commons-codec/commons-codec
 	compile group: 'commons-codec', name: 'commons-codec', version: '1.15'
 	compile 'org.springdoc:springdoc-openapi-ui:1.5.2'

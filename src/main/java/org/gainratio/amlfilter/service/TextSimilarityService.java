@@ -1,7 +1,7 @@
 package org.gainratio.amlfilter.service;
 
 import lombok.Data;
-import org.apache.commons.collections.map.LRUMap;
+import org.apache.commons.collections4.map.LRUMap;
 import org.gainratio.amlfilter.algorithms.SimilarityComparator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
