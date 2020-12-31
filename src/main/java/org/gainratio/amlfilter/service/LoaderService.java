@@ -24,6 +24,7 @@ public class LoaderService implements LoaderServiceInterface {
     private static final Logger logger = LoggerFactory.getLogger(LoaderService.class);
     private final Parser<Sanctions> sdnParser;
     private final EntityService entityService;
+    private final VectorSpaceService vectorSpaceService;
 
     @PostConstruct
     void init() throws Exception {
@@ -46,6 +47,7 @@ public class LoaderService implements LoaderServiceInterface {
         List<Entity> entitites = getEntities(sanctions);
         logger.info("Saving entities.size(): {}", entitites.size());
         entityService.saveAll(entitites);
+        vectorSpaceService.createVectorSpaceFlat();
         return entitites;
     }
 
