@@ -25,5 +25,4 @@ class NewPairSimilarityTest extends BaseUnitTest {
         assertTrue(similarity == 0.75d);
         System.out.println("similarity=" + similarity);
     }
-
 }
