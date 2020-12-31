@@ -29,9 +29,8 @@ class SearchServiceTest extends BaseUnitTest {
     static int entitiesCount = 0;
 
     @Test
-    @Disabled("Disabled until env is working!")
+    //@Disabled("Disabled until env is working!")
     void search() throws Exception {
-
         entityService.getEntityMap().values().stream().forEach(e -> {
             entitiesCount++;
             e.getEntityNameSet().stream().forEach(name -> {
