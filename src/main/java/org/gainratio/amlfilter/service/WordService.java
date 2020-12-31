@@ -89,7 +89,7 @@ public class WordService implements WordServiceInterface {
 
     private InputStream getResourceInputStream() throws IOException {
         return new ClassPathResource(
-                "classpath:word.json").getInputStream();
+                "word.json", getClass().getClassLoader()).getInputStream();
     }
 
     private List<Word> loadFromFileResource() throws IOException {

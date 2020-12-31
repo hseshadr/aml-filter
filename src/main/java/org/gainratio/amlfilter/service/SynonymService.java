@@ -71,7 +71,7 @@ public class SynonymService implements SynonymServiceInterface {
 
     private InputStream getResourceInputStream() throws IOException {
         return new ClassPathResource(
-                "classpath:synonym.json").getInputStream();
+                "synonym.json", getClass().getClassLoader()).getInputStream();
     }
 
     private List<Synonym> loadFromFileResource() throws IOException {
