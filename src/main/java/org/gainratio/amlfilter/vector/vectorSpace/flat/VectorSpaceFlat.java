@@ -37,13 +37,6 @@ public class VectorSpaceFlat {
         return vectorSpaceFlat;
     }
 
-    public static void main(String[] args) throws Exception {
-        VectorSpaceFlat vectorSpaceFlat
-                = createTestVectorSpaceFlat();
-        vectorSpaceFlat.search("Harish Seshadri", 2);
-
-    }
-
     public VectorDataFlat createVector(String id, String name) {
         String normalizedName = AlgorithmUtils.cleanString(name);
         byte[] theBytes = normalizedName.getBytes(StandardCharsets.UTF_8);
@@ -76,7 +69,7 @@ public class VectorSpaceFlat {
         }
         vectorDataFlat.setByteCoordinates(vector);
 
-        logger.info("id={},name={},vector={}", id, name, Arrays.toString(vectorDataFlat.getByteCoordinates()));
+        //logger.info("id={},name={},vector={}", id, name, Arrays.toString(vectorDataFlat.getByteCoordinates()));
         return vectorDataFlat;
     }
 

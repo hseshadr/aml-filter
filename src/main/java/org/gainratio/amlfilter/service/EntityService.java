@@ -25,11 +25,20 @@ public class EntityService {
     @PostConstruct
     public void init() {
         loadEntityMap();
-        logger.info("Loaded entityMap.size(): {}", entityMap.size());
     }
 
     public void loadEntityMap() {
         List<Entity> entityList = entityRepository.findAll();
+        buildEntityMap(entityList);
+        logger.info("Loaded entityMap.size(): {}", entityMap.size());
+    }
+
+    public void saveAll(List<Entity> entityList) {
+        entityRepository.saveAll(entityList);
+        loadEntityMap();
+    }
+
+    public void buildEntityMap(List<Entity> entityList) {
         entityMap = entityList.stream()
                 .collect(Collectors.toMap(e -> e.getEntityCodeInSource(), e -> e));
     }

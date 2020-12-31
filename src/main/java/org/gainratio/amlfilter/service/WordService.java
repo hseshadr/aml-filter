@@ -95,7 +95,7 @@ public class WordService implements WordServiceInterface {
     private List<Word> loadFromFileResource() throws IOException {
         List<Word> wordList = objectMapper.readValue(getResourceInputStream(), new TypeReference<List<Word>>() {
         });
-        logger.info("Loading from resourceFile={}, wordList={}", resourceFile, wordList);
+        logger.info("Loading from resourceFile={}, wordList.size()={}", resourceFile, wordList.size());
         return wordList;
     }
 

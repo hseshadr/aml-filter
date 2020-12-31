@@ -23,7 +23,7 @@ import java.util.Map;
 public class LoaderService implements LoaderServiceInterface {
     private static final Logger logger = LoggerFactory.getLogger(LoaderService.class);
     private final Parser<Sanctions> sdnParser;
-    private final EntityRepository entityRepository;
+    private final EntityService entityService;
 
     @PostConstruct
     void init() throws Exception {
@@ -45,7 +45,7 @@ public class LoaderService implements LoaderServiceInterface {
 
         List<Entity> entitites = getEntities(sanctions);
         logger.info("Saving entities.size(): {}", entitites.size());
-        entityRepository.saveAll(entitites);
+        entityService.saveAll(entitites);
         return entitites;
     }
 

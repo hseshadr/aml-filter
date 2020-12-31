@@ -77,7 +77,7 @@ public class SynonymService implements SynonymServiceInterface {
     private List<Synonym> loadFromFileResource() throws IOException {
         List<Synonym> synonymList = objectMapper.readValue(getResourceInputStream(), new TypeReference<List<Synonym>>() {
         });
-        logger.info("Loading from resourceFile={}, synonymList={}", resourceFile, synonymList);
+        logger.info("Loading from resourceFile={}, synonymList.size()={}", resourceFile, synonymList.size());
         return synonymList;
     }
 }
