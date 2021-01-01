@@ -83,7 +83,7 @@ public class VectorSpaceFlat {
         }).sorted(new VectorResultCosineSimilarityComparator())
                 .limit(maxResults)
                 .collect(Collectors.toList());
-        logger.info("vectorResultList={}", vectorResultList);
+//        logger.info("vectorResultList={}", vectorResultList);
         return vectorResultList;
     }
 }
