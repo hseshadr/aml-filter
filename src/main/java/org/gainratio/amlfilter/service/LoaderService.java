@@ -2,9 +2,9 @@ package org.gainratio.amlfilter.service;
 
 import lombok.AllArgsConstructor;
 import org.apache.commons.lang3.StringUtils;
+import org.gainratio.amlfilter.eu.ExportType;
 import org.gainratio.amlfilter.model.Entity;
 import org.gainratio.amlfilter.parser.ofac.Parser;
-import org.gainratio.amlfilter.repository.EntityRepository;
 import org.gainratio.amlfilter.sdn.*;
 import org.gainratio.amlfilter.util.AlgorithmUtils;
 import org.slf4j.Logger;
@@ -23,32 +23,40 @@ import java.util.Map;
 public class LoaderService implements LoaderServiceInterface {
     private static final Logger logger = LoggerFactory.getLogger(LoaderService.class);
     private final Parser<Sanctions> sdnParser;
+    private final Parser<ExportType> euParser;
     private final EntityService entityService;
     private final VectorSpaceService vectorSpaceService;
 
     @PostConstruct
     void init() throws Exception {
         logger.info("sdnParser={}", sdnParser);
+        logger.info("euParser={}", euParser);
         load();
     }
 
     @Override
     public List<Entity> load() throws Exception {
-        Sanctions sanctions = sdnParser.parse();
-        LocalDate sanctionsDate = getSanctionsDate(sanctions);
-        int version = getSanctionsVersion(sanctions);
-        Map<String, String> aliasIdToAliasTypeMap = getAliasTypeMap(sanctions);
-        Map<String, String> areaIdToAreaCodeMap = getAreaCodeMap(sanctions);
-        Map<String, String> areaIdToAreaCodeTypeMap = getAreaCodeTypeMap(sanctions);
-        Map<String, String> calendarTypeIdToCalendarTypeMap = getCalendarTypeMap(sanctions);
-        Map<String, String> countryIdToNameMap = getCountryNameMap(sanctions);
-        Map<String, String> detailReferenceMap = getDetailReferenceMap(sanctions);
-
-        List<Entity> entitites = getEntities(sanctions);
-        logger.info("Saving entities.size(): {}", entitites.size());
-        entityService.saveAll(entitites);
+        List<Entity> entities = new ArrayList<>();
+        entities.addAll(parseSdn());
+        entities.addAll(parseEu());
         vectorSpaceService.createVectorSpaceFlat();
-        return entitites;
+        return entities;
+    }
+
+    private List<Entity> parseSdn() throws Exception {
+        Sanctions sanctions = sdnParser.parse();
+        List<Entity> sdnEntityList = getSdnEntities(sanctions);
+        logger.info("Saving sdnEntityList.size(): {}", sdnEntityList.size());
+        entityService.saveAll(sdnEntityList);
+        return sdnEntityList;
+    }
+
+    private List<Entity> parseEu() throws Exception {
+        ExportType exportType = euParser.parse();
+        List<Entity> euEntityList = getEuEntities(exportType);
+        logger.info("Saving euEntityList.size(): {}", euEntityList.size());
+        entityService.saveAll(euEntityList);
+        return euEntityList;
     }
 
     private LocalDate getSanctionsDate(Sanctions sanctions) {
@@ -141,7 +149,7 @@ public class LoaderService implements LoaderServiceInterface {
         return detailReferenceIdToNameMap;
     }
 
-    private List<Entity> getEntities(Sanctions sanctions) {
+    private List<Entity> getSdnEntities(Sanctions sanctions) {
         List<Entity> entityList = new ArrayList<>();
         List<DistinctPartySchemaType> distinctPartySchemaTypeList = sanctions.getDistinctParties().getDistinctParty();
         for (DistinctPartySchemaType dpst : distinctPartySchemaTypeList) {
@@ -175,6 +183,11 @@ public class LoaderService implements LoaderServiceInterface {
             //logger.info("entity={}", entity);
             entityList.add(entity);
         }
+        return entityList;
+    }
+
+    private List<Entity> getEuEntities(ExportType exportType) {
+        List<Entity> entityList = new ArrayList<>();
         return entityList;
     }
 }
