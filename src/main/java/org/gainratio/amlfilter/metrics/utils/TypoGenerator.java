@@ -40,6 +40,8 @@ public class TypoGenerator {
         typoMap.put("X", Arrays.asList("Z", "S", "D", "C"));
         typoMap.put("Y", Arrays.asList("G", "T", "U", "H", "I"));
         typoMap.put("Z", Arrays.asList("A", "S", "X", "S", "2"));
+
+        // TODO: add typos for numbers and for ".,-_&()"
     }
 
     public static String typoForKey(String keyPressedStr) {
@@ -101,9 +103,33 @@ public class TypoGenerator {
         String origChar = origString.substring(pos, pos+1);
         String typo = typoForKey(origChar);
         if (null==typo) {
-            logger.warn("No typo for '"+origChar+"'");
+//            logger.warn("No typo for '"+origChar+"'");
             return origString;
         }
         return origString.substring(0, pos) + typo + origString.substring(pos+1);
+    }
+
+    public static String doubleChars(String cleanedName, int numChanges) {
+        String retString = cleanedName;
+        for (int i=0; i<numChanges; i++) {
+            int changePos = (int) (rnd.nextDouble() * retString.length());
+            retString = retString.substring(0, changePos)+
+                    retString.substring(changePos, changePos+1)+
+                    retString.substring(changePos);
+        }
+        return retString;
+    }
+
+    public static String deleteChars(String origString, int numTypos) {
+        if (numTypos>25) throw new IllegalArgumentException("Maximum allowed deletions are 25");
+        if (StringUtils.isAllBlank(origString)) throw new IllegalArgumentException("String to modify must have some valid chars.");
+        if (numTypos>origString.length()) throw new IllegalArgumentException("The size of the string must be smaller than the chars to delete.");
+
+        String modString = origString;
+        for (int i=0; i<numTypos; i++) {
+            int pos = (int) (rnd.nextDouble() * modString.length());
+            modString=modString.substring(0, pos)+modString.substring(pos+1);
+        }
+        return modString;
     }
 }

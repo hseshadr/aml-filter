@@ -2,9 +2,7 @@ package org.gainratio.amlfilter.metrics.utils;
 
 import org.junit.jupiter.api.Test;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
+import java.util.*;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -88,4 +86,36 @@ class TypoGeneratorTest {
         assertEquals(origString, modString);
     }
 
+    @Test
+    void doubleChars() {
+        String name = "A";
+        String modName = TypoGenerator.doubleChars(name, 1);
+        assertEquals("AA", modName);
+    }
+
+    @Test
+    void doubleChars2() {
+        String origString = "ABC";
+        String[] validValues = {"AABC", "ABBC", "ABCC"};
+        List<String> validValuesList = Arrays.asList(validValues);
+        Set<Integer> completionSet = new HashSet<>();
+        int count = 0;
+        while (count++ < 100) {
+            String modString = TypoGenerator.doubleChars(origString, 1);
+            assertTrue(validValuesList.contains(modString));
+            completionSet.add(validValuesList.indexOf(modString));
+        }
+        assertEquals(3, completionSet.size());
+    }
+
+    @Test
+    void deleteChars() {
+        assertEquals("", TypoGenerator.deleteChars("A",1));
+        assertEquals("", TypoGenerator.deleteChars("AB",2));
+        assertEquals("", TypoGenerator.deleteChars("12345",5));
+
+        for (int i=0; i<1000; i++) {
+            assertEquals("", TypoGenerator.deleteChars("12345",5));
+        }
+    }
 }

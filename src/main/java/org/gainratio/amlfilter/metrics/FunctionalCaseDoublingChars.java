@@ -4,18 +4,18 @@ import lombok.Data;
 import org.gainratio.amlfilter.metrics.utils.TypoGenerator;
 
 @Data
-public class FunctionalCaseOneTypo extends FunctionalCase {
-    private String description = "Injecting ONE typo";
+public class FunctionalCaseDoublingChars extends FunctionalCase {
+    private String description = "Doubling one char in the name";
     private final double MIN_RECALL = 0.95;
     private final double MIN_PRECISION = 0.7;
 
-    public FunctionalCaseOneTypo() {
+    public FunctionalCaseDoublingChars() {
         super();
     }
 
     @Override
     public String modifyString(String cleanedName) {
-        return TypoGenerator.injectTypos(cleanedName, 1);
+        return TypoGenerator.doubleChars(cleanedName, 1);
     }
 
     @Override
@@ -25,7 +25,7 @@ public class FunctionalCaseOneTypo extends FunctionalCase {
 
     @Override
     public boolean isNameAUsableCase(String name) {
-        boolean useThisName = name.length() > 10;
+        boolean useThisName = name.length() > 8;
         if (!useThisName) ignoredNameCases.add(name);
         return useThisName;
     }

@@ -1,21 +1,22 @@
 package org.gainratio.amlfilter.metrics;
 
 import lombok.Data;
+import org.gainratio.amlfilter.metrics.utils.PhoneticVariation;
 import org.gainratio.amlfilter.metrics.utils.TypoGenerator;
 
 @Data
-public class FunctionalCaseOneTypo extends FunctionalCase {
-    private String description = "Injecting ONE typo";
+public class FunctionalCasePhonetic extends FunctionalCase {
+    private String description = "Creating a phonetic variation";
     private final double MIN_RECALL = 0.95;
     private final double MIN_PRECISION = 0.7;
 
-    public FunctionalCaseOneTypo() {
+    public FunctionalCasePhonetic() {
         super();
     }
 
     @Override
     public String modifyString(String cleanedName) {
-        return TypoGenerator.injectTypos(cleanedName, 1);
+        return PhoneticVariation.makeVariant(cleanedName);
     }
 
     @Override
@@ -25,8 +26,8 @@ public class FunctionalCaseOneTypo extends FunctionalCase {
 
     @Override
     public boolean isNameAUsableCase(String name) {
-        boolean useThisName = name.length() > 10;
-        if (!useThisName) ignoredNameCases.add(name);
-        return useThisName;
+        if (name.length() < 5) return false;
+        if (!PhoneticVariation.hasAVariant(name)) return false;
+        return true;
     }
 }
