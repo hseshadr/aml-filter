@@ -181,6 +181,7 @@ class SearchServiceTest extends BaseUnitTest {
 
         for (FunctionalCase functionalCase : functionalCases) {
             entityService.getEntityMap().values().forEach(e -> {
+                resetStats();
                 entitiesCount++;
                 String entityCodeInSource = e.getEntityCodeInSource();
                 if (entitiesCount%1000==0) {
@@ -215,7 +216,7 @@ class SearchServiceTest extends BaseUnitTest {
                         }
                         if (found) functionalCase.incTruePositives();
                         else {
-                            functionalCase.getFalseNegativeList().add("* FN: "+name+" -> searching for '"+modName+"'");
+                            functionalCase.getFalseNegativeList().add("* FN: ("+entityCodeInSource+") "+name+" -> searching for '"+modName+"'");
                         }
                     }
                 });
