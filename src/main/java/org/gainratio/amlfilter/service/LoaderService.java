@@ -52,11 +52,14 @@ public class LoaderService implements LoaderServiceInterface {
     }
 
     private List<Entity> parseEu() throws Exception {
+        /*
         ExportType exportType = euParser.parse();
         List<Entity> euEntityList = getEuEntities(exportType);
         logger.info("Saving euEntityList.size(): {}", euEntityList.size());
         entityService.saveAll(euEntityList);
         return euEntityList;
+         */
+        return new ArrayList<>();
     }
 
     private LocalDate getSanctionsDate(Sanctions sanctions) {
