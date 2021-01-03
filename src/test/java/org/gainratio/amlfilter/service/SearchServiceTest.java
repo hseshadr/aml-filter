@@ -227,10 +227,7 @@ class SearchServiceTest extends BaseUnitTest {
                         boolean found = false;
                         for (SearchRecordResults srr : searchResponse.getSearchRecordResultList()) {
                             for (Result result : srr.getResults()) {
-                                // Why match only by entityCodeInSource? Since for entities we could
-                                // match many entity codes, I think we should match by name since it is a name search
-                                if (name.equals(result.getResultName()) ||
-                                        entityCodeInSource.equals(result.getEntityCodeInSource())) {
+                                if (entityCodeInSource.equals(result.getEntityCodeInSource())) {
                                     found = true;
                                 } else {
                                     functionalCase.incFalsePositives();

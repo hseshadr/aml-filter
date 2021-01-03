@@ -11,6 +11,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Vector;
 import java.util.stream.Collectors;
 
 @Data
@@ -93,9 +94,18 @@ public class VectorSpaceFlat {
                     vd.getByteCoordinates());
             return new VectorResult(vd.getData(), sim, vd);
         }).sorted(new VectorResultCosineSimilarityComparator())
-                .limit(maxResults)
                 .collect(Collectors.toList());
-//        logger.info("vectorResultList={}", vectorResultList);
-        return vectorResultList;
+        return filterVectorResults(vectorResultList);
+    }
+
+    private List<VectorResult> filterVectorResults(List<VectorResult> vectorResultList) {
+        List<VectorResult> filteredVectorResults = new ArrayList<>();
+        for (VectorResult vr : vectorResultList) {
+            if (vr.getSimilarity() < 0.9) {
+                return filteredVectorResults;
+            }
+            filteredVectorResults.add(vr);
+        }
+        return filteredVectorResults;
     }
 }
