@@ -40,18 +40,15 @@ public class SearchService {
 
 
     private List<Result> filterResults(List<Result> results) {
-        List<Result> filteredResults = new ArrayList<>();
+        List<Result> filteredResults = results;
         if (results.size() > 0) {
-            filteredResults = getResultsService().removeResultRepetitionsByNameAndSimilarity(results);
             filteredResults = getResultsService().removeResultRepetitionsByEntityCodeAndSimilarity(filteredResults);
             filteredResults = getResultsService().removeResultSynonyms(filteredResults);
+            /*
+            filteredResults = getResultsService().removeResultRepetitionsByNameAndSimilarity(results);
+             */
         }
-        Collections.sort(filteredResults, new Comparator<Result>() {
-            @Override
-            public int compare(Result o1, Result o2) {
-                return o2.getTextSimilarity().compareTo((o1.getTextSimilarity()));
-            }
-        });
+        Collections.sort(filteredResults, (a,b) -> b.getTextSimilarity().compareTo(a.getTextSimilarity()));
         return filteredResults;
     }
 
@@ -72,7 +69,7 @@ public class SearchService {
 
     private List<Result> search(String searchName, SearchRecord searchRecord) {
         List<VectorResult> vectorResultList = vectorSpaceService
-                .getVectorSpaceFlat().search(searchName, 20);
+                .getVectorSpaceFlat().search(searchName, 200);
         List<Result> resultList
                 = convertVectorResultListToSearchResultList(searchName, searchRecord, vectorResultList);
         resultList = nameSearchFilter.filterSearchResults(resultList);
