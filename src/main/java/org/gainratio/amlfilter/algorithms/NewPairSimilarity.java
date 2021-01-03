@@ -15,9 +15,11 @@ public class NewPairSimilarity {
     private Logger logger = LoggerFactory.getLogger(getClass());
 
     public String normalize(String text) {
-        return Arrays.stream(text.trim().split(" "))
-                .map(s -> " " + s.trim().toUpperCase() + " ")
-                .collect(Collectors.joining(""));
+        String normText = Arrays.stream(text.trim().split(" "))
+                .map(s -> s.trim().toUpperCase())
+                .collect(Collectors.joining(" "));
+        normText = " "+normText+" ";
+        return normText;
     }
 
     public Set<String> pairSet(String text) {
@@ -39,10 +41,10 @@ public class NewPairSimilarity {
     public double similarity(String text1, String text2) {
         String normText1 = normalize(text1);
         String normText2 = normalize(text2);
-        //logger.info("normText1={}, normText2={}", normText1, normText2);
+        logger.info("normText1={}, normText2={}", normText1, normText2);
         Set<String> pairSet1 = pairSet(normText1);
         Set<String> pairSet2 = pairSet(normText2);
-        //logger.info("pairSet1={}, pairSet2={}", pairSet1, pairSet2);
+        logger.info("pairSet1={}, pairSet2={}", pairSet1, pairSet2);
         SetUtils.SetView<String> intersectSet = SetUtils.intersection(pairSet1, pairSet2);
         return (double) intersectSet.size() * 2f / (double) (pairSet1.size() + pairSet2.size());
     }

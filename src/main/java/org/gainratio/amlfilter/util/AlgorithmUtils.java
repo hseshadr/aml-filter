@@ -260,6 +260,7 @@ public class AlgorithmUtils {
         return similarity;
     }
 
+    // TODO: refactor, complete, harden and improve performance.
     public static String cleanString(String pText) {
         String result;
         if (null == pText) {
