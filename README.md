@@ -15,4 +15,6 @@ Download intellij
     docker-compose up
     
     
- 
+ # Algorithms
+
+https://commons.apache.org/proper/commons-text/apidocs/org/apache/commons/text/similarity/
