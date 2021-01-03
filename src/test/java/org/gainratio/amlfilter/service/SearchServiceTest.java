@@ -211,11 +211,13 @@ class SearchServiceTest extends BaseUnitTest {
                         SearchResponse searchResponse = searchService.search(searchRequest);
                         List<Result> resultList = searchResponse.getSearchRecordResultList().get(0).getResults();
 
+                        /*
                         if (wordService.getNameInformationLevel(modName) <= 10) {
                             logger.info("({}): IGNORING {}, infoLevel={}..... results.size={}", entityCodeInSource, name,
                                     wordService.getNameInformationLevel(name), resultList.size());
                             continue;
                         }
+                        */
 
 
                         functionalCase.incTestCaseCount();

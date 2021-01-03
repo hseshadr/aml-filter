@@ -69,7 +69,7 @@ public class SearchService {
 
     private List<Result> search(String searchName, SearchRecord searchRecord) {
         List<VectorResult> vectorResultList = vectorSpaceService
-                .getVectorSpaceFlat().search(searchName, 100);
+                .getVectorSpaceFlat().search(searchName, 200);
         List<Result> resultList
                 = convertVectorResultListToSearchResultList(searchName, searchRecord, vectorResultList);
         resultList = nameSearchFilter.filterSearchResults(resultList);
