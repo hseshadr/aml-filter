@@ -2,7 +2,6 @@ package org.gainratio.amlfilter.service;
 
 import lombok.AllArgsConstructor;
 import org.apache.commons.lang3.StringUtils;
-import org.gainratio.amlfilter.eu.ExportType;
 import org.gainratio.amlfilter.model.Entity;
 import org.gainratio.amlfilter.parser.ofac.Parser;
 import org.gainratio.amlfilter.sdn.*;
@@ -23,14 +22,12 @@ import java.util.Map;
 public class LoaderService implements LoaderServiceInterface {
     private static final Logger logger = LoggerFactory.getLogger(LoaderService.class);
     private final Parser<Sanctions> sdnParser;
-    private final Parser<ExportType> euParser;
     private final EntityService entityService;
     private final VectorSpaceService vectorSpaceService;
 
     @PostConstruct
     void init() throws Exception {
         logger.info("sdnParser={}", sdnParser);
-        logger.info("euParser={}", euParser);
         load();
     }
 
@@ -38,7 +35,6 @@ public class LoaderService implements LoaderServiceInterface {
     public List<Entity> load() throws Exception {
         List<Entity> entities = new ArrayList<>();
         entities.addAll(parseSdn());
-        entities.addAll(parseEu());
         vectorSpaceService.createVectorSpaceFlat();
         return entities;
     }
@@ -49,17 +45,6 @@ public class LoaderService implements LoaderServiceInterface {
         logger.info("Saving sdnEntityList.size(): {}", sdnEntityList.size());
         entityService.saveAll(sdnEntityList);
         return sdnEntityList;
-    }
-
-    private List<Entity> parseEu() throws Exception {
-        /*
-        ExportType exportType = euParser.parse();
-        List<Entity> euEntityList = getEuEntities(exportType);
-        logger.info("Saving euEntityList.size(): {}", euEntityList.size());
-        entityService.saveAll(euEntityList);
-        return euEntityList;
-         */
-        return new ArrayList<>();
     }
 
     private LocalDate getSanctionsDate(Sanctions sanctions) {
@@ -186,11 +171,6 @@ public class LoaderService implements LoaderServiceInterface {
             //logger.info("entity={}", entity);
             entityList.add(entity);
         }
-        return entityList;
-    }
-
-    private List<Entity> getEuEntities(ExportType exportType) {
-        List<Entity> entityList = new ArrayList<>();
         return entityList;
     }
 }

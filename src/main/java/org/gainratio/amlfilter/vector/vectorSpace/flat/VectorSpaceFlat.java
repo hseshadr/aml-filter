@@ -52,22 +52,34 @@ public class VectorSpaceFlat {
                                         final byte[] incomingData) {
         VectorDataFlat vectorDataFlat = VectorDataFlat.builder()
                 .id(id).data(name).build();
-        byte[] vector = new byte[37];
+        byte[] v1 = new byte[37];
         int spaceIndex = 36;
         int startNumberOffset = 48;
         int startAlphabetOffset = 65 - 10;
         for (byte b : incomingData) {
             if (b == ' ') {
-                vector[spaceIndex] += 1;
+                v1[spaceIndex] += 1;
             } else if (b >= '0' && b <= '9') {
-                vector[b - startNumberOffset] += 1;
+                v1[b - startNumberOffset] += 1;
             } else if (b >= 'A' && b <= 'Z') {
-                vector[b - startAlphabetOffset] += 1;
+                v1[b - startAlphabetOffset] += 1;
             } else {
                 throw new IllegalArgumentException(String.format("Unidentified byte=%d", b));
             }
         }
-        vectorDataFlat.setByteCoordinates(vector);
+        String phoneticStr = AlgorithmUtils.getPhoneticStringForPairSimilarities(name);
+        for (byte b : phoneticStr.getBytes(StandardCharsets.UTF_8)) {
+            if (b == ' ') {
+                v1[spaceIndex] += 1;
+            } else if (b >= '0' && b <= '9') {
+                v1[b - startNumberOffset] += 1;
+            } else if (b >= 'A' && b <= 'Z') {
+                v1[b - startAlphabetOffset] += 1;
+            } else {
+                throw new IllegalArgumentException(String.format("Unidentified byte=%d", b));
+            }
+        }
+        vectorDataFlat.setByteCoordinates(v1);
 
         //logger.info("id={},name={},vector={}", id, name, Arrays.toString(vectorDataFlat.getByteCoordinates()));
         return vectorDataFlat;

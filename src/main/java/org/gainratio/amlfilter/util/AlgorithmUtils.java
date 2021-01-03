@@ -1,5 +1,7 @@
 package org.gainratio.amlfilter.util;
 
+import org.apache.commons.codec.language.DoubleMetaphone;
+
 import java.util.ArrayList;
 
 public class AlgorithmUtils {
@@ -180,6 +182,12 @@ public class AlgorithmUtils {
         }
 
         return phoneticBuffer.toString();
+    }
+
+    public static String getDoubleMetaPhoneStr(String text) {
+        DoubleMetaphone dmp = new DoubleMetaphone();
+        dmp.setMaxCodeLen(100);
+        return dmp.doubleMetaphone(text);
     }
 
     /**
