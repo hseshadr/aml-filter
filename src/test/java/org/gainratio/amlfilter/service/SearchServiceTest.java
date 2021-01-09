@@ -1,17 +1,24 @@
 package org.gainratio.amlfilter.service;
 
+import org.apache.commons.io.IOUtils;
 import org.gainratio.amlfilter.BaseUnitTest;
 import org.gainratio.amlfilter.metrics.*;
 import org.gainratio.amlfilter.model.*;
 import org.gainratio.amlfilter.util.AlgorithmUtils;
-import org.gainratio.amlfilter.util.StringUtils;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.core.io.ClassPathResource;
 
-import java.util.*;
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.Charset;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -25,6 +32,8 @@ class SearchServiceTest extends BaseUnitTest {
     EntityService entityService;
     @Autowired
     WordService wordService;
+    @Autowired
+    VectorSpaceService vectorSpaceService;
 
     static int entitiesCount = 0;
     static int nameCount = 0;
@@ -89,7 +98,7 @@ class SearchServiceTest extends BaseUnitTest {
         final float MIN_SIM = 0.8f; // *********
         entityService.getEntityMap().values().stream().forEach(e -> {
             entitiesCount++;
-            if (entitiesCount%100==0) {
+            if (entitiesCount % 100 == 0) {
                 logger.info("entitiesCount: {} ...", entitiesCount);
             }
             e.getEntityNameSet().stream().forEach(name -> {
@@ -97,7 +106,7 @@ class SearchServiceTest extends BaseUnitTest {
                 nameCount++;
                 if (name.length() > 10) {
                     name = name + "x"; // breaking the names  // *********
-                    usableCase=true;
+                    usableCase = true;
                     case1Count++;
                 }
                 SearchRequest searchRequest = SearchRequest
@@ -136,14 +145,14 @@ class SearchServiceTest extends BaseUnitTest {
         entityService.getEntityMap().values().forEach(e -> {
             entitiesCount++;
             String entityCodeInSource = e.getEntityCodeInSource();
-            if (entitiesCount%100==0) {
+            if (entitiesCount % 100 == 0) {
                 logger.info("(one_typo) entitiesCount: {} ...", entitiesCount);
             }
             e.getEntityNameSet().forEach(name -> {
                 nameCount++;
                 if (name.length() > 10) {
-                        // with 3: caseCount=29696, recall=0.48841594827586204, precision=0.7572308656155372
-                        // with 10: caseCount=13899, recall=0.8786963090869847, precision=0.860676532769556
+                    // with 3: caseCount=29696, recall=0.48841594827586204, precision=0.7572308656155372
+                    // with 10: caseCount=13899, recall=0.8786963090869847, precision=0.860676532769556
                     String modName = oneTypeTest.modifyString(name);
                     oneTypeTest.incTestCaseCount();
                     SearchRequest searchRequest = SearchRequest
@@ -161,18 +170,183 @@ class SearchServiceTest extends BaseUnitTest {
                             if (entityCodeInSource.equals(result.getEntityCodeInSource())) found = true;
                             else {
                                 oneTypeTest.incFalsePositives();
-                                oneTypeTest.getFalsePositiveList().add("* FP: "+result.getResultName()+" -> searching for '"+modName+"'");
+                                oneTypeTest.getFalsePositiveList().add("* FP: " + result.getResultName() + " -> searching for '" + modName + "'");
                             }
                         }
                     }
                     if (found) oneTypeTest.incTruePositives();
                     else {
-                        oneTypeTest.getFalseNegativeList().add("* FN: "+name+" -> searching for '"+modName+"'");
+                        oneTypeTest.getFalseNegativeList().add("* FN: " + name + " -> searching for '" + modName + "'");
                     }
                 }
             });
         });
         assertTrue(oneTypeTest.passesEvaluation());
+    }
+
+    @Test
+    void search_severalTest_using_file_and_namerisk() throws Exception {
+        List<FunctionalCase> functionalCases = new ArrayList<>();
+        functionalCases.add(new FunctionalCaseExact());
+        functionalCases.add(new FunctionalCaseOneTypo());
+        functionalCases.add(new FunctionalCaseTwoTypos());
+        functionalCases.add(new FunctionalCaseThreeTypos());
+        functionalCases.add(new FunctionalCaseDeleteChar());
+        functionalCases.add(new FunctionalCaseDoublingChars());
+        functionalCases.add(new FunctionalCasePhonetic());
+        functionalCases.add(new FunctionalCaseMixed1());
+
+        List<NameAndEntityCode> nameAndEntityCodeList = createNameAndEntityCodeFromFile();
+        // Start the searches
+        long startTime = System.currentTimeMillis();
+        for (FunctionalCase functionalCase : functionalCases) {
+            for (NameAndEntityCode nameAndEntityCode : nameAndEntityCodeList) {
+                nameCount++;
+                String name = AlgorithmUtils.cleanString(nameAndEntityCode.getName());
+                if (functionalCase.isNameAUsableCase(name)) {
+                    // with 3: caseCount=29696, recall=0.48841594827586204, precision=0.7572308656155372
+                    // with 10: caseCount=13899, recall=0.8786963090869847, precision=0.860676532769556
+                    String modName = functionalCase.modifyString(name);
+                    SearchRequest searchRequest = SearchRequest
+                            .builder()
+                            .searchRecordList(Collections.singletonList(SearchRecord.builder().fullName(modName).build())).build();
+                    SearchResponse searchResponse = new NameRiskHelper().search(searchRequest);
+                    List<Result> resultList = searchResponse.getSearchRecordResultList().get(0).getResults();
+                    functionalCase.incTestCaseCount();
+                    boolean found = false;
+                    for (SearchRecordResults srr : searchResponse.getSearchRecordResultList()) {
+                        for (Result result : srr.getResults()) {
+                            if (nameAndEntityCode.getEntityCode().equals(result.getEntityCodeInSource())) {
+                                found = true;
+                            } else {
+                                functionalCase.incFalsePositives();
+                                functionalCase.getFalsePositiveList().add("* FP: " + result.getResultName() +
+                                        " -> searching for '" + modName + "'" + "; results.size(): " + resultList.size());
+                            }
+                        }
+                    }
+                    if (found) functionalCase.incTruePositives();
+                    else {
+                        functionalCase.getFalseNegativeList().add("* FN: (" + nameAndEntityCode.getEntityCode() + ") " + name + " -> searching for '" + modName + "'");
+                    }
+                }
+            }
+            logger.info(
+                    "## [METRICS] '" + functionalCase.getClass().getSimpleName() + "' ... " +
+                            functionalCase.getDescription() + ": " +
+                            functionalCase.retrieveEvaluationResult());
+        }
+
+        logger.info("\n\n");
+        logger.info("###### Cases logs:");
+        for (FunctionalCase functionalCase : functionalCases) {
+            logger.info("## Errors from test '" + functionalCase.getClass().getSimpleName() + "' ... " + functionalCase.getDescription() + ": ");
+            logger.info(functionalCase.retrieveTestLogs(10));
+        }
+
+        // Logging
+        logger.info("\n\n");
+        logger.info("###### Metrics summary:");
+        for (FunctionalCase functionalCase : functionalCases) {
+            logger.info(
+                    "## [METRICS] '" + functionalCase.getClass().getSimpleName() + "' ... " +
+                            functionalCase.getDescription() + ": " +
+                            functionalCase.retrieveEvaluationResult());
+        }
+
+        // Log test time
+        long totalTime = System.currentTimeMillis() - startTime;
+        logger.info("Total testing time(s): " + totalTime / 1000 + " (mins: " + (totalTime / 60000) + ")");
+        //logger.info("nameAndEntityCodeStrList.size()={}", nameAndEntityCodeStrList.size());
+        //logger.info("nameAndEntityCodeStrList:\n{}", nameAndEntityCodeStrList);
+        // Evaluate
+        for (FunctionalCase functionalCase : functionalCases) {
+            assertTrue(functionalCase.passesEvaluation());
+        }
+    }
+
+    @Test
+    void search_severalTest_using_file_and_new_search() throws Exception {
+        List<FunctionalCase> functionalCases = new ArrayList<>();
+        functionalCases.add(new FunctionalCaseExact());
+        functionalCases.add(new FunctionalCaseOneTypo());
+        functionalCases.add(new FunctionalCaseTwoTypos());
+        functionalCases.add(new FunctionalCaseThreeTypos());
+        functionalCases.add(new FunctionalCaseDeleteChar());
+        functionalCases.add(new FunctionalCaseDoublingChars());
+        functionalCases.add(new FunctionalCasePhonetic());
+        functionalCases.add(new FunctionalCaseMixed1());
+
+        List<NameAndEntityCode> nameAndEntityCodeList = createNameAndEntityCodeFromFile();
+        // Setup the vector space
+        vectorSpaceService.createVectorSpaceFlat(nameAndEntityCodeList);
+
+        // Start the searches
+        long startTime = System.currentTimeMillis();
+        for (FunctionalCase functionalCase : functionalCases) {
+            for (NameAndEntityCode nameAndEntityCode : nameAndEntityCodeList) {
+                nameCount++;
+                String name = AlgorithmUtils.cleanString(nameAndEntityCode.getName());
+                if (functionalCase.isNameAUsableCase(name)) {
+                    // with 3: caseCount=29696, recall=0.48841594827586204, precision=0.7572308656155372
+                    // with 10: caseCount=13899, recall=0.8786963090869847, precision=0.860676532769556
+                    String modName = functionalCase.modifyString(name);
+                    SearchRequest searchRequest = SearchRequest
+                            .builder()
+                            .searchRecordList(Collections.singletonList(SearchRecord.builder().fullName(modName).build())).build();
+                    SearchResponse searchResponse = searchService.search(searchRequest);
+                    List<Result> resultList = searchResponse.getSearchRecordResultList().get(0).getResults();
+                    functionalCase.incTestCaseCount();
+                    boolean found = false;
+                    for (SearchRecordResults srr : searchResponse.getSearchRecordResultList()) {
+                        for (Result result : srr.getResults()) {
+                            if (nameAndEntityCode.getEntityCode().equals(result.getEntityCodeInSource())) {
+                                found = true;
+                            } else {
+                                functionalCase.incFalsePositives();
+                                functionalCase.getFalsePositiveList().add("* FP: " + result.getResultName() +
+                                        " -> searching for '" + modName + "'" + "; results.size(): " + resultList.size());
+                            }
+                        }
+                    }
+                    if (found) functionalCase.incTruePositives();
+                    else {
+                        functionalCase.getFalseNegativeList().add("* FN: (" + nameAndEntityCode.getEntityCode() + ") " + name + " -> searching for '" + modName + "'");
+                    }
+                }
+            }
+            logger.info(
+                    "## [METRICS] '" + functionalCase.getClass().getSimpleName() + "' ... " +
+                            functionalCase.getDescription() + ": " +
+                            functionalCase.retrieveEvaluationResult());
+        }
+
+        logger.info("\n\n");
+        logger.info("###### Cases logs:");
+        for (FunctionalCase functionalCase : functionalCases) {
+            logger.info("## Errors from test '" + functionalCase.getClass().getSimpleName() + "' ... " + functionalCase.getDescription() + ": ");
+            logger.info(functionalCase.retrieveTestLogs(10));
+        }
+
+        // Logging
+        logger.info("\n\n");
+        logger.info("###### Metrics summary:");
+        for (FunctionalCase functionalCase : functionalCases) {
+            logger.info(
+                    "## [METRICS] '" + functionalCase.getClass().getSimpleName() + "' ... " +
+                            functionalCase.getDescription() + ": " +
+                            functionalCase.retrieveEvaluationResult());
+        }
+
+        // Log test time
+        long totalTime = System.currentTimeMillis() - startTime;
+        logger.info("Total testing time(s): " + totalTime / 1000 + " (mins: " + (totalTime / 60000) + ")");
+        //logger.info("nameAndEntityCodeStrList.size()={}", nameAndEntityCodeStrList.size());
+        //logger.info("nameAndEntityCodeStrList:\n{}", nameAndEntityCodeStrList);
+        // Evaluate
+        for (FunctionalCase functionalCase : functionalCases) {
+            assertTrue(functionalCase.passesEvaluation());
+        }
     }
 
     @Test
@@ -232,7 +406,7 @@ class SearchServiceTest extends BaseUnitTest {
                                 } else {
                                     functionalCase.incFalsePositives();
                                     functionalCase.getFalsePositiveList().add("* FP: " + result.getResultName() +
-                                            " -> searching for '" + modName + "'" + "; results.size(): " +  resultList.size());
+                                            " -> searching for '" + modName + "'" + "; results.size(): " + resultList.size());
                                 }
                             }
                         }
@@ -244,15 +418,15 @@ class SearchServiceTest extends BaseUnitTest {
                 }
             }
             logger.info(
-                    "## [METRICS] '"+functionalCase.getClass().getSimpleName()+"' ... "+
-                            functionalCase.getDescription()+": "+
+                    "## [METRICS] '" + functionalCase.getClass().getSimpleName() + "' ... " +
+                            functionalCase.getDescription() + ": " +
                             functionalCase.retrieveEvaluationResult());
         }
 
         logger.info("\n\n");
         logger.info("###### Cases logs:");
         for (FunctionalCase functionalCase : functionalCases) {
-            logger.info("## Errors from test '"+functionalCase.getClass().getSimpleName()+"' ... "+functionalCase.getDescription()+": ");
+            logger.info("## Errors from test '" + functionalCase.getClass().getSimpleName() + "' ... " + functionalCase.getDescription() + ": ");
             logger.info(functionalCase.retrieveTestLogs(100));
         }
 
@@ -261,14 +435,14 @@ class SearchServiceTest extends BaseUnitTest {
         logger.info("###### Metrics summary:");
         for (FunctionalCase functionalCase : functionalCases) {
             logger.info(
-                    "## [METRICS] '"+functionalCase.getClass().getSimpleName()+"' ... "+
-                            functionalCase.getDescription()+": "+
+                    "## [METRICS] '" + functionalCase.getClass().getSimpleName() + "' ... " +
+                            functionalCase.getDescription() + ": " +
                             functionalCase.retrieveEvaluationResult());
         }
 
         // Log test time
-        long totalTime = System.currentTimeMillis()-startTime;
-        logger.info("Total testing time(s): "+totalTime/1000 +" (mins: "+(totalTime/60000)+")");
+        long totalTime = System.currentTimeMillis() - startTime;
+        logger.info("Total testing time(s): " + totalTime / 1000 + " (mins: " + (totalTime / 60000) + ")");
 
         // Evaluate
         for (FunctionalCase functionalCase : functionalCases) {
@@ -304,18 +478,18 @@ class SearchServiceTest extends BaseUnitTest {
     private boolean evaluationPasses() {
         final double MIN_RECALL = 0.9;
 
-        double recall = (double)okCase1Count/(double) case1Count;
+        double recall = (double) okCase1Count / (double) case1Count;
 
         String case1FailedNames = "";
         for (String case1FailedName : case1Failed) {
-            case1FailedNames+="\n\t"+case1FailedName;
+            case1FailedNames += "\n\t" + case1FailedName;
         }
-        logger.info("case1FailedNames: {}",case1FailedNames);
+        logger.info("case1FailedNames: {}", case1FailedNames);
 
         logger.info("## case1Count={}, okCase1Count={}", case1Count, okCase1Count);
         logger.info("## recall={}", recall);
 
-        if (recall>=MIN_RECALL) return true;
+        if (recall >= MIN_RECALL) return true;
         return false;
     }
 
@@ -325,5 +499,26 @@ class SearchServiceTest extends BaseUnitTest {
         okCase1Count = 0;
         case1Count = 0;
         case1Failed.clear();
+    }
+
+    private InputStream getResourceInputStream() throws IOException {
+        return new ClassPathResource(
+                "test_names.dat", getClass().getClassLoader()).getInputStream();
+    }
+
+    private List<NameAndEntityCode> createNameAndEntityCodeFromFile() throws IOException {
+        List<NameAndEntityCode> nameAndEntityCodeList = new ArrayList<>();
+        InputStream is = getResourceInputStream();
+        List<String> recordList = IOUtils.readLines(is, Charset.defaultCharset());
+        for (String record : recordList) {
+            String[] tokens = record.split(",");
+            String entityCodeInSource = tokens[0];
+            String name = tokens[1];
+            NameAndEntityCode nameAndEntityCode = NameAndEntityCode.builder()
+                    .name(name).entityCode(entityCodeInSource)
+                    .build();
+            nameAndEntityCodeList.add(nameAndEntityCode);
+        }
+        return nameAndEntityCodeList;
     }
 }

@@ -30,6 +30,16 @@ public class FunctionalCaseMixed1 extends FunctionalCase {
     }
 
     @Override
+    public double getExpectedRecall() {
+        return MIN_RECALL;
+    }
+
+    @Override
+    public double getExpectedPrecision() {
+        return MIN_PRECISION;
+    }
+
+    @Override
     public boolean isNameAUsableCase(String name) {
         boolean useThisName = name.length() > 12;
         if (!useThisName) ignoredNameCases.add(name);

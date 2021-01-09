@@ -4,6 +4,7 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import org.gainratio.amlfilter.model.Entity;
 import org.gainratio.amlfilter.repository.EntityRepository;
+import org.gainratio.amlfilter.util.AlgorithmUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;

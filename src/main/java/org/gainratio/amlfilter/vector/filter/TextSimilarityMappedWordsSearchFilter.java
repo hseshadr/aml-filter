@@ -19,16 +19,18 @@ public class TextSimilarityMappedWordsSearchFilter implements NameSearchFilter {
     private SearchResultAnalyzerService searchResultAnalyzerService;
 
     public List<Result> filterSearchResults(List<Result> searchResults) {
+        // TODO: watch for side effects, beacuse you are editing the result object
+        // We can parallelize since each result is its own object, clone the object if needed
         return searchResults.stream()
+                .parallel()
                 .map(sr -> getSearchResultAnalyzerService()
                         .resultMatch(sr.getSearchName(), sr.getResultName(), sr))
                 .filter(rm -> rm.isMatch())
                 .map(rm -> {
                     Result r = rm.getResult();
-                    r.setTextSimilarity(rm.getTextSimilarity());
+                    rm.getResult().setTextSimilarity(rm.getTextSimilarity());
                     return r;
                 })
                 .collect(Collectors.toList());
-
     }
 }

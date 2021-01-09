@@ -4,6 +4,7 @@ import lombok.Data;
 
 @Data
 public class Result {
+    private String uniqueId;
     private String searchName;
     private String resultName;
     private String entityCodeInSource;

@@ -2,6 +2,7 @@ package org.gainratio.amlfilter.service;
 
 import lombok.Data;
 import org.gainratio.amlfilter.model.Entity;
+import org.gainratio.amlfilter.model.NameAndEntityCode;
 import org.gainratio.amlfilter.util.AlgorithmUtils;
 import org.gainratio.amlfilter.vector.vectorSpace.VectorSpace;
 import org.gainratio.amlfilter.vector.vectorSpace.flat.VectorDataFlat;
@@ -45,6 +46,20 @@ public class VectorSpaceService {
                 VectorDataFlat vd = vectorSpaceFlat.createVector(entity.getEntityCodeInSource(), name);
                 vectorDataFlatList.add(vd);
             }
+        }
+        setVectorSpaceFlat(vectorSpaceFlat);
+        logger.info("vectorDataFlatList.size()={}", vectorDataFlatList.size());
+    }
+
+    public void createVectorSpaceFlat(List<NameAndEntityCode> nameAndEntityCodeList) {
+        VectorSpaceFlat vectorSpaceFlat
+                = new VectorSpaceFlat();
+        List<VectorDataFlat> vectorDataFlatList = new ArrayList<>();
+        vectorSpaceFlat.setVectorDataList(vectorDataFlatList);
+        for (NameAndEntityCode nameAndEntityCode : nameAndEntityCodeList) {
+            VectorDataFlat vd = vectorSpaceFlat.createVector(nameAndEntityCode.getEntityCode(),
+                    nameAndEntityCode.getName());
+            vectorDataFlatList.add(vd);
         }
         setVectorSpaceFlat(vectorSpaceFlat);
         logger.info("vectorDataFlatList.size()={}", vectorDataFlatList.size());

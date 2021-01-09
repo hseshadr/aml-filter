@@ -34,8 +34,8 @@ public class LoaderService implements LoaderServiceInterface {
     @Override
     public List<Entity> load() throws Exception {
         List<Entity> entities = new ArrayList<>();
-        entities.addAll(parseSdn());
-        vectorSpaceService.createVectorSpaceFlat();
+        //entities.addAll(parseSdn());
+        //vectorSpaceService.createVectorSpaceFlat();
         return entities;
     }
 

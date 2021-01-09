@@ -24,6 +24,16 @@ public class FunctionalCaseExact extends FunctionalCase {
     }
 
     @Override
+    public double getExpectedRecall() {
+        return MIN_RECALL;
+    }
+
+    @Override
+    public double getExpectedPrecision() {
+        return MIN_PRECISION;
+    }
+
+    @Override
     public boolean isNameAUsableCase(String name) {
         return true;
     }

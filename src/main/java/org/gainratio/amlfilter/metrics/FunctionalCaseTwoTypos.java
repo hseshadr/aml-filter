@@ -24,6 +24,16 @@ public class FunctionalCaseTwoTypos extends FunctionalCase {
     }
 
     @Override
+    public double getExpectedRecall() {
+        return MIN_RECALL;
+    }
+
+    @Override
+    public double getExpectedPrecision() {
+        return MIN_PRECISION;
+    }
+
+    @Override
     public boolean isNameAUsableCase(String name) {
         return name.length() > 14;
     }
