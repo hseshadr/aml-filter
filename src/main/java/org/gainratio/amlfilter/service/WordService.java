@@ -1,8 +1,10 @@
 package org.gainratio.amlfilter.service;
 
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.Data;
+import org.apache.commons.io.IOUtils;
+import org.apache.commons.lang3.ObjectUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.gainratio.amlfilter.model.Word;
 import org.gainratio.amlfilter.repository.WordRepository;
 import org.slf4j.Logger;
@@ -15,10 +17,8 @@ import javax.annotation.PostConstruct;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.nio.charset.Charset;
+import java.util.*;
 import java.util.stream.Collectors;
 
 
@@ -59,8 +59,8 @@ public class WordService implements WordServiceInterface {
     public void loadAll() throws Exception {
         List<Word> wordList = getWordRepository().findAll();
         if (wordList.isEmpty()) {
-            wordList = loadFromFileResource();
-            wordList = wordRepository.saveAll(wordList);
+            wordList = loadFromResource();
+            wordRepository.saveAll(wordList);
         }
         loadAllWords(wordList);
 
@@ -89,14 +89,35 @@ public class WordService implements WordServiceInterface {
 
     private InputStream getResourceInputStream() throws IOException {
         return new ClassPathResource(
-                "word.json", getClass().getClassLoader()).getInputStream();
+                "words.txt", getClass().getClassLoader()).getInputStream();
     }
 
-    private List<Word> loadFromFileResource() throws IOException {
-        List<Word> wordList = objectMapper.readValue(getResourceInputStream(), new TypeReference<List<Word>>() {
-        });
-        logger.info("Loading from resourceFile={}, wordList.size()={}", resourceFile, wordList.size());
+    private List<Word> loadFromResource() throws IOException {
+        List<String> records = IOUtils.readLines(getResourceInputStream(), Charset.defaultCharset());
+        List<Word> wordList = records.stream().map(WordService::parseRecord)
+                .filter(w -> ObjectUtils.isNotEmpty(w))
+                .collect(Collectors.toList());
+        logger.info("wordList.size()={}", wordList.size());
         return wordList;
+    }
+
+    private static Word parseRecord(String record) {
+        if (StringUtils.isBlank(record)) {
+            return new Word();
+        }
+        System.out.println(record);
+        String[] tokens = record.split(",");
+        Word word = new Word();
+        try {
+        word.setId(tokens[0]);
+            word.setWord(tokens[1]);
+        } catch (Exception e) {
+            if (StringUtils.isBlank(record)) {
+                System.out.println(String.format("FUCKOFF: record=%s", record));
+            }
+        }
+        word.setNumTimesFound(new Integer(tokens[2]));
+        return word;
     }
 
     public void setMaximumWordFrequency(int pMaximumWordFrequency) {
@@ -111,10 +132,6 @@ public class WordService implements WordServiceInterface {
 
     public Word getWord(String pWord) {
         return getWordMap().get(pWord.toUpperCase());
-    }
-
-    protected void setWord(String pWordStr, Word pWordObj) {
-        getWordMap().put(pWordStr.toUpperCase(), pWordObj);
     }
 
     @Override

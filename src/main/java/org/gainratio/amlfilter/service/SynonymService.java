@@ -1,9 +1,9 @@
 package org.gainratio.amlfilter.service;
 
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.Data;
 import lombok.NonNull;
+import org.apache.commons.io.IOUtils;
 import org.gainratio.amlfilter.model.Synonym;
 import org.gainratio.amlfilter.repository.SynonymRepository;
 import org.slf4j.Logger;
@@ -13,9 +13,9 @@ import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Service;
 
 import javax.annotation.PostConstruct;
-import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.Charset;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -34,8 +34,6 @@ import java.util.stream.Collectors;
 public class SynonymService implements SynonymServiceInterface {
     private static final Logger logger = LoggerFactory.getLogger(SynonymService.class);
     private static final ObjectMapper objectMapper = new ObjectMapper();
-    private File resourceFile;
-
     private Map<String, String> synonymMap = new HashMap<>();
 
     @Autowired
@@ -50,10 +48,9 @@ public class SynonymService implements SynonymServiceInterface {
     public void loadAll() throws Exception {
         List<Synonym> synonymList = getSynonymRepository().findAll();
         if (synonymList.isEmpty()) {
-            synonymList = loadFromFileResource();
-            synonymList = synonymRepository.saveAll(synonymList);
+            synonymList = loadFromResource();
+            loadAllSynonyms(synonymList);
         }
-        loadAllSynonyms(synonymList);
     }
 
     @Override
@@ -63,21 +60,31 @@ public class SynonymService implements SynonymServiceInterface {
                 .map(s -> getSynonymMap().getOrDefault(s.trim(), s)).collect(Collectors.joining(" "));
     }
 
-    private void loadAllSynonyms(List<Synonym> synonymList) throws IOException {
+    private void loadAllSynonyms(List<Synonym> synonymList) {
         synonymMap = synonymList
-                .stream().collect(Collectors.toMap(e -> e.getWord(), e -> e.getSynonym()));
+                .stream().collect(Collectors.toMap(s -> s.getWord(), s -> s.getSynonym()));
         logger.info("Loaded all the synonyms from the database, count = {}", synonymMap.size());
     }
 
     private InputStream getResourceInputStream() throws IOException {
         return new ClassPathResource(
-                "synonym.json", getClass().getClassLoader()).getInputStream();
+                "synonyms.txt", getClass().getClassLoader()).getInputStream();
     }
 
-    private List<Synonym> loadFromFileResource() throws IOException {
-        List<Synonym> synonymList = objectMapper.readValue(getResourceInputStream(), new TypeReference<List<Synonym>>() {
-        });
-        logger.info("Loading from resourceFile={}, synonymList.size()={}", resourceFile, synonymList.size());
+    private List<Synonym> loadFromResource() throws IOException {
+        List<String> records = IOUtils.readLines(getResourceInputStream(), Charset.defaultCharset());
+        List<Synonym> synonymList = records.stream().map(SynonymService::parseRecordIntoSynonym)
+                .collect(Collectors.toList());
+        logger.info("synonymList.size()={}", synonymList.size());
         return synonymList;
+    }
+
+    private static Synonym parseRecordIntoSynonym(String record) {
+        String[] tokens = record.split(",");
+        Synonym synonym = new Synonym();
+        synonym.setId(new Long(tokens[0].trim()));
+        synonym.setWord(tokens[1].trim());
+        synonym.setSynonym(tokens[2].trim());
+        return synonym;
     }
 }
