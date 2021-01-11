@@ -17,7 +17,7 @@ import java.util.stream.Collectors;
 
 @Service
 @Data
-public class SearchService {
+public class SearchService implements SearchServiceInterface {
     @Autowired
     private VectorSpaceService vectorSpaceService;
     @Autowired

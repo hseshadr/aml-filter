@@ -6,11 +6,14 @@ import lombok.Data;
 
 import java.io.IOException;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 @Data
 @Builder
 public class SearchRequest {
+    private Map<String,Object> searchPreferencesMap = new HashMap<>();
     private String searchDate;
     private List<SearchRecord> searchRecordList;
 

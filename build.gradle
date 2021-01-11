@@ -64,11 +64,13 @@ dependencies {
 }
 
 dependencies {
+	implementation 'org.projectlombok:lombok:1.18.16'
 	implementation 'junit:junit:4.12'
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
 	implementation 'org.springframework.boot:spring-boot-starter-web'
 	implementation 'org.springframework.boot:spring-boot-starter-data-mongodb'
 
+	compile 'org.springframework.data:spring-data-elasticsearch:4.0.0.RELEASE'
 	// https://mvnrepository.com/artifact/javax.xml.bind/jaxb-api
 	compile group: 'javax.xml.bind', name: 'jaxb-api', version: '2.3.1'
 	compile('javax.activation:activation:1.1')

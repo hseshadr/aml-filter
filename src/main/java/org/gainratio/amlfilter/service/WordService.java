@@ -7,16 +7,15 @@ import org.apache.commons.lang3.ObjectUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.gainratio.amlfilter.model.Word;
 import org.gainratio.amlfilter.repository.WordRepository;
+import org.gainratio.amlfilter.util.ResourceUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Component;
 
 import javax.annotation.PostConstruct;
 import java.io.File;
 import java.io.IOException;
-import java.io.InputStream;
 import java.nio.charset.Charset;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -87,13 +86,8 @@ public class WordService implements WordServiceInterface {
         logger.info("Loaded all the words from the database, count = {}", wordList.size());
     }
 
-    private InputStream getResourceInputStream() throws IOException {
-        return new ClassPathResource(
-                "words.txt", getClass().getClassLoader()).getInputStream();
-    }
-
     private List<Word> loadFromResource() throws IOException {
-        List<String> records = IOUtils.readLines(getResourceInputStream(), Charset.defaultCharset());
+        List<String> records = IOUtils.readLines(ResourceUtils.getResourceInputStream("words.txt"), Charset.defaultCharset());
         List<Word> wordList = records.stream().map(WordService::parseRecord)
                 .filter(w -> ObjectUtils.isNotEmpty(w))
                 .collect(Collectors.toList());

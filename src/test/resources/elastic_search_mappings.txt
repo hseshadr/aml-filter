@@ -1,0 +1,16 @@
+{
+  "properties":{
+     "nameSet":{
+        "type":"text",
+        "fields":{
+           "exact":{
+              "type":"keyword"
+           },
+           "metaphone":{
+              "type":"text",
+              "analyzer":"metaphone"
+           }
+        }
+     }
+  }
+}

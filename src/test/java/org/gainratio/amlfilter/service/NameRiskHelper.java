@@ -5,6 +5,7 @@ import org.dom4j.DocumentException;
 import org.dom4j.Node;
 import org.dom4j.io.SAXReader;
 import org.gainratio.amlfilter.model.*;
+import org.springframework.stereotype.Component;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -18,14 +19,16 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 
-public class NameRiskHelper {
+@Component
+public class NameRiskHelper implements SearchServiceInterface {
     //http://localhost:21011/amlf-engine/jsp/production/index.jsp?searchXML=%3Csearch-request%20processId=%226%22%3E%20%3Csearch-names%3E%20%3Csearch-name%20uniqueId=%221234%22%20fullName=%22Mohammad%22%20entityType=%22PERSON%22%20gender=%22M%22/%3E%20%3C/search-names%3E%20%3C/search-request%3E";
     static String nameRiskSearchURL = "http://localhost:21011/amlf-engine/jsp/production/index.jsp?searchXML=";
     static final String nameRiskSearchXMLTemplate = "%3Csearch-request%20processId=%226%22%3E%20%3Csearch-names%3E%20%3Csearch-name%20uniqueId=%221234%22%20fullName=%22${NAME}%22%20entityType=%22PERSON%22%20gender=%22M%22/%3E%20%3C/search-names%3E%20%3C/search-request%3E";
     private static AtomicLong totalTime = new AtomicLong(0L);
     private static AtomicLong totalSearches = new AtomicLong(0L);
 
-    public SearchResponse search(SearchRequest searchRequest) throws IOException, DocumentException {
+    @Override
+    public SearchResponse search(SearchRequest searchRequest) throws Exception {
         long startTime = System.currentTimeMillis();
         List<SearchRecordResults> searchRecordResultsList = new ArrayList<>();
         for (SearchRecord searchRecord : searchRequest.getSearchRecordList()) {

@@ -1,10 +1,13 @@
 package org.gainratio.amlfilter.service;
 
 import org.apache.commons.io.IOUtils;
+import org.apache.commons.lang3.StringUtils;
+import org.dom4j.DocumentException;
 import org.gainratio.amlfilter.BaseUnitTest;
 import org.gainratio.amlfilter.metrics.*;
 import org.gainratio.amlfilter.model.*;
 import org.gainratio.amlfilter.util.AlgorithmUtils;
+import org.gainratio.amlfilter.util.ResourceUtils;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -15,10 +18,7 @@ import org.springframework.core.io.ClassPathResource;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.Charset;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.List;
+import java.util.*;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -34,6 +34,10 @@ class SearchServiceTest extends BaseUnitTest {
     WordService wordService;
     @Autowired
     VectorSpaceService vectorSpaceService;
+    @Autowired
+    NameRiskHelper nameRiskHelper;
+    @Autowired
+    ElasticSearchHelper elasticSearchHelper;
 
     static int entitiesCount = 0;
     static int nameCount = 0;
@@ -184,33 +188,24 @@ class SearchServiceTest extends BaseUnitTest {
         assertTrue(oneTypeTest.passesEvaluation());
     }
 
-    @Test
-    void search_severalTest_using_file_and_namerisk() throws Exception {
-        List<FunctionalCase> functionalCases = new ArrayList<>();
-        functionalCases.add(new FunctionalCaseExact());
-        functionalCases.add(new FunctionalCaseOneTypo());
-        functionalCases.add(new FunctionalCaseTwoTypos());
-        functionalCases.add(new FunctionalCaseThreeTypos());
-        functionalCases.add(new FunctionalCaseDeleteChar());
-        functionalCases.add(new FunctionalCaseDoublingChars());
-        functionalCases.add(new FunctionalCasePhonetic());
-        functionalCases.add(new FunctionalCaseMixed1());
-
-        List<NameAndEntityCode> nameAndEntityCodeList = createNameAndEntityCodeFromFile();
-        // Start the searches
-        long startTime = System.currentTimeMillis();
-        for (FunctionalCase functionalCase : functionalCases) {
-            for (NameAndEntityCode nameAndEntityCode : nameAndEntityCodeList) {
-                nameCount++;
-                String name = AlgorithmUtils.cleanString(nameAndEntityCode.getName());
+    private void searchNameForFunctionalTestCase(FunctionalCase functionalCase,
+                                                 List<EntityCodeAndNames> entityCodeAndNamesList,
+                                                 SearchServiceInterface searchServiceInterface,
+                                                 Map<String,Object> searchPreferencesMap) throws Exception {
+        for (EntityCodeAndNames nameAndEntityCode : entityCodeAndNamesList) {
+            nameCount++;
+            for (String name : nameAndEntityCode.getNameSet()) {
+                name = AlgorithmUtils.cleanString(name);
                 if (functionalCase.isNameAUsableCase(name)) {
-                    // with 3: caseCount=29696, recall=0.48841594827586204, precision=0.7572308656155372
-                    // with 10: caseCount=13899, recall=0.8786963090869847, precision=0.860676532769556
                     String modName = functionalCase.modifyString(name);
                     SearchRequest searchRequest = SearchRequest
                             .builder()
-                            .searchRecordList(Collections.singletonList(SearchRecord.builder().fullName(modName).build())).build();
-                    SearchResponse searchResponse = new NameRiskHelper().search(searchRequest);
+                            .searchPreferencesMap(searchPreferencesMap)
+                            .searchRecordList(Collections
+                                    .singletonList(SearchRecord.builder()
+                                            .fullName(modName).build()))
+                            .build();
+                    SearchResponse searchResponse = searchServiceInterface.search(searchRequest);
                     List<Result> resultList = searchResponse.getSearchRecordResultList().get(0).getResults();
                     functionalCase.incTestCaseCount();
                     boolean found = false;
@@ -231,12 +226,31 @@ class SearchServiceTest extends BaseUnitTest {
                     }
                 }
             }
+        }
+    }
+
+    @Test
+    void search_severalTest_using_file_and_namerisk() throws Exception {
+        List<FunctionalCase> functionalCases = new ArrayList<>();
+        functionalCases.add(new FunctionalCaseExact());
+        functionalCases.add(new FunctionalCaseOneTypo());
+        functionalCases.add(new FunctionalCaseTwoTypos());
+        functionalCases.add(new FunctionalCaseThreeTypos());
+        functionalCases.add(new FunctionalCaseDeleteChar());
+        functionalCases.add(new FunctionalCaseDoublingChars());
+        functionalCases.add(new FunctionalCasePhonetic());
+        functionalCases.add(new FunctionalCaseMixed1());
+
+        List<EntityCodeAndNames> entityCodeAndNamesList = createNameAndEntityCodeFromFile();
+        // Start the searches
+        long startTime = System.currentTimeMillis();
+        for (FunctionalCase functionalCase : functionalCases) {
+            searchNameForFunctionalTestCase(functionalCase, entityCodeAndNamesList, nameRiskHelper,null);
             logger.info(
                     "## [METRICS] '" + functionalCase.getClass().getSimpleName() + "' ... " +
                             functionalCase.getDescription() + ": " +
                             functionalCase.retrieveEvaluationResult());
         }
-
         logger.info("\n\n");
         logger.info("###### Cases logs:");
         for (FunctionalCase functionalCase : functionalCases) {
@@ -257,8 +271,6 @@ class SearchServiceTest extends BaseUnitTest {
         // Log test time
         long totalTime = System.currentTimeMillis() - startTime;
         logger.info("Total testing time(s): " + totalTime / 1000 + " (mins: " + (totalTime / 60000) + ")");
-        //logger.info("nameAndEntityCodeStrList.size()={}", nameAndEntityCodeStrList.size());
-        //logger.info("nameAndEntityCodeStrList:\n{}", nameAndEntityCodeStrList);
         // Evaluate
         for (FunctionalCase functionalCase : functionalCases) {
             assertTrue(functionalCase.passesEvaluation());
@@ -277,50 +289,17 @@ class SearchServiceTest extends BaseUnitTest {
         functionalCases.add(new FunctionalCasePhonetic());
         functionalCases.add(new FunctionalCaseMixed1());
 
-        List<NameAndEntityCode> nameAndEntityCodeList = createNameAndEntityCodeFromFile();
-        // Setup the vector space
-        vectorSpaceService.createVectorSpaceFlat(nameAndEntityCodeList);
-
+        List<EntityCodeAndNames> entityCodeAndNamesList = createNameAndEntityCodeFromFile();
+        vectorSpaceService.createVectorSpaceFlat(entityCodeAndNamesList);
         // Start the searches
         long startTime = System.currentTimeMillis();
         for (FunctionalCase functionalCase : functionalCases) {
-            for (NameAndEntityCode nameAndEntityCode : nameAndEntityCodeList) {
-                nameCount++;
-                String name = AlgorithmUtils.cleanString(nameAndEntityCode.getName());
-                if (functionalCase.isNameAUsableCase(name)) {
-                    // with 3: caseCount=29696, recall=0.48841594827586204, precision=0.7572308656155372
-                    // with 10: caseCount=13899, recall=0.8786963090869847, precision=0.860676532769556
-                    String modName = functionalCase.modifyString(name);
-                    SearchRequest searchRequest = SearchRequest
-                            .builder()
-                            .searchRecordList(Collections.singletonList(SearchRecord.builder().fullName(modName).build())).build();
-                    SearchResponse searchResponse = searchService.search(searchRequest);
-                    List<Result> resultList = searchResponse.getSearchRecordResultList().get(0).getResults();
-                    functionalCase.incTestCaseCount();
-                    boolean found = false;
-                    for (SearchRecordResults srr : searchResponse.getSearchRecordResultList()) {
-                        for (Result result : srr.getResults()) {
-                            if (nameAndEntityCode.getEntityCode().equals(result.getEntityCodeInSource())) {
-                                found = true;
-                            } else {
-                                functionalCase.incFalsePositives();
-                                functionalCase.getFalsePositiveList().add("* FP: " + result.getResultName() +
-                                        " -> searching for '" + modName + "'" + "; results.size(): " + resultList.size());
-                            }
-                        }
-                    }
-                    if (found) functionalCase.incTruePositives();
-                    else {
-                        functionalCase.getFalseNegativeList().add("* FN: (" + nameAndEntityCode.getEntityCode() + ") " + name + " -> searching for '" + modName + "'");
-                    }
-                }
-            }
+            searchNameForFunctionalTestCase(functionalCase, entityCodeAndNamesList, searchService, null);
             logger.info(
                     "## [METRICS] '" + functionalCase.getClass().getSimpleName() + "' ... " +
                             functionalCase.getDescription() + ": " +
                             functionalCase.retrieveEvaluationResult());
         }
-
         logger.info("\n\n");
         logger.info("###### Cases logs:");
         for (FunctionalCase functionalCase : functionalCases) {
@@ -341,13 +320,77 @@ class SearchServiceTest extends BaseUnitTest {
         // Log test time
         long totalTime = System.currentTimeMillis() - startTime;
         logger.info("Total testing time(s): " + totalTime / 1000 + " (mins: " + (totalTime / 60000) + ")");
-        //logger.info("nameAndEntityCodeStrList.size()={}", nameAndEntityCodeStrList.size());
-        //logger.info("nameAndEntityCodeStrList:\n{}", nameAndEntityCodeStrList);
         // Evaluate
         for (FunctionalCase functionalCase : functionalCases) {
             assertTrue(functionalCase.passesEvaluation());
         }
     }
+
+    @Test
+    void search_severalTest_using_file_and_elastic_search() throws Exception {
+        List<FunctionalCase> functionalCases = new ArrayList<>();
+        functionalCases.add(new FunctionalCaseExact());
+        /*
+        functionalCases.add(new FunctionalCaseOneTypo());
+        functionalCases.add(new FunctionalCaseTwoTypos());
+        functionalCases.add(new FunctionalCaseThreeTypos());
+        functionalCases.add(new FunctionalCaseDeleteChar());
+        functionalCases.add(new FunctionalCaseDoublingChars());
+        functionalCases.add(new FunctionalCasePhonetic());
+        functionalCases.add(new FunctionalCaseMixed1());
+         */
+        List<EntityCodeAndNames> entityCodeAndNamesList = createNameAndEntityCodeFromFile();
+        elasticSearchHelper.index(entityCodeAndNamesList);
+        // Start the searches
+        long startTime = System.currentTimeMillis();
+        Map<String,Object> searchPreferencesMap = new HashMap<>();
+        for (FunctionalCase functionalCase : functionalCases) {
+            if (functionalCase.getClass().equals(FunctionalCaseExact.class)) {
+                searchPreferencesMap.put("fuzziness", 0);
+            }
+            else if (functionalCase.getClass().equals(FunctionalCaseOneTypo.class)) {
+                searchPreferencesMap.put("fuzziness", 1);
+            }
+            else if (functionalCase.getClass().equals(FunctionalCaseTwoTypos.class)) {
+                searchPreferencesMap.put("fuzziness", 2);
+            }
+            else {
+                searchPreferencesMap.put("fuzziness", 3);
+            }
+            searchNameForFunctionalTestCase(functionalCase, entityCodeAndNamesList,
+                    elasticSearchHelper, searchPreferencesMap);
+            logger.info(
+                    "## [METRICS] '" + functionalCase.getClass().getSimpleName() + "' ... " +
+                            functionalCase.getDescription() + ": " +
+                            functionalCase.retrieveEvaluationResult());
+        }
+        logger.info("\n\n");
+        logger.info("###### Cases logs:");
+        for (FunctionalCase functionalCase : functionalCases) {
+            logger.info("## Errors from test '" + functionalCase.getClass().getSimpleName() + "' ... " + functionalCase.getDescription() + ": ");
+            logger.info(functionalCase.retrieveTestLogs(10));
+        }
+
+        // Logging
+        logger.info("\n\n");
+        logger.info("###### Metrics summary:");
+        for (FunctionalCase functionalCase : functionalCases) {
+            logger.info(
+                    "## [METRICS] '" + functionalCase.getClass().getSimpleName() + "' ... " +
+                            functionalCase.getDescription() + ": " +
+                            functionalCase.retrieveEvaluationResult());
+        }
+
+        // Log test time
+        long totalTime = System.currentTimeMillis() - startTime;
+        logger.info("Total testing time(s): " + totalTime / 1000 + " (mins: " + (totalTime / 60000) + ")");
+        // Evaluate
+        for (FunctionalCase functionalCase : functionalCases) {
+            assertTrue(functionalCase.passesEvaluation());
+        }
+    }
+
+
 
     @Test
     void search_severalTest() throws Exception {
@@ -387,16 +430,6 @@ class SearchServiceTest extends BaseUnitTest {
                                 .searchRecordList(Collections.singletonList(SearchRecord.builder().fullName(modName).build())).build();
                         SearchResponse searchResponse = searchService.search(searchRequest);
                         List<Result> resultList = searchResponse.getSearchRecordResultList().get(0).getResults();
-
-                        /*
-                        if (wordService.getNameInformationLevel(modName) <= 10) {
-                            logger.info("({}): IGNORING {}, infoLevel={}..... results.size={}", entityCodeInSource, name,
-                                    wordService.getNameInformationLevel(name), resultList.size());
-                            continue;
-                        }
-                        */
-
-
                         functionalCase.incTestCaseCount();
                         boolean found = false;
                         for (SearchRecordResults srr : searchResponse.getSearchRecordResultList()) {
@@ -450,31 +483,6 @@ class SearchServiceTest extends BaseUnitTest {
         }
     }
 
-//    private boolean evaluationPasses(FunctionalCase functionalCase) {
-//        final double MIN_RECALL = 0.9;
-//        final double MIN_PRECISION = 0.7;
-//
-//        double recall = (double)functionalCase.getTruePositives()/(double) functionalCase.getCaseCount();
-//        double precision = (double)functionalCase.getTruePositives()/((double)functionalCase.getTruePositives()+(double)functionalCase.getFalsePositives());
-//
-//        String falseNegatives = "";
-//        for (String fn : functionalCase.getFalseNegativeList()) {
-//            falseNegatives+="\n\t"+fn;
-//        }
-//        logger.info("falseNegatives: {}",falseNegatives);
-//
-//        String falsePositives = "";
-//        for (String fp : functionalCase.getFalsePositiveList()) {
-//            falsePositives+="\n\t"+fp;
-//        }
-//        logger.info("falsePositives: {}",falsePositives);
-//
-//        logger.info("## caseCount={}, recall={}, precision={}", functionalCase.getCaseCount(), recall, precision);
-//
-//        if (recall>=MIN_RECALL && precision>MIN_PRECISION) return true;
-//        return false;
-//    }
-
     private boolean evaluationPasses() {
         final double MIN_RECALL = 0.9;
 
@@ -502,23 +510,35 @@ class SearchServiceTest extends BaseUnitTest {
     }
 
     private InputStream getResourceInputStream() throws IOException {
-        return new ClassPathResource(
-                "test_names.dat", getClass().getClassLoader()).getInputStream();
+        return ResourceUtils.getResourceInputStream("test_names.dat");
     }
 
-    private List<NameAndEntityCode> createNameAndEntityCodeFromFile() throws IOException {
-        List<NameAndEntityCode> nameAndEntityCodeList = new ArrayList<>();
+    private List<EntityCodeAndNames> createNameAndEntityCodeFromFile() throws IOException {
+        List<EntityCodeAndNames> entityCodeAndNamesList = new ArrayList<>();
         InputStream is = getResourceInputStream();
         List<String> recordList = IOUtils.readLines(is, Charset.defaultCharset());
+        Map<String,Set<String>> entityCodeToNameSetMap = new HashMap<>();
         for (String record : recordList) {
             String[] tokens = record.split(",");
-            String entityCodeInSource = tokens[0];
+            String entityCodeInSource = tokens[0].trim();
             String name = tokens[1];
-            NameAndEntityCode nameAndEntityCode = NameAndEntityCode.builder()
-                    .name(name).entityCode(entityCodeInSource)
-                    .build();
-            nameAndEntityCodeList.add(nameAndEntityCode);
+            if (StringUtils.isBlank(name)) {
+                continue;
+            }
+            Set<String> nameSet = entityCodeToNameSetMap.get(entityCodeInSource);
+            if (null == nameSet) {
+                nameSet = new LinkedHashSet<>();
+                entityCodeToNameSetMap.put(entityCodeInSource, nameSet);
+            }
+            nameSet.add(name);
         }
-        return nameAndEntityCodeList;
+        for (Map.Entry<String,Set<String>> entry : entityCodeToNameSetMap.entrySet()) {
+            EntityCodeAndNames entityCodeAndNames = EntityCodeAndNames.builder()
+                    .entityCode(entry.getKey())
+                    .nameSet(entry.getValue())
+                    .build();
+            entityCodeAndNamesList.add(entityCodeAndNames);
+        }
+        return entityCodeAndNamesList;
     }
 }

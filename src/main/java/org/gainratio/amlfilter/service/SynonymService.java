@@ -6,15 +6,14 @@ import lombok.NonNull;
 import org.apache.commons.io.IOUtils;
 import org.gainratio.amlfilter.model.Synonym;
 import org.gainratio.amlfilter.repository.SynonymRepository;
+import org.gainratio.amlfilter.util.ResourceUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Service;
 
 import javax.annotation.PostConstruct;
 import java.io.IOException;
-import java.io.InputStream;
 import java.nio.charset.Charset;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -66,13 +65,8 @@ public class SynonymService implements SynonymServiceInterface {
         logger.info("Loaded all the synonyms from the database, count = {}", synonymMap.size());
     }
 
-    private InputStream getResourceInputStream() throws IOException {
-        return new ClassPathResource(
-                "synonyms.txt", getClass().getClassLoader()).getInputStream();
-    }
-
     private List<Synonym> loadFromResource() throws IOException {
-        List<String> records = IOUtils.readLines(getResourceInputStream(), Charset.defaultCharset());
+        List<String> records = IOUtils.readLines(ResourceUtils.getResourceInputStream("synonyms.txt"), Charset.defaultCharset());
         List<Synonym> synonymList = records.stream().map(SynonymService::parseRecordIntoSynonym)
                 .collect(Collectors.toList());
         logger.info("synonymList.size()={}", synonymList.size());

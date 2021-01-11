@@ -1,0 +1,20 @@
+{
+  "analysis":{
+     "analyzer":{
+        "metaphone":{
+           "type":"custom",
+           "tokenizer":"standard",
+           "filter":[
+              "my_metaphone"
+           ]
+        }
+     },
+     "filter":{
+        "my_metaphone":{
+           "encoder":"metaphone",
+           "replace":false,
+           "type":"phonetic"
+        }
+     }
+  }
+}

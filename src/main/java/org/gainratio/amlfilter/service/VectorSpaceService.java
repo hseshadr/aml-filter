@@ -2,7 +2,7 @@ package org.gainratio.amlfilter.service;
 
 import lombok.Data;
 import org.gainratio.amlfilter.model.Entity;
-import org.gainratio.amlfilter.model.NameAndEntityCode;
+import org.gainratio.amlfilter.model.EntityCodeAndNames;
 import org.gainratio.amlfilter.util.AlgorithmUtils;
 import org.gainratio.amlfilter.vector.vectorSpace.VectorSpace;
 import org.gainratio.amlfilter.vector.vectorSpace.flat.VectorDataFlat;
@@ -15,7 +15,6 @@ import org.springframework.stereotype.Service;
 import javax.annotation.PostConstruct;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.stream.Collectors;
 
 /**
  * Maintains and loads the search engine resources atomically
@@ -51,15 +50,17 @@ public class VectorSpaceService {
         logger.info("vectorDataFlatList.size()={}", vectorDataFlatList.size());
     }
 
-    public void createVectorSpaceFlat(List<NameAndEntityCode> nameAndEntityCodeList) {
+    public void createVectorSpaceFlat(List<EntityCodeAndNames> entityCodeAndNamesList) {
         VectorSpaceFlat vectorSpaceFlat
                 = new VectorSpaceFlat();
         List<VectorDataFlat> vectorDataFlatList = new ArrayList<>();
         vectorSpaceFlat.setVectorDataList(vectorDataFlatList);
-        for (NameAndEntityCode nameAndEntityCode : nameAndEntityCodeList) {
-            VectorDataFlat vd = vectorSpaceFlat.createVector(nameAndEntityCode.getEntityCode(),
-                    nameAndEntityCode.getName());
-            vectorDataFlatList.add(vd);
+        for (EntityCodeAndNames nameAndEntityCode : entityCodeAndNamesList) {
+            for (String name : nameAndEntityCode.getNameSet()) {
+                VectorDataFlat vd = vectorSpaceFlat.createVector(nameAndEntityCode.getEntityCode(),
+                        name);
+                vectorDataFlatList.add(vd);
+            }
         }
         setVectorSpaceFlat(vectorSpaceFlat);
         logger.info("vectorDataFlatList.size()={}", vectorDataFlatList.size());
