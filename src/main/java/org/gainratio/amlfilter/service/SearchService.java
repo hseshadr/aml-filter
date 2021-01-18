@@ -3,7 +3,9 @@ package org.gainratio.amlfilter.service;
 import lombok.Data;
 import org.apache.commons.lang3.StringUtils;
 import org.gainratio.amlfilter.model.*;
+import org.gainratio.amlfilter.search.TokenSearch;
 import org.gainratio.amlfilter.util.AlgorithmUtils;
+import org.gainratio.amlfilter.vector.filter.JaroWinklerSearchFilter;
 import org.gainratio.amlfilter.vector.filter.TextSimilarityMappedWordsSearchFilter;
 import org.gainratio.amlfilter.vector.vectorSpace.flat.VectorResult;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -11,7 +13,6 @@ import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -26,10 +27,18 @@ public class SearchService implements SearchServiceInterface {
     private TextSimilarityMappedWordsSearchFilter nameSearchFilter;
     @Autowired
     private ResultsService resultsService;
+    @Autowired
+    private TokenSearch tokenSearch;
+    @Autowired
+    private Tree_VectorSpaceSearch tree_vectorSpaceSearch;
 
     public SearchResponse search(SearchRequest searchRequest) {
         List<SearchRecordResults> searchRecordResultsList = new ArrayList<>();
         for (SearchRecord searchRecord : searchRequest.getSearchRecordList()) {
+            String cleanedName = AlgorithmUtils.cleanString(searchRecord.getFullName());
+            String synonimicName = getSynonymService().getSynonymName(searchRecord.getFullName());
+            searchRecord.setCleanedName(cleanedName);
+            searchRecord.setSynonimicName(synonimicName);
             List<Result> resultList = searchVariants(searchRecord);
             resultList = filterResults(resultList);
             searchRecordResultsList.add(SearchRecordResults.builder()
@@ -42,11 +51,11 @@ public class SearchService implements SearchServiceInterface {
     private List<Result> filterResults(List<Result> results) {
         List<Result> filteredResults = results;
         if (results.size() > 0) {
+            // Remove the result repetitions by entity code and similarity
             filteredResults = getResultsService().removeResultRepetitionsByEntityCodeAndSimilarity(filteredResults);
+            // Remove the result synonyms
+            // *******************************************************************
             filteredResults = getResultsService().removeResultSynonyms(filteredResults);
-            /*
-            filteredResults = getResultsService().removeResultRepetitionsByNameAndSimilarity(results);
-             */
         }
         Collections.sort(filteredResults, (a,b) -> b.getTextSimilarity().compareTo(a.getTextSimilarity()));
         return filteredResults;
@@ -61,19 +70,21 @@ public class SearchService implements SearchServiceInterface {
         List<Result> results1 = search(searchName, searchRecord);
         resultList.addAll(results1);
         String synonymicName = getSynonymService().getSynonymName(searchName);
-        List<Result> results2 = search(synonymicName, searchRecord);
-        resultList.addAll(results2);
-
+        if (!synonymicName.equals(searchName)) {
+            List<Result> results2 = search(synonymicName, searchRecord);
+            resultList.addAll(results2);
+        }
         return resultList;
     }
 
     private List<Result> search(String searchName, SearchRecord searchRecord) {
-        List<VectorResult> vectorResultList = vectorSpaceService
-                .getVectorSpaceFlat().search(searchName, 200);
-        List<Result> resultList
-                = convertVectorResultListToSearchResultList(searchName, searchRecord, vectorResultList);
-        resultList = nameSearchFilter.filterSearchResults(resultList);
-        return resultList;
+        List<Result> cumulativeResults = new ArrayList<>();
+        List<Result> resultListFromTokenSearch = tokenSearch.executeQuery(searchRecord);
+        cumulativeResults.addAll(resultListFromTokenSearch);
+        List<Result> resultListFromVsSearch = tree_vectorSpaceSearch.executeQuery(searchRecord);
+        cumulativeResults.addAll(resultListFromVsSearch);
+        cumulativeResults = nameSearchFilter.filterSearchResults(cumulativeResults);
+        return cumulativeResults;
     }
 
     private List<Result> convertVectorResultListToSearchResultList(String searchName,

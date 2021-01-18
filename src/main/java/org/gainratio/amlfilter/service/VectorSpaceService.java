@@ -4,6 +4,10 @@ import lombok.Data;
 import org.gainratio.amlfilter.model.Entity;
 import org.gainratio.amlfilter.model.EntityCodeAndNames;
 import org.gainratio.amlfilter.util.AlgorithmUtils;
+import org.gainratio.amlfilter.vector.comparisonCriteria.*;
+import org.gainratio.amlfilter.vector.test.test_hierarchy_treeSearch;
+import org.gainratio.amlfilter.vector.vectorSpace.Hierarchy_utils;
+import org.gainratio.amlfilter.vector.vectorSpace.VectorDefinition;
 import org.gainratio.amlfilter.vector.vectorSpace.VectorSpace;
 import org.gainratio.amlfilter.vector.vectorSpace.flat.VectorDataFlat;
 import org.gainratio.amlfilter.vector.vectorSpace.flat.VectorSpaceFlat;
@@ -13,6 +17,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import javax.annotation.PostConstruct;
+import java.io.BufferedWriter;
+import java.io.IOException;
+import java.io.OutputStreamWriter;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -23,14 +30,26 @@ import java.util.List;
 @Data
 public class VectorSpaceService {
     private static final Logger logger = LoggerFactory.getLogger(VectorSpaceService.class);
-    private VectorSpace vectorSpace;
+    private VectorSpace rawVs;
+    private VectorSpace trainedVs;
     private VectorSpaceFlat vectorSpaceFlat;
     @Autowired
     private EntityService entityService;
 
+    // Define the comparison criteria
+    VsCriteria_Distance comparator_distance = new VsCriteria_Distance();
+    VsCriteria_Distance_Normalized comparator_distNorm = new VsCriteria_Distance_Normalized();
+    VsCriteria_PairSimilarity comparator_pairSim = new VsCriteria_PairSimilarity(); // comparator_pairSim
+    VsCriteria_Cosine comparator_cosine = new VsCriteria_Cosine();
+    VsCriteria_CompAlgs comparator_compAlgs = new VsCriteria_CompAlgs();
+    VsComparisonCriteriaHandler comparator_forTraining = comparator_pairSim;
+
+    private static final Hierarchy_utils hu = new Hierarchy_utils();
+
     @PostConstruct
-    public void init() {
-        createVectorSpaceFlat();
+    public void init() throws IOException {
+        rawVs = createVectorSpace();
+        Hierarchy_utils.log = new BufferedWriter(new OutputStreamWriter(System.out, rawVs.getVectorManager().getLocale().getDisplayName()));
     }
 
     public void createVectorSpaceFlat() {
@@ -38,8 +57,8 @@ public class VectorSpaceService {
                 = new VectorSpaceFlat();
         List<VectorDataFlat> vectorDataFlatList = new ArrayList<>();
         vectorSpaceFlat.setVectorDataList(vectorDataFlatList);
-        for (Entity entity : getEntityService().getEntityMap()
-                     .values()) {
+        for (Entity entity : getEntityService().getEntityCodeToEntityMap()
+                .values()) {
             for (String name : entity.getEntityNameSet()) {
                 name = AlgorithmUtils.cleanString(name);
                 VectorDataFlat vd = vectorSpaceFlat.createVector(entity.getEntityCodeInSource(), name);
@@ -57,6 +76,9 @@ public class VectorSpaceService {
         vectorSpaceFlat.setVectorDataList(vectorDataFlatList);
         for (EntityCodeAndNames nameAndEntityCode : entityCodeAndNamesList) {
             for (String name : nameAndEntityCode.getNameSet()) {
+                if (name.contains("DURATEX SA")) {
+                    logger.info("entityCode={}, name={}", nameAndEntityCode.getEntityCode(), name);
+                }
                 VectorDataFlat vd = vectorSpaceFlat.createVector(nameAndEntityCode.getEntityCode(),
                         name);
                 vectorDataFlatList.add(vd);
@@ -64,5 +86,70 @@ public class VectorSpaceService {
         }
         setVectorSpaceFlat(vectorSpaceFlat);
         logger.info("vectorDataFlatList.size()={}", vectorDataFlatList.size());
+    }
+
+    private VectorSpace createVectorSpace() {
+        VectorSpace vectorSpace = new VectorSpace();
+        vectorSpace.setVectorDefinition(VectorDefinition.makeRawVecDefinition());
+        vectorSpace.setComparator(comparator_forTraining);
+        return vectorSpace;
+    }
+
+    public void populateVectorSpace(List<EntityCodeAndNames> entityCodeAndNamesList) {
+        VectorSpaceFlat vectorSpaceFlat
+                = new VectorSpaceFlat();
+        List<VectorDataFlat> vectorDataFlatList = new ArrayList<>();
+        vectorSpaceFlat.setVectorDataList(vectorDataFlatList);
+        for (EntityCodeAndNames nameAndEntityCode : entityCodeAndNamesList) {
+            for (String name : nameAndEntityCode.getNameSet()) {
+                if (name.contains("DURATEX SA")) {
+                    logger.info("entityCode={}, name={}", nameAndEntityCode.getEntityCode(), name);
+                }
+                addVector(nameAndEntityCode.getEntityCode(), name);
+            }
+        }
+        setVectorSpaceFlat(vectorSpaceFlat);
+        logger.info("vectorDataFlatList.size()={}", vectorDataFlatList.size());
+    }
+
+    private void addVector(String entityCode, String name) {
+        rawVs.addVector(
+                entityCode, AlgorithmUtils.cleanString(name)
+        );
+    }
+
+    public void train() throws Exception {
+        boolean refineRefVectors = false;
+        boolean averageParentCoordinatesUsingChildren = false;
+        boolean relocateCoordinates_relativeToParents = true;
+        boolean trainDeeperLevels = true;
+        int minSizeOfVsForTrainingIt = 10;
+        int numSeedingVectors = 5;
+        int maxSizeOfSampledVsForRefining = 500;
+        int numPassesForRefining = 10;
+
+        VectorSpace orderedVs = createVectorSpace();
+        this.trainedVs = hu.train_(
+                orderedVs,
+                rawVs,
+                averageParentCoordinatesUsingChildren,
+                relocateCoordinates_relativeToParents,
+                trainDeeperLevels,
+                minSizeOfVsForTrainingIt,
+                numSeedingVectors,
+                maxSizeOfSampledVsForRefining,
+                numPassesForRefining,
+                refineRefVectors,
+                false);
+
+        float testingThreshold = 0.15f;
+        test_hierarchy_treeSearch.test_tree_search_batch(rawVs,
+                trainedVs,
+                20,
+                testingThreshold,
+                false,
+                true,
+                true);
+        System.out.println("DONE");
     }
 }

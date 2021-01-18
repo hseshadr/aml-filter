@@ -1,8 +1,8 @@
 package org.gainratio.amlfilter.service;
 
 import lombok.Data;
+import org.apache.commons.lang3.StringUtils;
 import org.gainratio.amlfilter.model.Entity;
-import org.gainratio.amlfilter.model.SearchRecord;
 import org.gainratio.amlfilter.util.AlgorithmUtils;
 import org.gainratio.amlfilter.util.GeneralConstants;
 import org.slf4j.Logger;
@@ -10,88 +10,124 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import javax.annotation.PostConstruct;
 import java.util.*;
 
 @Service
 @Data
 public class TokenService {
-    public static final float DEFAULT_TOKEN_MATCH_MAGIC_SIMILARITY = 0.9912345f;
+    public static final float DEFAULT_TOKEN_MATCH_MAGIC_SIMILARITY = 0.993f;
     private static final Logger _logger = LoggerFactory.getLogger(TokenService.class);
     private float tokenMatchMagicSimilarity = DEFAULT_TOKEN_MATCH_MAGIC_SIMILARITY;
 
     @Autowired
     private EntityService entityService;
-    Map<String, List<String>> tokenToNamesMap = new HashMap<>();
+    private Map<String, Set<String>> tokenToNamesMap = new HashMap<>();
+
+    @PostConstruct
+    void init() {
+        tokenToNamesMap = createTokenToNamesMap();
+        _logger.info("tokenToNamesMap.size(): {}", tokenToNamesMap.size());
+    }
 
 
-    public Map<String, List<String>> getTokenToNamesMap() {
-        Map<String, List<String>> tokenToNamesMap = new HashMap<>();
-        for (Entity entity : entityService.getEntityMap().values()) {
+    private Map<String, Set<String>> createTokenToNamesMap() {
+        Map<String, Set<String>> tokenToNamesMap = new HashMap<>();
+        for (Entity entity : entityService.getEntityCodeToEntityMap().values()) {
             for (String name : entity.getEntityNameSet()) {
                 name = AlgorithmUtils.cleanString(name);
+
                 String[] tokens = name.split(" ");
                 for (String token : tokens) {
                     token = AlgorithmUtils.cleanString(token);
                     if (token.isEmpty()) {
                         continue;
                     }
-                    List<String> names = tokenToNamesMap.get(token);
-                    if (null == names) {
-                        tokenToNamesMap.put(token, names);
+                    Set<String> namesSet = tokenToNamesMap.get(token);
+                    if (null == namesSet) {
+                        namesSet = new HashSet<>();
+                        tokenToNamesMap.put(token, namesSet);
                     }
-                    names.add(name);
+                    namesSet.add(name);
                 }
             }
         }
-        deduplicateNames(tokenToNamesMap);
         return tokenToNamesMap;
-    }
-
-    /**
-     * Iterate through all the names belonging to a token and deduplicate them
-     */
-    protected static void deduplicateNames(Map<String, List<String>> pTokenToNamesMap) {
-        Set<Map.Entry<String, List<String>>> entrySet = pTokenToNamesMap.entrySet();
-        Iterator<Map.Entry<String, List<String>>> entrySetIterator = entrySet.iterator();
-        while (entrySetIterator.hasNext()) {
-            Map.Entry<String, List<String>> entry = entrySetIterator.next();
-            List<String> names = entry.getValue();
-            Set<String> nameSet = new HashSet<String>();
-            nameSet.addAll(names);
-            names.clear();
-            names.addAll(nameSet);
-            Collections.sort(names);
-        }
     }
 
     /**
      * Get the token cache entry given the list designation and a token
      */
-    public List<String> getNamesForToken(String pToken) {
+    public Set<String> getNamesForToken(String pToken) {
         return tokenToNamesMap.get(pToken);
+    }
+
+    /**
+     * Make the token search and get back the results
+     */
+    public List<String> tokenSearch(String searchName) {
+        String[] searchNameTokens = searchName.split(GeneralConstants.SPACE_TOKEN);
+        Set<String> searchNameTokensSet = new HashSet<String>();
+        for (String searchNameToken : searchNameTokens) {
+            if (StringUtils.isNotBlank(searchNameToken)) {
+                searchNameTokensSet.add(searchNameToken);
+            }
+        }
+        _logger.debug("searchNameTokensSet: " + searchNameTokensSet);
+        return getRelevantResults(searchNameTokensSet, generateMatchCountMap(searchNameTokensSet));
+    }
+
+    /**
+     * Count the tokens
+     */
+    private int countTokens(String text) {
+        if (text.isEmpty()) {
+            return 0;
+        }
+        int count = 1;
+        char[] textChars = text.toCharArray();
+        for (int i = 0; i < textChars.length; i++) {
+            if (textChars[i] == ' ') {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    /**
+     * Count the unique tokens
+     */
+    private int countUniqueTokens(String text) {
+        if (text.isEmpty()) {
+            return 0;
+        }
+        Set<String> uniqueTokensSet = new HashSet<String>();
+        String[] textTokens = text.split(GeneralConstants.SPACE_TOKEN);
+        for (int i = 0; i < textTokens.length; i++) {
+            if (!textTokens[i].isEmpty()) {
+                uniqueTokensSet.add(textTokens[i]);
+            }
+        }
+        return uniqueTokensSet.size();
     }
 
     /**
      * Generate the black list member name match count map
      */
-    protected Map<String, Integer> generateMatchCountMap(Set<String> pSearchNameTokensSet) {
+    private Map<String, Integer> generateMatchCountMap(Set<String> searchNameTokensSet) {
         Map<String, Integer> nameToMatchCountMap = new HashMap<String, Integer>();
 
         int notFoundCount = 0;
         Integer matchCount = 0;
-        Iterator<String> searchNameSetIterator = pSearchNameTokensSet.iterator();
-        while (searchNameSetIterator.hasNext()) {
-            String searchNameToken = searchNameSetIterator.next();
-            List<String> names = getTokenToNamesMap().get(searchNameToken);
-            if (null != names) {
-                Iterator<String> blmsIterator = names.iterator();
-                while (blmsIterator.hasNext()) {
-                    String blm = blmsIterator.next();
-                    matchCount = nameToMatchCountMap.get(blm);
+        for (String searchNameToken : searchNameTokensSet) {
+            Set<String> nameSet = getTokenToNamesMap().get(searchNameToken);
+            if (null != nameSet) {
+                for (String name : nameSet) {
+                    matchCount = nameToMatchCountMap.get(name);
                     if (null == matchCount) {
-                        nameToMatchCountMap.put(blm, 1);
+                        nameToMatchCountMap.put(name, 1);
                     } else {
-                        nameToMatchCountMap.put(blm, ++matchCount);
+                        nameToMatchCountMap.put(name, ++matchCount);
                     }
                 }
             } else {
@@ -107,16 +143,12 @@ public class TokenService {
     /**
      * Get the relevant results
      */
-    protected List<String> getRelevantResults(Set<String> pSearchNameTokensSet,
-                                              Map<String, Integer> pNameToMatchCountMap) {
-        final String methodSignature = "getRelevantResults(Set<String>,Map<String,Integer>): ";
+    private List<String> getRelevantResults(Set<String> searchNameTokensSet,
+                                              Map<String, Integer> nameToMatchCountMap) {
         List<String> results = new ArrayList<String>();
-        Iterator<Map.Entry<String, Integer>> blmToMatchCountMapIterator = pNameToMatchCountMap.entrySet().iterator();
-        int searchNameTokensListSize = pSearchNameTokensSet.size();
-        while (blmToMatchCountMapIterator.hasNext()) {
-            Map.Entry<String, Integer> entry = blmToMatchCountMapIterator.next();
+        int searchNameTokensListSize = searchNameTokensSet.size();
+        for (Map.Entry<String, Integer> entry : nameToMatchCountMap.entrySet()) {
             Integer countValue = entry.getValue();
-
             // # The following avoids dealing with searchName with only one token (word)
             if (searchNameTokensListSize == 1) {
                 continue;
@@ -137,15 +169,15 @@ public class TokenService {
             }
 
 
-            _logger.debug(methodSignature + " ----------------------- ");
-            _logger.debug(methodSignature + "Searched Name: " + pSearchNameTokensSet.toString());
-            _logger.debug(methodSignature + "Searched Name Token Count: " + searchNameTokensListSize);
-            _logger.debug(methodSignature + " ----------------------- ");
-            _logger.debug(methodSignature + "bln: " + bln);
-            _logger.debug(methodSignature + "blnTokenCount: " + blnTokenCount);
-            _logger.debug(methodSignature + " ----------------------- ");
-            _logger.debug(methodSignature + "Common tokens: " + countValue);
-            _logger.debug(methodSignature + " ----------------------- ");
+            _logger.debug(" ----------------------- ");
+            _logger.debug("Searched Name: " + searchNameTokensSet.toString());
+            _logger.debug("Searched Name Token Count: " + searchNameTokensListSize);
+            _logger.debug(" ----------------------- ");
+            _logger.debug("bln: " + bln);
+            _logger.debug("blnTokenCount: " + blnTokenCount);
+            _logger.debug(" ----------------------- ");
+            _logger.debug("Common tokens: " + countValue);
+            _logger.debug(" ----------------------- ");
 
             // Keep the result
             // NOTE: we allow the names to have the same amount of tokens ( "<=" ).
@@ -156,56 +188,5 @@ public class TokenService {
         }
 
         return results;
-    }
-
-    /**
-     * Count the tokens
-     */
-    public int countTokens(String pText) {
-        if (pText.isEmpty()) {
-            return 0;
-        }
-        int count = 1;
-        char[] textChars = pText.toCharArray();
-        for (int i = 0; i < textChars.length; i++) {
-            if (textChars[i] == ' ') {
-                count++;
-            }
-        }
-        return count;
-    }
-
-    /**
-     * Count the unique tokens
-     */
-    public int countUniqueTokens(String pText) {
-        if (pText.isEmpty()) {
-            return 0;
-        }
-        Set<String> uniqueTokensSet = new HashSet<String>();
-        String[] textTokens = pText.split(GeneralConstants.SPACE_TOKEN);
-        for (int i = 0; i < textTokens.length; i++) {
-            if (!textTokens[i].isEmpty()) {
-                uniqueTokensSet.add(textTokens[i]);
-            }
-        }
-        return uniqueTokensSet.size();
-    }
-
-    /**
-     * Make the token search and get back the results (black list names)
-     */
-    public List<String> tokenSearch(String pSearchName, SearchRecord pSearchRecord) {
-        final String methodSignature = "List<String> tokenSearch(String,SearchRecord): ";
-        String[] searchNameTokens = pSearchName.split(GeneralConstants.SPACE_TOKEN);
-        Set<String> searchNameTokensSet = new HashSet<String>();
-        for (int i = 0; i < searchNameTokens.length; i++) {
-            if (!searchNameTokens[i].trim().isEmpty()) {
-                searchNameTokensSet.add(searchNameTokens[i].trim());
-            }
-        }
-        _logger.debug(methodSignature + "searchNameTokensSet: " + searchNameTokensSet);
-        Map<String, Integer> blmToMatchCountMap = generateMatchCountMap(searchNameTokensSet);
-        return getRelevantResults(searchNameTokensSet, blmToMatchCountMap);
     }
 }

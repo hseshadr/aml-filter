@@ -8,6 +8,7 @@ import org.gainratio.amlfilter.metrics.*;
 import org.gainratio.amlfilter.model.*;
 import org.gainratio.amlfilter.util.AlgorithmUtils;
 import org.gainratio.amlfilter.util.ResourceUtils;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -44,11 +45,20 @@ class SearchServiceTest extends BaseUnitTest {
     static int okCase1Count = 0;
     static int case1Count = 0;  // Basic fuzzy test: just adding an x char whenever the name len > 10
     static List<String> case1Failed = new ArrayList<String>();
+    List<EntityCodeAndNames> entityCodeAndNamesList;
+
+    @BeforeEach
+    void init() throws Exception{
+        entityCodeAndNamesList = createNameAndEntityCodeFromFile();
+        entityService.buildNameToEntityCodesSetMapForTest(entityCodeAndNamesList);
+        vectorSpaceService.populateVectorSpace(entityCodeAndNamesList);
+        vectorSpaceService.train();
+    }
 
     @Test
         //@Disabled("Disabled until env is working!")
     void search() throws Exception {
-        entityService.getEntityMap().values().stream().forEach(e -> {
+        entityService.getEntityCodeToEntityMap().values().stream().forEach(e -> {
             entitiesCount++;
             e.getEntityNameSet().stream().forEach(name -> {
                 SearchRequest searchRequest = SearchRequest
@@ -58,13 +68,13 @@ class SearchServiceTest extends BaseUnitTest {
                 logger.info("searchResponse={}", searchResponse);
 
                 if (searchResponse.getSearchRecordResultList().get(0).getResults().size() == 0) {
-                    logger.error("name={}, entitiesCount={}, totalNumEntitites={}", name, entitiesCount, entityService.getEntityMap().size());
+                    logger.error("name={}, entitiesCount={}, totalNumEntitites={}", name, entitiesCount, entityService.getEntityCodeToEntityMap().size());
                 }
                 List<Result> resultList = searchResponse.getSearchRecordResultList().get(0).getResults();
                 if (resultList.size() > 0) {
-                    Float sim = resultList.get(0).getTextSimilarity();
+                    Double sim = resultList.get(0).getTextSimilarity();
                     if (sim != 1.0) {
-                        logger.error("name={}, sim={}, entitiesCount={}, totalNumEntitites={}", name, sim, entitiesCount, entityService.getEntityMap().size());
+                        logger.error("name={}, sim={}, entitiesCount={}, totalNumEntitites={}", name, sim, entitiesCount, entityService.getEntityCodeToEntityMap().size());
                     }
                     assertTrue(sim == 1.0);
                 }
@@ -73,11 +83,13 @@ class SearchServiceTest extends BaseUnitTest {
     }
 
     @Test
-    void searchOneName() {
-        String name = "ADHAM";
+    void searchOneName() throws Exception {
+        String name = "AYGUZTL HERRERA AGUILERA";
+        Set<String> entityCodeSet = new HashSet<>(Arrays.asList("SDN_8581"));
         SearchRequest searchRequest = SearchRequest
                 .builder()
-                .searchRecordList(Arrays.asList(SearchRecord.builder().fullName(name).build())).build();
+                .searchRecordList(Arrays.asList(SearchRecord.builder()
+                        .fullName(name).build())).build();
         SearchResponse searchResponse = searchService.search(searchRequest);
         logger.info("searchResponse={}", searchResponse);
         boolean found = false;
@@ -85,8 +97,7 @@ class SearchServiceTest extends BaseUnitTest {
             for (Result result : srr.getResults()) {
                 // Why match only by entityCodeInSource?? Since for entities we could
                 // match many entity codes, I think we should match by name
-                if (name.equals(result.getResultName()) ||
-                        result.getEntityCodeInSource().equals(result.getEntityCodeInSource())) {
+                if (entityCodeSet.contains(result.getEntityCodeInSource())) {
                     found = true;
                     break;
                 }
@@ -100,7 +111,7 @@ class SearchServiceTest extends BaseUnitTest {
     void search_fuzzy1() throws Exception {
         resetStats();
         final float MIN_SIM = 0.8f; // *********
-        entityService.getEntityMap().values().stream().forEach(e -> {
+        entityService.getEntityCodeToEntityMap().values().stream().forEach(e -> {
             entitiesCount++;
             if (entitiesCount % 100 == 0) {
                 logger.info("entitiesCount: {} ...", entitiesCount);
@@ -121,14 +132,14 @@ class SearchServiceTest extends BaseUnitTest {
 //                logger.info("searchResponse={}", searchResponse);
 
                 if (searchResponse.getSearchRecordResultList().get(0).getResults().size() == 0) {
-                    logger.error("name={}, entitiesCount={}, totalNumEntitites={}", name, entitiesCount, entityService.getEntityMap().size());
+                    logger.error("name={}, entitiesCount={}, totalNumEntitites={}", name, entitiesCount, entityService.getEntityCodeToEntityMap().size());
                 }
                 List<Result> resultList = searchResponse.getSearchRecordResultList().get(0).getResults();
                 if (resultList.size() > 0) {
-                    Float sim = resultList.get(0).getTextSimilarity();
+                    Double sim = resultList.get(0).getTextSimilarity();
                     if (usableCase) {
                         if (sim <= MIN_SIM) {
-                            logger.error("*** name={}, sim={}, entitiesCount={}, totalNumEntitites={}", name, sim, entitiesCount, entityService.getEntityMap().size());
+                            logger.error("*** name={}, sim={}, entitiesCount={}, totalNumEntitites={}", name, sim, entitiesCount, entityService.getEntityCodeToEntityMap().size());
                             case1Failed.add(name);
                         } else {
                             okCase1Count++;
@@ -146,7 +157,7 @@ class SearchServiceTest extends BaseUnitTest {
     void search_fuzzy_one_typo() throws Exception {
         FunctionalCaseOneTypo oneTypeTest = new FunctionalCaseOneTypo();
         resetStats();
-        entityService.getEntityMap().values().forEach(e -> {
+        entityService.getEntityCodeToEntityMap().values().forEach(e -> {
             entitiesCount++;
             String entityCodeInSource = e.getEntityCodeInSource();
             if (entitiesCount % 100 == 0) {
@@ -211,6 +222,9 @@ class SearchServiceTest extends BaseUnitTest {
                     boolean found = false;
                     for (SearchRecordResults srr : searchResponse.getSearchRecordResultList()) {
                         for (Result result : srr.getResults()) {
+                            if (modName.equals("GLOBAL RELIEF FOUNDATION INCORPORATED")) {
+                                logger.info("modName=={},entityCode={}", modName, result.getEntityCodeInSource());
+                            }
                             if (nameAndEntityCode.getEntityCode().equals(result.getEntityCodeInSource())) {
                                 found = true;
                             } else {
@@ -289,8 +303,6 @@ class SearchServiceTest extends BaseUnitTest {
         functionalCases.add(new FunctionalCasePhonetic());
         functionalCases.add(new FunctionalCaseMixed1());
 
-        List<EntityCodeAndNames> entityCodeAndNamesList = createNameAndEntityCodeFromFile();
-        vectorSpaceService.createVectorSpaceFlat(entityCodeAndNamesList);
         // Start the searches
         long startTime = System.currentTimeMillis();
         for (FunctionalCase functionalCase : functionalCases) {
@@ -330,7 +342,6 @@ class SearchServiceTest extends BaseUnitTest {
     void search_severalTest_using_file_and_elastic_search() throws Exception {
         List<FunctionalCase> functionalCases = new ArrayList<>();
         functionalCases.add(new FunctionalCaseExact());
-        /*
         functionalCases.add(new FunctionalCaseOneTypo());
         functionalCases.add(new FunctionalCaseTwoTypos());
         functionalCases.add(new FunctionalCaseThreeTypos());
@@ -338,7 +349,7 @@ class SearchServiceTest extends BaseUnitTest {
         functionalCases.add(new FunctionalCaseDoublingChars());
         functionalCases.add(new FunctionalCasePhonetic());
         functionalCases.add(new FunctionalCaseMixed1());
-         */
+
         List<EntityCodeAndNames> entityCodeAndNamesList = createNameAndEntityCodeFromFile();
         elasticSearchHelper.index(entityCodeAndNamesList);
         // Start the searches
@@ -411,7 +422,7 @@ class SearchServiceTest extends BaseUnitTest {
         // Very low info level
         // new HashSet<>(Arrays.asList("ALI", "MUHAMMED", "MUHAMMAD", "MOHAMMAD", "AMEER", "AHMAD", "ABU", "AL TIKRITI"));
         for (FunctionalCase functionalCase : functionalCases) {
-            for (Entity e : entityService.getEntityMap().values()) {
+            for (Entity e : entityService.getEntityCodeToEntityMap().values()) {
                 resetStats();
                 entitiesCount++;
                 String entityCodeInSource = e.getEntityCodeInSource();

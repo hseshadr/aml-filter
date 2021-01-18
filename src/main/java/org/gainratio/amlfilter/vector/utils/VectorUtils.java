@@ -164,7 +164,7 @@ public final class VectorUtils {
      * @param vector2  magnitude
      *                 return The cosine value
      */
-    public final static float computeCosineOfVectors(
+    public final static double computeCosineOfVectors(
             byte[] pVector1,
             byte[] pVector2,
             double pLen1,
@@ -187,11 +187,11 @@ public final class VectorUtils {
         if (pLen1 == 0 || pLen2 == 0) {
             return 0f;
         } else {
-            return (float) (computesDotProduct(pVector1, pVector2) / (pLen1 * pLen2));
+            return (double) (computesDotProduct(pVector1, pVector2) / (pLen1 * pLen2));
         }
     }
 
-    public final static float computeCosineOfVectors(int[] pVector1, int[] pVector2) throws IllegalArgumentException {
+    public final static double computeCosineOfVectors(int[] pVector1, int[] pVector2) throws IllegalArgumentException {
         if ((null == pVector1) || (null == pVector2)) {
             throw new IllegalArgumentException(" (computeCosineOfVectors) Arguments cannot be null");
         }
@@ -203,7 +203,7 @@ public final class VectorUtils {
         if (denominator == 0) {
             return 0f;
         } else {
-            return (float) (computesDotProduct(pVector1, pVector2) / denominator);
+            return (double) (computesDotProduct(pVector1, pVector2) / denominator);
         }
     }
 

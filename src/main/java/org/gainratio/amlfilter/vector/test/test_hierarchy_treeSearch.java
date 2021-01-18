@@ -199,7 +199,7 @@ public final class test_hierarchy_treeSearch {
     }
 
 
-    private static VectorData test_tree_search_batch(
+    public static VectorData test_tree_search_batch(
             VectorSpace pRawVs,
             VectorSpace pTrainedVs,
             int pMaxNumResults,

@@ -2,6 +2,7 @@ package org.gainratio.amlfilter.search;
 
 import lombok.Data;
 import org.gainratio.amlfilter.model.Result;
+import org.gainratio.amlfilter.model.SearchRecord;
 import org.gainratio.amlfilter.service.ResultsServiceInterface;
 import org.springframework.stereotype.Component;
 
@@ -32,7 +33,7 @@ public class NameSearchEngine {
      * @throws Exception
      */
     public List<Result> searchForNameInWatchList(String pNameToSearch,
-                                                 Map pParametersMap)
+                                                 SearchRecord searchRecord)
             throws Exception {
         final String methodSignature = "List<Result> searchForNameInWatchList(String, Map): ";
         Iterator<NameSearch> nameSearchComponentsIterator = getNameSearchComponents().iterator();
@@ -41,7 +42,7 @@ public class NameSearchEngine {
         // Iterate through all name search components and execute the search
         while (nameSearchComponentsIterator.hasNext()) {
             NameSearch nameSearchComponent = nameSearchComponentsIterator.next();
-            results = nameSearchComponent.executeNameSearch(pParametersMap);
+            results = nameSearchComponent.executeNameSearch(searchRecord);
             cumulativeResults.addAll(results);
         }
 

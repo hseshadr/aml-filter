@@ -1,6 +1,7 @@
 package org.gainratio.amlfilter.service;
 
 import lombok.Data;
+import lombok.extern.slf4j.Slf4j;
 import org.gainratio.amlfilter.model.Result;
 import org.gainratio.amlfilter.model.SearchRecord;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,6 +19,7 @@ import java.util.List;
  */
 @Data
 @Service
+@Slf4j
 public class ResultsService implements ResultsServiceInterface {
     @Autowired
     private WordService wordService;
@@ -26,11 +28,11 @@ public class ResultsService implements ResultsServiceInterface {
                                String resultName,
                                String entityCode,
                                String listName,
-                               float textSimilarity) {
+                               double textSimilarity) {
         Result result = new Result();
         result.setSearchName(searchName);
         result.setResultName(resultName);
-        result.setResultNameInformationLevel(getWordService().getNameInformationLevel(resultName));
+        result.setResultNameInformationLevel((double)getWordService().getNameInformationLevel(resultName));
         result.setEntityCodeInSource(entityCode);
         result.setListName(listName);
         result.setTextSimilarity(textSimilarity);
@@ -72,6 +74,10 @@ public class ResultsService implements ResultsServiceInterface {
         for (int i = 0; i < resultsSize; i++) {
             Result result = pResults.get(i);
             String entityCodeInSource = result.getEntityCodeInSource();
+            if (null == entityCodeInSource) {
+                log.error("NULL entityCode In Source: searchName={},resultName={}", result.getSearchName(), result.getResultName());
+                continue;
+            }
             if (!entityCodeInSource.equals(lastEntityCodeInSource)) {
                 newResults.add(result);
             }

@@ -12,6 +12,7 @@ import java.nio.charset.StandardCharsets;
 @Data
 public class VectorData implements Serializable {
     private static final long serialVersionUID = 2691187260635546600L;
+    private String id;
     /*
      * The mark to operate on the data
      */
@@ -63,7 +64,7 @@ public class VectorData implements Serializable {
 
         try {
             VectorData newVectorData = new VectorData();
-
+            newVectorData.setId(new String(id));
             newVectorData.setByteCoordinates(getByteCoordinates().clone());
             newVectorData.setDistanceToParent(getDistanceToParent());
             newVectorData.setData(new String(getData().getBytes(StandardCharsets.UTF_8), StandardCharsets.UTF_8));
@@ -85,6 +86,7 @@ public class VectorData implements Serializable {
     public void copy(VectorData pVectorFrom) {
 
         try {
+            setId(new String(pVectorFrom.getId()));
             setByteCoordinates(pVectorFrom.getByteCoordinates().clone());
 //			setDistanceToParent(-1f);
             setData(new String(pVectorFrom.getData().getBytes(StandardCharsets.UTF_8), StandardCharsets.UTF_8));

@@ -1,5 +1,6 @@
 package org.gainratio.amlfilter.service;
 
+import lombok.extern.slf4j.Slf4j;
 import org.gainratio.amlfilter.model.Result;
 
 import java.util.Comparator;
@@ -8,6 +9,7 @@ import java.util.Comparator;
 /**
  * Comparator by entity code in source and similarity
  */
+@Slf4j
 public class ResultRepetitionByEntityCodeAndSimilarityComparator implements Comparator<Result> {
 
     /**
@@ -25,6 +27,10 @@ public class ResultRepetitionByEntityCodeAndSimilarityComparator implements Comp
         // 			This fix solves the issue regarding the results showing an apparent
         //			similarity below the real one (arbitrary results with the same sim
         //			were chosen).
+        if (null == entityCodeInSource1 ||null == entityCodeInSource2) {
+            log.error("BIZARRE: entityCodeInSource1={}, entityCodeInSource2={}", entityCodeInSource1, entityCodeInSource1);
+            return 0;
+        }
         int retVal = entityCodeInSource1.compareTo(entityCodeInSource2);
         if (0 == retVal) {
             if (result1Obj.getTextSimilarity() < result2Obj.getTextSimilarity()) {

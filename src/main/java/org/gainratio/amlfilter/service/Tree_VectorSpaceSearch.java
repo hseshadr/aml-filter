@@ -26,7 +26,7 @@ import java.util.*;
 @Service
 public class Tree_VectorSpaceSearch extends NameSearch {
     private static final Logger logger = LoggerFactory.getLogger(Tree_VectorSpaceSearch.class);
-    private float baseDistanceToSearch = 1f;
+    private float baseDistanceToSearch = 15f;
     @Autowired
     private ResultsService resultsService;
     @Autowired
@@ -39,67 +39,54 @@ public class Tree_VectorSpaceSearch extends NameSearch {
      * search in blacklist and then convert the blacklist members
      * into result objects
      */
-    public List<Result> executeQuery(Map pParametersMap) throws Exception {
+    public List<Result> executeQuery(SearchRecord searchRecord) {
         final String methodSignature = "List executeQuery(String): ";
         long startTime = System.currentTimeMillis();
+        List<Result> finalResults = new ArrayList<>();
         try {
-            SearchRecord searchRecord = (SearchRecord) pParametersMap.get("searchRecord");
-            Map<String, List<String>> cumulativeSearchResultsMap = new HashMap<String, List<String>>();
-            VectorSpace vs = getVectorSpaceService().getVectorSpace();
+            VectorSpace vs = getVectorSpaceService().getTrainedVs();
             double baseThresholdForTreeSearching = getBaseDistanceToSearch();
             // Making sure the vs loaded correctly
             if (null == vs) {
                 throw new IllegalStateException(methodSignature + "The vector space is not set. Is the configuration of this process set properly in the database?");
             }
-            String searchName = AlgorithmUtils.cleanString(searchRecord.getFullName());
+            String searchName = searchRecord.getCleanedName();
 
-            VectorData vector2Search = null;
-            Map<String, List<String>> searchResultsMap = null;
-            List<TreeResult> treeResults = null;
+            VectorData vector2Search;
+            List<TreeResult> treeResults;
 
             // There is nothing to search return no results
             if (0 == vs.size()) {
-                return new ArrayList<Result>();
+                return new ArrayList<>();
             }
             // ###################################################
             // ORIGINAL NAME SEARCH
             // ###################################################
-            long previousCheckPoint = System.currentTimeMillis();
             vector2Search = vs.createVector(searchName, vs.getOriginalComparatorWhenTraining());
-
-            //logDebug(methodSignature + "%%%%%%%%%%%%%%%%%% baseThresholdForTreeSearching = " + baseThresholdForTreeSearching);
-            previousCheckPoint = System.currentTimeMillis();
             treeResults = vs.recursiveTreeSearch(vector2Search,
-                    20,
+                    50,
                     baseThresholdForTreeSearching,
                     0,
                     false);
 
 
             for (int i = 0; i < treeResults.size(); i++) {
-                logger.info("\t- " +
+                logger.debug("\t- " +
                         treeResults.get(i).getFoundVectorData().getData() +
                         "; similarity: " + treeResults.get(i).getSimilarity());
             }
 
 
             // Transform the vector data to this version of the same one...
-            searchResultsMap = getSearchResultsMap(treeResults, searchName, searchRecord);
-            cumulativeSearchResultsMap.putAll(searchResultsMap);
-
+            finalResults = covertTreeResultsToResults(treeResults, searchRecord);
 
             // #########################################################
             // SYNONYMIC SEARCH
             // #########################################################
-            previousCheckPoint = System.currentTimeMillis();
-            String synonymicName = getSynonymService().getSynonymName(searchName);
+            String synonymicName = searchRecord.getSynonimicName();
 
             if (!synonymicName.equals(searchName)) {
-                previousCheckPoint = System.currentTimeMillis();
                 vector2Search = vs.createVector(synonymicName, vs.getOriginalComparatorWhenTraining());
-
-
-                previousCheckPoint = System.currentTimeMillis();
                 treeResults = vs.recursiveTreeSearch(vector2Search,
                         20,
                         baseThresholdForTreeSearching,
@@ -112,16 +99,10 @@ public class Tree_VectorSpaceSearch extends NameSearch {
                             treeResults.get(i).getFoundVectorData().getData() +
                             "; similarity: " + treeResults.get(i).getSimilarity());
                 }
-
-
-                // Transform the vector data to this version of the same one...
-                previousCheckPoint = System.currentTimeMillis();
-                searchResultsMap = getSearchResultsMap(treeResults, synonymicName, searchRecord);
-                cumulativeSearchResultsMap.putAll(searchResultsMap);
             }
-
-            List<Result> finalResults = assembleResults(cumulativeSearchResultsMap, pParametersMap, searchRecord);
-            return finalResults;
+            finalResults.addAll(covertTreeResultsToResults(treeResults, searchRecord));
+        } catch (Exception e) {
+            e.printStackTrace();
         } finally {
             long endTime = System.currentTimeMillis();
 
@@ -129,99 +110,19 @@ public class Tree_VectorSpaceSearch extends NameSearch {
             logger.debug(methodSignature + "Total time: " + (endTime - startTime));
 
         }
+        return finalResults;
     }
 
 
-    /**
-     * Assemble result objects out of the vector result object
-     *
-     * @param pSearchResultsMap The search results map
-     * @param pParametersMap    A map of parameters
-     * @param pSearchRecord     The search record
-     * @return An array of ids
-     */
-    public List<Result> assembleResults(Map<String, List<String>> pSearchResultsMap,
-                                        Map pParametersMap,
-                                        SearchRecord pSearchRecord) throws Exception {
 
-        final String methodSignature = "List<VectorResult> assembleResults(Map<String,List<String>>,Map,SearchRecord): ";
-
-        long startTime = System.currentTimeMillis();
-
-        List<Result> results = new ArrayList<Result>();
-        String uncleanedSearchName = pSearchRecord.getFullName();
-        String searchName = null;
-        Result result = null;
-        List<String> resultNames = null;
-        String resultName = null;
-        Iterator<Map.Entry<String, List<String>>> searchResultsEntryIterator = pSearchResultsMap.entrySet().iterator();
-        long hitTime = -1L;
-        while (searchResultsEntryIterator.hasNext()) {
-            Map.Entry<String, List<String>> searchResultsEntry = searchResultsEntryIterator.next();
-            searchName = searchResultsEntry.getKey();
-            resultNames = searchResultsEntry.getValue();
-
-            for (int i = 0; i < resultNames.size(); i++) {
-                resultName = resultNames.get(i);
-                hitTime = System.currentTimeMillis();
-                result = getResultsService().createResult(
-                        searchName,
-                        resultName,
-                        null,
-                        null,
-                        -1f);
-                results.add(result);
-            }
+    private List<Result> covertTreeResultsToResults(List<TreeResult> treeVectorResultList, SearchRecord searchRecord) {
+        List<Result> resultList = new ArrayList<>();
+        for (TreeResult tr : treeVectorResultList) {
+            Result result = resultsService.createResult(searchRecord.getFullName(),
+                    tr.getFoundVectorData().getData(), tr.getFoundVectorData().getId(), "SDN", tr.getSimilarity());
+            resultList.add(result);
         }
-
-
-        //isLoggingInfo()methodSignature + "Results : " + results);
-
-        long endTime = System.currentTimeMillis();
-
-        logger.debug(methodSignature + "Num Results : " + results.size());
-        logger.debug(methodSignature + "Total time: " + (endTime - startTime));
-
-
-        return results;
-    }
-
-
-    /**
-     * Converts the vector result list from the tree search into a search result map
-     * The key is the searched name, the value is a list of corresponding black list members
-     *
-     * @param pTreeVectorResultList The tree vector result list
-     * @param pSearchedName         The searched name
-     * @return The search result map
-     */
-    protected Map<String, List<String>> getSearchResultsMap(List<TreeResult> pTreeVectorResultList,
-                                                            String pSearchedName,
-                                                            SearchRecord pSearchRecord) {
-        final String methodSignature = "Map<String,List<String>> getSearchResultsMap(List<TreeResult>,String,SearchRecord): ";
-
-        long startTime = System.currentTimeMillis();
-        TreeResult treeResult = null;
-        VectorData treeVectorData = null;
-        List<String> names = new ArrayList<String>();
-        Map<String, List<String>> searchResultMap = new HashMap<String, List<String>>();
-
-        logger.debug(methodSignature + "treeVectorResultList.size(): " + pTreeVectorResultList.size());
-
-        for (int i = 0; i < pTreeVectorResultList.size(); i++) {
-            treeResult = pTreeVectorResultList.get(i);
-            treeVectorData = treeResult.getFoundVectorData();
-            names.add(treeVectorData.getData());
-        }
-
-        searchResultMap.put(pSearchedName, names);
-        long endTime = System.currentTimeMillis();
-
-
-        logger.debug(methodSignature + "totalTime: " + (endTime - startTime));
-
-
-        return searchResultMap;
+        return resultList;
     }
 }
 

@@ -43,9 +43,48 @@ public class WordService implements WordServiceInterface {
     private double maximumFrequencyNaturalLog = 0f;
     private int minimumWordFrequency = 1;
     private double minimumFrequencyNaturalLog = 0f;
-    private Set<String> lowWeightWordsSet;
+    private Set<String> lowWeightWordsSet = new HashSet<>();
     private float defaultLowWeight;
     private boolean loadWordSimilaritiesFlag = false;
+    private String[] lowWeightStopWords = {"LIMITED",
+            "INMOBILIARIA",
+            "PROMOCIONES",
+            "PROMOCION",
+            "INVERSIONES",
+            "INVERSION",
+            "GESTION",
+            "PROPERTIES",
+            "PROPERTY",
+            "CONSTRUCCIONES",
+            "CONSTRUCCION",
+            "CONSTRUCTORA",
+            "CONSTRUCTION",
+            "CONSTRUCTIONS",
+            "LIMITED",
+            "INTERNATIONAL",
+            "INTERNACIONAL",
+            "INTERCONTINENTAL",
+            "INVESTMENT",
+            "INVESTMENTS",
+            "SL",
+            "SA",
+            "LTD",
+            "MARIA",
+            "ANA",
+            "THE",
+            "DE",
+            "LA",
+            "LABORATORIOS",
+            "LABORATORIO",
+            "LABORATORY",
+            "Y",
+            "EL",
+            "AL",
+            "EDIFICACIONES",
+            "SERVICIOS",
+            "BANCO",
+            "COMERCIAL",
+            "CONSULTING",};
 
     @Autowired
     private WordRepository wordRepository;
@@ -53,6 +92,9 @@ public class WordService implements WordServiceInterface {
     @PostConstruct
     public void init() throws Exception {
         loadAll();
+        for (String word: lowWeightStopWords) {
+            lowWeightWordsSet.add(word);
+        }
     }
 
     public void loadAll() throws Exception {
@@ -103,7 +145,7 @@ public class WordService implements WordServiceInterface {
         String[] tokens = record.split(",");
         Word word = new Word();
         try {
-        word.setId(tokens[0]);
+            word.setId(tokens[0]);
             word.setWord(tokens[1]);
         } catch (Exception e) {
             if (StringUtils.isBlank(record)) {

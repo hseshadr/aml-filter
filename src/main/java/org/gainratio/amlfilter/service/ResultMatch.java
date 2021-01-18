@@ -8,6 +8,6 @@ import org.gainratio.amlfilter.model.Result;
 @AllArgsConstructor
 public class ResultMatch {
     private Result result;
-    private Float textSimilarity;
+    private Double textSimilarity;
     private boolean match;
 }

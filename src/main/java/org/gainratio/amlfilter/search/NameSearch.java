@@ -3,6 +3,7 @@ package org.gainratio.amlfilter.search;
 
 import lombok.Data;
 import org.gainratio.amlfilter.model.Result;
+import org.gainratio.amlfilter.model.SearchRecord;
 import org.gainratio.amlfilter.vector.filter.NameSearchFilter;
 
 import java.util.ArrayList;
@@ -14,13 +15,13 @@ import java.util.Map;
 public abstract class NameSearch {
     private List<NameSearchFilter> nameSearchFilterComponents = new ArrayList<NameSearchFilter>();
 
-    public abstract List<Result> executeQuery(Map pParametersMap) throws Exception;
+    public abstract List<Result> executeQuery(SearchRecord searchRecord);
 
-    public List<Result> executeNameSearch(Map pParametersMap) throws Exception {
+    public List<Result> executeNameSearch(SearchRecord searchRecord)  {
         final String methodSignature = "List executeNameSearch(Map): ";
 
         // Execute the query
-        List<Result> results = executeQuery(pParametersMap);
+        List<Result> results = executeQuery(searchRecord);
 
         // Get the name search components iterator
         Iterator nameSearchFilterComponentsIterator = getNameSearchFilterComponents().iterator();

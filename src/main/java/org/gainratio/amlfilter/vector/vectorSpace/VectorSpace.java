@@ -3,6 +3,7 @@ package org.gainratio.amlfilter.vector.vectorSpace;
 import org.gainratio.amlfilter.vector.comparisonCriteria.VsComparisonCriteriaHandler;
 
 import java.io.Serializable;
+import java.io.UnsupportedEncodingException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -78,6 +79,29 @@ public class VectorSpace implements Serializable {
     private void addEmptyTranslatorVectorArray(int pVectorSize) {
         byte[] newVectorTranslator = new byte[pVectorSize];
         mCoordinatesTranslationVectorList.add(newVectorTranslator);
+    }
+
+    /**
+     * Creates a vector out of an incoming string and adds it to the space.
+     *
+     * @param pIncomingData
+     * @return
+     */
+    public boolean addVector(String id, final String pIncomingData) {
+        boolean retVal = true;
+
+        try {
+            // TODO: for a little performance we can create the vector without the call to the local method ( this.getVectorManager().createVector(this.getVectorDefinition(), pIncomingData) )
+            VectorData newVector = createVector(pIncomingData);
+            newVector.setId(id);
+            getVectorList().add(newVector);
+
+            addEmptyTranslatorVectorArray(newVector.getByteCoordinates().length);
+        } catch (Exception e) {
+            retVal = false;
+        }
+
+        return retVal;
     }
 
     /**

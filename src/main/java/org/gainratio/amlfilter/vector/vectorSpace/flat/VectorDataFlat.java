@@ -8,5 +8,5 @@ import lombok.Data;
 public class VectorDataFlat {
     private String id;
     private String data;
-    private byte[] byteCoordinates;
+    private int[] coordinates;
 }

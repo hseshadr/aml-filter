@@ -2,6 +2,8 @@ package org.gainratio.amlfilter.service;
 
 import lombok.Data;
 import org.apache.commons.collections4.map.LRUMap;
+import org.gainratio.amlfilter.algorithms.EditDistanceSimilarity;
+import org.gainratio.amlfilter.algorithms.PairSimilarity;
 import org.gainratio.amlfilter.algorithms.SimilarityComparator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -21,10 +23,10 @@ import java.util.List;
 @Service
 public class TextSimilarityService {
     private static final Logger logger = LoggerFactory.getLogger(TextSimilarityService.class);
-    private int initialWordSimilarityCacheSize = 10000;
-    private LRUMap wordSimilarityCache = new LRUMap(10000, true);
+    private int initialWordSimilarityCacheSize = 100000;
+    private LRUMap wordSimilarityCache = new LRUMap(100000, true);
     private List<SimilarityComparator> stringSimilarityAlgorithms = new ArrayList<SimilarityComparator>();
-    private List<SimilarityComparator> phoneticSimilarityAlgorithms = new ArrayList<SimilarityComparator>();
+    private List<SimilarityComparator> phoneticSimilarityAlgorithms = new ArrayList<>();
 
 
     /**
@@ -36,6 +38,8 @@ public class TextSimilarityService {
     @PostConstruct
     public void init() throws Exception {
         setWordSimilarityCache(new LRUMap(getInitialWordSimilarityCacheSize(), true));
+        stringSimilarityAlgorithms.add(new EditDistanceSimilarity());
+        stringSimilarityAlgorithms.add(new PairSimilarity());
     }
 
     public float getStringSimilarity(String pName1, String pName2) {

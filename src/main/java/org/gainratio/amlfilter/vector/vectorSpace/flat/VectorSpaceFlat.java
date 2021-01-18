@@ -18,6 +18,7 @@ import java.util.stream.Collectors;
 public class VectorSpaceFlat {
     private static final Logger logger = LoggerFactory.getLogger(VectorSpaceFlat.class);
     private static final String vectorTemplate = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ ";
+    private static final double similarityThreshold = 0.95d;
     private List<VectorDataFlat> vectorDataList;
 
     public static VectorSpaceFlat createTestVectorSpaceFlat() {
@@ -53,45 +54,38 @@ public class VectorSpaceFlat {
                                         final byte[] incomingData) {
         VectorDataFlat vectorDataFlat = VectorDataFlat.builder()
                 .id(id).data(name).build();
-        byte[] v1 = new byte[37];
+        int[] v1 = new int[37];
+        Arrays.fill(v1, 1);
         int spaceIndex = 36;
         int startNumberOffset = 48;
         int startAlphabetOffset = 65 - 10;
-        for (byte b : incomingData) {
-            if (b == ' ') {
-                v1[spaceIndex] += 1;
-            } else if (b >= '0' && b <= '9') {
-                v1[b - startNumberOffset] += 1;
-            } else if (b >= 'A' && b <= 'Z') {
-                v1[b - startAlphabetOffset] += 1;
-            } else {
-                throw new IllegalArgumentException(String.format("Unidentified byte=%d", b));
-            }
-        }
-        String phoneticStr = AlgorithmUtils.getPhoneticStringForPairSimilarities(name);
+
+        String phoneticStr = AlgorithmUtils.getDoubleMetaPhoneStr(name);
+        int pos = 0;
         for (byte b : phoneticStr.getBytes(StandardCharsets.UTF_8)) {
             if (b == ' ') {
-                v1[spaceIndex] += 1;
-            } else if (b >= '0' && b <= '9') {
-                v1[b - startNumberOffset] += 1;
+                v1[spaceIndex] *= pos;
             } else if (b >= 'A' && b <= 'Z') {
-                v1[b - startAlphabetOffset] += 1;
+                v1[b - startAlphabetOffset] *= pos;
+            } else if (b >= '0' && b <= '9') {
+                v1[b - startNumberOffset] *= pos;
             } else {
                 throw new IllegalArgumentException(String.format("Unidentified byte=%d", b));
             }
+            pos++;
         }
-        vectorDataFlat.setByteCoordinates(v1);
+        vectorDataFlat.setCoordinates(v1);
 
         //logger.info("id={},name={},vector={}", id, name, Arrays.toString(vectorDataFlat.getByteCoordinates()));
         return vectorDataFlat;
     }
 
-    public List<VectorResult> search(String name, int maxResults) {
+    public List<VectorResult> search(String name) {
         VectorDataFlat incomingVectorData = createVector(null, name);
         List<VectorResult> vectorResultList = vectorDataList.stream().parallel().map(vd -> {
             double sim = VectorUtils.computeCosineOfVectors(
-                    incomingVectorData.getByteCoordinates(),
-                    vd.getByteCoordinates());
+                    incomingVectorData.getCoordinates(),
+                    vd.getCoordinates());
             return new VectorResult(vd.getData(), sim, vd);
         }).sorted(new VectorResultCosineSimilarityComparator())
                 .collect(Collectors.toList());
@@ -101,7 +95,7 @@ public class VectorSpaceFlat {
     private List<VectorResult> filterVectorResults(List<VectorResult> vectorResultList) {
         List<VectorResult> filteredVectorResults = new ArrayList<>();
         for (VectorResult vr : vectorResultList) {
-            if (vr.getSimilarity() < 0.9) {
+            if (vr.getSimilarity() < similarityThreshold) {
                 return filteredVectorResults;
             }
             filteredVectorResults.add(vr);

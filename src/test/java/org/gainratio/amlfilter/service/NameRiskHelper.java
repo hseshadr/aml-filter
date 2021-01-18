@@ -5,8 +5,11 @@ import org.dom4j.DocumentException;
 import org.dom4j.Node;
 import org.dom4j.io.SAXReader;
 import org.gainratio.amlfilter.model.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import javax.annotation.PostConstruct;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -21,11 +24,17 @@ import java.util.concurrent.atomic.AtomicLong;
 
 @Component
 public class NameRiskHelper implements SearchServiceInterface {
+    private static final Logger logger = LoggerFactory.getLogger(NameRiskHelper.class);
     //http://localhost:21011/amlf-engine/jsp/production/index.jsp?searchXML=%3Csearch-request%20processId=%226%22%3E%20%3Csearch-names%3E%20%3Csearch-name%20uniqueId=%221234%22%20fullName=%22Mohammad%22%20entityType=%22PERSON%22%20gender=%22M%22/%3E%20%3C/search-names%3E%20%3C/search-request%3E";
-    static String nameRiskSearchURL = "http://localhost:21011/amlf-engine/jsp/production/index.jsp?searchXML=";
+    static String nameRiskSearchURL = "http://localhost:8080/amlf-engine/jsp/production/index.jsp?searchXML=";
     static final String nameRiskSearchXMLTemplate = "%3Csearch-request%20processId=%226%22%3E%20%3Csearch-names%3E%20%3Csearch-name%20uniqueId=%221234%22%20fullName=%22${NAME}%22%20entityType=%22PERSON%22%20gender=%22M%22/%3E%20%3C/search-names%3E%20%3C/search-request%3E";
     private static AtomicLong totalTime = new AtomicLong(0L);
     private static AtomicLong totalSearches = new AtomicLong(0L);
+
+    @PostConstruct
+    void init() {
+        logger.info("USING NAMERISK SEARCH");
+    }
 
     @Override
     public SearchResponse search(SearchRequest searchRequest) throws Exception {
@@ -61,13 +70,13 @@ public class NameRiskHelper implements SearchServiceInterface {
                 String resultName = resultNode.selectSingleNode("name").getText();
                 String resultNameInformationLevelStr = resultNode.selectSingleNode("information-level").getText();
                 float resultNameInformationLevel = Float.parseFloat(resultNameInformationLevelStr);
-                result.setResultNameInformationLevel(resultNameInformationLevel);
+                result.setResultNameInformationLevel((double) resultNameInformationLevel);
                 result.setResultName(resultName);
                 String entityCodeInSource = resultNode.selectSingleNode("code-in-source").getText();
                 result.setEntityCodeInSource(entityCodeInSource);
                 String similarityStr = resultNode.selectSingleNode("similarity").getText();
                 float similarity = Float.parseFloat(similarityStr);
-                result.setTextSimilarity(similarity);
+                result.setTextSimilarity((double) similarity);
                 resultList.add(result);
             }
             SearchRecordResults searchRecordResults = SearchRecordResults.builder()

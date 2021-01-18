@@ -37,9 +37,13 @@ public class ElasticSearchHelper implements SearchServiceInterface {
         long startTime = System.currentTimeMillis();
         List<SearchRecordResults> searchRecordResultsList = new ArrayList<>();
         for (SearchRecord searchRecord : searchRequest.getSearchRecordList()) {
+            int fuzziness = (int)searchRequest.getSearchPreferencesMap().get("fuzziness");
+            if (searchRecord.getFullName().equals("INVERSIONES AGROPECUARIA ARIZONA LIMITED")) {
+                //System.out.println("*** " + searchRecord.getFullName());
+            }
             SearchHits<EntityCodeAndNames> searchHits
                     = entityCodeAndNamesRepository.findName(searchRecord.getFullName(),
-                    (int)searchRequest.getSearchPreferencesMap().get("fuzziness"));
+                    fuzziness);
             List<SearchRecordResults> tmpSearchRecordResults = fromSearchResults(searchHits);
             searchRecordResultsList.addAll(tmpSearchRecordResults);
         }
@@ -56,7 +60,7 @@ public class ElasticSearchHelper implements SearchServiceInterface {
             EntityCodeAndNames entityCodeAndNames = searchHit.getContent();
             Result result = new Result();
             result.setEntityCodeInSource(entityCodeAndNames.getEntityCode());
-            result.setTextSimilarity(searchHit.getScore());
+            result.setTextSimilarity((double)searchHit.getScore());
             resultList.add(result);
         }
         searchRecordResultsList.add(SearchRecordResults.builder().results(resultList).build());

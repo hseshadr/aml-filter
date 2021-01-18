@@ -210,6 +210,9 @@ public class Hierarchy_utils {
 
         byte[] bytesForStringFromVs = pVectorToTranslate.getByteCoordinates();
 
+        if (null == pCritVs.getByteArraySeedingList()) {
+            return bytesForStringFromVs;
+        }
         byte[] bytes = new byte[pCritVs.getByteArraySeedingList().size()];
         double similarity = 0;
         byte elByte = -1;

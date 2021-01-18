@@ -9,6 +9,6 @@ public class Result {
     private String resultName;
     private String entityCodeInSource;
     private String listName;
-    private Float textSimilarity;
-    private Float resultNameInformationLevel;
+    private Double textSimilarity;
+    private Double resultNameInformationLevel;
 }
