@@ -15,6 +15,7 @@ public abstract class FunctionalCase {
     private int falsePositives;
     private int falseNegatives;
     private int totalResultsCount;
+    private int averageNumResultsPerSearch;
     protected List<String> falseNegativeList = new ArrayList<>();
     protected List<String> falsePositiveList = new ArrayList<>();
     protected List<String> ignoredNameCases = new ArrayList<>();
@@ -35,8 +36,8 @@ public abstract class FunctionalCase {
         falseNegatives++;
     }
 
-    public void incTotalResultsCount() {
-        totalResultsCount++;
+    public void incTotalResultsCount(int delta) {
+        totalResultsCount += delta;
     }
 
     public abstract String getDescription();
@@ -57,10 +58,16 @@ public abstract class FunctionalCase {
     public String retrieveEvaluationResult() {
         double recall = (double) getTruePositives() / (double) getCaseCount();
         double precision = (double) getTruePositives() / ((double) getTruePositives() + (double) getFalsePositives());
+        calculateAverageNumberOfResults();
         return "## caseCount=" + getCaseCount()
                 + ", recall=" + recall + ", precision=" + precision
                 + ", expectedRecall=" + getExpectedRecall() + ", expectedPrecision=" +getExpectedPrecision()
+                + ", averageNumResultsPerSearch=" + averageNumResultsPerSearch
                 + ", passed=" + passesEvaluation();
+    }
+
+    private void calculateAverageNumberOfResults() {
+        averageNumResultsPerSearch = (int) Math.ceil((double)totalResultsCount/(double)caseCount);
     }
 
     /**
@@ -91,7 +98,9 @@ public abstract class FunctionalCase {
             }
         }
         falsePositives = "falsePositives: " + falsePositives;
+        String averageNumberOfResults = "averageNumberOfResults: " + totalResultsCount/caseCount;
 
-        return retrieveEvaluationResult() + "\n" + falseNegatives + "\n" + falsePositives;
+        return retrieveEvaluationResult() + "\n" + falseNegatives + "\n"
+                + falsePositives + "\n" + averageNumberOfResults ;
     }
 }

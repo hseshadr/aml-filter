@@ -14,11 +14,11 @@ public interface EntityCodeAndNamesRepository extends ElasticsearchRepository<En
             "      \"fuzziness\": ?1,\n" +
             "      \"fields\": [\n" +
             "        \"nameSet\",\n" +
-            "        \"nameSet.exact^3\",\n" +
-            "        \"nameSet.metaphone\"\n" +
+            "        \"nameSet.exact^?2\",\n" +
+            "        \"nameSet.metaphone^?3\"\n" +
             "      ],\n" +
-            "      \"type\": \"most_fields\"\n" +
+            "      \"type\": \"?4\"\n" +
             "    }\n" +
             "  }")
-    SearchHits<EntityCodeAndNames> findName(String name, int fuzziness);
+    SearchHits<EntityCodeAndNames> findName(String name, int fuzziness, int exactSearchBoost, int phoneticBoost, String matchType);
 }

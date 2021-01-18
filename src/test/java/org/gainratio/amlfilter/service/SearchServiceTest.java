@@ -46,13 +46,17 @@ class SearchServiceTest extends BaseUnitTest {
     static int case1Count = 0;  // Basic fuzzy test: just adding an x char whenever the name len > 10
     static List<String> case1Failed = new ArrayList<String>();
     List<EntityCodeAndNames> entityCodeAndNamesList;
+    boolean loadAndTrainVsLocally = false;
 
     @BeforeEach
-    void init() throws Exception{
-        entityCodeAndNamesList = createNameAndEntityCodeFromFile();
-        entityService.buildNameToEntityCodesSetMapForTest(entityCodeAndNamesList);
-        vectorSpaceService.populateVectorSpace(entityCodeAndNamesList);
-        vectorSpaceService.train();
+    void init() throws Exception {
+        if (loadAndTrainVsLocally) {
+            entityCodeAndNamesList = createNameAndEntityCodeFromFile();
+            entityService.buildNameToEntityCodesSetMapForTest(entityCodeAndNamesList);
+            vectorSpaceService.populateVectorSpace(entityCodeAndNamesList);
+            vectorSpaceService.train();
+        }
+        loadAndTrainVsLocally = false;
     }
 
     @Test
@@ -221,10 +225,8 @@ class SearchServiceTest extends BaseUnitTest {
                     functionalCase.incTestCaseCount();
                     boolean found = false;
                     for (SearchRecordResults srr : searchResponse.getSearchRecordResultList()) {
+                        functionalCase.incTotalResultsCount(srr.getResults().size());
                         for (Result result : srr.getResults()) {
-                            if (modName.equals("GLOBAL RELIEF FOUNDATION INCORPORATED")) {
-                                logger.info("modName=={},entityCode={}", modName, result.getEntityCodeInSource());
-                            }
                             if (nameAndEntityCode.getEntityCode().equals(result.getEntityCodeInSource())) {
                                 found = true;
                             } else {
@@ -234,7 +236,9 @@ class SearchServiceTest extends BaseUnitTest {
                             }
                         }
                     }
-                    if (found) functionalCase.incTruePositives();
+                    if (found) {
+                        functionalCase.incTruePositives();
+                    }
                     else {
                         functionalCase.getFalseNegativeList().add("* FN: (" + nameAndEntityCode.getEntityCode() + ") " + name + " -> searching for '" + modName + "'");
                     }
@@ -293,6 +297,8 @@ class SearchServiceTest extends BaseUnitTest {
 
     @Test
     void search_severalTest_using_file_and_new_search() throws Exception {
+        loadAndTrainVsLocally = true;
+
         List<FunctionalCase> functionalCases = new ArrayList<>();
         functionalCases.add(new FunctionalCaseExact());
         functionalCases.add(new FunctionalCaseOneTypo());
@@ -354,20 +360,8 @@ class SearchServiceTest extends BaseUnitTest {
         elasticSearchHelper.index(entityCodeAndNamesList);
         // Start the searches
         long startTime = System.currentTimeMillis();
-        Map<String,Object> searchPreferencesMap = new HashMap<>();
         for (FunctionalCase functionalCase : functionalCases) {
-            if (functionalCase.getClass().equals(FunctionalCaseExact.class)) {
-                searchPreferencesMap.put("fuzziness", 0);
-            }
-            else if (functionalCase.getClass().equals(FunctionalCaseOneTypo.class)) {
-                searchPreferencesMap.put("fuzziness", 1);
-            }
-            else if (functionalCase.getClass().equals(FunctionalCaseTwoTypos.class)) {
-                searchPreferencesMap.put("fuzziness", 2);
-            }
-            else {
-                searchPreferencesMap.put("fuzziness", 3);
-            }
+            Map<String,Object> searchPreferencesMap = configureSearchPreferencesForElastic(functionalCase);
             searchNameForFunctionalTestCase(functionalCase, entityCodeAndNamesList,
                     elasticSearchHelper, searchPreferencesMap);
             logger.info(
@@ -399,6 +393,40 @@ class SearchServiceTest extends BaseUnitTest {
         for (FunctionalCase functionalCase : functionalCases) {
             assertTrue(functionalCase.passesEvaluation());
         }
+    }
+
+    private Map<String,Object> configureSearchPreferencesForElastic(FunctionalCase functionalCase) {
+        Map<String,Object> searchPreferencesMap = new HashMap<>();
+        searchPreferencesMap.put("numResults", 1);
+        searchPreferencesMap.put("exactSearchBoost", 1);
+        searchPreferencesMap.put("phoneticBoost", 1);
+        searchPreferencesMap.put("matchType", "most_fields");
+        searchPreferencesMap.put("fuzziness", 3);
+
+        switch(functionalCase.getClass().getSimpleName()) {
+            case "FunctionalCaseExact":
+                searchPreferencesMap.put("fuzziness", 0);
+                searchPreferencesMap.put("exactSearchBoost", 2);
+                searchPreferencesMap.put("matchType", "best_fields");
+                break;
+            case "FunctionalCaseOneTypo":
+                searchPreferencesMap.put("fuzziness", 1);
+                break;
+            case "FunctionalCaseTwoTypos":
+                searchPreferencesMap.put("fuzziness", 2);
+                break;
+            case "FunctionalCaseThreeTypos":
+                searchPreferencesMap.put("fuzziness", 3);
+                break;
+            case "FunctionalCasePhonetic":
+                searchPreferencesMap.put("phoneticBoost", 2);
+                break;
+            case "FunctionalCaseMixed1":
+                searchPreferencesMap.put("phoneticBoost", 2);
+                searchPreferencesMap.put("fuzziness", 4);
+                break;
+        }
+        return searchPreferencesMap;
     }
 
 

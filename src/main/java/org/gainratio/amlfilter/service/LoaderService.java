@@ -23,7 +23,7 @@ public class LoaderService implements LoaderServiceInterface {
     private static final Logger logger = LoggerFactory.getLogger(LoaderService.class);
     private final Parser<Sanctions> sdnParser;
     private final EntityService entityService;
-    private final VectorSpaceService vectorSpaceService;
+    private final EventPublisher<List<Entity>> eventPublisher;
 
     @PostConstruct
     void init() throws Exception {
@@ -34,8 +34,8 @@ public class LoaderService implements LoaderServiceInterface {
     @Override
     public List<Entity> load() throws Exception {
         List<Entity> entities = new ArrayList<>();
-        //entities.addAll(parseSdn());
-        //vectorSpaceService.createVectorSpaceFlat();
+        entities.addAll(parseSdn());
+        eventPublisher.publishEvent(new GenericEvent<>(entities));
         return entities;
     }
 

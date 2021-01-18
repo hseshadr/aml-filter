@@ -1,5 +1,7 @@
 package org.gainratio.amlfilter.service;
+
 import org.apache.commons.io.IOUtils;
+import org.elasticsearch.action.admin.indices.delete.DeleteIndexRequest;
 import org.elasticsearch.client.RequestOptions;
 import org.elasticsearch.client.RestHighLevelClient;
 import org.elasticsearch.client.indices.CreateIndexRequest;
@@ -18,8 +20,7 @@ import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.nio.charset.Charset;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
 import java.util.concurrent.atomic.AtomicLong;
 
 @Component
@@ -37,14 +38,14 @@ public class ElasticSearchHelper implements SearchServiceInterface {
         long startTime = System.currentTimeMillis();
         List<SearchRecordResults> searchRecordResultsList = new ArrayList<>();
         for (SearchRecord searchRecord : searchRequest.getSearchRecordList()) {
-            int fuzziness = (int)searchRequest.getSearchPreferencesMap().get("fuzziness");
-            if (searchRecord.getFullName().equals("INVERSIONES AGROPECUARIA ARIZONA LIMITED")) {
-                //System.out.println("*** " + searchRecord.getFullName());
-            }
+            int fuzziness = (int) searchRequest.getSearchPreferencesMap().get("fuzziness");
+            int exactSearchBoost = (int) searchRequest.getSearchPreferencesMap().get("exactSearchBoost");
+            int phoneticBoost = (int) searchRequest.getSearchPreferencesMap().get("phoneticBoost");
+            String matchType = (String) searchRequest.getSearchPreferencesMap().get("matchType");
             SearchHits<EntityCodeAndNames> searchHits
                     = entityCodeAndNamesRepository.findName(searchRecord.getFullName(),
-                    fuzziness);
-            List<SearchRecordResults> tmpSearchRecordResults = fromSearchResults(searchHits);
+                    fuzziness, exactSearchBoost, phoneticBoost, matchType);
+            List<SearchRecordResults> tmpSearchRecordResults = fromSearchResults(searchHits, searchRequest.getSearchPreferencesMap());
             searchRecordResultsList.addAll(tmpSearchRecordResults);
         }
         long endTime = System.currentTimeMillis();
@@ -53,15 +54,21 @@ public class ElasticSearchHelper implements SearchServiceInterface {
         return SearchResponse.builder().searchRecordResultList(searchRecordResultsList).build();
     }
 
-    private List<SearchRecordResults> fromSearchResults(SearchHits<EntityCodeAndNames> searchHits) {
+    private List<SearchRecordResults> fromSearchResults(SearchHits<EntityCodeAndNames> searchHits, Map<String,Object> searchPreferenceMap) {
+        Integer numResults = (Integer) searchPreferenceMap.get("numResults");
+        List<SearchHit<EntityCodeAndNames>> newSearchHits = new ArrayList<>(searchHits.getSearchHits());
+        Collections.sort(newSearchHits, Comparator.comparing((SearchHit sh) -> sh.getScore()).reversed());
         List<SearchRecordResults> searchRecordResultsList = new ArrayList<>();
         List<Result> resultList = new ArrayList<>();
         for (SearchHit<EntityCodeAndNames> searchHit : searchHits.getSearchHits()) {
             EntityCodeAndNames entityCodeAndNames = searchHit.getContent();
             Result result = new Result();
             result.setEntityCodeInSource(entityCodeAndNames.getEntityCode());
-            result.setTextSimilarity((double)searchHit.getScore());
+            result.setTextSimilarity((double) searchHit.getScore());
             resultList.add(result);
+        }
+        if (resultList.size() >= numResults + 1) {
+            resultList = resultList.subList(0, numResults);
         }
         searchRecordResultsList.add(SearchRecordResults.builder().results(resultList).build());
         return searchRecordResultsList;
@@ -78,10 +85,20 @@ public class ElasticSearchHelper implements SearchServiceInterface {
         try {
             GetIndexRequest request = new GetIndexRequest(indexName);
             if (!client.indices().exists(request, RequestOptions.DEFAULT)) {
+                dropIndex(indexName);
                 createIndex(indexName, settingsFileName, mappingFileName);
             }
         } catch (IOException e) {
             logger.error("Can't create index {}", indexName, e);
+        }
+    }
+
+    private void dropIndex(String indexName) throws IOException {
+        try {
+            DeleteIndexRequest request = new DeleteIndexRequest(indexName);
+            client.indices().delete(request, RequestOptions.DEFAULT);
+        } catch (Exception exception) {
+            exception.printStackTrace();
         }
     }
 
