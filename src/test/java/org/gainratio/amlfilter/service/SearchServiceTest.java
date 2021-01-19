@@ -297,7 +297,10 @@ class SearchServiceTest extends BaseUnitTest {
 
     @Test
     void search_severalTest_using_file_and_new_search() throws Exception {
-        loadAndTrainVsLocally = true;
+        entityCodeAndNamesList = createNameAndEntityCodeFromFile();
+        entityService.buildNameToEntityCodesSetMapForTest(entityCodeAndNamesList);
+        vectorSpaceService.populateVectorSpace(entityCodeAndNamesList);
+        vectorSpaceService.train();
 
         List<FunctionalCase> functionalCases = new ArrayList<>();
         functionalCases.add(new FunctionalCaseExact());
@@ -356,6 +359,7 @@ class SearchServiceTest extends BaseUnitTest {
         functionalCases.add(new FunctionalCasePhonetic());
         functionalCases.add(new FunctionalCaseMixed1());
 
+
         List<EntityCodeAndNames> entityCodeAndNamesList = createNameAndEntityCodeFromFile();
         elasticSearchHelper.index(entityCodeAndNamesList);
         // Start the searches
@@ -397,7 +401,7 @@ class SearchServiceTest extends BaseUnitTest {
 
     private Map<String,Object> configureSearchPreferencesForElastic(FunctionalCase functionalCase) {
         Map<String,Object> searchPreferencesMap = new HashMap<>();
-        searchPreferencesMap.put("numResults", 1);
+        searchPreferencesMap.put("numResults", 2);
         searchPreferencesMap.put("exactSearchBoost", 1);
         searchPreferencesMap.put("phoneticBoost", 1);
         searchPreferencesMap.put("matchType", "most_fields");
@@ -406,8 +410,7 @@ class SearchServiceTest extends BaseUnitTest {
         switch(functionalCase.getClass().getSimpleName()) {
             case "FunctionalCaseExact":
                 searchPreferencesMap.put("fuzziness", 0);
-                searchPreferencesMap.put("exactSearchBoost", 2);
-                searchPreferencesMap.put("matchType", "best_fields");
+                searchPreferencesMap.put("exactSearchBoost", 3);
                 break;
             case "FunctionalCaseOneTypo":
                 searchPreferencesMap.put("fuzziness", 1);
@@ -564,6 +567,7 @@ class SearchServiceTest extends BaseUnitTest {
             if (StringUtils.isBlank(name)) {
                 continue;
             }
+            name = AlgorithmUtils.cleanString(name);
             Set<String> nameSet = entityCodeToNameSetMap.get(entityCodeInSource);
             if (null == nameSet) {
                 nameSet = new LinkedHashSet<>();

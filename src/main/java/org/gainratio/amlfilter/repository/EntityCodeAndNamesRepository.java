@@ -13,7 +13,6 @@ public interface EntityCodeAndNamesRepository extends ElasticsearchRepository<En
             "      \"query\": \"?0\",\n" +
             "      \"fuzziness\": ?1,\n" +
             "      \"fields\": [\n" +
-            "        \"nameSet\",\n" +
             "        \"nameSet.exact^?2\",\n" +
             "        \"nameSet.metaphone^?3\"\n" +
             "      ],\n" +

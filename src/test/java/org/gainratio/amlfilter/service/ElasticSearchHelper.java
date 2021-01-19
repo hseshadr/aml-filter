@@ -1,5 +1,6 @@
 package org.gainratio.amlfilter.service;
 
+import lombok.Data;
 import org.apache.commons.io.IOUtils;
 import org.elasticsearch.action.admin.indices.delete.DeleteIndexRequest;
 import org.elasticsearch.client.RequestOptions;
@@ -11,6 +12,7 @@ import org.elasticsearch.common.xcontent.XContentType;
 import org.gainratio.amlfilter.model.*;
 import org.gainratio.amlfilter.repository.EntityCodeAndNamesRepository;
 import org.gainratio.amlfilter.util.ResourceUtils;
+import org.gainratio.amlfilter.vector.filter.TextSimilarityMappedWordsSearchFilter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -30,6 +32,11 @@ public class ElasticSearchHelper implements SearchServiceInterface {
     private EntityCodeAndNamesRepository entityCodeAndNamesRepository;
     @Autowired
     private RestHighLevelClient client;
+    @Autowired
+    private TextSimilarityMappedWordsSearchFilter textSimilarityMappedWordsSearchFilter;
+    @Autowired
+    private ResultsService resultsService;
+
     private static AtomicLong totalTime = new AtomicLong(0L);
     private static AtomicLong totalSearches = new AtomicLong(0L);
 
@@ -45,7 +52,7 @@ public class ElasticSearchHelper implements SearchServiceInterface {
             SearchHits<EntityCodeAndNames> searchHits
                     = entityCodeAndNamesRepository.findName(searchRecord.getFullName(),
                     fuzziness, exactSearchBoost, phoneticBoost, matchType);
-            List<SearchRecordResults> tmpSearchRecordResults = fromSearchResults(searchHits, searchRequest.getSearchPreferencesMap());
+            List<SearchRecordResults> tmpSearchRecordResults = fromSearchResults(searchRecord, searchHits, searchRequest.getSearchPreferencesMap());
             searchRecordResultsList.addAll(tmpSearchRecordResults);
         }
         long endTime = System.currentTimeMillis();
@@ -54,7 +61,7 @@ public class ElasticSearchHelper implements SearchServiceInterface {
         return SearchResponse.builder().searchRecordResultList(searchRecordResultsList).build();
     }
 
-    private List<SearchRecordResults> fromSearchResults(SearchHits<EntityCodeAndNames> searchHits, Map<String,Object> searchPreferenceMap) {
+    private List<SearchRecordResults> fromSearchResults(SearchRecord searchRecord, SearchHits<EntityCodeAndNames> searchHits, Map<String,Object> searchPreferenceMap) {
         Integer numResults = (Integer) searchPreferenceMap.get("numResults");
         List<SearchHit<EntityCodeAndNames>> newSearchHits = new ArrayList<>(searchHits.getSearchHits());
         Collections.sort(newSearchHits, Comparator.comparing((SearchHit sh) -> sh.getScore()).reversed());
@@ -62,16 +69,29 @@ public class ElasticSearchHelper implements SearchServiceInterface {
         List<Result> resultList = new ArrayList<>();
         for (SearchHit<EntityCodeAndNames> searchHit : searchHits.getSearchHits()) {
             EntityCodeAndNames entityCodeAndNames = searchHit.getContent();
-            Result result = new Result();
-            result.setEntityCodeInSource(entityCodeAndNames.getEntityCode());
-            result.setTextSimilarity((double) searchHit.getScore());
-            resultList.add(result);
+            for (String name : entityCodeAndNames.getNameSet()) {
+                Result result = new Result();
+                result.setSearchName(searchRecord.getFullName());
+                result.setResultName(name);
+                result.setEntityCodeInSource(entityCodeAndNames.getEntityCode());
+                result.setTextSimilarity((double) searchHit.getScore());
+                resultList.add(result);
+            }
         }
-        if (resultList.size() >= numResults + 1) {
-            resultList = resultList.subList(0, numResults);
-        }
+        resultList = textSimilarityMappedWordsSearchFilter.filterSearchResults(resultList);
+        resultList = filterResults(resultList);
         searchRecordResultsList.add(SearchRecordResults.builder().results(resultList).build());
         return searchRecordResultsList;
+    }
+
+    private List<Result> filterResults(List<Result> results) {
+        List<Result> filteredResults = results;
+        if (results.size() > 0) {
+            filteredResults = resultsService.removeResultRepetitionsByEntityCodeAndSimilarity(filteredResults);
+            filteredResults = resultsService.removeResultSynonyms(filteredResults);
+        }
+        Collections.sort(filteredResults, (a,b) -> b.getTextSimilarity().compareTo(a.getTextSimilarity()));
+        return filteredResults;
     }
 
     public void index(List<EntityCodeAndNames> entityCodeAndNamesList) {

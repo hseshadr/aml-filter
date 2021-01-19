@@ -76,9 +76,6 @@ public class VectorSpaceService {
         vectorSpaceFlat.setVectorDataList(vectorDataFlatList);
         for (EntityCodeAndNames nameAndEntityCode : entityCodeAndNamesList) {
             for (String name : nameAndEntityCode.getNameSet()) {
-                if (name.contains("DURATEX SA")) {
-                    logger.info("entityCode={}, name={}", nameAndEntityCode.getEntityCode(), name);
-                }
                 VectorDataFlat vd = vectorSpaceFlat.createVector(nameAndEntityCode.getEntityCode(),
                         name);
                 vectorDataFlatList.add(vd);
@@ -96,20 +93,11 @@ public class VectorSpaceService {
     }
 
     public void populateVectorSpace(List<EntityCodeAndNames> entityCodeAndNamesList) {
-        VectorSpaceFlat vectorSpaceFlat
-                = new VectorSpaceFlat();
-        List<VectorDataFlat> vectorDataFlatList = new ArrayList<>();
-        vectorSpaceFlat.setVectorDataList(vectorDataFlatList);
         for (EntityCodeAndNames nameAndEntityCode : entityCodeAndNamesList) {
             for (String name : nameAndEntityCode.getNameSet()) {
-                if (name.contains("DURATEX SA")) {
-                    logger.info("entityCode={}, name={}", nameAndEntityCode.getEntityCode(), name);
-                }
                 addVector(nameAndEntityCode.getEntityCode(), name);
             }
         }
-        setVectorSpaceFlat(vectorSpaceFlat);
-        logger.info("vectorDataFlatList.size()={}", vectorDataFlatList.size());
     }
 
     private void addVector(String entityCode, String name) {

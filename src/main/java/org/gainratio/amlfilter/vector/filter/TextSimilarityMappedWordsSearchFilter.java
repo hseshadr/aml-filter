@@ -31,7 +31,7 @@ public class TextSimilarityMappedWordsSearchFilter implements NameSearchFilter {
                 .filter(rm -> rm.isMatch())
                 .map(rm -> {
                     Result r = rm.getResult();
-                    rm.getResult().setTextSimilarity((double)rm.getTextSimilarity());
+                    r.setTextSimilarity((double)rm.getTextSimilarity());
                     return r;
                 })
                 .collect(Collectors.toList());
