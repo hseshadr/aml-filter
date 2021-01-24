@@ -23,7 +23,7 @@ import java.util.Set;
  */
 @Component
 @Data
-@EqualsAndHashCode(callSuper=false)
+@EqualsAndHashCode(callSuper = false)
 @Slf4j
 public class TokenSearch extends NameSearch {
     @Autowired
@@ -42,7 +42,6 @@ public class TokenSearch extends NameSearch {
      */
     @Override
     public List<Result> executeQuery(SearchRecord searchRecord) {
-        long startTime = System.currentTimeMillis();
         List<Result> finalResults = new ArrayList<>();
         try {
             List<String> cumulativeSearchResults = new ArrayList<String>();
@@ -54,9 +53,8 @@ public class TokenSearch extends NameSearch {
             }
             finalResults = assembleResults(cumulativeSearchResults, searchRecord);
         } catch (Exception e) {
-            e.printStackTrace();
+            log.error("ERROR: ", e);
         } finally {
-            long endTime = System.currentTimeMillis();
         }
         return finalResults;
     }
@@ -74,7 +72,7 @@ public class TokenSearch extends NameSearch {
             Set<String> entityCodeSet = getEntityService().getEntityCodesForName(searchResultName);
             for (String entityCode : entityCodeSet) {
                 Result result = getResultsService().createResult(searchName,
-                        searchResultName, entityCode, "SDN",
+                        searchResultName, entityCode, "SDN", getClass().getSimpleName(),
                         getTokenService().getTokenMatchMagicSimilarity());
 
                 results.add(result);

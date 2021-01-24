@@ -53,9 +53,6 @@ public class EntityService {
 
             for (String name : entityCodeAndNames.getNameSet()) {
                 name = AlgorithmUtils.cleanString(name);
-                if (name.equals("RESIDENCIAL CANAL VIEW SA")) {
-                    logger.info("PANK={}", name);
-                }
                 Set<String> entityCodeSet = nameToEntityCodeSetMap.get(name);
                 if (null == entityCodeSet) {
                     entityCodeSet = new HashSet<>();

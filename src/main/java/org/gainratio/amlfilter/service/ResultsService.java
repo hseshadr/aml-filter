@@ -27,6 +27,7 @@ public class ResultsService implements ResultsServiceInterface {
                                String resultName,
                                String entityCode,
                                String listName,
+                               String searchComponent,
                                double textSimilarity) {
         Result result = new Result();
         result.setSearchName(searchName);

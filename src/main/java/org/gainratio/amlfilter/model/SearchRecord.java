@@ -3,7 +3,6 @@ package org.gainratio.amlfilter.model;
 import lombok.Builder;
 import lombok.Data;
 
-import java.util.HashSet;
 import java.util.Set;
 
 @Data

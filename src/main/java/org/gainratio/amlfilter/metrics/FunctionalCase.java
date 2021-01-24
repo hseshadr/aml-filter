@@ -1,7 +1,6 @@
 package org.gainratio.amlfilter.metrics;
 
 import lombok.Data;
-import lombok.EqualsAndHashCode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

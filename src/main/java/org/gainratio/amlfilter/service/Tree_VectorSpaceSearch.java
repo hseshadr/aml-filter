@@ -78,7 +78,7 @@ public class Tree_VectorSpaceSearch extends NameSearch {
 
 
             // Transform the vector data to this version of the same one...
-            finalResults = covertTreeResultsToResults(treeResults, searchRecord);
+            finalResults = convertTreeResultsToResults(treeResults, searchRecord);
 
             // #########################################################
             // SYNONYMIC SEARCH
@@ -100,7 +100,7 @@ public class Tree_VectorSpaceSearch extends NameSearch {
                             "; similarity: " + treeResults.get(i).getSimilarity());
                 }
             }
-            finalResults.addAll(covertTreeResultsToResults(treeResults, searchRecord));
+            finalResults.addAll(convertTreeResultsToResults(treeResults, searchRecord));
         } catch (Exception e) {
             e.printStackTrace();
         } finally {
@@ -114,11 +114,11 @@ public class Tree_VectorSpaceSearch extends NameSearch {
     }
 
 
-    private List<Result> covertTreeResultsToResults(List<TreeResult> treeVectorResultList, SearchRecord searchRecord) {
+    private List<Result> convertTreeResultsToResults(List<TreeResult> treeVectorResultList, SearchRecord searchRecord) {
         List<Result> resultList = new ArrayList<>();
         for (TreeResult tr : treeVectorResultList) {
             Result result = resultsService.createResult(searchRecord.getFullName(),
-                    tr.getFoundVectorData().getData(), tr.getFoundVectorData().getId(), "SDN", tr.getSimilarity());
+                    tr.getFoundVectorData().getData(), tr.getFoundVectorData().getId(), "SDN", getClass().getSimpleName(), tr.getSimilarity());
             resultList.add(result);
         }
         return resultList;

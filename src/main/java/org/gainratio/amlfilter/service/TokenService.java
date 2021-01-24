@@ -25,7 +25,7 @@ public class TokenService {
     private Map<String, Set<String>> tokenToNamesMap = new HashMap<>();
 
     @PostConstruct
-    void init() {
+    public void init() {
         tokenToNamesMap = createTokenToNamesMap();
         _logger.info("tokenToNamesMap.size(): {}", tokenToNamesMap.size());
     }
@@ -36,7 +36,6 @@ public class TokenService {
         for (Entity entity : entityService.getEntityCodeToEntityMap().values()) {
             for (String name : entity.getEntityNameSet()) {
                 name = AlgorithmUtils.cleanString(name);
-
                 String[] tokens = name.split(" ");
                 for (String token : tokens) {
                     token = AlgorithmUtils.cleanString(token);

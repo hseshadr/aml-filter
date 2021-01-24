@@ -5,7 +5,7 @@ import lombok.EqualsAndHashCode;
 import org.gainratio.amlfilter.metrics.utils.PhoneticVariation;
 
 @Data
-@EqualsAndHashCode(callSuper=false)
+@EqualsAndHashCode(callSuper = false)
 public class FunctionalCasePhonetic extends FunctionalCase {
     private final double MIN_RECALL = 0.95;
     private final double MIN_PRECISION = 0.7;

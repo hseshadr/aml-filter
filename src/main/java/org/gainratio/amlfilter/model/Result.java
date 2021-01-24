@@ -11,4 +11,5 @@ public class Result {
     private String listName;
     private Double textSimilarity;
     private Double resultNameInformationLevel;
+    private String searchComponent;
 }

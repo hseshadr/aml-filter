@@ -1,7 +1,6 @@
 package org.gainratio.amlfilter.service;
 
 import lombok.Data;
-import org.gainratio.amlfilter.model.Entity;
 import org.gainratio.amlfilter.model.EntityCodeAndNames;
 import org.gainratio.amlfilter.util.AlgorithmUtils;
 import org.gainratio.amlfilter.vector.comparisonCriteria.*;
@@ -9,8 +8,6 @@ import org.gainratio.amlfilter.vector.test.test_hierarchy_treeSearch;
 import org.gainratio.amlfilter.vector.vectorSpace.Hierarchy_utils;
 import org.gainratio.amlfilter.vector.vectorSpace.VectorDefinition;
 import org.gainratio.amlfilter.vector.vectorSpace.VectorSpace;
-import org.gainratio.amlfilter.vector.vectorSpace.flat.VectorDataFlat;
-import org.gainratio.amlfilter.vector.vectorSpace.flat.VectorSpaceFlat;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -20,7 +17,6 @@ import javax.annotation.PostConstruct;
 import java.io.BufferedWriter;
 import java.io.IOException;
 import java.io.OutputStreamWriter;
-import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -40,7 +36,6 @@ public class VectorSpaceService {
     VsComparisonCriteriaHandler comparator_forTraining = comparator_pairSim;
     private VectorSpace rawVs;
     private VectorSpace trainedVs;
-    private VectorSpaceFlat vectorSpaceFlat;
     @Autowired
     private EntityService entityService;
 
@@ -48,39 +43,6 @@ public class VectorSpaceService {
     public void init() throws IOException {
         rawVs = createVectorSpace();
         Hierarchy_utils.log = new BufferedWriter(new OutputStreamWriter(System.out, rawVs.getVectorManager().getLocale().getDisplayName()));
-    }
-
-    public void createVectorSpaceFlat() {
-        VectorSpaceFlat vectorSpaceFlat
-                = new VectorSpaceFlat();
-        List<VectorDataFlat> vectorDataFlatList = new ArrayList<>();
-        vectorSpaceFlat.setVectorDataList(vectorDataFlatList);
-        for (Entity entity : getEntityService().getEntityCodeToEntityMap()
-                .values()) {
-            for (String name : entity.getEntityNameSet()) {
-                name = AlgorithmUtils.cleanString(name);
-                VectorDataFlat vd = vectorSpaceFlat.createVector(entity.getEntityCodeInSource(), name);
-                vectorDataFlatList.add(vd);
-            }
-        }
-        setVectorSpaceFlat(vectorSpaceFlat);
-        logger.info("vectorDataFlatList.size()={}", vectorDataFlatList.size());
-    }
-
-    public void createVectorSpaceFlat(List<EntityCodeAndNames> entityCodeAndNamesList) {
-        VectorSpaceFlat vectorSpaceFlat
-                = new VectorSpaceFlat();
-        List<VectorDataFlat> vectorDataFlatList = new ArrayList<>();
-        vectorSpaceFlat.setVectorDataList(vectorDataFlatList);
-        for (EntityCodeAndNames nameAndEntityCode : entityCodeAndNamesList) {
-            for (String name : nameAndEntityCode.getNameSet()) {
-                VectorDataFlat vd = vectorSpaceFlat.createVector(nameAndEntityCode.getEntityCode(),
-                        name);
-                vectorDataFlatList.add(vd);
-            }
-        }
-        setVectorSpaceFlat(vectorSpaceFlat);
-        logger.info("vectorDataFlatList.size()={}", vectorDataFlatList.size());
     }
 
     private VectorSpace createVectorSpace() {

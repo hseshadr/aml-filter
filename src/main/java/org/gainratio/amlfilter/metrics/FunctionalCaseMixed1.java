@@ -6,7 +6,7 @@ import org.gainratio.amlfilter.metrics.utils.PhoneticVariation;
 import org.gainratio.amlfilter.metrics.utils.TypoGenerator;
 
 @Data
-@EqualsAndHashCode(callSuper=false)
+@EqualsAndHashCode(callSuper = false)
 public class FunctionalCaseMixed1 extends FunctionalCase {
     private final double MIN_RECALL = 0.8;
     private final double MIN_PRECISION = 0.7;

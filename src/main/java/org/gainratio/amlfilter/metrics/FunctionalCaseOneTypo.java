@@ -5,7 +5,7 @@ import lombok.EqualsAndHashCode;
 import org.gainratio.amlfilter.metrics.utils.TypoGenerator;
 
 @Data
-@EqualsAndHashCode(callSuper=false)
+@EqualsAndHashCode(callSuper = false)
 public class FunctionalCaseOneTypo extends FunctionalCase {
     private final double MIN_RECALL = 0.95;
     private final double MIN_PRECISION = 0.7;

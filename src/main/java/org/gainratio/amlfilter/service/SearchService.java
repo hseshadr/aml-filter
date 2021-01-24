@@ -6,14 +6,12 @@ import org.gainratio.amlfilter.model.*;
 import org.gainratio.amlfilter.search.TokenSearch;
 import org.gainratio.amlfilter.util.AlgorithmUtils;
 import org.gainratio.amlfilter.vector.filter.TextSimilarityMappedWordsSearchFilter;
-import org.gainratio.amlfilter.vector.vectorSpace.flat.VectorResult;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.stream.Collectors;
 
 @Service
 @Data
@@ -84,13 +82,5 @@ public class SearchService implements SearchServiceInterface {
         cumulativeResults.addAll(resultListFromVsSearch);
         cumulativeResults = nameSearchFilter.filterSearchResults(cumulativeResults);
         return cumulativeResults;
-    }
-
-    private List<Result> convertVectorResultListToSearchResultList(String searchName,
-                                                                   SearchRecord searchRecord,
-                                                                   List<VectorResult> vectorResultList) {
-        return vectorResultList.stream().map(vr -> resultsService.createResult(
-                searchName, vr.getName(), vr.getFoundVectorDataFlat().getId(), "", -1f))
-                .collect(Collectors.toList());
     }
 }
