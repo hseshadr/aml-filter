@@ -1,7 +1,7 @@
-
 package org.gainratio.amlfilter.search;
 
 import lombok.Data;
+import lombok.EqualsAndHashCode;
 import lombok.extern.slf4j.Slf4j;
 import org.gainratio.amlfilter.model.Result;
 import org.gainratio.amlfilter.model.SearchRecord;
@@ -23,6 +23,7 @@ import java.util.Set;
  */
 @Component
 @Data
+@EqualsAndHashCode(callSuper=false)
 @Slf4j
 public class TokenSearch extends NameSearch {
     @Autowired
@@ -69,7 +70,7 @@ public class TokenSearch extends NameSearch {
         List<Result> results = new ArrayList<>();
         String searchName = AlgorithmUtils.cleanString(searchRecord.getFullName());
 
-        for (String searchResultName: searchResultNameList) {
+        for (String searchResultName : searchResultNameList) {
             Set<String> entityCodeSet = getEntityService().getEntityCodesForName(searchResultName);
             for (String entityCode : entityCodeSet) {
                 Result result = getResultsService().createResult(searchName,

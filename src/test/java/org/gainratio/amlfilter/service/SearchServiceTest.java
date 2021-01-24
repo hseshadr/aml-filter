@@ -47,6 +47,8 @@ class SearchServiceTest extends BaseUnitTest {
     static List<String> case1Failed = new ArrayList<String>();
     List<EntityCodeAndNames> entityCodeAndNamesList;
     boolean loadAndTrainVsLocally = false;
+    boolean runNameRiskTest = false;
+    boolean runElasticSearchTest = false;
 
     @BeforeEach
     void init() throws Exception {
@@ -249,6 +251,9 @@ class SearchServiceTest extends BaseUnitTest {
 
     @Test
     void search_severalTest_using_file_and_namerisk() throws Exception {
+        if (!runNameRiskTest) {
+            return;
+        }
         List<FunctionalCase> functionalCases = new ArrayList<>();
         functionalCases.add(new FunctionalCaseExact());
         functionalCases.add(new FunctionalCaseOneTypo());
@@ -349,6 +354,9 @@ class SearchServiceTest extends BaseUnitTest {
 
     @Test
     void search_severalTest_using_file_and_elastic_search() throws Exception {
+        if (!runElasticSearchTest) {
+            return;
+        }
         List<FunctionalCase> functionalCases = new ArrayList<>();
         functionalCases.add(new FunctionalCaseExact());
         functionalCases.add(new FunctionalCaseOneTypo());
@@ -430,99 +438,6 @@ class SearchServiceTest extends BaseUnitTest {
                 break;
         }
         return searchPreferencesMap;
-    }
-
-
-
-    @Test
-    void search_severalTest() throws Exception {
-        List<FunctionalCase> functionalCases = new ArrayList<>();
-        functionalCases.add(new FunctionalCaseExact());
-        /*
-        functionalCases.add(new FunctionalCaseOneTypo());
-        functionalCases.add(new FunctionalCaseTwoTypos());
-        functionalCases.add(new FunctionalCaseThreeTypos());
-        functionalCases.add(new FunctionalCaseDeleteChar());
-        functionalCases.add(new FunctionalCaseDoublingChars());
-        functionalCases.add(new FunctionalCasePhonetic());
-        functionalCases.add(new FunctionalCaseMixed1());
-
-         */
-
-        long startTime = System.currentTimeMillis();
-        // Very low info level
-        // new HashSet<>(Arrays.asList("ALI", "MUHAMMED", "MUHAMMAD", "MOHAMMAD", "AMEER", "AHMAD", "ABU", "AL TIKRITI"));
-        for (FunctionalCase functionalCase : functionalCases) {
-            for (Entity e : entityService.getEntityCodeToEntityMap().values()) {
-                resetStats();
-                entitiesCount++;
-                String entityCodeInSource = e.getEntityCodeInSource();
-                if (entitiesCount % 100 == 0) {
-                    logger.info("(" + functionalCase.getClass().getSimpleName() + ") entitiesCount: {} ...", entitiesCount);
-                }
-                for (String origName : e.getEntityNameSet()) {
-                    nameCount++;
-                    String name = AlgorithmUtils.cleanString(origName);
-                    if (functionalCase.isNameAUsableCase(name)) {
-                        // with 3: caseCount=29696, recall=0.48841594827586204, precision=0.7572308656155372
-                        // with 10: caseCount=13899, recall=0.8786963090869847, precision=0.860676532769556
-                        String modName = functionalCase.modifyString(name);
-                        SearchRequest searchRequest = SearchRequest
-                                .builder()
-                                .searchRecordList(Collections.singletonList(SearchRecord.builder().fullName(modName).build())).build();
-                        SearchResponse searchResponse = searchService.search(searchRequest);
-                        List<Result> resultList = searchResponse.getSearchRecordResultList().get(0).getResults();
-                        functionalCase.incTestCaseCount();
-                        boolean found = false;
-                        for (SearchRecordResults srr : searchResponse.getSearchRecordResultList()) {
-                            for (Result result : srr.getResults()) {
-                                if (entityCodeInSource.equals(result.getEntityCodeInSource())) {
-                                    found = true;
-                                } else {
-                                    functionalCase.incFalsePositives();
-                                    functionalCase.getFalsePositiveList().add("* FP: " + result.getResultName() +
-                                            " -> searching for '" + modName + "'" + "; results.size(): " + resultList.size());
-                                }
-                            }
-                        }
-                        if (found) functionalCase.incTruePositives();
-                        else {
-                            functionalCase.getFalseNegativeList().add("* FN: (" + entityCodeInSource + ") " + name + " -> searching for '" + modName + "'");
-                        }
-                    }
-                }
-            }
-            logger.info(
-                    "## [METRICS] '" + functionalCase.getClass().getSimpleName() + "' ... " +
-                            functionalCase.getDescription() + ": " +
-                            functionalCase.retrieveEvaluationResult());
-        }
-
-        logger.info("\n\n");
-        logger.info("###### Cases logs:");
-        for (FunctionalCase functionalCase : functionalCases) {
-            logger.info("## Errors from test '" + functionalCase.getClass().getSimpleName() + "' ... " + functionalCase.getDescription() + ": ");
-            logger.info(functionalCase.retrieveTestLogs(100));
-        }
-
-        // Logging
-        logger.info("\n\n");
-        logger.info("###### Metrics summary:");
-        for (FunctionalCase functionalCase : functionalCases) {
-            logger.info(
-                    "## [METRICS] '" + functionalCase.getClass().getSimpleName() + "' ... " +
-                            functionalCase.getDescription() + ": " +
-                            functionalCase.retrieveEvaluationResult());
-        }
-
-        // Log test time
-        long totalTime = System.currentTimeMillis() - startTime;
-        logger.info("Total testing time(s): " + totalTime / 1000 + " (mins: " + (totalTime / 60000) + ")");
-
-        // Evaluate
-        for (FunctionalCase functionalCase : functionalCases) {
-            assertTrue(functionalCase.passesEvaluation());
-        }
     }
 
     private boolean evaluationPasses() {

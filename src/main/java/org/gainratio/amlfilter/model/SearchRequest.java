@@ -10,7 +10,7 @@ import java.util.Map;
 @Data
 @Builder
 public class SearchRequest {
-    private Map<String, Object> searchPreferencesMap = new HashMap<>();
+    private Map<String, Object> searchPreferencesMap;
     private String searchDate;
     private List<SearchRecord> searchRecordList;
 }

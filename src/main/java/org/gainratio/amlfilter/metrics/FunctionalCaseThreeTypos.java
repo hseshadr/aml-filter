@@ -1,13 +1,15 @@
 package org.gainratio.amlfilter.metrics;
 
 import lombok.Data;
+import lombok.EqualsAndHashCode;
 import org.gainratio.amlfilter.metrics.utils.TypoGenerator;
 
 @Data
+@EqualsAndHashCode(callSuper=false)
 public class FunctionalCaseThreeTypos extends FunctionalCase {
-    private String description = "Injecting THREE typos";
     private final double MIN_RECALL = 0.8;
     private final double MIN_PRECISION = 0.7;
+    private String description = "Injecting THREE typos";
 
     public FunctionalCaseThreeTypos() {
         super();

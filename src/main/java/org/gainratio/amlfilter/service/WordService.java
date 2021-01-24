@@ -89,10 +89,29 @@ public class WordService implements WordServiceInterface {
     @Autowired
     private WordRepository wordRepository;
 
+    private static Word parseRecord(String record) {
+        if (StringUtils.isBlank(record)) {
+            return new Word();
+        }
+        System.out.println(record);
+        String[] tokens = record.split(",");
+        Word word = new Word();
+        try {
+            word.setId(tokens[0]);
+            word.setWord(tokens[1]);
+        } catch (Exception e) {
+            if (StringUtils.isBlank(record)) {
+                System.out.println(String.format("FUCKOFF: record=%s", record));
+            }
+        }
+        word.setNumTimesFound(new Integer(tokens[2]));
+        return word;
+    }
+
     @PostConstruct
     public void init() throws Exception {
         loadAll();
-        for (String word: lowWeightStopWords) {
+        for (String word : lowWeightStopWords) {
             lowWeightWordsSet.add(word);
         }
     }
@@ -135,25 +154,6 @@ public class WordService implements WordServiceInterface {
                 .collect(Collectors.toList());
         logger.info("wordList.size()={}", wordList.size());
         return wordList;
-    }
-
-    private static Word parseRecord(String record) {
-        if (StringUtils.isBlank(record)) {
-            return new Word();
-        }
-        System.out.println(record);
-        String[] tokens = record.split(",");
-        Word word = new Word();
-        try {
-            word.setId(tokens[0]);
-            word.setWord(tokens[1]);
-        } catch (Exception e) {
-            if (StringUtils.isBlank(record)) {
-                System.out.println(String.format("FUCKOFF: record=%s", record));
-            }
-        }
-        word.setNumTimesFound(new Integer(tokens[2]));
-        return word;
     }
 
     public void setMaximumWordFrequency(int pMaximumWordFrequency) {

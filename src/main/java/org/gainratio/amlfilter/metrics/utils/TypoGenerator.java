@@ -54,7 +54,7 @@ public class TypoGenerator {
 
         int listLen = typoList.size();
         int replacementPos = (int) (rnd.nextDouble() * listLen);
-        if (replacementPos==listLen) replacementPos=listLen-1;
+        if (replacementPos == listLen) replacementPos = listLen - 1;
         String replacement = typoList.get(replacementPos);
         if (isUpper) {
             return replacement.toUpperCase();
@@ -64,32 +64,34 @@ public class TypoGenerator {
     }
 
     public static String injectTypos(String origString, int numTypos) {
-        if (numTypos>25) throw new IllegalArgumentException("Maximum allowed typos are 25");
-        if (StringUtils.isAllBlank(origString)) throw new IllegalArgumentException("String to modify must have some valid chars.");
+        if (numTypos > 25) throw new IllegalArgumentException("Maximum allowed typos are 25");
+        if (StringUtils.isAllBlank(origString))
+            throw new IllegalArgumentException("String to modify must have some valid chars.");
         int strLen = origString.length();
-        if (numTypos>strLen) throw new IllegalArgumentException("The size of the string must be smaller than the typos to add. Just a typo per char is allowed.");
+        if (numTypos > strLen)
+            throw new IllegalArgumentException("The size of the string must be smaller than the typos to add. Just a typo per char is allowed.");
 
         String retString = origString;
         Set<Integer> typosPositions = new HashSet<Integer>();
-        for (int t=0; t<numTypos; t++) {
+        for (int t = 0; t < numTypos; t++) {
             int pos = -1;
             // Get a valid injection position
             int retries = 0;
-            while (pos==-1) {
+            while (pos == -1) {
                 retries++;
-                if (retries>100) break;
+                if (retries > 100) break;
                 pos = (int) (rnd.nextDouble() * strLen);
                 if (pos == strLen) {
                     pos = -1;
                     continue;
                 }
                 if (typosPositions.contains(pos)) {
-                    pos=-1;
+                    pos = -1;
                     continue;
                 }
                 typosPositions.add(pos);
-                if (StringUtils.isAllBlank(origString.substring(pos, pos+1))) {
-                    pos=-1;
+                if (StringUtils.isAllBlank(origString.substring(pos, pos + 1))) {
+                    pos = -1;
                 }
             }
             retString = injectTypo(retString, pos);
@@ -98,37 +100,39 @@ public class TypoGenerator {
     }
 
     public static String injectTypo(String origString, int pos) {
-        if (pos==-1) return origString;
-        if (pos>=origString.length()) return origString;
-        String origChar = origString.substring(pos, pos+1);
+        if (pos == -1) return origString;
+        if (pos >= origString.length()) return origString;
+        String origChar = origString.substring(pos, pos + 1);
         String typo = typoForKey(origChar);
-        if (null==typo) {
+        if (null == typo) {
 //            logger.warn("No typo for '"+origChar+"'");
             return origString;
         }
-        return origString.substring(0, pos) + typo + origString.substring(pos+1);
+        return origString.substring(0, pos) + typo + origString.substring(pos + 1);
     }
 
     public static String doubleChars(String cleanedName, int numChanges) {
         String retString = cleanedName;
-        for (int i=0; i<numChanges; i++) {
+        for (int i = 0; i < numChanges; i++) {
             int changePos = (int) (rnd.nextDouble() * retString.length());
-            retString = retString.substring(0, changePos)+
-                    retString.substring(changePos, changePos+1)+
+            retString = retString.substring(0, changePos) +
+                    retString.substring(changePos, changePos + 1) +
                     retString.substring(changePos);
         }
         return retString;
     }
 
     public static String deleteChars(String origString, int numTypos) {
-        if (numTypos>25) throw new IllegalArgumentException("Maximum allowed deletions are 25");
-        if (StringUtils.isAllBlank(origString)) throw new IllegalArgumentException("String to modify must have some valid chars.");
-        if (numTypos>origString.length()) throw new IllegalArgumentException("The size of the string must be smaller than the chars to delete.");
+        if (numTypos > 25) throw new IllegalArgumentException("Maximum allowed deletions are 25");
+        if (StringUtils.isAllBlank(origString))
+            throw new IllegalArgumentException("String to modify must have some valid chars.");
+        if (numTypos > origString.length())
+            throw new IllegalArgumentException("The size of the string must be smaller than the chars to delete.");
 
         String modString = origString;
-        for (int i=0; i<numTypos; i++) {
+        for (int i = 0; i < numTypos; i++) {
             int pos = (int) (rnd.nextDouble() * modString.length());
-            modString=modString.substring(0, pos)+modString.substring(pos+1);
+            modString = modString.substring(0, pos) + modString.substring(pos + 1);
         }
         return modString;
     }

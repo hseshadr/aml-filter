@@ -3,7 +3,6 @@ package org.gainratio.amlfilter.vector.vectorSpace;
 import org.gainratio.amlfilter.vector.comparisonCriteria.VsComparisonCriteriaHandler;
 
 import java.io.Serializable;
-import java.io.UnsupportedEncodingException;
 import java.util.ArrayList;
 import java.util.List;
 

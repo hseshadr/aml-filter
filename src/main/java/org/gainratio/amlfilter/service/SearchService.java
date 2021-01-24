@@ -5,7 +5,6 @@ import org.apache.commons.lang3.StringUtils;
 import org.gainratio.amlfilter.model.*;
 import org.gainratio.amlfilter.search.TokenSearch;
 import org.gainratio.amlfilter.util.AlgorithmUtils;
-import org.gainratio.amlfilter.vector.filter.JaroWinklerSearchFilter;
 import org.gainratio.amlfilter.vector.filter.TextSimilarityMappedWordsSearchFilter;
 import org.gainratio.amlfilter.vector.vectorSpace.flat.VectorResult;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -57,7 +56,7 @@ public class SearchService implements SearchServiceInterface {
             // *******************************************************************
             filteredResults = getResultsService().removeResultSynonyms(filteredResults);
         }
-        Collections.sort(filteredResults, (a,b) -> b.getTextSimilarity().compareTo(a.getTextSimilarity()));
+        Collections.sort(filteredResults, (a, b) -> b.getTextSimilarity().compareTo(a.getTextSimilarity()));
         return filteredResults;
     }
 

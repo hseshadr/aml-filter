@@ -3,7 +3,6 @@ package org.gainratio.amlfilter.service;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import org.gainratio.amlfilter.model.Result;
-import org.gainratio.amlfilter.model.SearchRecord;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -32,7 +31,7 @@ public class ResultsService implements ResultsServiceInterface {
         Result result = new Result();
         result.setSearchName(searchName);
         result.setResultName(resultName);
-        result.setResultNameInformationLevel((double)getWordService().getNameInformationLevel(resultName));
+        result.setResultNameInformationLevel((double) getWordService().getNameInformationLevel(resultName));
         result.setEntityCodeInSource(entityCode);
         result.setListName(listName);
         result.setTextSimilarity(textSimilarity);

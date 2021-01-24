@@ -5,7 +5,6 @@ import lombok.EqualsAndHashCode;
 import org.gainratio.amlfilter.model.Result;
 import org.gainratio.amlfilter.model.SearchRecord;
 import org.gainratio.amlfilter.search.NameSearch;
-import org.gainratio.amlfilter.util.AlgorithmUtils;
 import org.gainratio.amlfilter.vector.vectorSpace.TreeResult;
 import org.gainratio.amlfilter.vector.vectorSpace.VectorData;
 import org.gainratio.amlfilter.vector.vectorSpace.VectorSpace;
@@ -14,7 +13,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
 
 
 /**
@@ -112,7 +112,6 @@ public class Tree_VectorSpaceSearch extends NameSearch {
         }
         return finalResults;
     }
-
 
 
     private List<Result> covertTreeResultsToResults(List<TreeResult> treeVectorResultList, SearchRecord searchRecord) {

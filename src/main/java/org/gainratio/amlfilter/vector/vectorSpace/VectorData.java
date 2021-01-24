@@ -12,11 +12,11 @@ import java.nio.charset.StandardCharsets;
 @Data
 public class VectorData implements Serializable {
     private static final long serialVersionUID = 2691187260635546600L;
-    private String id;
     /*
      * The mark to operate on the data
      */
     public boolean mark = false;
+    private String id;
     private byte[] byteCoordinates;
     /*
      * The possible parent vector. Applicable only on a tree structure

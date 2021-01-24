@@ -1,6 +1,5 @@
 package org.gainratio.amlfilter.vector.vectorSpace.flat;
 
-import lombok.AllArgsConstructor;
 import lombok.Data;
 import org.gainratio.amlfilter.util.AlgorithmUtils;
 import org.gainratio.amlfilter.vector.utils.VectorUtils;
@@ -11,7 +10,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Vector;
 import java.util.stream.Collectors;
 
 @Data

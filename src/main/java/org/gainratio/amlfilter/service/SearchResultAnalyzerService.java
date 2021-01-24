@@ -21,12 +21,12 @@ public class SearchResultAnalyzerService {
     public ResultMatch resultMatch(String pName1, String pName2, Result pResult) {
         float textSimilarity = getTextSimilarityMappingPathService().getTextSimilarity(pName1, pName2);
 //        logger.info("Text Similarity: " + textSimilarity);
-        pResult.setTextSimilarity((double)textSimilarity);
+        pResult.setTextSimilarity((double) textSimilarity);
         // CASE 1: Very similar
         // ********************
         // If the text similarity is very high, it look like we found the match
 //        logger.info("*PASS* CASE 1: High relative similarity: " + pName1 + "/" + pName2 + "  SIM: " + textSimilarity + " %");
         boolean match = textSimilarity >= wholeNameHighTextSimilarityThreshold;
-        return new ResultMatch(pResult, (double)textSimilarity, match);
+        return new ResultMatch(pResult, (double) textSimilarity, match);
     }
 }

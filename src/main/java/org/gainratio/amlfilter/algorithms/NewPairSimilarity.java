@@ -18,7 +18,7 @@ public class NewPairSimilarity {
         String normText = Arrays.stream(text.trim().split(" "))
                 .map(s -> s.trim().toUpperCase())
                 .collect(Collectors.joining(" "));
-        normText = " "+normText+" ";
+        normText = " " + normText + " ";
         return normText;
     }
 

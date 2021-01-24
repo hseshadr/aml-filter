@@ -30,12 +30,7 @@ import java.util.List;
 @Data
 public class VectorSpaceService {
     private static final Logger logger = LoggerFactory.getLogger(VectorSpaceService.class);
-    private VectorSpace rawVs;
-    private VectorSpace trainedVs;
-    private VectorSpaceFlat vectorSpaceFlat;
-    @Autowired
-    private EntityService entityService;
-
+    private static final Hierarchy_utils hu = new Hierarchy_utils();
     // Define the comparison criteria
     VsCriteria_Distance comparator_distance = new VsCriteria_Distance();
     VsCriteria_Distance_Normalized comparator_distNorm = new VsCriteria_Distance_Normalized();
@@ -43,8 +38,11 @@ public class VectorSpaceService {
     VsCriteria_Cosine comparator_cosine = new VsCriteria_Cosine();
     VsCriteria_CompAlgs comparator_compAlgs = new VsCriteria_CompAlgs();
     VsComparisonCriteriaHandler comparator_forTraining = comparator_pairSim;
-
-    private static final Hierarchy_utils hu = new Hierarchy_utils();
+    private VectorSpace rawVs;
+    private VectorSpace trainedVs;
+    private VectorSpaceFlat vectorSpaceFlat;
+    @Autowired
+    private EntityService entityService;
 
     @PostConstruct
     public void init() throws IOException {

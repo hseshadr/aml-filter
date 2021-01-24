@@ -9,7 +9,6 @@ import org.gainratio.amlfilter.vector.filter.NameSearchFilter;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Map;
 
 @Data
 public abstract class NameSearch {
@@ -17,7 +16,7 @@ public abstract class NameSearch {
 
     public abstract List<Result> executeQuery(SearchRecord searchRecord);
 
-    public List<Result> executeNameSearch(SearchRecord searchRecord)  {
+    public List<Result> executeNameSearch(SearchRecord searchRecord) {
         final String methodSignature = "List executeNameSearch(Map): ";
 
         // Execute the query

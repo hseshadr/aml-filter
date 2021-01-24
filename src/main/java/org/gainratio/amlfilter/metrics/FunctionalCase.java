@@ -1,6 +1,7 @@
 package org.gainratio.amlfilter.metrics;
 
 import lombok.Data;
+import lombok.EqualsAndHashCode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -10,15 +11,15 @@ import java.util.List;
 @Data
 public abstract class FunctionalCase {
     private static final Logger logger = LoggerFactory.getLogger(FunctionalCase.class);
+    protected List<String> falseNegativeList = new ArrayList<>();
+    protected List<String> falsePositiveList = new ArrayList<>();
+    protected List<String> ignoredNameCases = new ArrayList<>();
     private int caseCount;
     private int truePositives;
     private int falsePositives;
     private int falseNegatives;
     private int totalResultsCount;
     private int averageNumResultsPerSearch;
-    protected List<String> falseNegativeList = new ArrayList<>();
-    protected List<String> falsePositiveList = new ArrayList<>();
-    protected List<String> ignoredNameCases = new ArrayList<>();
 
     public void incTestCaseCount() {
         caseCount++;
@@ -43,9 +44,13 @@ public abstract class FunctionalCase {
     public abstract String getDescription();
 
     public abstract boolean isNameAUsableCase(String name);
+
     public abstract String modifyString(String cleanedName);
+
     public abstract boolean passesEvaluation();
+
     public abstract double getExpectedRecall();
+
     public abstract double getExpectedPrecision();
 
     public boolean passesEvaluation(double MIN_RECALL, double MIN_PRECISION) {
@@ -61,13 +66,13 @@ public abstract class FunctionalCase {
         calculateAverageNumberOfResults();
         return "## caseCount=" + getCaseCount()
                 + ", recall=" + recall + ", precision=" + precision
-                + ", expectedRecall=" + getExpectedRecall() + ", expectedPrecision=" +getExpectedPrecision()
+                + ", expectedRecall=" + getExpectedRecall() + ", expectedPrecision=" + getExpectedPrecision()
                 + ", averageNumResultsPerSearch=" + averageNumResultsPerSearch
                 + ", passed=" + passesEvaluation();
     }
 
     private void calculateAverageNumberOfResults() {
-        averageNumResultsPerSearch = (int) Math.ceil((double)totalResultsCount/(double)caseCount);
+        averageNumResultsPerSearch = (int) Math.ceil((double) totalResultsCount / (double) caseCount);
     }
 
     /**
@@ -98,9 +103,9 @@ public abstract class FunctionalCase {
             }
         }
         falsePositives = "falsePositives: " + falsePositives;
-        String averageNumberOfResults = "averageNumberOfResults: " + totalResultsCount/caseCount;
+        String averageNumberOfResults = "averageNumberOfResults: " + totalResultsCount / caseCount;
 
         return retrieveEvaluationResult() + "\n" + falseNegatives + "\n"
-                + falsePositives + "\n" + averageNumberOfResults ;
+                + falsePositives + "\n" + averageNumberOfResults;
     }
 }

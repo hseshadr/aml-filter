@@ -14,11 +14,11 @@ public class SearchRecord {
     private String entityType;
     private String cleanedName;
     private String synonimicName;
-    private Set<String> placeOfInceptionSet = new HashSet<String>();
-    private Set<String> dateOfInceptionSet = new HashSet<String>();
-    private Set<String> identificationDocumentSet = new HashSet<String>();
-    private Set<String> addressSet = new HashSet<String>();
-    private Set<String> citizenshipSet = new HashSet<String>();
+    private Set<String> placeOfInceptionSet;
+    private Set<String> dateOfInceptionSet;
+    private Set<String> identificationDocumentSet;
+    private Set<String> addressSet;
+    private Set<String> citizenshipSet;
     private String gender;
 }
 

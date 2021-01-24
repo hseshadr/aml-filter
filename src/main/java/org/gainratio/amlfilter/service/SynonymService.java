@@ -38,6 +38,15 @@ public class SynonymService implements SynonymServiceInterface {
     @Autowired
     private SynonymRepository synonymRepository;
 
+    private static Synonym parseRecordIntoSynonym(String record) {
+        String[] tokens = record.split(",");
+        Synonym synonym = new Synonym();
+        synonym.setId(new Long(tokens[0].trim()));
+        synonym.setWord(tokens[1].trim());
+        synonym.setSynonym(tokens[2].trim());
+        return synonym;
+    }
+
     @PostConstruct
     public void init() throws Exception {
         loadAll();
@@ -71,14 +80,5 @@ public class SynonymService implements SynonymServiceInterface {
                 .collect(Collectors.toList());
         logger.info("synonymList.size()={}", synonymList.size());
         return synonymList;
-    }
-
-    private static Synonym parseRecordIntoSynonym(String record) {
-        String[] tokens = record.split(",");
-        Synonym synonym = new Synonym();
-        synonym.setId(new Long(tokens[0].trim()));
-        synonym.setWord(tokens[1].trim());
-        synonym.setSynonym(tokens[2].trim());
-        return synonym;
     }
 }

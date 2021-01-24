@@ -144,7 +144,7 @@ public class TokenService {
      * Get the relevant results
      */
     private List<String> getRelevantResults(Set<String> searchNameTokensSet,
-                                              Map<String, Integer> nameToMatchCountMap) {
+                                            Map<String, Integer> nameToMatchCountMap) {
         List<String> results = new ArrayList<String>();
         int searchNameTokensListSize = searchNameTokensSet.size();
         for (Map.Entry<String, Integer> entry : nameToMatchCountMap.entrySet()) {
