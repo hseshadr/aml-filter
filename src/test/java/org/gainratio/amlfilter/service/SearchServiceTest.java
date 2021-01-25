@@ -45,8 +45,8 @@ class SearchServiceTest extends BaseUnitTest {
 
     static int nameCount = 0;
     List<EntityCodeAndNames> entityCodeAndNamesList;
-    boolean runNameRiskTest = true;
-    boolean runElasticSearchTest = true;
+    boolean runNameRiskTest = false;
+    boolean runElasticSearchTest = false;
     boolean runNewSearchTest = true;
 
     boolean shouldLoadVs = false;
