@@ -58,8 +58,8 @@ class SearchServiceTest extends BaseUnitTest {
     @Test
     void searchOneName_newSearch() throws Exception {
         prepareSearch();
-        String name = "FINANZAS DEL NORTE LUIS SAJEH Y CJA S C AND";
-        Set<String> entityCodeSet = new HashSet<>(Arrays.asList("SDN_9890"));
+        String name = "MHDI CANMMOUN";
+        Set<String> entityCodeSet = new HashSet<>(Arrays.asList("SDN_7255"));
         SearchRequest searchRequest = SearchRequest
                 .builder()
                 .searchRecordList(Arrays.asList(SearchRecord.builder()

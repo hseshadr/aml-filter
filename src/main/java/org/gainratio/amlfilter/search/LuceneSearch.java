@@ -48,6 +48,7 @@ public class LuceneSearch extends NameSearch {
     private EntityService entityService;
     @Autowired
     private ResultsService resultsService;
+    private int maxResults = 1;
 
     @PostConstruct
     public void init() throws IOException {
@@ -122,9 +123,9 @@ public class LuceneSearch extends NameSearch {
     public List<Result> executeQuery(SearchRecord searchRecord) {
         List<Result> finalResults = new ArrayList<>();
         try {
-            finalResults.addAll(search(searchRecord.getCleanedName(), 3));
+            finalResults.addAll(search(searchRecord.getCleanedName(), maxResults));
             if (!searchRecord.getCleanedName().equals(searchRecord.getSynonimicName())) {
-                finalResults.addAll(search(searchRecord.getSynonimicName(), 3));
+                finalResults.addAll(search(searchRecord.getSynonimicName(), maxResults));
             }
         } catch (Exception e) {
             log.error("ERROR: ", e);

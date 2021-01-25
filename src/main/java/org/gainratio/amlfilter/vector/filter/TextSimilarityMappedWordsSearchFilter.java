@@ -35,21 +35,6 @@ public class TextSimilarityMappedWordsSearchFilter implements NameSearchFilter {
                     return r;
                 })
                 .collect(Collectors.toList());
-        List<Result> resultListFromJaroWinker = jaroWinklerSearchFilter.filterSearchResults(searchResults);
-        return consolidateResults(resultListFromMappingPath, resultListFromJaroWinker);
-    }
-
-    private List<Result> consolidateResults(List<Result> resultListFromMappingPath, List<Result> resultListFromJaroWinker) {
-        List<Result> newResults = new ArrayList<>();
-        for (Result resultFromMP : resultListFromMappingPath) {
-            for (Result resultFromJW : resultListFromJaroWinker) {
-                if (!resultFromMP.getEntityCodeInSource().equals(resultFromJW.getEntityCodeInSource())
-                        || !resultFromMP.getResultName().equals(resultFromJW.getResultName())) {
-                    newResults.add(resultFromJW);
-                }
-            }
-            newResults.add(resultFromMP);
-        }
-        return newResults;
+        return resultListFromMappingPath;
     }
 }
