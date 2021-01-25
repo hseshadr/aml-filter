@@ -54,11 +54,8 @@ public class SynonymService implements SynonymServiceInterface {
 
     @Override
     public void loadAll() throws Exception {
-        List<Synonym> synonymList = getSynonymRepository().findAll();
-        if (synonymList.isEmpty()) {
-            synonymList = loadFromResource();
-            loadAllSynonyms(synonymList);
-        }
+        List<Synonym> synonymList = loadFromResource();
+        loadAllSynonyms(synonymList);
     }
 
     @Override
@@ -69,8 +66,9 @@ public class SynonymService implements SynonymServiceInterface {
     }
 
     private void loadAllSynonyms(List<Synonym> synonymList) {
-        synonymMap = synonymList
-                .stream().collect(Collectors.toMap(s -> s.getWord(), s -> s.getSynonym()));
+        for (Synonym synonym : synonymList) {
+            synonymMap.put(synonym.getWord(), synonym.getSynonym());
+        }
         logger.info("Loaded all the synonyms from the database, count = {}", synonymMap.size());
     }
 
