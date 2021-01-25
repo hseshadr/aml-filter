@@ -50,6 +50,8 @@ public class LuceneSearch extends NameSearch {
     private ResultsService resultsService;
     private int maxResults = 1;
 
+    boolean enabled = true;
+
     @PostConstruct
     public void init() throws IOException {
         analyzer = new Analyzer() {
@@ -122,6 +124,9 @@ public class LuceneSearch extends NameSearch {
     @Override
     public List<Result> executeQuery(SearchRecord searchRecord) {
         List<Result> finalResults = new ArrayList<>();
+        if (!enabled) {
+            return finalResults;
+        }
         try {
             finalResults.addAll(search(searchRecord.getCleanedName(), maxResults));
             if (!searchRecord.getCleanedName().equals(searchRecord.getSynonimicName())) {

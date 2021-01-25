@@ -35,6 +35,8 @@ public class Tree_VectorSpaceSearch extends NameSearch {
     @Autowired
     private VectorSpaceService vectorSpaceService;
 
+    boolean enabled = true;
+
     /**
      * Execute the query, in this case by invoking a phonetic
      * search in blacklist and then convert the blacklist members
@@ -43,6 +45,9 @@ public class Tree_VectorSpaceSearch extends NameSearch {
     public List<Result> executeQuery(SearchRecord searchRecord) {
         final String methodSignature = "List executeQuery(String): ";
         List<Result> finalResults = new ArrayList<>();
+        if (!enabled) {
+            return finalResults;
+        }
         try {
             VectorSpace vs = getVectorSpaceService().getTrainedVs();
             // Making sure the vs loaded correctly

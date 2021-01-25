@@ -35,6 +35,8 @@ public class TokenSearch extends NameSearch {
     @Autowired
     private EntityService entityService;
 
+    private boolean enabled = true;
+
     /**
      * Execute the query, in this case by invoking a phonetic
      * search in blacklist and then convert the blacklist members
@@ -43,6 +45,9 @@ public class TokenSearch extends NameSearch {
     @Override
     public List<Result> executeQuery(SearchRecord searchRecord) {
         List<Result> finalResults = new ArrayList<>();
+        if (!enabled) {
+            return finalResults;
+        }
         try {
             List<String> cumulativeSearchResults = new ArrayList<String>();
             List<String> resultNames = getTokenService().tokenSearch(searchRecord.getCleanedName());
