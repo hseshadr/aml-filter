@@ -1,35 +1,31 @@
 package org.gainratio.amlfilter.vector.comparisonCriteria;
 
-import org.gainratio.amlfilter.algorithms.PairSimilarity;
+import org.gainratio.amlfilter.algorithms.EditDistanceSimilarity;
 
 import java.io.Serializable;
 import java.io.UnsupportedEncodingException;
 import java.nio.charset.StandardCharsets;
 
-public class VsCriteria_PairSimilarity extends VsComparisonCriteriaHandler implements Serializable {
 
-
-    /**
-     *
-     */
+public class VsCriteria_DoubleMetaphoneDistSimilarity extends VsComparisonCriteriaHandler implements Serializable {
     private static final long serialVersionUID = -7533967667900845057L;
     // The instance
-    private static VsCriteria_PairSimilarity mVsCriteria_PairSimilarity;
-    private final PairSimilarity mPairSimilarity = new PairSimilarity();
+    private static VsCriteria_DoubleMetaphoneDistSimilarity mVsCriteria_DoubleMetaphoneDistSimilarity;
+    transient EditDistanceSimilarity mEditDistSimilarity = new EditDistanceSimilarity();
 
-    public VsCriteria_PairSimilarity() {
-        criteriaName = "PAIR SIMILARITY";
+    public VsCriteria_DoubleMetaphoneDistSimilarity() {
+        criteriaName = "EDIT DISTANCE SIMILARITY";
         minSimilarityValue = 0;
         maxSimilarityValue = 1;
         setNumDimensionsFix(false);
     }
 
-    public static VsCriteria_PairSimilarity getInstance() {
-        if (null == mVsCriteria_PairSimilarity) {
-            mVsCriteria_PairSimilarity = new VsCriteria_PairSimilarity();
+    public static VsCriteria_DoubleMetaphoneDistSimilarity getInstance() {
+        if (null == mVsCriteria_DoubleMetaphoneDistSimilarity) {
+            mVsCriteria_DoubleMetaphoneDistSimilarity = new VsCriteria_DoubleMetaphoneDistSimilarity();
         }
 
-        return mVsCriteria_PairSimilarity;
+        return mVsCriteria_DoubleMetaphoneDistSimilarity;
     }
 
     @Override
@@ -41,10 +37,11 @@ public class VsCriteria_PairSimilarity extends VsComparisonCriteriaHandler imple
 
     public double computeSimilarity(byte[] vectorData1, byte[] vectorData2) throws UnsupportedEncodingException {
         double retVal = 0;
-        retVal = mPairSimilarity.getSimilarity(
+        retVal = mEditDistSimilarity.getSimilarity(
                 new String(vectorData1, StandardCharsets.UTF_8),
                 new String(vectorData2, StandardCharsets.UTF_8)
         );
+
         return retVal;
     }
 

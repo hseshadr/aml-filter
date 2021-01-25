@@ -43,6 +43,14 @@ dependencies {
 	compile group: 'org.apache.commons', name: 'commons-text', version: '1.9'
 
 
+	// https://mvnrepository.com/artifact/org.apache.lucene/lucene-core
+	compile group: 'org.apache.lucene', name: 'lucene-core', version: '8.6.2'
+	// https://mvnrepository.com/artifact/org.apache.lucene/lucene-backward-codecs
+	compile group: 'org.apache.lucene', name: 'lucene-backward-codecs', version: '8.6.2'
+// https://mvnrepository.com/artifact/org.apache.lucene/lucene-analyzers-phonetic
+	compile group: 'org.apache.lucene', name: 'lucene-analyzers-phonetic', version: '8.6.2'
+
+
 	compileOnly 'org.projectlombok:lombok'
 	annotationProcessor 'org.springframework.boot:spring-boot-configuration-processor'
 	annotationProcessor 'org.projectlombok:lombok'

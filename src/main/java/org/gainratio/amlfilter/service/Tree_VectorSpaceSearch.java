@@ -27,6 +27,7 @@ import java.util.List;
 public class Tree_VectorSpaceSearch extends NameSearch {
     private static final Logger logger = LoggerFactory.getLogger(Tree_VectorSpaceSearch.class);
     private float baseDistanceToSearch = 15f;
+    private int maxResults = 50;
     @Autowired
     private ResultsService resultsService;
     @Autowired
@@ -41,76 +42,40 @@ public class Tree_VectorSpaceSearch extends NameSearch {
      */
     public List<Result> executeQuery(SearchRecord searchRecord) {
         final String methodSignature = "List executeQuery(String): ";
-        long startTime = System.currentTimeMillis();
         List<Result> finalResults = new ArrayList<>();
         try {
             VectorSpace vs = getVectorSpaceService().getTrainedVs();
-            double baseThresholdForTreeSearching = getBaseDistanceToSearch();
             // Making sure the vs loaded correctly
-            if (null == vs) {
+            if (null == vs || vs.size() == 0) {
                 throw new IllegalStateException(methodSignature + "The vector space is not set. Is the configuration of this process set properly in the database?");
             }
+            // Original search
             String searchName = searchRecord.getCleanedName();
-
-            VectorData vector2Search;
-            List<TreeResult> treeResults;
-
-            // There is nothing to search return no results
-            if (0 == vs.size()) {
-                return new ArrayList<>();
-            }
-            // ###################################################
-            // ORIGINAL NAME SEARCH
-            // ###################################################
-            vector2Search = vs.createVector(searchName, vs.getOriginalComparatorWhenTraining());
-            treeResults = vs.recursiveTreeSearch(vector2Search,
-                    50,
-                    baseThresholdForTreeSearching,
-                    0,
-                    false);
-
-
-            for (int i = 0; i < treeResults.size(); i++) {
-                logger.debug("\t- " +
-                        treeResults.get(i).getFoundVectorData().getData() +
-                        "; similarity: " + treeResults.get(i).getSimilarity());
-            }
-
-
-            // Transform the vector data to this version of the same one...
-            finalResults = convertTreeResultsToResults(treeResults, searchRecord);
-
-            // #########################################################
-            // SYNONYMIC SEARCH
-            // #########################################################
+            List<Result> originalNameResults = searchVectorSpace(searchRecord, searchRecord.getCleanedName(), vs);
+            finalResults.addAll(originalNameResults);
+            // Synonym search
             String synonymicName = searchRecord.getSynonimicName();
-
             if (!synonymicName.equals(searchName)) {
-                vector2Search = vs.createVector(synonymicName, vs.getOriginalComparatorWhenTraining());
-                treeResults = vs.recursiveTreeSearch(vector2Search,
-                        20,
-                        baseThresholdForTreeSearching,
-                        0,
-                        false);
-
-
-                for (int i = 0; i < treeResults.size(); i++) {
-                    logger.debug("\t- " +
-                            treeResults.get(i).getFoundVectorData().getData() +
-                            "; similarity: " + treeResults.get(i).getSimilarity());
-                }
+                List<Result> synonymicResults = searchVectorSpace(searchRecord, synonymicName, vs);
+                finalResults.addAll(synonymicResults);
             }
-            finalResults.addAll(convertTreeResultsToResults(treeResults, searchRecord));
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.error("ERROR: ", e);
         } finally {
-            long endTime = System.currentTimeMillis();
-
-
-            logger.debug(methodSignature + "Total time: " + (endTime - startTime));
-
         }
         return finalResults;
+    }
+
+    private List<Result> searchVectorSpace(SearchRecord searchRecord, String name, VectorSpace vectorSpace) throws Exception {
+        VectorData vector2Search;
+        List<TreeResult> treeResults;
+        vector2Search = vectorSpace.createVector(name, vectorSpace.getOriginalComparatorWhenTraining());
+        treeResults =  vectorSpace.recursiveTreeSearch(vector2Search,
+                maxResults,
+                baseDistanceToSearch,
+                0,
+                false);
+        return convertTreeResultsToResults(treeResults, searchRecord);
     }
 
 

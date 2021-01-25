@@ -1,6 +1,7 @@
 package org.gainratio.amlfilter.service;
 
 import lombok.Data;
+import org.apache.commons.codec.language.DoubleMetaphone;
 import org.apache.commons.lang3.StringUtils;
 import org.gainratio.amlfilter.model.Entity;
 import org.gainratio.amlfilter.util.AlgorithmUtils;
@@ -16,9 +17,8 @@ import java.util.*;
 @Service
 @Data
 public class TokenService {
-    public static final float DEFAULT_TOKEN_MATCH_MAGIC_SIMILARITY = 0.993f;
     private static final Logger _logger = LoggerFactory.getLogger(TokenService.class);
-    private float tokenMatchMagicSimilarity = DEFAULT_TOKEN_MATCH_MAGIC_SIMILARITY;
+    private boolean usePhonetic = false;
 
     @Autowired
     private EntityService entityService;
@@ -30,6 +30,11 @@ public class TokenService {
         _logger.info("tokenToNamesMap.size(): {}", tokenToNamesMap.size());
     }
 
+    private DoubleMetaphone getDoubleMetaphone() {
+        DoubleMetaphone dmp = new DoubleMetaphone();
+        dmp.setMaxCodeLen(100);
+        return dmp;
+    }
 
     private Map<String, Set<String>> createTokenToNamesMap() {
         Map<String, Set<String>> tokenToNamesMap = new HashMap<>();
@@ -41,6 +46,10 @@ public class TokenService {
                     token = AlgorithmUtils.cleanString(token);
                     if (token.isEmpty()) {
                         continue;
+                    }
+                    token = token.trim();
+                    if (usePhonetic) {
+                        token = getDoubleMetaphone().doubleMetaphone(token);
                     }
                     Set<String> namesSet = tokenToNamesMap.get(token);
                     if (null == namesSet) {
@@ -55,13 +64,6 @@ public class TokenService {
     }
 
     /**
-     * Get the token cache entry given the list designation and a token
-     */
-    public Set<String> getNamesForToken(String pToken) {
-        return tokenToNamesMap.get(pToken);
-    }
-
-    /**
      * Make the token search and get back the results
      */
     public List<String> tokenSearch(String searchName) {
@@ -69,28 +71,19 @@ public class TokenService {
         Set<String> searchNameTokensSet = new HashSet<String>();
         for (String searchNameToken : searchNameTokens) {
             if (StringUtils.isNotBlank(searchNameToken)) {
-                searchNameTokensSet.add(searchNameToken);
+                searchNameToken = AlgorithmUtils.cleanString(searchNameToken);
+                if (searchNameToken.isEmpty()) {
+                    continue;
+                }
+                searchNameToken = searchNameToken.trim();
+                if (usePhonetic) {
+                    searchNameToken = getDoubleMetaphone().doubleMetaphone(searchNameToken);
+                }
+                searchNameTokensSet.add(searchNameToken.trim());
             }
         }
         _logger.debug("searchNameTokensSet: " + searchNameTokensSet);
         return getRelevantResults(searchNameTokensSet, generateMatchCountMap(searchNameTokensSet));
-    }
-
-    /**
-     * Count the tokens
-     */
-    private int countTokens(String text) {
-        if (text.isEmpty()) {
-            return 0;
-        }
-        int count = 1;
-        char[] textChars = text.toCharArray();
-        for (int i = 0; i < textChars.length; i++) {
-            if (textChars[i] == ' ') {
-                count++;
-            }
-        }
-        return count;
     }
 
     /**
@@ -102,9 +95,9 @@ public class TokenService {
         }
         Set<String> uniqueTokensSet = new HashSet<String>();
         String[] textTokens = text.split(GeneralConstants.SPACE_TOKEN);
-        for (int i = 0; i < textTokens.length; i++) {
-            if (!textTokens[i].isEmpty()) {
-                uniqueTokensSet.add(textTokens[i]);
+        for (String token : textTokens) {
+            if (StringUtils.isNotBlank(token)) {
+                uniqueTokensSet.add(token);
             }
         }
         return uniqueTokensSet.size();

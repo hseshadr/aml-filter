@@ -1,6 +1,6 @@
 package org.gainratio.amlfilter.algorithms;
 
-import org.apache.commons.text.similarity.JaroWinklerDistance;
+import org.apache.commons.text.similarity.JaroWinklerSimilarity;
 
 public class JaroWinklerDistanceSimilarity extends SimilarityComparator {
     /**
@@ -11,7 +11,7 @@ public class JaroWinklerDistanceSimilarity extends SimilarityComparator {
      * @return The simlarity
      */
     public final float getSimilarity(String pName1, String pName2) {
-        JaroWinklerDistance jaroWinklerDistance = new JaroWinklerDistance();
-        return jaroWinklerDistance.apply(pName1, pName2).floatValue();
+        JaroWinklerSimilarity jaroWinklerSimilarity = new org.apache.commons.text.similarity.JaroWinklerSimilarity();
+        return jaroWinklerSimilarity.apply(pName1, pName2).floatValue();
     }
 }

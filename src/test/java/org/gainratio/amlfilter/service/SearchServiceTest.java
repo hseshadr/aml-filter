@@ -5,6 +5,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.gainratio.amlfilter.BaseUnitTest;
 import org.gainratio.amlfilter.metrics.*;
 import org.gainratio.amlfilter.model.*;
+import org.gainratio.amlfilter.search.LuceneSearch;
 import org.gainratio.amlfilter.util.AlgorithmUtils;
 import org.gainratio.amlfilter.util.ResourceUtils;
 import org.junit.jupiter.api.BeforeEach;
@@ -37,6 +38,10 @@ class SearchServiceTest extends BaseUnitTest {
     ElasticSearchHelper elasticSearchHelper;
     @Autowired
     TokenService tokenService;
+    @Autowired
+    SynonymService synonymService;
+    @Autowired
+    LuceneSearch luceneSearch;
 
     static int nameCount = 0;
     List<EntityCodeAndNames> entityCodeAndNamesList;
@@ -53,8 +58,8 @@ class SearchServiceTest extends BaseUnitTest {
     @Test
     void searchOneName_newSearch() throws Exception {
         prepareSearch();
-        String name = "AYGUZTL HERRERA AGUILERA";
-        Set<String> entityCodeSet = new HashSet<>(Arrays.asList("SDN_8581"));
+        String name = "FINANZAS DEL NORTE LUIS SAJEH Y CJA S C AND";
+        Set<String> entityCodeSet = new HashSet<>(Arrays.asList("SDN_9890"));
         SearchRequest searchRequest = SearchRequest
                 .builder()
                 .searchRecordList(Arrays.asList(SearchRecord.builder()
@@ -282,6 +287,7 @@ class SearchServiceTest extends BaseUnitTest {
         entityCodeAndNamesList = createNameAndEntityCodeFromFile();
         entityService.buildNameToEntityCodesSetMapForTest(entityCodeAndNamesList);
         tokenService.init();
+        luceneSearch.init();
         if (runNewSearchTest) {
             vectorSpaceService.populateVectorSpace(entityCodeAndNamesList);
             vectorSpaceService.train();
@@ -345,6 +351,10 @@ class SearchServiceTest extends BaseUnitTest {
                 entityCodeToNameSetMap.put(entityCodeInSource, nameSet);
             }
             nameSet.add(name);
+            String synName = synonymService.getSynonymName(name);
+            if (!synName.equals(name)) {
+                nameSet.add(synName);
+            }
         }
         for (Map.Entry<String, Set<String>> entry : entityCodeToNameSetMap.entrySet()) {
             EntityCodeAndNames entityCodeAndNames = EntityCodeAndNames.builder()

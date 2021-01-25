@@ -73,7 +73,7 @@ public class TokenSearch extends NameSearch {
             for (String entityCode : entityCodeSet) {
                 Result result = getResultsService().createResult(searchName,
                         searchResultName, entityCode, "SDN", getClass().getSimpleName(),
-                        getTokenService().getTokenMatchMagicSimilarity());
+                        1d);
 
                 results.add(result);
             }

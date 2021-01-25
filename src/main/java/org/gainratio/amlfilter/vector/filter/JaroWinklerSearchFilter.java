@@ -16,8 +16,8 @@ import java.util.stream.Collectors;
 @Data
 @Component
 public class JaroWinklerSearchFilter implements NameSearchFilter {
-    private final int topN = 1;
-    private JaroWinklerDistanceSimilarity jaroWinklerDistanceSimilarity = new JaroWinklerDistanceSimilarity();
+    private double similarityThreshold = 0.95d;
+    private JaroWinklerDistanceSimilarity jaroWinklerSimilarity = new JaroWinklerDistanceSimilarity();
 
     public List<Result> filterSearchResults(List<Result> searchResults) {
         List<Result> resultList = searchResults.stream()
@@ -27,18 +27,23 @@ public class JaroWinklerSearchFilter implements NameSearchFilter {
                 .filter(rm -> rm.isMatch())
                 .map(rm -> {
                     Result r = rm.getResult();
-                    rm.getResult().setTextSimilarity((double) rm.getTextSimilarity());
+                    rm.getResult().setTextSimilarity(rm.getTextSimilarity());
                     return r;
                 })
                 .sorted(Comparator.comparing(Result::getTextSimilarity).reversed())
-                .limit(topN)
                 .collect(Collectors.toList());
         return resultList;
     }
 
     private ResultMatch resultMatch(String searchName, String resultName, Result result) {
-        Double similarity = (double) jaroWinklerDistanceSimilarity.getSimilarity(searchName, resultName);
-        ResultMatch resultMatch = new ResultMatch(result, similarity, true);
-        return resultMatch;
+        boolean match;
+        Double similarity = (double) jaroWinklerSimilarity.getSimilarity(searchName, resultName);
+        if (similarity >= similarityThreshold) {
+            match = true;
+        }
+        else {
+            match = false;
+        }
+        return new ResultMatch(result, similarity, match);
     }
 }

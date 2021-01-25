@@ -30,7 +30,8 @@ public class VectorSpaceService {
     // Define the comparison criteria
     VsCriteria_Distance comparator_distance = new VsCriteria_Distance();
     VsCriteria_Distance_Normalized comparator_distNorm = new VsCriteria_Distance_Normalized();
-    VsCriteria_PairSimilarity comparator_pairSim = new VsCriteria_PairSimilarity(); // comparator_pairSim
+    VsCriteria_PairSimilarity comparator_pairSim = new VsCriteria_PairSimilarity();
+    VsCriteria_JaroWinklerSimilarity comparator_jaroWinklerSim = new VsCriteria_JaroWinklerSimilarity();
     VsCriteria_Cosine comparator_cosine = new VsCriteria_Cosine();
     VsCriteria_CompAlgs comparator_compAlgs = new VsCriteria_CompAlgs();
     VsComparisonCriteriaHandler comparator_forTraining = comparator_pairSim;
@@ -76,6 +77,8 @@ public class VectorSpaceService {
         int maxSizeOfSampledVsForRefining = 500;
         int numPassesForRefining = 10;
 
+        // Train
+        // Train
         VectorSpace orderedVs = createVectorSpace();
         this.trainedVs = hu.train_(
                 orderedVs,
@@ -90,6 +93,7 @@ public class VectorSpaceService {
                 refineRefVectors,
                 false);
 
+        // Quickly test the search
         float testingThreshold = 0.15f;
         test_hierarchy_treeSearch.test_tree_search_batch(rawVs,
                 trainedVs,

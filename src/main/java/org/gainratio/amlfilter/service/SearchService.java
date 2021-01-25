@@ -3,6 +3,7 @@ package org.gainratio.amlfilter.service;
 import lombok.Data;
 import org.apache.commons.lang3.StringUtils;
 import org.gainratio.amlfilter.model.*;
+import org.gainratio.amlfilter.search.LuceneSearch;
 import org.gainratio.amlfilter.search.TokenSearch;
 import org.gainratio.amlfilter.util.AlgorithmUtils;
 import org.gainratio.amlfilter.vector.filter.TextSimilarityMappedWordsSearchFilter;
@@ -26,6 +27,8 @@ public class SearchService implements SearchServiceInterface {
     private ResultsService resultsService;
     @Autowired
     private TokenSearch tokenSearch;
+    @Autowired
+    private LuceneSearch luceneSearch;
     @Autowired
     private Tree_VectorSpaceSearch tree_vectorSpaceSearch;
 
@@ -76,10 +79,14 @@ public class SearchService implements SearchServiceInterface {
 
     private List<Result> search(String searchName, SearchRecord searchRecord) {
         List<Result> cumulativeResults = new ArrayList<>();
+
         List<Result> resultListFromTokenSearch = tokenSearch.executeQuery(searchRecord);
         cumulativeResults.addAll(resultListFromTokenSearch);
+        List<Result> resultListFromLuceneSearch = luceneSearch.executeQuery(searchRecord);
+        cumulativeResults.addAll(resultListFromLuceneSearch);
         List<Result> resultListFromVsSearch = tree_vectorSpaceSearch.executeQuery(searchRecord);
         cumulativeResults.addAll(resultListFromVsSearch);
+
         cumulativeResults = nameSearchFilter.filterSearchResults(cumulativeResults);
         return cumulativeResults;
     }
