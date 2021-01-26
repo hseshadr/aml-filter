@@ -9,6 +9,9 @@ import java.util.List;
 
 @Data
 public abstract class FunctionalCase {
+    public double MIN_RECALL = 1.0;
+    protected double MIN_PRECISION = 0.6;
+
     private static final Logger logger = LoggerFactory.getLogger(FunctionalCase.class);
     protected List<String> falseNegativeList = new ArrayList<>();
     protected List<String> falsePositiveList = new ArrayList<>();

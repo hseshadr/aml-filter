@@ -7,12 +7,11 @@ import org.gainratio.amlfilter.metrics.utils.TypoGenerator;
 @Data
 @EqualsAndHashCode(callSuper = false)
 public class FunctionalCaseDoublingChars extends FunctionalCase {
-    private final double MIN_RECALL = 0.95;
-    private final double MIN_PRECISION = 0.7;
     private String description = "Doubling one char in the name";
 
     public FunctionalCaseDoublingChars() {
         super();
+        MIN_RECALL = 0.98;
     }
 
     @Override

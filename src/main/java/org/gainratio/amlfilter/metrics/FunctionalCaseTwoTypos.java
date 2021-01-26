@@ -7,12 +7,12 @@ import org.gainratio.amlfilter.metrics.utils.TypoGenerator;
 @Data
 @EqualsAndHashCode(callSuper = false)
 public class FunctionalCaseTwoTypos extends FunctionalCase {
-    private final double MIN_RECALL = 0.9;
-    private final double MIN_PRECISION = 0.7;
     private String description = "Injecting TWO typos";
 
     public FunctionalCaseTwoTypos() {
         super();
+        MIN_RECALL = 0.98;
+        MIN_PRECISION = 0.7;
     }
 
     @Override

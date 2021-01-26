@@ -6,8 +6,6 @@ import lombok.EqualsAndHashCode;
 @Data
 @EqualsAndHashCode(callSuper = false)
 public class FunctionalCaseExact extends FunctionalCase {
-    private final double MIN_RECALL = 1.0;
-    private final double MIN_PRECISION = 0.7;
     private String description = "Exact name case";
 
     public FunctionalCaseExact() {
