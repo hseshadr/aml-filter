@@ -11,6 +11,7 @@ import java.util.List;
 public abstract class FunctionalCase {
     public double MIN_RECALL = 1.0;
     protected double MIN_PRECISION = 0.6;
+    protected boolean randomNames = false;
 
     private static final Logger logger = LoggerFactory.getLogger(FunctionalCase.class);
     protected List<String> falseNegativeList = new ArrayList<>();
@@ -22,6 +23,15 @@ public abstract class FunctionalCase {
     private int falseNegatives;
     private int totalResultsCount;
     private int averageNumResultsPerSearch;
+
+    public boolean areNamesRandom() {
+        return randomNames;
+    }
+
+    public int getTruePositives() {
+        if (randomNames) return caseCount; // if random names, we assume the exact search would work. Avoids NaN
+        return truePositives;
+    }
 
     public void incTestCaseCount() {
         caseCount++;
@@ -66,11 +76,17 @@ public abstract class FunctionalCase {
         double recall = (double) getTruePositives() / (double) getCaseCount();
         double precision = (double) getTruePositives() / ((double) getTruePositives() + (double) getFalsePositives());
         calculateAverageNumberOfResults();
+        String extraInfo = "";
+        if (areNamesRandom()) {
+            extraInfo += "\nfalsePositiveList: ";
+            extraInfo += falsePositiveList;
+        }
         return "## caseCount=" + getCaseCount()
                 + ", recall=" + recall + ", precision=" + precision
                 + ", expectedRecall=" + getExpectedRecall() + ", expectedPrecision=" + getExpectedPrecision()
                 + ", averageNumResultsPerSearch=" + averageNumResultsPerSearch
-                + ", passed=" + passesEvaluation();
+                + ", passed=" + passesEvaluation()
+                + extraInfo;
     }
 
     private void calculateAverageNumberOfResults() {
