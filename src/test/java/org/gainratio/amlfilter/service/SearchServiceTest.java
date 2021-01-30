@@ -138,8 +138,13 @@ class SearchServiceTest extends BaseUnitTest {
             logger.warn("search_severalTest_using_file_and_new_search: runNewSearchTest={}", runNewSearchTest);
         }
         List<EntityCodeAndNames> entityCodeAndNamesList = prepareSearch();
+        // Creates a random list of names to perform the precision test
+        List<EntityCodeAndNames> entityCodeAndNamesRandomList =
+                Utils.prepareRandomNames(100000);
 
         List<FunctionalCase> functionalCases = new ArrayList<>();
+        functionalCases.add(new FunctionalCasePrecisionRandomStrings()); // new search targeting precision. Random names.
+        functionalCases.add(new FunctionalCasePrecisionRandomNames()); // new search targeting precision. Random strings.
         functionalCases.add(new FunctionalCaseExact());
         functionalCases.add(new FunctionalCaseOneTypo());
         functionalCases.add(new FunctionalCaseTwoTypos());
@@ -152,7 +157,11 @@ class SearchServiceTest extends BaseUnitTest {
         // Start the searches
         long startTime = System.currentTimeMillis();
         for (FunctionalCase functionalCase : functionalCases) {
-            searchNameForFunctionalTestCase(functionalCase, entityCodeAndNamesList, searchService, null);
+            if (functionalCase.areNamesRandom()) {
+                searchNameForFunctionalTestCase(functionalCase, entityCodeAndNamesRandomList, searchService, null);
+            } else {
+                searchNameForFunctionalTestCase(functionalCase, entityCodeAndNamesList, searchService, null);
+            }
             logger.info(
                     "## [METRICS] '" + functionalCase.getClass().getSimpleName() + "' ... " +
                             functionalCase.getDescription() + ": " +
@@ -264,7 +273,8 @@ class SearchServiceTest extends BaseUnitTest {
                     for (SearchRecordResults srr : searchResponse.getSearchRecordResultList()) {
                         functionalCase.incTotalResultsCount(srr.getResults().size());
                         for (Result result : srr.getResults()) {
-                            if (nameAndEntityCode.getEntityCode().equals(result.getEntityCodeInSource())) {
+                            if (nameAndEntityCode.getEntityCode()!=null // if set to null, it is not supposed to be found.
+                                    && nameAndEntityCode.getEntityCode().equals(result.getEntityCodeInSource())) {
                                 found = true;
                             } else {
                                 functionalCase.incFalsePositives();
@@ -280,6 +290,11 @@ class SearchServiceTest extends BaseUnitTest {
                     }
                 }
             }
+            // progress logging
+            if (nameCount%5000==0) {
+                logger.info("## progress: "+nameCount+"/"+entityCodeAndNamesList.size());
+            }
+
         }
     }
 

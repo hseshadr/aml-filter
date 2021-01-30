@@ -2,21 +2,22 @@ package org.gainratio.amlfilter.metrics;
 
 import lombok.Data;
 import lombok.EqualsAndHashCode;
-import org.gainratio.amlfilter.metrics.utils.PhoneticVariation;
 
 @Data
 @EqualsAndHashCode(callSuper = false)
-public class FunctionalCasePhonetic extends FunctionalCase {
-    private String description = "Creating a phonetic variation";
+public class FunctionalCasePrecisionRandomNames extends FunctionalCase {
+    private String description = "Random names case. Based on arbitrary combination of name tokens from global dictionary.";
 
-    public FunctionalCasePhonetic() {
+    public FunctionalCasePrecisionRandomNames() {
         super();
-        MIN_RECALL = 0.98;
+        randomNames = true;
+        MIN_RECALL = 1;
+        MIN_PRECISION = 0.995;
     }
 
     @Override
     public String modifyString(String cleanedName) {
-        return PhoneticVariation.makeVariant(cleanedName);
+        return cleanedName;
     }
 
     @Override
@@ -36,8 +37,6 @@ public class FunctionalCasePhonetic extends FunctionalCase {
 
     @Override
     public boolean isNameAUsableCase(String name) {
-        if (name.length() < 5) return false;
-        if (!PhoneticVariation.hasAVariant(name)) return false;
         return true;
     }
 }

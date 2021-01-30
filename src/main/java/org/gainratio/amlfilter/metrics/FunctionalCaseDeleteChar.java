@@ -7,8 +7,7 @@ import org.gainratio.amlfilter.metrics.utils.TypoGenerator;
 @Data
 @EqualsAndHashCode(callSuper = false)
 public class FunctionalCaseDeleteChar extends FunctionalCase {
-    private final double MIN_RECALL = 0.95;
-    private final double MIN_PRECISION = 0.7;
+
     private String description = "Deleting one character";
 
     public FunctionalCaseDeleteChar() {
