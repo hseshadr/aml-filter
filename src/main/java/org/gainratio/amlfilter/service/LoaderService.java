@@ -2,7 +2,7 @@ package org.gainratio.amlfilter.service;
 
 import lombok.AllArgsConstructor;
 import org.gainratio.amlfilter.model.Entity;
-import org.gainratio.amlfilter.parser.ofac.Parser;
+import org.gainratio.amlfilter.parser.Parser;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;

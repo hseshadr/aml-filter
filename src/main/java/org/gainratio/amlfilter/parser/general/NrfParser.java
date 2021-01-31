@@ -1,4 +1,4 @@
-package org.gainratio.amlfilter.parser.wc;
+package org.gainratio.amlfilter.parser.general;
 
 import org.gainratio.amlfilter.model.EntityCodeAndNames;
 import org.gainratio.amlfilter.util.ResourceUtils;
@@ -13,11 +13,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Scanner;
 
-public class WcParser {
-    private static final Logger logger = LoggerFactory.getLogger(WcParser.class);
+public class NrfParser {
+    private static final Logger logger = LoggerFactory.getLogger(NrfParser.class);
 
     /**
-     * Reads a wc file and returns the list with the entities
+     * Reads a NRF file and returns the list with the entities
      *
      * @param filename the file name
      * @param MAX_LINES the mac number of lines to load. If 0, it loads all
