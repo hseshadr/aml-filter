@@ -5,3 +5,4 @@
 *.sql
 *.class
 /.gradle/
+data
