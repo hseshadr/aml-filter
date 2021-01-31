@@ -11,7 +11,7 @@ class FunctionalCaseTest {
 
     @Test
     void modifyString() {
-        FunctionalCase functionalCase = new FunctionalCaseTwoTypos();
+        FunctionalCase functionalCase = new FunctionalCaseTwoTypos(null);
         String name = "AAAAA BBBBB CCCCC DDDDD";
         if (functionalCase.isNameAUsableCase(name)) {
             String modName = functionalCase.modifyString("AAAAA BBBBB CCCCC DDDDD");

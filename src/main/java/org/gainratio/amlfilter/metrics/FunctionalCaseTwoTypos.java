@@ -3,14 +3,17 @@ package org.gainratio.amlfilter.metrics;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import org.gainratio.amlfilter.metrics.utils.TypoGenerator;
+import org.gainratio.amlfilter.model.EntityCodeAndNames;
+
+import java.util.List;
 
 @Data
 @EqualsAndHashCode(callSuper = false)
 public class FunctionalCaseTwoTypos extends FunctionalCase {
     private String description = "Injecting TWO typos";
 
-    public FunctionalCaseTwoTypos() {
-        super();
+    public FunctionalCaseTwoTypos(List<EntityCodeAndNames> entitiesToSearch) {
+        super(entitiesToSearch);
         MIN_RECALL = 0.98;
         MIN_PRECISION = 0.7;
     }

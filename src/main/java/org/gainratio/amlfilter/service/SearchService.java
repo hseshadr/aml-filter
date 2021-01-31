@@ -69,7 +69,7 @@ public class SearchService implements SearchServiceInterface {
         }
         List<Result> results1 = search(searchName, searchRecord);
         resultList.addAll(results1);
-        String synonymicName = getSynonymService().getSynonymName(searchName);
+        String synonymicName = getSynonymService().getSynonymName(searchName);// TODO: review... already set in searchRecord?
         if (!synonymicName.equals(searchName)) {
             List<Result> results2 = search(synonymicName, searchRecord);
             resultList.addAll(results2);

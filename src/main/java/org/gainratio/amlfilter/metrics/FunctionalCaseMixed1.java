@@ -4,14 +4,17 @@ import lombok.Data;
 import lombok.EqualsAndHashCode;
 import org.gainratio.amlfilter.metrics.utils.PhoneticVariation;
 import org.gainratio.amlfilter.metrics.utils.TypoGenerator;
+import org.gainratio.amlfilter.model.EntityCodeAndNames;
+
+import java.util.List;
 
 @Data
 @EqualsAndHashCode(callSuper = false)
 public class FunctionalCaseMixed1 extends FunctionalCase {
     private String description = "Injecting several alterations";
 
-    public FunctionalCaseMixed1() {
-        super();
+    public FunctionalCaseMixed1(List<EntityCodeAndNames> entitiesToSearch) {
+        super(entitiesToSearch);
         MIN_RECALL = 0.8;
         MIN_PRECISION = 0.7;
     }

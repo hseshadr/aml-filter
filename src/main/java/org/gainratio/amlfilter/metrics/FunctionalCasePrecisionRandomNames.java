@@ -2,14 +2,17 @@ package org.gainratio.amlfilter.metrics;
 
 import lombok.Data;
 import lombok.EqualsAndHashCode;
+import org.gainratio.amlfilter.model.EntityCodeAndNames;
+
+import java.util.List;
 
 @Data
 @EqualsAndHashCode(callSuper = false)
 public class FunctionalCasePrecisionRandomNames extends FunctionalCase {
     private String description = "Random names case. Based on arbitrary combination of name tokens from global dictionary.";
 
-    public FunctionalCasePrecisionRandomNames() {
-        super();
+    public FunctionalCasePrecisionRandomNames(List<EntityCodeAndNames> entitiesToSearch) {
+        super(entitiesToSearch);
         randomNames = true;
         MIN_RECALL = 1;
         MIN_PRECISION = 0.995;

@@ -1,6 +1,7 @@
 package org.gainratio.amlfilter.metrics;
 
 import lombok.Data;
+import org.gainratio.amlfilter.model.EntityCodeAndNames;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -17,12 +18,19 @@ public abstract class FunctionalCase {
     protected List<String> falseNegativeList = new ArrayList<>();
     protected List<String> falsePositiveList = new ArrayList<>();
     protected List<String> ignoredNameCases = new ArrayList<>();
+    protected List<EntityCodeAndNames> entitiesToSearch;
     private int caseCount;
     private int truePositives;
     private int falsePositives;
     private int falseNegatives;
     private int totalResultsCount;
     private int averageNumResultsPerSearch;
+
+    public FunctionalCase() {}
+
+    public FunctionalCase(List<EntityCodeAndNames> entitiesToSearch) {
+        this.entitiesToSearch = entitiesToSearch;
+    }
 
     public boolean areNamesRandom() {
         return randomNames;
