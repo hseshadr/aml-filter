@@ -1,0 +1,10 @@
+David	Vaqueriza	Sanchez	hombre	espana	espana
+Julio	Orta	Sanchez	hombre	espana	espana
+Alberto	Bermejo	Fernandez	hombre	espana	espana
+Sara	Labiano	Sevigne	sexo.mujer	espana	espana
+Pablo	Jimenez	San Jose	hombre	espana	espana
+Luis Fernando	Sucunza	Andres	hombre	espana	espana
+Pablo	Arbonies	Lozano	hombre	espana	espana
+Mario	Aldaz	Martinez	hombre	espana	espana
+Javier	Oñatevia	Gracia	hombre	espana	espana
+Mikel	Santamaria	Aleman	hombre	espana	espana

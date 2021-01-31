@@ -64,7 +64,28 @@ public class Utils {
                 break;
         }
 
-        EntityCodeAndNames newRandomeNameAndCode = EntityCodeAndNames.buildOne(null, randomName);
-        return newRandomeNameAndCode;
+        EntityCodeAndNames newRandomNameAndCode = EntityCodeAndNames.buildOne(null, randomName);
+        return newRandomNameAndCode;
+    }
+
+    public static List<EntityCodeAndNames> load_wc() throws IOException {
+        return load_wc("/wctest10.txt");
+        // "/Users/marco/tul_pers/aml-filter/data/world-check1.5mlnTest.txt"
+    }
+
+    public static List<EntityCodeAndNames> load_wc(String filename) throws IOException {
+        final String SEP = "\t--\t";
+        List<String> lines = ResourceUtils.loadLines(filename);
+        logger.info("Num of lines: "+lines.size());
+
+        List<EntityCodeAndNames> retList = new ArrayList<EntityCodeAndNames>();
+        for (String line : lines) {
+            String[] fields = line.split(SEP);
+            String code = fields[0];
+            String name = fields[1];
+            EntityCodeAndNames en = EntityCodeAndNames.buildOne(code, name);
+            retList.add(en);
+        }
+        return retList;
     }
 }
