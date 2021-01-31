@@ -12,10 +12,11 @@ class RoyalFedParserTest {
 
     @Test
     void loadFromTextSmallFile() throws IOException {
+        final int NUM_LINES = 1000;
         List<EntityCodeAndNames> entList =
                 RoyalFedParser.loadFromTextFile(
-                        "/royalfed10.txt", 10);
-        assertTrue(entList.size()==10);
+                        "/royalfed1000utf16.txt", NUM_LINES);
+        assertTrue(entList.size()==NUM_LINES);
     }
 
     @Test

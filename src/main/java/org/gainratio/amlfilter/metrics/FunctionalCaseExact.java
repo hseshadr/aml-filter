@@ -2,14 +2,17 @@ package org.gainratio.amlfilter.metrics;
 
 import lombok.Data;
 import lombok.EqualsAndHashCode;
+import org.gainratio.amlfilter.model.EntityCodeAndNames;
+
+import java.util.List;
 
 @Data
 @EqualsAndHashCode(callSuper = false)
 public class FunctionalCaseExact extends FunctionalCase {
     private String description = "Exact name case";
 
-    public FunctionalCaseExact() {
-        super();
+    public FunctionalCaseExact(List<EntityCodeAndNames> entitiesToSearch) {
+        super(entitiesToSearch);
     }
 
     @Override

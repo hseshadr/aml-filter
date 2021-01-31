@@ -5,6 +5,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.gainratio.amlfilter.BaseUnitTest;
 import org.gainratio.amlfilter.metrics.*;
 import org.gainratio.amlfilter.model.*;
+import org.gainratio.amlfilter.parser.royalfed.RoyalFedParser;
 import org.gainratio.amlfilter.search.LuceneSearch;
 import org.gainratio.amlfilter.util.AlgorithmUtils;
 import org.gainratio.amlfilter.util.ResourceUtils;
@@ -86,17 +87,17 @@ class SearchServiceTest extends BaseUnitTest {
             logger.warn("search_severalTest_using_file_and_namerisk: runNameRiskTest={}", runNameRiskTest);
             return;
         }
-        List<FunctionalCase> functionalCases = new ArrayList<>();
-        functionalCases.add(new FunctionalCaseExact());
-        functionalCases.add(new FunctionalCaseOneTypo());
-        functionalCases.add(new FunctionalCaseTwoTypos());
-        functionalCases.add(new FunctionalCaseThreeTypos());
-        functionalCases.add(new FunctionalCaseDeleteChar());
-        functionalCases.add(new FunctionalCaseDoublingChars());
-        functionalCases.add(new FunctionalCasePhonetic());
-        functionalCases.add(new FunctionalCaseMixed1());
-
         List<EntityCodeAndNames> entityCodeAndNamesList = prepareSearch();
+        List<FunctionalCase> functionalCases = new ArrayList<>();
+        functionalCases.add(new FunctionalCaseExact(entityCodeAndNamesList));
+        functionalCases.add(new FunctionalCaseOneTypo(entityCodeAndNamesList));
+        functionalCases.add(new FunctionalCaseTwoTypos(entityCodeAndNamesList));
+        functionalCases.add(new FunctionalCaseThreeTypos(entityCodeAndNamesList));
+        functionalCases.add(new FunctionalCaseDeleteChar(entityCodeAndNamesList));
+        functionalCases.add(new FunctionalCaseDoublingChars(entityCodeAndNamesList));
+        functionalCases.add(new FunctionalCasePhonetic(entityCodeAndNamesList));
+        functionalCases.add(new FunctionalCaseMixed1(entityCodeAndNamesList));
+
         // Start the searches
         long startTime = System.currentTimeMillis();
         for (FunctionalCase functionalCase : functionalCases) {
@@ -132,6 +133,7 @@ class SearchServiceTest extends BaseUnitTest {
         }
     }
 
+
     @Test
     void search_severalTest_using_file_and_new_search() throws Exception {
         if (!runNewSearchTest) {
@@ -143,25 +145,24 @@ class SearchServiceTest extends BaseUnitTest {
                 Utils.prepareRandomNames(100000);
 
         List<FunctionalCase> functionalCases = new ArrayList<>();
-        functionalCases.add(new FunctionalCasePrecisionRandomStrings()); // new search targeting precision. Random names.
-        functionalCases.add(new FunctionalCasePrecisionRandomNames()); // new search targeting precision. Random strings.
-        functionalCases.add(new FunctionalCaseExact());
-        functionalCases.add(new FunctionalCaseOneTypo());
-        functionalCases.add(new FunctionalCaseTwoTypos());
-        functionalCases.add(new FunctionalCaseThreeTypos());
-        functionalCases.add(new FunctionalCaseDeleteChar());
-        functionalCases.add(new FunctionalCaseDoublingChars());
-        functionalCases.add(new FunctionalCasePhonetic());
-        functionalCases.add(new FunctionalCaseMixed1());
+        functionalCases.add(new FunctionalCasePrecisionRandomNames(
+                RoyalFedParser.loadFromTextFile("/royalfed1000utf16.txt", 1000))); // new search targeting precision. Royal list.
+
+        functionalCases.add(new FunctionalCasePrecisionRandomStrings(entityCodeAndNamesRandomList)); // new search targeting precision. Random names.
+        functionalCases.add(new FunctionalCasePrecisionRandomNames(entityCodeAndNamesRandomList)); // new search targeting precision. Random strings.
+        functionalCases.add(new FunctionalCaseExact(entityCodeAndNamesList));
+        functionalCases.add(new FunctionalCaseOneTypo(entityCodeAndNamesList));
+        functionalCases.add(new FunctionalCaseTwoTypos(entityCodeAndNamesList));
+        functionalCases.add(new FunctionalCaseThreeTypos(entityCodeAndNamesList));
+        functionalCases.add(new FunctionalCaseDeleteChar(entityCodeAndNamesList));
+        functionalCases.add(new FunctionalCaseDoublingChars(entityCodeAndNamesList));
+        functionalCases.add(new FunctionalCasePhonetic(entityCodeAndNamesList));
+        functionalCases.add(new FunctionalCaseMixed1(entityCodeAndNamesList));
 
         // Start the searches
         long startTime = System.currentTimeMillis();
         for (FunctionalCase functionalCase : functionalCases) {
-            if (functionalCase.areNamesRandom()) {
-                searchNameForFunctionalTestCase(functionalCase, entityCodeAndNamesRandomList, searchService, null);
-            } else {
-                searchNameForFunctionalTestCase(functionalCase, entityCodeAndNamesList, searchService, null);
-            }
+            searchNameForFunctionalTestCase(functionalCase, functionalCase.getEntitiesToSearch(), searchService, null);
             logger.info(
                     "## [METRICS] '" + functionalCase.getClass().getSimpleName() + "' ... " +
                             functionalCase.getDescription() + ": " +
@@ -199,17 +200,16 @@ class SearchServiceTest extends BaseUnitTest {
             logger.warn("search_severalTest_using_file_and_elastic_search: runElasticSearchTest={}", runElasticSearchTest);
             return;
         }
-        List<FunctionalCase> functionalCases = new ArrayList<>();
-        functionalCases.add(new FunctionalCaseExact());
-        functionalCases.add(new FunctionalCaseOneTypo());
-        functionalCases.add(new FunctionalCaseTwoTypos());
-        functionalCases.add(new FunctionalCaseThreeTypos());
-        functionalCases.add(new FunctionalCaseDeleteChar());
-        functionalCases.add(new FunctionalCaseDoublingChars());
-        functionalCases.add(new FunctionalCasePhonetic());
-        functionalCases.add(new FunctionalCaseMixed1());
-
         List<EntityCodeAndNames> entityCodeAndNamesList = prepareSearch();
+        List<FunctionalCase> functionalCases = new ArrayList<>();
+        functionalCases.add(new FunctionalCaseExact(entityCodeAndNamesList));
+        functionalCases.add(new FunctionalCaseOneTypo(entityCodeAndNamesList));
+        functionalCases.add(new FunctionalCaseTwoTypos(entityCodeAndNamesList));
+        functionalCases.add(new FunctionalCaseThreeTypos(entityCodeAndNamesList));
+        functionalCases.add(new FunctionalCaseDeleteChar(entityCodeAndNamesList));
+        functionalCases.add(new FunctionalCaseDoublingChars(entityCodeAndNamesList));
+        functionalCases.add(new FunctionalCasePhonetic(entityCodeAndNamesList));
+        functionalCases.add(new FunctionalCaseMixed1(entityCodeAndNamesList));
 
         elasticSearchHelper.index(entityCodeAndNamesList);
         // Start the searches

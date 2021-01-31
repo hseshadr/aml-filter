@@ -3,6 +3,9 @@ package org.gainratio.amlfilter.metrics;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import org.gainratio.amlfilter.metrics.utils.TypoGenerator;
+import org.gainratio.amlfilter.model.EntityCodeAndNames;
+
+import java.util.List;
 
 @Data
 @EqualsAndHashCode(callSuper = false)
@@ -10,8 +13,8 @@ public class FunctionalCaseDeleteChar extends FunctionalCase {
 
     private String description = "Deleting one character";
 
-    public FunctionalCaseDeleteChar() {
-        super();
+    public FunctionalCaseDeleteChar(List<EntityCodeAndNames> entitiesToSearch) {
+        super(entitiesToSearch);
     }
 
     @Override

@@ -2,9 +2,11 @@ package org.gainratio.amlfilter.metrics;
 
 import lombok.Data;
 import lombok.EqualsAndHashCode;
+import org.gainratio.amlfilter.model.EntityCodeAndNames;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.List;
 import java.util.Random;
 
 @Data
@@ -14,8 +16,8 @@ public class FunctionalCasePrecisionRandomStrings extends FunctionalCase {
 
     private String description = "Random strings case";
 
-    public FunctionalCasePrecisionRandomStrings() {
-        super();
+    public FunctionalCasePrecisionRandomStrings(List<EntityCodeAndNames> entitiesToSearch) {
+        super(entitiesToSearch);
         randomNames = true;
         MIN_RECALL = 1;
         MIN_PRECISION = 0.999;

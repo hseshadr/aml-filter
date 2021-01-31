@@ -3,14 +3,17 @@ package org.gainratio.amlfilter.metrics;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import org.gainratio.amlfilter.metrics.utils.TypoGenerator;
+import org.gainratio.amlfilter.model.EntityCodeAndNames;
+
+import java.util.List;
 
 @Data
 @EqualsAndHashCode(callSuper = false)
 public class FunctionalCaseDoublingChars extends FunctionalCase {
     private String description = "Doubling one char in the name";
 
-    public FunctionalCaseDoublingChars() {
-        super();
+    public FunctionalCaseDoublingChars(List<EntityCodeAndNames> entitiesToSearch) {
+        super(entitiesToSearch);
         MIN_RECALL = 0.98;
     }
 
