@@ -5,7 +5,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.gainratio.amlfilter.BaseUnitTest;
 import org.gainratio.amlfilter.metrics.*;
 import org.gainratio.amlfilter.model.*;
-import org.gainratio.amlfilter.parser.royalfed.RoyalFedParser;
+import org.gainratio.amlfilter.parser.general.TsvParser;
 import org.gainratio.amlfilter.search.LuceneSearch;
 import org.gainratio.amlfilter.util.AlgorithmUtils;
 import org.gainratio.amlfilter.util.ResourceUtils;
@@ -146,7 +146,7 @@ class SearchServiceTest extends BaseUnitTest {
 
         List<FunctionalCase> functionalCases = new ArrayList<>();
         functionalCases.add(new FunctionalCasePrecisionRandomNames(
-                RoyalFedParser.loadFromTextFile("/royalfed1000utf16.txt", 1000))); // new search targeting precision. Royal list.
+                TsvParser.loadFromTextFile("/privateroyalfed.txt", 10000))); // new search targeting precision. Royal list.
 
         functionalCases.add(new FunctionalCasePrecisionRandomStrings(entityCodeAndNamesRandomList)); // new search targeting precision. Random names.
         functionalCases.add(new FunctionalCasePrecisionRandomNames(entityCodeAndNamesRandomList)); // new search targeting precision. Random strings.
@@ -216,7 +216,7 @@ class SearchServiceTest extends BaseUnitTest {
         long startTime = System.currentTimeMillis();
         for (FunctionalCase functionalCase : functionalCases) {
             Map<String, Object> searchPreferencesMap = configureSearchPreferencesForElastic(functionalCase);
-            searchNameForFunctionalTestCase(functionalCase, entityCodeAndNamesList,
+            searchNameForFunctionalTestCase(functionalCase, functionalCase.getEntitiesToSearch(),
                     elasticSearchHelper, searchPreferencesMap);
             logger.info(
                     "## [METRICS] '" + functionalCase.getClass().getSimpleName() + "' ... " +
