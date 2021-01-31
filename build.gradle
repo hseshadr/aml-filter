@@ -61,3 +61,15 @@ test {
 	useJUnitPlatform()
 }
 
+sourceSets {
+	main {
+		resources {
+			srcDirs "data"
+		}
+	}
+}
+
+test{
+	minHeapSize = "2g"
+	maxHeapSize = "2g"
+}

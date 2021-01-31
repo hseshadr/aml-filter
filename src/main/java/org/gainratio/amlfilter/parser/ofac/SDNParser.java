@@ -2,6 +2,7 @@ package org.gainratio.amlfilter.parser.ofac;
 
 import lombok.Data;
 import org.gainratio.amlfilter.model.Entity;
+import org.gainratio.amlfilter.parser.Parser;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;

@@ -1,8 +1,6 @@
-package org.gainratio.amlfilter.parser.royalfed;
+package org.gainratio.amlfilter.parser.general;
 
-import org.apache.commons.io.FileUtils;
 import org.gainratio.amlfilter.model.EntityCodeAndNames;
-import org.gainratio.amlfilter.parser.wc.WcParser;
 import org.gainratio.amlfilter.util.ResourceUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -11,16 +9,15 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Scanner;
 
-public class RoyalFedParser {
-    private static final Logger logger = LoggerFactory.getLogger(RoyalFedParser.class);
+public class TsvParser {
+    private static final Logger logger = LoggerFactory.getLogger(TsvParser.class);
 
     /**
-     * Reads a wc file and returns the list with the entities
+     * Reads a TSV file and returns the list with the entities
      *
      * @param filename the file name
      * @param MAX_LINES the mac number of lines to load. If 0, it loads all
