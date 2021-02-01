@@ -4,6 +4,8 @@ import org.gainratio.amlfilter.vector.comparisonCriteria.VsComparisonCriteriaHan
 import org.gainratio.amlfilter.vector.comparisonCriteria.VsCriteria_Distance;
 import org.gainratio.amlfilter.vector.utils.Sampling;
 import org.gainratio.amlfilter.vector.utils.VectorSpaceMetrics;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.BufferedWriter;
 import java.nio.charset.StandardCharsets;
@@ -12,6 +14,7 @@ import java.util.List;
 
 
 public class Hierarchy_utils {
+    private static final Logger logger = LoggerFactory.getLogger(Hierarchy_utils.class);
 
     private static final boolean DEBUG_INTEGRITY_CHECKS = true;
     public static boolean APPLY_MARKED_VECTOR_EXCLUSIONS = true;
@@ -218,7 +221,6 @@ public class Hierarchy_utils {
         byte elByte = -1;
 
         for (int i = 0; i < pCritVs.getByteArraySeedingList().size(); i++) {
-
             similarity = pComparator.computeSimilarity(
                     bytesForStringFromVs,
                     pCritVs.getByteArraySeedingList().get(i));
@@ -339,7 +341,7 @@ public class Hierarchy_utils {
 
             // DEBUG: Verify coordinates
             if (areCoordinatesAllZeros(vectorToReposition.getByteCoordinates())) {
-                System.out.println("COORDINATES ARE EMPTY (" + vsPos + "/" + pListToReposition.size() + ") : " + vectorToReposition.getData());
+                logger.warn("COORDINATES ARE EMPTY (" + vsPos + "/" + pListToReposition.size() + ") : " + vectorToReposition.getData());
             }
 
             // Take care of the possible tree
@@ -373,12 +375,11 @@ public class Hierarchy_utils {
 
         for (int vsPos = 0; vsPos < pVsToReposition.size(); vsPos++) {
             VectorData vectorToReposition = pVsToReposition.get(vsPos);
-
             translateCoordinatesForNewSystem(vectorToReposition, pCritVs, pCritVs.getComparator());
 
             // DEBUG: Verify coordinates
             if (areCoordinatesAllZeros(vectorToReposition.getByteCoordinates())) {
-                System.out.println("COORDINATES ARE EMPTY for (" + vsPos + "/" + pVsToReposition.size() + ") : " + vectorToReposition.getData());
+                logger.warn("COORDINATES ARE EMPTY for (" + vsPos + "/" + pVsToReposition.size() + ") : " + vectorToReposition.getData());
             }
 
             // Take care of the possible tree
@@ -386,7 +387,9 @@ public class Hierarchy_utils {
             if (null != childVs) {
                 recomputeVsCoordinates_RelativeToVs(pCritVs, childVs);
             }
-
+            if (vsPos%50000==0) {
+                logger.info("\t# Recomputing progress: {}/{}", vsPos, pVsToReposition.size());
+            }
         }
     }
 
@@ -1031,7 +1034,7 @@ public class Hierarchy_utils {
             retVal = true;
         }
 
-        System.out.println("\t## peripherals = " + pOrderedVs.getNumberOfPeripheralVectors());
+        logger.info("\t## peripherals = " + pOrderedVs.getNumberOfPeripheralVectors());
         return retVal;
     }
 
@@ -1044,7 +1047,7 @@ public class Hierarchy_utils {
             double pTrainSimilarityForNextLayer,
             int pMaxNumPeripheralVectors) {
 
-        System.out.println("\t ... " + pVectorToAdd.getData());
+        logger.info("\t ... " + pVectorToAdd.getData());
 
         VsComparisonCriteriaHandler comparator = pOrderedVs.getComparator();
 
@@ -1411,7 +1414,7 @@ public class Hierarchy_utils {
             logLine(log, line, false);
 
             if (showInConsole) {
-                System.out.print(line);
+                logger.info(line);
             }
 
             VectorSpace childVs = pVs.get(i).getVectorSpace();
@@ -1420,13 +1423,13 @@ public class Hierarchy_utils {
                 line = "\tPARENT: null";
                 logLine(log, line, false);
                 if (showInConsole) {
-                    System.out.print(line);
+                    logger.info(line);
                 }
             } else {
                 line = "\tPARENT: " + pVs.get(i).getParentVector().getData();
                 logLine(log, line, false);
                 if (showInConsole) {
-                    System.out.print(line);
+                    logger.info(line);
                 }
             }
 
@@ -1435,7 +1438,7 @@ public class Hierarchy_utils {
                 logLine(log, line, false);
 
                 if (showInConsole) {
-                    System.out.println(line);
+                    logger.info(line);
                 }
 
                 line = "\tDIM: ";
@@ -1448,7 +1451,7 @@ public class Hierarchy_utils {
                 line = "";
                 logLine(log, line, false);
                 if (showInConsole) {
-                    System.out.println(line);
+                    logger.info(line);
                 }
 
                 line = "\tDIM: ";
@@ -1622,7 +1625,7 @@ public class Hierarchy_utils {
         logLine(log, "\t# numRefVectors to use = " + numRefVectors);
 
         // Sample the vs into a few number of elements to take into account
-        System.out.println("# Sample the vs into a few number of elements to take into account...");
+        logger.warn("# Sample the vs into a few number of elements to take into account...");
         pCriteriaVs = Sampling.buildClonedRandomSample(
                 pRawVs,
                 numRefVectors,
@@ -1635,7 +1638,7 @@ public class Hierarchy_utils {
         if (pRelocateCoordinates_relativeToParents) {
             // Setting the seeding vectors
             // ---------------------------
-            System.out.println("# setByteArraySeedingList...");
+            logger.info("# setByteArraySeedingList...");
 
             // Create the seeding vectors
             List<byte[]> seedingVectorList = null;
@@ -1655,14 +1658,14 @@ public class Hierarchy_utils {
                 if (!seedingComparator.isNumDimensionsFix()) {
                     new Exception("train method : not possible to average the parent positions because the comparator is not a mathematical one (does not contain a guarantied fix number of dimensions.)");
                 }
-                System.out.println("# Relocate parent according to children positions....");
+                logger.info("# Relocate parent according to children positions....");
                 // Average the position of the parents using their children positions
                 // TODO: REVIEW averaging.
                 averageParentCoordinatesUsingChildren(pCriteriaVs);
             }
 
             // Recomputing the coordinates for the criteria vs.
-            System.out.println("# Recomputing the coordinates for the criteria vs...");
+            logger.info("# Recomputing the coordinates for the criteria vs...");
             pCriteriaVs = Hierarchy_utils.recomputeVsCoordinates(pCriteriaVs);
             // Recompute the coordinates of the raw vs. Next line is needed since the
             //	refining now happens after the computations of the dimensions.
@@ -1717,7 +1720,7 @@ public class Hierarchy_utils {
         logLine(Hierarchy_utils.log, "\t# Ref vectors BEFORE refineRefVectors() :");
         show_refVectors(pCriteriaVs);
 
-        System.out.println("# Refining...");
+        logger.info("# Refining...");
         // Refine ref vectors
         if (pRefineRefVectors) {
             pCriteriaVs = refineRefVectors(pCriteriaVs,
@@ -1733,14 +1736,14 @@ public class Hierarchy_utils {
 
         // Assign the children to the parents
         // -----------------------------------------------------------------
-        System.out.println("# Assign the children to the parents...");
+        logger.info("# Assign the children to the parents...");
         assignChildrenToParents(pCriteriaVs, pRawVs, similarityForTheTraining);
 
         logLine(Hierarchy_utils.log, "\t# Ref vectors BEFORE cleanRefVectorWithoutChildren() :");
         show_refVectors(pCriteriaVs);
 
         // Get rid of the non relevant parent ref vectors, the ones without children.
-        System.out.println("# cleanRefVectorWithoutChildren...");
+        logger.info("# cleanRefVectorWithoutChildren...");
         pCriteriaVs = cleanRefVectorWithoutChildren(pCriteriaVs);
 
 

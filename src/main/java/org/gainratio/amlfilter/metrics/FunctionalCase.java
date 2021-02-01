@@ -110,10 +110,12 @@ public abstract class FunctionalCase {
     public String retrieveTestLogs(int maxNumberOfItems) {
         String falseNegatives = "";
         int itemCount = 0;
-        for (String fn : getFalseNegativeList()) {
+        List<String> falseNegativeList = getFalseNegativeList();
+        for (String fn : falseNegativeList) {
             falseNegatives += "\n\t" + fn;
             if (maxNumberOfItems > 0 && itemCount++ >= maxNumberOfItems) {
-                falseNegatives += "\n\t... (reached max number of items: " + maxNumberOfItems + ")";
+                falseNegatives += "\n\t... (reached max number of items: "
+                        + maxNumberOfItems + " out of "+falseNegativeList.size()+")";
                 break;
             }
         }

@@ -4,6 +4,8 @@ import org.gainratio.amlfilter.util.ObjectUtils;
 import org.gainratio.amlfilter.vector.comparisonCriteria.*;
 import org.gainratio.amlfilter.vector.dataFiles.VectorLoader_hierarchy;
 import org.gainratio.amlfilter.vector.vectorSpace.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.config.PropertyPlaceholderConfigurer;
 import org.springframework.beans.factory.xml.XmlBeanFactory;
 import org.springframework.core.io.FileSystemResource;
@@ -13,9 +15,11 @@ import java.io.FileOutputStream;
 import java.io.OutputStreamWriter;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Random;
 
 
 public final class test_hierarchy_treeSearch {
+    private static final Logger logger = LoggerFactory.getLogger(test_hierarchy_treeSearch.class);
 
     private static final String baseDir = "/opt/amlfilter/data/vs/";
 
@@ -110,7 +114,7 @@ public final class test_hierarchy_treeSearch {
             // Define criteria VS
             VectorSpace orderedVs = new VectorSpace();
 
-            System.out.println("# About to search...");
+            logger.info("# About to search...");
 
 
             // de-Serialize the Vs
@@ -138,7 +142,7 @@ public final class test_hierarchy_treeSearch {
                     true);
 
 
-            System.out.println("# Done searching");
+            logger.info("# Done searching");
 //			Hierarchy_utils.logLine(Hierarchy_utils.log,"\t# Training: " + trainingTime + " min");
 
             // Show the orphans
@@ -155,7 +159,7 @@ public final class test_hierarchy_treeSearch {
                     0,
                     false);
 
-            System.out.println("########## Coordinates:");
+            logger.info("########## Coordinates:");
             for (int i = 0; i < v2s.getByteCoordinates().length; i++) {
                 System.out.print(v2s.getByteCoordinates()[i] + ",");
             }
@@ -230,7 +234,16 @@ public final class test_hierarchy_treeSearch {
         long acumTime = 0;
         float avgTime = 0f;
 
+        int counter = 0;
+        int numSearches = 0;
+        boolean justTestOnePercent = true;
+        int randomMask = Math.abs((new Random()).nextInt()%100);
+        logger.info("randomMask: {}",randomMask);
         for (int i = 0; i < pRawVs.size(); i++) {
+            counter++;
+            // Skips checking 99% of the times...
+            if (justTestOnePercent && counter%100!=randomMask) continue;
+
             vectorToSearch = pRawVs.get(i);
             VectorData vectorToSearchTranslated = null;
             boolean found = false;
@@ -255,7 +268,7 @@ public final class test_hierarchy_treeSearch {
                 endTime = System.currentTimeMillis();
                 if (i % 1000 == 0) {
                     avgTime = Math.round((float) acumTime / (float) i * 100f) / 100f;
-                    System.out.println("...search progress: " + i + " / " + pRawVs.size() + "\t\t avg time= " + (avgTime) + " ms");
+                    logger.info("...search progress: " + i + " / " + pRawVs.size() + "\t\t avg time= " + (avgTime) + " ms");
                 }
             } else {
                 startTime = System.currentTimeMillis();
@@ -267,6 +280,7 @@ public final class test_hierarchy_treeSearch {
                 endTime = System.currentTimeMillis();
             }
             acumTime += (endTime - startTime);
+            numSearches++;
 
             // Loop the results to see if the exact string was found
             for (int j = 0; j < results.size(); j++) {
@@ -294,19 +308,15 @@ public final class test_hierarchy_treeSearch {
                     Hierarchy_utils.logLine(Hierarchy_utils.log, "\t* ERROR: " + vectorToSearch.getData() + " was not found");
                     vectorToDebugSearchOn = vectorToSearch.clone();
                 }
-
             }
         }
 
-        avgTime = Math.round((float) acumTime / (float) pRawVs.size() * 100f) / 100f;
-        Hierarchy_utils.logLine(Hierarchy_utils.log, "\t# Total Search time (ms)= " + (acumTime) +
+        avgTime = Math.round((float) acumTime / (float) numSearches * 100f) / 100f;
+        String msg = "\n\t# Total Search time (ms)= " + (acumTime) +
                 "(" + avgTime + " ms/search)" +
-                "\tFound: " + foundResults + " / " + pRawVs.size() + " (" + numOfOrphansNotFound + " not found orphans)");
-
-        System.out.println("\t# Total Search time (ms)= " + (acumTime) +
-                "(" + avgTime + " ms/search)" +
-                "\tFound: " + foundResults + " / " + pRawVs.size() + " (" + numOfOrphansNotFound + " not found orphans)");
-
+                "\tFound: " + foundResults + " / " + numSearches + " (" + numOfOrphansNotFound + " not found orphans)";
+        Hierarchy_utils.logLine(Hierarchy_utils.log, msg);
+        logger.info(msg);
 
         // Debugging vector creation
         String name = new String("BEN LADEN OSSAMA".getBytes(StandardCharsets.UTF_8), StandardCharsets.UTF_8);
@@ -321,25 +331,15 @@ public final class test_hierarchy_treeSearch {
         System.out.println();
 
         // Debugging seeding vectors
-        System.out.println("# Seeding vectors");
+        logger.info("# Seeding vectors");
         for (int i = 0; i < pTrainedVs.getByteArraySeedingList().size(); i++) {
-            System.out.println("\t-" + new String(pTrainedVs.getByteArraySeedingList().get(i)));
+            logger.info("\t-" + new String(pTrainedVs.getByteArraySeedingList().get(i)));
         }
 
         // Debugging algorithm components and weights
-        System.out.println("# algorithm components");
+        logger.info("# algorithm components");
         String critName = pTrainedVs.getOriginalComparatorWhenTraining().getCriteriaName();
-        System.out.println("critName : " + critName);
-//        VsCriteria_CompAlgs compAlg = (VsCriteria_CompAlgs)pTrainedVs.getOriginalComparatorWhenTraining();
-//        TextSimilarityMappingPathService mps = (TextSimilarityMappingPathService)compAlg.getTextSimilarityMappingPathService();
-//        AlgorithmsService algServ = (AlgorithmsService)mps.getAlgorithmsService();
-//        WordService ws = (WordService)mps.getWordService();
-//        List<SimilarityComparator> algList = ws.getTextSimilarityService().getStringSimilarityAlgorithms();
-//        float[] weightArray = ws.getTextSimilarityService().getStringAlgorithmWeights();
-//        System.out.println();
-//        for (int i=0; i<algList.size(); i++) {
-//        	System.out.println("[" + i + "] : " + algList.get(i).getClass().getName() + "\tWeight: " + weightArray[i]);
-//        }
+        logger.info("critName : " + critName);
 
         return vectorToDebugSearchOn;
     }

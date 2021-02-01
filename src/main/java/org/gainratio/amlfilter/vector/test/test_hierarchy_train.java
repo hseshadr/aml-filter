@@ -1,10 +1,13 @@
 package org.gainratio.amlfilter.vector.test;
 
+import org.gainratio.amlfilter.parser.general.NrfParser;
 import org.gainratio.amlfilter.util.ObjectUtils;
 import org.gainratio.amlfilter.vector.comparisonCriteria.*;
 import org.gainratio.amlfilter.vector.dataFiles.VectorLoader_hierarchy;
 import org.gainratio.amlfilter.vector.utils.VectorSpaceMetrics;
 import org.gainratio.amlfilter.vector.vectorSpace.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.config.PropertyPlaceholderConfigurer;
 import org.springframework.beans.factory.xml.XmlBeanFactory;
 import org.springframework.core.io.FileSystemResource;
@@ -13,9 +16,11 @@ import java.io.BufferedWriter;
 import java.io.FileOutputStream;
 import java.io.OutputStreamWriter;
 import java.util.List;
+import java.util.Random;
 
 
 public final class test_hierarchy_train {
+    private static final Logger logger = LoggerFactory.getLogger(test_hierarchy_train.class);
 
     //	private static String baseDir = "d:/data/amlfilter/teky/density_study/testing/";
     private static final String baseDir = "/opt/amlfilter/data/vs/";
@@ -176,8 +181,8 @@ public final class test_hierarchy_train {
             Hierarchy_utils.logLine(Hierarchy_utils.log, "##### Training time: " + trainingTime + " min");
             previousCheckPoint = checkpoint;
 
-            System.out.println("###### DONE TRAINING !");
-            System.out.println();
+            logger.info("###### DONE TRAINING !");
+            logger.info("");
 
             // Test search block (on the RAW vs)
             // -------------------------------------------------------------------------------------
@@ -202,7 +207,7 @@ public final class test_hierarchy_train {
             // Serialize the Vs
             // -------------------------------------------------------------------------------------
             Hierarchy_utils.logLine(Hierarchy_utils.log, "\t# Storing the vs in a file");
-            System.out.println("# Storing the vs in a file");
+            logger.info("# Storing the vs in a file");
             ObjectUtils.persistObjectToFile(orderedVs, baseDir + outputFileName + ".vs");
 //			ObjectUtils.persistObjectToFile(orderedVs, baseDir + "last_trained_vs.vs");
 
@@ -215,7 +220,7 @@ public final class test_hierarchy_train {
             }
 
             Hierarchy_utils.logLine(Hierarchy_utils.log, "\t# Reading the file");
-            System.out.println("# Reading the file");
+            logger.info("# Reading the file");
             VectorSpace readVs = (VectorSpace) ObjectUtils.readObjectFromFile(baseDir + outputFileName + ".vs");
 
             // SHOW tree
@@ -223,7 +228,7 @@ public final class test_hierarchy_train {
             hu.show_refVectors_tree(readVs, 0);
 
             if (enable100x100SearchTest) {
-                System.out.println("# About to search...");
+                logger.info("# About to search...");
 //				readVs.setComparator(comparator_cosine);
                 test_tree_search_batch(rawVs,
                         readVs,
@@ -233,7 +238,7 @@ public final class test_hierarchy_train {
                         true,
                         true);
 
-                System.out.println("# Done searching");
+                logger.info("# Done searching");
             }
 
             if (enableThresholdTest) {
@@ -288,7 +293,7 @@ public final class test_hierarchy_train {
         float retval = -1f;
 
         Hierarchy_utils.logLine(Hierarchy_utils.log, "## computeThresholdForDistance: " + pDistanceToUse);
-        System.out.println("## computeThresholdForDistance: " + pDistanceToUse);
+        logger.info("## computeThresholdForDistance: " + pDistanceToUse);
 
         for (int i = 0; i < 10; i++) {
             VectorData testVector = pRawVs.get(i);
@@ -317,14 +322,14 @@ public final class test_hierarchy_train {
                 }
 
                 Hierarchy_utils.logLine(Hierarchy_utils.log, i + " - [" + j + "] SIM: " + algSim + " ... " + testVector.getData() + " vs " + trl.get(j).getFoundVectorData().getData());
-                System.out.println("\t" + i + " - [" + j + "] SIM: " + algSim + " ... " + testVector.getData() + " vs " + trl.get(j).getFoundVectorData().getData());
+                logger.info("\t" + i + " - [" + j + "] SIM: " + algSim + " ... " + testVector.getData() + " vs " + trl.get(j).getFoundVectorData().getData());
             }
 
             pRawVs.setComparator(pComp);
             List<TreeResult> algResults = pRawVs.obtainSimilarResults(testVector, pRawVs.size(), minForThisResult, false);
 
 
-            System.out.println(i + " - MAX: " + maxForThisResult + "\t\tMIN: " + minForThisResult + "\t\tNUM RESULTS: " + trl.size() + "\t\t\tResults bigger than min using ALGs: " + algResults.size());
+            logger.info(i + " - MAX: " + maxForThisResult + "\t\tMIN: " + minForThisResult + "\t\tNUM RESULTS: " + trl.size() + "\t\t\tResults bigger than min using ALGs: " + algResults.size());
         }
 
         return retval;
@@ -377,13 +382,21 @@ public final class test_hierarchy_train {
         float avgTime = 0f;
         int numberOfResultsRetrievedInTotal = 0;
 
+        int counter = 0;
+        int numSearches = 0;
+        boolean justTestOnePercent = true;
+        int randomMask = Math.abs((new Random()).nextInt()%100);
+        logger.info("randomMask: {}",randomMask);
         for (int i = 0; i < pRawVs.size(); i++) {
+            counter++;
+            // Skips checking 99% of the times...
+            if (justTestOnePercent && counter%100!=randomMask) continue;
+
             vectorToSearch = pRawVs.get(i);
             boolean found = false;
             boolean wasItOrphan = false;
             int numberOfResultsRetrievedInSingleSearch = 0;
             int numberResultsInThisBatch = 0;
-
 
             startTime = System.currentTimeMillis();
             // Searching
@@ -398,14 +411,13 @@ public final class test_hierarchy_train {
             endTime = System.currentTimeMillis();
             if (i % 1000 == 0) {
                 avgTime = Math.round((float) acumTime / (float) i * 100f) / 100f;
-                System.out.println("...search progress: " + i + " / " + pRawVs.size() + "\t\t avg time= " + (avgTime)
+                logger.info("...search progress: " + i + " / " + pRawVs.size() + "\t\t avg time= " + (avgTime)
                         + " ms\tTotalNumberResults= " + numberOfResultsRetrievedInTotal
                         + "\tNumberResultsInThisBatch= " + numberResultsInThisBatch);
                 numberResultsInThisBatch = 0;
             }
-
-
             acumTime += (endTime - startTime);
+            numSearches++;
 
             // Loop the results to see if the exact string was found
             for (int j = 0; j < results.size(); j++) {
@@ -414,15 +426,6 @@ public final class test_hierarchy_train {
                     found = true;
                     break;
                 } else if (pShowResults) {
-//					double sim = pTrainedVs.obtainSimilarity(
-//															results.get(j).getFoundVectorData(),
-//															vectorToSearch);
-//
-//					double simOrig = pTrainedVs.obtainSimilarityUsingTrainingComparator(
-//															results.get(j).getFoundVectorData(),
-//															vectorToSearch);
-
-//					System.out.println("\t-" + results.get(j).getFoundVectorData().getData() + "\t(Searching for: " + vectorToSearch.getData());
                 }
             }
             numberOfResultsRetrievedInSingleSearch = results.size();
@@ -444,23 +447,18 @@ public final class test_hierarchy_train {
 
                 } else {
                     Hierarchy_utils.logLine(Hierarchy_utils.log, "\t* ERROR: " + vectorToSearch.getData() + " was not found");
-                    System.out.println("\t* ERROR: " + vectorToSearch.getData() + " was not found");
+                    logger.error("\t* ERROR: " + vectorToSearch.getData() + " was not found");
 //					vectorToDebugSearchOn = vectorToSearch.clone();
                 }
-
             }
         }
 
-        avgTime = Math.round((float) acumTime / (float) pRawVs.size() * 100f) / 100f;
-        Hierarchy_utils.logLine(Hierarchy_utils.log, "\t# Total Search time (ms)= " + (acumTime) +
+        avgTime = Math.round((float) acumTime / (float) numSearches * 100f) / 100f;
+        String msg = "\n\t# Total Search time (ms)= " + (acumTime) +
                 "(" + avgTime + " ms/search)" +
-                "\tFound: " + foundResults + " / " + pRawVs.size() + " (" + numOfOrphansNotFound + " not found orphans)"
-                + " ms\tTotalNumberResults= " + numberOfResultsRetrievedInTotal);
-
-        System.out.println("\t# Total Search time (ms)= " + (acumTime) +
-                "(" + avgTime + " ms/search)" +
-                "\tFound: " + foundResults + " / " + pRawVs.size() + " (" + numOfOrphansNotFound + " not found orphans)"
-                + " ms\tTotalNumberResults= " + numberOfResultsRetrievedInTotal);
+                "\tFound: " + foundResults + " / " + numSearches + " (" + numOfOrphansNotFound + " not found orphans)";
+        Hierarchy_utils.logLine(Hierarchy_utils.log, msg);
+        logger.info(msg);
 
         return vectorToDebugSearchOn;
     }

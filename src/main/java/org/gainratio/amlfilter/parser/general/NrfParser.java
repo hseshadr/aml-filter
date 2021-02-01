@@ -40,6 +40,7 @@ public class NrfParser {
         }
         int lineCounter = 0;
         if (null==is) is=new FileInputStream(f);
+        logger.info("Loading records from file: {}", filename);
         try (Scanner sc = new Scanner(is, "UTF-8")) {
             while (sc.hasNextLine() && (lineCounter++<MAX_LINES || MAX_LINES==0)) {
                 String line = sc.nextLine();
@@ -48,7 +49,7 @@ public class NrfParser {
                 String name = fields[1];
                 EntityCodeAndNames en = EntityCodeAndNames.buildOne(code, name);
                 retList.add(en);
-                if (lineCounter%100000==0) logger.info("\tProgress: {} lines", lineCounter);
+                if (lineCounter%100000==0) logger.info("\tProgress: {} records", lineCounter);
             }
 
             // note that Scanner suppresses exceptions

@@ -5,6 +5,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.gainratio.amlfilter.BaseUnitTest;
 import org.gainratio.amlfilter.metrics.*;
 import org.gainratio.amlfilter.model.*;
+import org.gainratio.amlfilter.parser.general.NrfParser;
 import org.gainratio.amlfilter.parser.general.TsvParser;
 import org.gainratio.amlfilter.search.LuceneSearch;
 import org.gainratio.amlfilter.util.AlgorithmUtils;
@@ -133,6 +134,61 @@ class SearchServiceTest extends BaseUnitTest {
         }
     }
 
+    @Test
+    void search_pollas() throws Exception {
+        if (!runNewSearchTest) {
+            logger.warn("search_severalTest_using_file_and_new_search: runNewSearchTest={}", runNewSearchTest);
+        }
+
+        List<EntityCodeAndNames> entityCodeAndNamesList =
+                NrfParser.loadFromTextFile(
+                        "/world-check1.5mlnTest.txt",0);
+        prepareSearch(entityCodeAndNamesList);
+        List<FunctionalCase> functionalCases = new ArrayList<>();
+        functionalCases.add(new FunctionalCasePrecisionRandomNames(
+                TsvParser.loadFromTextFile("/privateroyalfed.txt", 5000)));
+
+        // Start the searches
+        long startTime = System.currentTimeMillis();
+        long numSearches=0;
+        for (FunctionalCase functionalCase : functionalCases) {
+            searchNameForFunctionalTestCase(functionalCase, functionalCase.getEntitiesToSearch(), searchService, null);
+            logger.info(
+                    "## [METRICS] '" + functionalCase.getClass().getSimpleName() + "' ... " +
+                            functionalCase.getDescription() + ": " +
+                            functionalCase.retrieveEvaluationResult());
+            numSearches+=functionalCase.getEntitiesToSearch().size();
+        }
+        long totalSearchTime = System.currentTimeMillis() - startTime;
+        logger.info("\n\n");
+        logger.info("###### Cases logs:");
+        for (FunctionalCase functionalCase : functionalCases) {
+            logger.info("## Errors from test '" + functionalCase.getClass().getSimpleName() + "' ... " + functionalCase.getDescription() + ": ");
+            logger.info(functionalCase.retrieveTestLogs(50));
+        }
+
+        // Logging
+        logger.info("\n\n");
+        logger.info("###### Metrics summary:");
+        for (FunctionalCase functionalCase : functionalCases) {
+            logger.info(
+                    "## [METRICS] '" + functionalCase.getClass().getSimpleName() + "' ... " +
+                            functionalCase.getDescription() + ": " +
+                            functionalCase.retrieveEvaluationResult());
+        }
+
+        // Log test time
+        double avgSearchTime = (double)totalSearchTime/(double)numSearches;
+        logger.info(
+                "### Total testing time(s): {} (mins: {}) ; avgSearchTime(ms): {}",
+                totalSearchTime / 1000,
+                (totalSearchTime / 60000),
+                avgSearchTime);
+        // Evaluate
+        for (FunctionalCase functionalCase : functionalCases) {
+            assertTrue(functionalCase.passesEvaluation());
+        }
+    }
 
     @Test
     void search_severalTest_using_file_and_new_search() throws Exception {
@@ -295,6 +351,17 @@ class SearchServiceTest extends BaseUnitTest {
                 logger.info("## progress: "+nameCount+"/"+entityCodeAndNamesList.size());
             }
 
+        }
+    }
+
+    private void prepareSearch(List<EntityCodeAndNames> entityCodeAndNamesList) throws Exception {
+        entityService.buildNameToEntityCodesSetMapForTest(entityCodeAndNamesList);
+        tokenService.init();
+        luceneSearch.init();
+        if (runNewSearchTest) {
+            vectorSpaceService.populateVectorSpace(entityCodeAndNamesList);
+            vectorSpaceService.train();
+            // persist vectorSpaceService
         }
     }
 

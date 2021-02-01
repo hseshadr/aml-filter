@@ -10,6 +10,8 @@ import org.gainratio.amlfilter.service.ResultsService;
 import org.gainratio.amlfilter.service.SynonymService;
 import org.gainratio.amlfilter.service.TokenService;
 import org.gainratio.amlfilter.util.AlgorithmUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -26,6 +28,7 @@ import java.util.Set;
 @EqualsAndHashCode(callSuper = false)
 @Slf4j
 public class TokenSearch extends NameSearch {
+    private static final Logger logger = LoggerFactory.getLogger(TokenSearch.class);
     @Autowired
     private ResultsService resultsService;
     @Autowired
@@ -44,6 +47,7 @@ public class TokenSearch extends NameSearch {
      */
     @Override
     public List<Result> executeQuery(SearchRecord searchRecord) {
+        long startTime = System.nanoTime();
         List<Result> finalResults = new ArrayList<>();
         if (!enabled) {
             return finalResults;
@@ -60,6 +64,10 @@ public class TokenSearch extends NameSearch {
         } catch (Exception e) {
             log.error("ERROR: ", e);
         } finally {
+            if (Math.abs(startTime%500)==16) {
+                long endTime = System.nanoTime();
+                logger.info("Search time(ms): {}", (double)(endTime-startTime)/1000000d);
+            }
         }
         return finalResults;
     }
