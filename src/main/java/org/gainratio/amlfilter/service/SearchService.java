@@ -69,7 +69,8 @@ public class SearchService implements SearchServiceInterface {
         }
         List<Result> results1 = search(searchName, searchRecord);
         resultList.addAll(results1);
-        String synonymicName = getSynonymService().getSynonymName(searchName);// TODO: review... already set in searchRecord?
+        String synonymicName = searchRecord.getSynonimicName();
+                //getSynonymService().getSynonymName(searchName);// review... already set in searchRecord
         if (!synonymicName.equals(searchName)) {
             List<Result> results2 = search(synonymicName, searchRecord);
             resultList.addAll(results2);
@@ -82,6 +83,7 @@ public class SearchService implements SearchServiceInterface {
 
         List<Result> resultListFromTokenSearch = tokenSearch.executeQuery(searchRecord);
         cumulativeResults.addAll(resultListFromTokenSearch);
+        // TODO: review. Disabled to verify hypothesis of slow search.
         List<Result> resultListFromLuceneSearch = luceneSearch.executeQuery(searchRecord);
         cumulativeResults.addAll(resultListFromLuceneSearch);
         List<Result> resultListFromVsSearch = tree_vectorSpaceSearch.executeQuery(searchRecord);

@@ -29,6 +29,8 @@ import org.gainratio.amlfilter.model.Result;
 import org.gainratio.amlfilter.model.SearchRecord;
 import org.gainratio.amlfilter.service.EntityService;
 import org.gainratio.amlfilter.service.ResultsService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -42,6 +44,7 @@ import java.util.List;
 @Slf4j
 @EqualsAndHashCode(callSuper = false)
 public class LuceneSearch extends NameSearch {
+    private static final Logger logger = LoggerFactory.getLogger(LuceneSearch.class);
     private Analyzer analyzer;
     private Directory index;
     @Autowired
@@ -87,6 +90,7 @@ public class LuceneSearch extends NameSearch {
     }
 
     private List<Result> search(String searchName, int numHits) throws IOException {
+        long startTime = System.nanoTime();
         List<Result> resultList = new ArrayList<>();
         IndexReader indexReader = DirectoryReader.open(index);
         try {
@@ -117,6 +121,10 @@ public class LuceneSearch extends NameSearch {
         }
         finally {
             indexReader.close();
+            if (Math.abs(startTime%500)==16) {
+                long endTime = System.nanoTime();
+                logger.info("Search time(ms): {}", (double)(endTime-startTime)/1000000d);
+            }
         }
         return resultList;
     }

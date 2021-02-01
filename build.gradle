@@ -70,6 +70,6 @@ sourceSets {
 }
 
 test{
-	minHeapSize = "2g"
-	maxHeapSize = "2g"
+	minHeapSize = "6g"
+	maxHeapSize = "6g"
 }

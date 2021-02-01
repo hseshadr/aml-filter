@@ -43,6 +43,7 @@ public class Tree_VectorSpaceSearch extends NameSearch {
      * into result objects
      */
     public List<Result> executeQuery(SearchRecord searchRecord) {
+        long startTime = System.nanoTime();
         final String methodSignature = "List executeQuery(String): ";
         List<Result> finalResults = new ArrayList<>();
         if (!enabled) {
@@ -67,6 +68,10 @@ public class Tree_VectorSpaceSearch extends NameSearch {
         } catch (Exception e) {
             logger.error("ERROR: ", e);
         } finally {
+            if (Math.abs(startTime%500)==16) {
+                long endTime = System.nanoTime();
+                logger.info("Search time(ms): {}", (double)(endTime-startTime)/1000000d);
+            }
         }
         return finalResults;
     }
