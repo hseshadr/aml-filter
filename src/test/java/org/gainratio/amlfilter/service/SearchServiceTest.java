@@ -201,8 +201,8 @@ class SearchServiceTest extends BaseUnitTest {
                 Utils.prepareRandomNames(100000);
 
         List<FunctionalCase> functionalCases = new ArrayList<>();
-        functionalCases.add(new FunctionalCasePrecisionRandomNames(
-                TsvParser.loadFromTextFile("/privateroyalfed.txt", 10000))); // new search targeting precision. Royal list.
+        //functionalCases.add(new FunctionalCasePrecisionRandomNames(
+        //        TsvParser.loadFromTextFile("/privateroyalfed.txt", 10000))); // new search targeting precision. Royal list.
 
         functionalCases.add(new FunctionalCasePrecisionRandomStrings(entityCodeAndNamesRandomList)); // new search targeting precision. Random names.
         functionalCases.add(new FunctionalCasePrecisionRandomNames(entityCodeAndNamesRandomList)); // new search targeting precision. Random strings.

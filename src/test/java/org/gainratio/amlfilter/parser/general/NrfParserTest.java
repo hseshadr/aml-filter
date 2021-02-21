@@ -1,6 +1,7 @@
 package org.gainratio.amlfilter.parser.general;
 
 import org.gainratio.amlfilter.model.EntityCodeAndNames;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -10,10 +11,12 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+@Disabled
 class NrfParserTest {
     private static final Logger logger = LoggerFactory.getLogger(NrfParserTest.class);
 
     @Test
+
     void loadFromSmallTextFile() throws IOException {
         List<EntityCodeAndNames> entities =
                 NrfParser.loadFromTextFile(

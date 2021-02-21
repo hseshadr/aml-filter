@@ -40,8 +40,7 @@ public class JaroWinklerSearchFilter implements NameSearchFilter {
         Double similarity = (double) jaroWinklerSimilarity.getSimilarity(searchName, resultName);
         if (similarity >= similarityThreshold) {
             match = true;
-        }
-        else {
+        } else {
             match = false;
         }
         return new ResultMatch(result, similarity, match);

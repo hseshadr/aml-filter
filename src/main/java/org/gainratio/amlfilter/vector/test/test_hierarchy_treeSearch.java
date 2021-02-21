@@ -237,12 +237,12 @@ public final class test_hierarchy_treeSearch {
         int counter = 0;
         int numSearches = 0;
         boolean justTestOnePercent = true;
-        int randomMask = Math.abs((new Random()).nextInt()%100);
-        logger.info("randomMask: {}",randomMask);
+        int randomMask = Math.abs((new Random()).nextInt() % 100);
+        logger.info("randomMask: {}", randomMask);
         for (int i = 0; i < pRawVs.size(); i++) {
             counter++;
             // Skips checking 99% of the times...
-            if (justTestOnePercent && counter%100!=randomMask) continue;
+            if (justTestOnePercent && counter % 100 != randomMask) continue;
 
             vectorToSearch = pRawVs.get(i);
             VectorData vectorToSearchTranslated = null;

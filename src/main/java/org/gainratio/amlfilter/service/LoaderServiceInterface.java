@@ -1,9 +1,7 @@
 package org.gainratio.amlfilter.service;
 
-import org.gainratio.amlfilter.model.Entity;
-
-import java.util.List;
+import org.gainratio.amlfilter.loader.LoaderInfo;
 
 public interface LoaderServiceInterface {
-    List<Entity> load() throws Exception;
+    LoaderInfo load() throws Exception;
 }

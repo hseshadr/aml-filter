@@ -45,6 +45,7 @@ import java.util.List;
 @EqualsAndHashCode(callSuper = false)
 public class LuceneSearch extends NameSearch {
     private static final Logger logger = LoggerFactory.getLogger(LuceneSearch.class);
+    boolean enabled = true;
     private Analyzer analyzer;
     private Directory index;
     @Autowired
@@ -52,8 +53,6 @@ public class LuceneSearch extends NameSearch {
     @Autowired
     private ResultsService resultsService;
     private int maxResults = 1;
-
-    boolean enabled = true;
 
     @PostConstruct
     public void init() throws IOException {
@@ -115,15 +114,13 @@ public class LuceneSearch extends NameSearch {
                 resultList.add(result);
             }
             return resultList;
-        }
-        catch (ParseException pe) {
+        } catch (ParseException pe) {
             log.error("Could not parse query: ", pe);
-        }
-        finally {
+        } finally {
             indexReader.close();
-            if (Math.abs(startTime%500)==16) {
+            if (Math.abs(startTime % 500) == 16) {
                 long endTime = System.nanoTime();
-                logger.info("Search time(ms): {}", (double)(endTime-startTime)/1000000d);
+                logger.info("Search time(ms): {}", (double) (endTime - startTime) / 1000000d);
             }
         }
         return resultList;

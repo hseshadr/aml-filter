@@ -32,11 +32,11 @@ public class FunctionalCasePrecisionRandomStrings extends FunctionalCase {
         final Random rnd = new Random(System.currentTimeMillis());
         final String LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZAAAAIIIOOUEEEEEEE";
         String retString = "";
-        for (int pos=0; pos<cleanedName.length(); pos++) {
-            String chr = cleanedName.substring(pos, pos+1);
+        for (int pos = 0; pos < cleanedName.length(); pos++) {
+            String chr = cleanedName.substring(pos, pos + 1);
             if (LETTERS.contains(chr)) {
-                int rndPos = Math.abs(rnd.nextInt()%LETTERS.length());
-                retString+=LETTERS.substring(rndPos, rndPos+1);
+                int rndPos = Math.abs(rnd.nextInt() % LETTERS.length());
+                retString += LETTERS.substring(rndPos, rndPos + 1);
             } else {
                 retString += chr;
             }

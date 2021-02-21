@@ -64,9 +64,9 @@ public class TokenSearch extends NameSearch {
         } catch (Exception e) {
             log.error("ERROR: ", e);
         } finally {
-            if (Math.abs(startTime%500)==16) {
+            if (Math.abs(startTime % 500) == 16) {
                 long endTime = System.nanoTime();
-                logger.info("Search time(ms): {}", (double)(endTime-startTime)/1000000d);
+                logger.info("Search time(ms): {}", (double) (endTime - startTime) / 1000000d);
             }
         }
         return finalResults;

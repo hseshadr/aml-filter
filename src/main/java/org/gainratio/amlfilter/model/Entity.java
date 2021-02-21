@@ -4,8 +4,8 @@ import lombok.Data;
 import org.springframework.data.annotation.Id;
 
 import java.time.LocalDate;
+import java.util.HashSet;
 import java.util.Set;
-import java.util.TreeSet;
 
 @Data
 public class Entity {
@@ -14,13 +14,11 @@ public class Entity {
     private String gender = "";
     private String listName;
     private LocalDate entityDate;
-    private Set<String> cleanedEntityNames = new TreeSet<String>();
-    private Set<LocalDate> dateOfInceptionSet = new TreeSet<>();
-    private Set<String> placeOfInceptionSet = new TreeSet<>();
-    private Set<String> entityNameSet = new TreeSet<>();
-    private Set<String> addressList = new TreeSet<>();
-    private Set<String> citizenshipList = new TreeSet<>();
-    private Set<String> identificationDocumentList = new TreeSet<>();
-    private Set<String> entitySourcesList = new TreeSet<>();
-
+    private Set<String> cleanedEntityNameSet = new HashSet<String>();
+    private Set<LocalDate> dateOfInceptionSet = new HashSet<>();
+    private Set<String> placeOfInceptionSet = new HashSet<>();
+    private Set<String> entityNameSet = new HashSet<>();
+    private Set<String> addressList = new HashSet<>();
+    private Set<String> citizenshipList = new HashSet<>();
+    private Set<String> identificationDocumentList = new HashSet<>();
 }

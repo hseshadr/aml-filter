@@ -26,6 +26,7 @@ import java.util.List;
 @Service
 public class Tree_VectorSpaceSearch extends NameSearch {
     private static final Logger logger = LoggerFactory.getLogger(Tree_VectorSpaceSearch.class);
+    boolean enabled = true;
     private float baseDistanceToSearch = 15f;
     private int maxResults = 50;
     @Autowired
@@ -34,8 +35,6 @@ public class Tree_VectorSpaceSearch extends NameSearch {
     private SynonymService synonymService;
     @Autowired
     private VectorSpaceService vectorSpaceService;
-
-    boolean enabled = true;
 
     /**
      * Execute the query, in this case by invoking a phonetic
@@ -68,9 +67,9 @@ public class Tree_VectorSpaceSearch extends NameSearch {
         } catch (Exception e) {
             logger.error("ERROR: ", e);
         } finally {
-            if (Math.abs(startTime%500)==16) {
+            if (Math.abs(startTime % 500) == 16) {
                 long endTime = System.nanoTime();
-                logger.info("Search time(ms): {}", (double)(endTime-startTime)/1000000d);
+                logger.info("Search time(ms): {}", (double) (endTime - startTime) / 1000000d);
             }
         }
         return finalResults;
@@ -80,7 +79,7 @@ public class Tree_VectorSpaceSearch extends NameSearch {
         VectorData vector2Search;
         List<TreeResult> treeResults;
         vector2Search = vectorSpace.createVector(name, vectorSpace.getOriginalComparatorWhenTraining());
-        treeResults =  vectorSpace.recursiveTreeSearch(vector2Search,
+        treeResults = vectorSpace.recursiveTreeSearch(vector2Search,
                 maxResults,
                 baseDistanceToSearch,
                 0,

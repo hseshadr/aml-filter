@@ -387,7 +387,7 @@ public class Hierarchy_utils {
             if (null != childVs) {
                 recomputeVsCoordinates_RelativeToVs(pCritVs, childVs);
             }
-            if (vsPos%50000==0) {
+            if (vsPos % 50000 == 0) {
                 logger.info("\t# Recomputing progress: {}/{}", vsPos, pVsToReposition.size());
             }
         }

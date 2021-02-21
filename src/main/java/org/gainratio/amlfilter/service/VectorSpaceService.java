@@ -1,7 +1,10 @@
 package org.gainratio.amlfilter.service;
 
 import lombok.Data;
+import lombok.extern.slf4j.Slf4j;
+import org.gainratio.amlfilter.loader.LoaderInfo;
 import org.gainratio.amlfilter.model.EntityCodeAndNames;
+import org.gainratio.amlfilter.model.GenericEvent;
 import org.gainratio.amlfilter.util.AlgorithmUtils;
 import org.gainratio.amlfilter.vector.comparisonCriteria.*;
 import org.gainratio.amlfilter.vector.test.test_hierarchy_treeSearch;
@@ -11,12 +14,14 @@ import org.gainratio.amlfilter.vector.vectorSpace.VectorSpace;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationListener;
 import org.springframework.stereotype.Service;
 
 import javax.annotation.PostConstruct;
 import java.io.BufferedWriter;
 import java.io.IOException;
 import java.io.OutputStreamWriter;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -24,7 +29,8 @@ import java.util.List;
  */
 @Service
 @Data
-public class VectorSpaceService {
+@Slf4j
+public class VectorSpaceService implements ApplicationListener<GenericEvent>  {
     private static final Logger logger = LoggerFactory.getLogger(VectorSpaceService.class);
     private static final Hierarchy_utils hu = new Hierarchy_utils();
     // Define the comparison criteria
@@ -103,5 +109,19 @@ public class VectorSpaceService {
                 true,
                 true);
         System.out.println("DONE");
+    }
+
+    @Override
+    public void onApplicationEvent(GenericEvent event) {
+        if (event.getEventType() == GenericEvent.EventType.GENERATE_VECTORS) {
+            log.info("Received loader event - " + event.getEventType());
+            createVectorSpace();
+            populateVectorSpace(Collections.unmodifiableList((List<EntityCodeAndNames>) event.getSource()));
+            try {
+                train();
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }
     }
 }

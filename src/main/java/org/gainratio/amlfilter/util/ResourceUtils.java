@@ -8,7 +8,6 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
 import java.util.List;
 
 public class ResourceUtils {
@@ -17,7 +16,7 @@ public class ResourceUtils {
                 fileName, ResourceUtils.class.getClassLoader()).getInputStream();
     }
 
-    public  static List<String> loadLinesFromInputStream(InputStream fileInputStream) throws IOException {
+    public static List<String> loadLinesFromInputStream(InputStream fileInputStream) throws IOException {
         return IOUtils.readLines(fileInputStream, StandardCharsets.UTF_8);
     }
 

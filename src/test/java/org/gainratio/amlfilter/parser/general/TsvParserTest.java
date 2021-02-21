@@ -1,6 +1,7 @@
 package org.gainratio.amlfilter.parser.general;
 
 import org.gainratio.amlfilter.model.EntityCodeAndNames;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
@@ -8,6 +9,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+@Disabled
 class TsvParserTest {
 
     @Test
@@ -19,7 +21,7 @@ class TsvParserTest {
         assertTrue(entList.size()==NUM_LINES);
     }
 
-        @Test
+    @Test
     void loadFromTextSmallFileExternalPathInClassPath() throws IOException {
         final int NUM_LINES = 10000;
         List<EntityCodeAndNames> entList =

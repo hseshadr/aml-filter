@@ -2,12 +2,10 @@ package org.gainratio.amlfilter.search;
 
 
 import lombok.Data;
-import org.apache.lucene.queryparser.classic.ParseException;
 import org.gainratio.amlfilter.model.Result;
 import org.gainratio.amlfilter.model.SearchRecord;
 import org.gainratio.amlfilter.vector.filter.NameSearchFilter;
 
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;

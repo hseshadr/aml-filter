@@ -10,11 +10,10 @@ import java.util.List;
 
 @Data
 public abstract class FunctionalCase {
+    private static final Logger logger = LoggerFactory.getLogger(FunctionalCase.class);
     public double MIN_RECALL = 1.0;
     protected double MIN_PRECISION = 0.6;
     protected boolean randomNames = false;
-
-    private static final Logger logger = LoggerFactory.getLogger(FunctionalCase.class);
     protected List<String> falseNegativeList = new ArrayList<>();
     protected List<String> falsePositiveList = new ArrayList<>();
     protected List<String> ignoredNameCases = new ArrayList<>();
@@ -26,7 +25,8 @@ public abstract class FunctionalCase {
     private int totalResultsCount;
     private int averageNumResultsPerSearch;
 
-    public FunctionalCase() {}
+    public FunctionalCase() {
+    }
 
     public FunctionalCase(List<EntityCodeAndNames> entitiesToSearch) {
         this.entitiesToSearch = entitiesToSearch;
@@ -115,7 +115,7 @@ public abstract class FunctionalCase {
             falseNegatives += "\n\t" + fn;
             if (maxNumberOfItems > 0 && itemCount++ >= maxNumberOfItems) {
                 falseNegatives += "\n\t... (reached max number of items: "
-                        + maxNumberOfItems + " out of "+falseNegativeList.size()+")";
+                        + maxNumberOfItems + " out of " + falseNegativeList.size() + ")";
                 break;
             }
         }

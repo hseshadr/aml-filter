@@ -19,7 +19,7 @@ public class NrfParser {
     /**
      * Reads a NRF file and returns the list with the entities
      *
-     * @param filename the file name
+     * @param filename  the file name
      * @param MAX_LINES the mac number of lines to load. If 0, it loads all
      * @return the list of entities
      * @throws IOException
@@ -32,24 +32,24 @@ public class NrfParser {
         InputStream is = null;
         if (!f.exists()) {
             is = ResourceUtils.getResourceInputStream(filename); // Try to get it from classpath
-            if (null==is) {
+            if (null == is) {
                 String msg = "File not found: " + filename;
                 logger.error(msg);
                 throw new IllegalStateException(msg);
             }
         }
         int lineCounter = 0;
-        if (null==is) is=new FileInputStream(f);
+        if (null == is) is = new FileInputStream(f);
         logger.info("Loading records from file: {}", filename);
         try (Scanner sc = new Scanner(is, "UTF-8")) {
-            while (sc.hasNextLine() && (lineCounter++<MAX_LINES || MAX_LINES==0)) {
+            while (sc.hasNextLine() && (lineCounter++ < MAX_LINES || MAX_LINES == 0)) {
                 String line = sc.nextLine();
                 String[] fields = line.split(SEP);
                 String code = fields[0];
                 String name = fields[1];
                 EntityCodeAndNames en = EntityCodeAndNames.buildOne(code, name);
                 retList.add(en);
-                if (lineCounter%100000==0) logger.info("\tProgress: {} records", lineCounter);
+                if (lineCounter % 100000 == 0) logger.info("\tProgress: {} records", lineCounter);
             }
 
             // note that Scanner suppresses exceptions
@@ -57,7 +57,7 @@ public class NrfParser {
                 throw sc.ioException();
             }
         }
-        logger.info("Records read: "+retList.size());
+        logger.info("Records read: " + retList.size());
         return retList;
     }
 }

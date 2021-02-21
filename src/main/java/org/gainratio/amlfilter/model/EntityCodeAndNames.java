@@ -26,6 +26,6 @@ public class EntityCodeAndNames {
     }
 
     public String toStringSmall() {
-        return entityCode+" : "+nameSet;
+        return entityCode + " : " + nameSet;
     }
 }

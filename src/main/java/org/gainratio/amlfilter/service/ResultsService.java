@@ -39,8 +39,7 @@ public class ResultsService implements ResultsServiceInterface {
         String joinedSearchComponent = result.getSearchComponent();
         if (StringUtils.isNotBlank(joinedSearchComponent)) {
             joinedSearchComponent = String.join(",", result.getSearchComponent(), searchComponent);
-        }
-        else {
+        } else {
             joinedSearchComponent = searchComponent;
         }
         result.setSearchComponent(joinedSearchComponent);
