@@ -1,4 +1,4 @@
-package org.gainratio.amlfilter.vector.filter;
+package org.gainratio.amlfilter.service.filter;
 
 import lombok.Data;
 import org.gainratio.amlfilter.model.Result;
@@ -21,7 +21,6 @@ public class TextSimilarityMappedWordsSearchFilter implements NameSearchFilter {
     private JaroWinklerSearchFilter jaroWinklerSearchFilter;
 
     public List<Result> filterSearchResults(List<Result> searchResults) {
-        // TODO: watch for side effects, beacuse you are editing the result object
         // We can parallelize since each result is its own object, clone the object if needed
         List<Result> resultListFromMappingPath = searchResults.stream()
                 .parallel()
@@ -30,7 +29,7 @@ public class TextSimilarityMappedWordsSearchFilter implements NameSearchFilter {
                 .filter(rm -> rm.isMatch())
                 .map(rm -> {
                     Result r = rm.getResult();
-                    r.setTextSimilarity((double) rm.getTextSimilarity());
+                    r.setTextSimilarity(rm.getTextSimilarity());
                     return r;
                 })
                 .collect(Collectors.toList());

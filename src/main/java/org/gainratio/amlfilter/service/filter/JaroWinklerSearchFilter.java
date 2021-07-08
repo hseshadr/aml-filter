@@ -1,4 +1,4 @@
-package org.gainratio.amlfilter.vector.filter;
+package org.gainratio.amlfilter.service.filter;
 
 import lombok.Data;
 import org.gainratio.amlfilter.algorithms.JaroWinklerDistanceSimilarity;

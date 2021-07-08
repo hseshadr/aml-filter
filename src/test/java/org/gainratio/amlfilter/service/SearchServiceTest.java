@@ -7,7 +7,8 @@ import org.gainratio.amlfilter.metrics.*;
 import org.gainratio.amlfilter.model.*;
 import org.gainratio.amlfilter.parser.general.NrfParser;
 import org.gainratio.amlfilter.parser.general.TsvParser;
-import org.gainratio.amlfilter.search.LuceneSearch;
+import org.gainratio.amlfilter.search.ElasticSearch;
+import org.gainratio.amlfilter.search.ElasticSearchHelper;
 import org.gainratio.amlfilter.util.AlgorithmUtils;
 import org.gainratio.amlfilter.util.ResourceUtils;
 import org.junit.jupiter.api.BeforeEach;
@@ -33,229 +34,19 @@ class SearchServiceTest extends BaseUnitTest {
     @Autowired
     EntityService entityService;
     @Autowired
-    VectorSpaceService vectorSpaceService;
-    @Autowired
-    NameRiskHelper nameRiskHelper;
-    @Autowired
-    ElasticSearchHelper elasticSearchHelper;
-    @Autowired
-    TokenService tokenService;
+    ElasticSearch elasticSearch;
     @Autowired
     SynonymService synonymService;
-    @Autowired
-    LuceneSearch luceneSearch;
 
     static int nameCount = 0;
     List<EntityCodeAndNames> entityCodeAndNamesList;
-    boolean runNameRiskTest = false;
-    boolean runElasticSearchTest = false;
-    boolean runNewSearchTest = true;
-
-    boolean shouldLoadVs = false;
 
     @BeforeEach
     void init() {
     }
 
     @Test
-    void searchOneName_newSearch() throws Exception {
-        prepareSearch();
-        String name = "MHDI CANMMOUN";
-        Set<String> entityCodeSet = new HashSet<>(Arrays.asList("SDN_7255"));
-        SearchRequest searchRequest = SearchRequest
-                .builder()
-                .searchRecordList(Arrays.asList(SearchRecord.builder()
-                        .fullName(name).build())).build();
-        SearchResponse searchResponse = searchService.search(searchRequest);
-        logger.info("searchResponse={}", searchResponse);
-        boolean found = false;
-        for (SearchRecordResults srr : searchResponse.getSearchRecordResultList()) {
-            for (Result result : srr.getResults()) {
-                // Why match only by entityCodeInSource?? Since for entities we could
-                // match many entity codes, I think we should match by name
-                if (entityCodeSet.contains(result.getEntityCodeInSource())) {
-                    found = true;
-                    break;
-                }
-            }
-        }
-        assertTrue(found);
-    }
-
-    @Test
-    void search_severalTest_using_file_and_namerisk() throws Exception {
-        if (!runNameRiskTest) {
-            logger.warn("search_severalTest_using_file_and_namerisk: runNameRiskTest={}", runNameRiskTest);
-            return;
-        }
-        List<EntityCodeAndNames> entityCodeAndNamesList = prepareSearch();
-        List<FunctionalCase> functionalCases = new ArrayList<>();
-        functionalCases.add(new FunctionalCaseExact(entityCodeAndNamesList));
-        functionalCases.add(new FunctionalCaseOneTypo(entityCodeAndNamesList));
-        functionalCases.add(new FunctionalCaseTwoTypos(entityCodeAndNamesList));
-        functionalCases.add(new FunctionalCaseThreeTypos(entityCodeAndNamesList));
-        functionalCases.add(new FunctionalCaseDeleteChar(entityCodeAndNamesList));
-        functionalCases.add(new FunctionalCaseDoublingChars(entityCodeAndNamesList));
-        functionalCases.add(new FunctionalCasePhonetic(entityCodeAndNamesList));
-        functionalCases.add(new FunctionalCaseMixed1(entityCodeAndNamesList));
-
-        // Start the searches
-        long startTime = System.currentTimeMillis();
-        for (FunctionalCase functionalCase : functionalCases) {
-            searchNameForFunctionalTestCase(functionalCase, entityCodeAndNamesList, nameRiskHelper, null);
-            logger.info(
-                    "## [METRICS] '" + functionalCase.getClass().getSimpleName() + "' ... " +
-                            functionalCase.getDescription() + ": " +
-                            functionalCase.retrieveEvaluationResult());
-        }
-        logger.info("\n\n");
-        logger.info("###### Cases logs:");
-        for (FunctionalCase functionalCase : functionalCases) {
-            logger.info("## Errors from test '" + functionalCase.getClass().getSimpleName() + "' ... " + functionalCase.getDescription() + ": ");
-            logger.info(functionalCase.retrieveTestLogs(10));
-        }
-
-        // Logging
-        logger.info("\n\n");
-        logger.info("###### Metrics summary:");
-        for (FunctionalCase functionalCase : functionalCases) {
-            logger.info(
-                    "## [METRICS] '" + functionalCase.getClass().getSimpleName() + "' ... " +
-                            functionalCase.getDescription() + ": " +
-                            functionalCase.retrieveEvaluationResult());
-        }
-
-        // Log test time
-        long totalTime = System.currentTimeMillis() - startTime;
-        logger.info("Total testing time(s): " + totalTime / 1000 + " (mins: " + (totalTime / 60000) + ")");
-        // Evaluate
-        for (FunctionalCase functionalCase : functionalCases) {
-            assertTrue(functionalCase.passesEvaluation());
-        }
-    }
-
-    @Test
-    void search_pollas() throws Exception {
-        if (!runNewSearchTest) {
-            logger.warn("search_severalTest_using_file_and_new_search: runNewSearchTest={}", runNewSearchTest);
-        }
-
-        List<EntityCodeAndNames> entityCodeAndNamesList =
-                NrfParser.loadFromTextFile(
-                        "/world-check1.5mlnTest.txt",0);
-        prepareSearch(entityCodeAndNamesList);
-        List<FunctionalCase> functionalCases = new ArrayList<>();
-        functionalCases.add(new FunctionalCasePrecisionRandomNames(
-                TsvParser.loadFromTextFile("/privateroyalfed.txt", 5000)));
-
-        // Start the searches
-        long startTime = System.currentTimeMillis();
-        long numSearches=0;
-        for (FunctionalCase functionalCase : functionalCases) {
-            searchNameForFunctionalTestCase(functionalCase, functionalCase.getEntitiesToSearch(), searchService, null);
-            logger.info(
-                    "## [METRICS] '" + functionalCase.getClass().getSimpleName() + "' ... " +
-                            functionalCase.getDescription() + ": " +
-                            functionalCase.retrieveEvaluationResult());
-            numSearches+=functionalCase.getEntitiesToSearch().size();
-        }
-        long totalSearchTime = System.currentTimeMillis() - startTime;
-        logger.info("\n\n");
-        logger.info("###### Cases logs:");
-        for (FunctionalCase functionalCase : functionalCases) {
-            logger.info("## Errors from test '" + functionalCase.getClass().getSimpleName() + "' ... " + functionalCase.getDescription() + ": ");
-            logger.info(functionalCase.retrieveTestLogs(50));
-        }
-
-        // Logging
-        logger.info("\n\n");
-        logger.info("###### Metrics summary:");
-        for (FunctionalCase functionalCase : functionalCases) {
-            logger.info(
-                    "## [METRICS] '" + functionalCase.getClass().getSimpleName() + "' ... " +
-                            functionalCase.getDescription() + ": " +
-                            functionalCase.retrieveEvaluationResult());
-        }
-
-        // Log test time
-        double avgSearchTime = (double)totalSearchTime/(double)numSearches;
-        logger.info(
-                "### Total testing time(s): {} (mins: {}) ; avgSearchTime(ms): {}",
-                totalSearchTime / 1000,
-                (totalSearchTime / 60000),
-                avgSearchTime);
-        // Evaluate
-        for (FunctionalCase functionalCase : functionalCases) {
-            assertTrue(functionalCase.passesEvaluation());
-        }
-    }
-
-    @Test
-    void search_severalTest_using_file_and_new_search() throws Exception {
-        if (!runNewSearchTest) {
-            logger.warn("search_severalTest_using_file_and_new_search: runNewSearchTest={}", runNewSearchTest);
-        }
-        List<EntityCodeAndNames> entityCodeAndNamesList = prepareSearch();
-        // Creates a random list of names to perform the precision test
-        List<EntityCodeAndNames> entityCodeAndNamesRandomList =
-                Utils.prepareRandomNames(100000);
-
-        List<FunctionalCase> functionalCases = new ArrayList<>();
-        //functionalCases.add(new FunctionalCasePrecisionRandomNames(
-        //        TsvParser.loadFromTextFile("/privateroyalfed.txt", 10000))); // new search targeting precision. Royal list.
-
-        functionalCases.add(new FunctionalCasePrecisionRandomStrings(entityCodeAndNamesRandomList)); // new search targeting precision. Random names.
-        functionalCases.add(new FunctionalCasePrecisionRandomNames(entityCodeAndNamesRandomList)); // new search targeting precision. Random strings.
-        functionalCases.add(new FunctionalCaseExact(entityCodeAndNamesList));
-        functionalCases.add(new FunctionalCaseOneTypo(entityCodeAndNamesList));
-        functionalCases.add(new FunctionalCaseTwoTypos(entityCodeAndNamesList));
-        functionalCases.add(new FunctionalCaseThreeTypos(entityCodeAndNamesList));
-        functionalCases.add(new FunctionalCaseDeleteChar(entityCodeAndNamesList));
-        functionalCases.add(new FunctionalCaseDoublingChars(entityCodeAndNamesList));
-        functionalCases.add(new FunctionalCasePhonetic(entityCodeAndNamesList));
-        functionalCases.add(new FunctionalCaseMixed1(entityCodeAndNamesList));
-
-        // Start the searches
-        long startTime = System.currentTimeMillis();
-        for (FunctionalCase functionalCase : functionalCases) {
-            searchNameForFunctionalTestCase(functionalCase, functionalCase.getEntitiesToSearch(), searchService, null);
-            logger.info(
-                    "## [METRICS] '" + functionalCase.getClass().getSimpleName() + "' ... " +
-                            functionalCase.getDescription() + ": " +
-                            functionalCase.retrieveEvaluationResult());
-        }
-        logger.info("\n\n");
-        logger.info("###### Cases logs:");
-        for (FunctionalCase functionalCase : functionalCases) {
-            logger.info("## Errors from test '" + functionalCase.getClass().getSimpleName() + "' ... " + functionalCase.getDescription() + ": ");
-            logger.info(functionalCase.retrieveTestLogs(10));
-        }
-
-        // Logging
-        logger.info("\n\n");
-        logger.info("###### Metrics summary:");
-        for (FunctionalCase functionalCase : functionalCases) {
-            logger.info(
-                    "## [METRICS] '" + functionalCase.getClass().getSimpleName() + "' ... " +
-                            functionalCase.getDescription() + ": " +
-                            functionalCase.retrieveEvaluationResult());
-        }
-
-        // Log test time
-        long totalTime = System.currentTimeMillis() - startTime;
-        logger.info("Total testing time(s): " + totalTime / 1000 + " (mins: " + (totalTime / 60000) + ")");
-        // Evaluate
-        for (FunctionalCase functionalCase : functionalCases) {
-            assertTrue(functionalCase.passesEvaluation());
-        }
-    }
-
-    @Test
     void search_severalTest_using_file_and_elastic_search() throws Exception {
-        if (!runElasticSearchTest) {
-            logger.warn("search_severalTest_using_file_and_elastic_search: runElasticSearchTest={}", runElasticSearchTest);
-            return;
-        }
         List<EntityCodeAndNames> entityCodeAndNamesList = prepareSearch();
         List<FunctionalCase> functionalCases = new ArrayList<>();
         functionalCases.add(new FunctionalCaseExact(entityCodeAndNamesList));
@@ -267,6 +58,7 @@ class SearchServiceTest extends BaseUnitTest {
         functionalCases.add(new FunctionalCasePhonetic(entityCodeAndNamesList));
         functionalCases.add(new FunctionalCaseMixed1(entityCodeAndNamesList));
 
+        ElasticSearchHelper elasticSearchHelper = elasticSearch.getElasticSearchHelper();
         elasticSearchHelper.index(entityCodeAndNamesList);
         // Start the searches
         long startTime = System.currentTimeMillis();
@@ -354,26 +146,10 @@ class SearchServiceTest extends BaseUnitTest {
         }
     }
 
-    private void prepareSearch(List<EntityCodeAndNames> entityCodeAndNamesList) throws Exception {
-        entityService.buildNameToEntityCodesSetMapForTest(entityCodeAndNamesList);
-        tokenService.init();
-        luceneSearch.init();
-        if (runNewSearchTest) {
-            vectorSpaceService.populateVectorSpace(entityCodeAndNamesList);
-            vectorSpaceService.train();
-            // persist vectorSpaceService
-        }
-    }
-
     private List<EntityCodeAndNames> prepareSearch() throws Exception {
         entityCodeAndNamesList = createNameAndEntityCodeFromFile();
         entityService.buildNameToEntityCodesSetMapForTest(entityCodeAndNamesList);
-        tokenService.init();
-        luceneSearch.init();
-        if (runNewSearchTest) {
-            vectorSpaceService.populateVectorSpace(entityCodeAndNamesList);
-            vectorSpaceService.train();
-        }
+        elasticSearch.getElasticSearchHelper().index(entityCodeAndNamesList);
         return entityCodeAndNamesList;
     }
 

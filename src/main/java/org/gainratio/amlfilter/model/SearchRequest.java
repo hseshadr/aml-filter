@@ -10,6 +10,5 @@ import java.util.Map;
 @Builder
 public class SearchRequest {
     private Map<String, Object> searchPreferencesMap;
-    private String searchDate;
     private List<SearchRecord> searchRecordList;
 }

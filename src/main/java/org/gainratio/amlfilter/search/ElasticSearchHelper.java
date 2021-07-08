@@ -1,6 +1,5 @@
-package org.gainratio.amlfilter.service;
+package org.gainratio.amlfilter.search;
 
-import lombok.Data;
 import org.apache.commons.io.IOUtils;
 import org.elasticsearch.action.admin.indices.delete.DeleteIndexRequest;
 import org.elasticsearch.client.RequestOptions;
@@ -11,8 +10,10 @@ import org.elasticsearch.client.indices.GetIndexRequest;
 import org.elasticsearch.common.xcontent.XContentType;
 import org.gainratio.amlfilter.model.*;
 import org.gainratio.amlfilter.repository.EntityCodeAndNamesRepository;
+import org.gainratio.amlfilter.service.ResultsService;
+import org.gainratio.amlfilter.service.SearchServiceInterface;
+import org.gainratio.amlfilter.service.filter.TextSimilarityMappedWordsSearchFilter;
 import org.gainratio.amlfilter.util.ResourceUtils;
-import org.gainratio.amlfilter.vector.filter.TextSimilarityMappedWordsSearchFilter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
