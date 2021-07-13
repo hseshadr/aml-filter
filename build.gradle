@@ -1,18 +1,17 @@
 plugins {
-	id 'org.springframework.boot' version '2.4.1'
-	id 'io.spring.dependency-management' version '1.0.10.RELEASE'
+	id 'org.springframework.boot' version '2.5.2'
+	id 'io.spring.dependency-management' version '1.0.11.RELEASE'
 	id 'java'
 }
 
-group = 'org.gainratio'
+group = 'org.amlfilter'
 version = '0.0.1-SNAPSHOT'
-sourceCompatibility = '8'
+sourceCompatibility = '1.8'
 
 configurations {
 	compileOnly {
 		extendsFrom annotationProcessor
 	}
-	jaxb // Only for generation purpose
 }
 
 repositories {
@@ -20,42 +19,33 @@ repositories {
 }
 
 dependencies {
-	implementation 'org.projectlombok:lombok:1.18.16'
-	implementation 'junit:junit:4.12'
-    implementation 'org.springframework.boot:spring-boot-starter-actuator'
+	implementation 'org.springframework.boot:spring-boot-starter-actuator'
 	implementation 'org.springframework.boot:spring-boot-starter-web'
 	implementation 'org.springframework.boot:spring-boot-starter-data-mongodb'
+	implementation 'org.springframework.data:spring-data-elasticsearch'
 
-	compile 'org.springframework.data:spring-data-elasticsearch:4.0.0.RELEASE'
 	// https://mvnrepository.com/artifact/dom4j/dom4j
-	compile group: 'dom4j', name: 'dom4j', version: '1.6.1'
+	implementation group: 'dom4j', name: 'dom4j', version: '1.6.1'
 	// https://mvnrepository.com/artifact/jaxen/jaxen
-	compile group: 'jaxen', name: 'jaxen', version: '1.2.0'
+	implementation group: 'jaxen', name: 'jaxen', version: '1.2.0'
 
-	compile 'xerces:xercesImpl:2.11.0'
+	implementation 'xerces:xercesImpl:2.11.0'
 
 	// https://mvnrepository.com/artifact/commons-io/commons-io
-	compile group: 'commons-io', name: 'commons-io', version: '2.6'
+	implementation group: 'commons-io', name: 'commons-io', version: '2.6'
 	// https://mvnrepository.com/artifact/org.apache.commons/commons-lang3
-	compile group: 'org.apache.commons', name: 'commons-lang3', version: '3.11'
-	compile 'org.apache.commons:commons-collections4:4.1'
+	implementation group: 'org.apache.commons', name: 'commons-lang3', version: '3.11'
+	implementation 'org.apache.commons:commons-collections4:4.1'
 	// https://mvnrepository.com/artifact/commons-codec/commons-codec
-	compile group: 'commons-codec', name: 'commons-codec', version: '1.15'
-	compile 'org.springdoc:springdoc-openapi-ui:1.5.2'
+	implementation group: 'commons-codec', name: 'commons-codec', version: '1.15'
+	implementation 'org.springdoc:springdoc-openapi-ui:1.5.2'
 	// https://mvnrepository.com/artifact/org.apache.commons/commons-text
-	compile group: 'org.apache.commons', name: 'commons-text', version: '1.9'
+	implementation group: 'org.apache.commons', name: 'commons-text', version: '1.9'
 
 
 	// https://mvnrepository.com/artifact/org.apache.lucene/lucene-core
-	compile group: 'org.apache.lucene', name: 'lucene-core', version: '8.6.2'
-	// https://mvnrepository.com/artifact/org.apache.lucene/lucene-backward-codecs
-	compile group: 'org.apache.lucene', name: 'lucene-backward-codecs', version: '8.6.2'
-// https://mvnrepository.com/artifact/org.apache.lucene/lucene-analyzers-phonetic
-	compile group: 'org.apache.lucene', name: 'lucene-analyzers-phonetic', version: '8.6.2'
-
-
+	implementation group: 'org.apache.lucene', name: 'lucene-core', version: '8.8.0'
 	compileOnly 'org.projectlombok:lombok'
-	annotationProcessor 'org.springframework.boot:spring-boot-configuration-processor'
 	annotationProcessor 'org.projectlombok:lombok'
 	testImplementation 'org.springframework.boot:spring-boot-starter-test'
 }

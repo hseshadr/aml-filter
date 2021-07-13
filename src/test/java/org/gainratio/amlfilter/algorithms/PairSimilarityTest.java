@@ -3,7 +3,7 @@ package org.gainratio.amlfilter.algorithms;
 import org.gainratio.amlfilter.BaseUnitTest;
 import org.junit.jupiter.api.Test;
 
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 
 class PairSimilarityTest extends BaseUnitTest {
