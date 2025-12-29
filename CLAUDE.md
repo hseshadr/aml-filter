@@ -24,12 +24,14 @@ uv run alembic revision --autogenerate -m "msg"   # Create new migration
 
 ### Frontend (from `frontend/` directory)
 ```bash
-npm install        # Install dependencies
-npm run dev        # Start dev server (port 5173)
-npm run build      # Production build
-npm run lint       # ESLint check
-npm run format     # Prettier formatting
+bun install        # Install dependencies
+bun run dev        # Start dev server (port 5173)
+bun run build      # Production build
+bun run lint       # ESLint check
+bun run format     # Prettier formatting
 ```
+
+**Note**: Always use `bun` instead of `npm` for frontend package management.
 
 ### Infrastructure
 ```bash

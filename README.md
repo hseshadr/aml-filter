@@ -31,7 +31,7 @@ See [frontend/README.md](./frontend/README.md) for frontend setup.
 docker-compose up -d
 
 # Backend API: http://localhost:8000
-# Frontend: http://localhost:5173 (when running npm run dev)
+# Frontend: http://localhost:5173 (when running bun run dev)
 ```
 
 ## Documentation
@@ -39,12 +39,9 @@ docker-compose up -d
 All documentation is in the `docs/` directory:
 
 - [QUICKSTART.md](./docs/QUICKSTART.md) - Quick start guide
-- [README_PYTHON.md](./docs/README_PYTHON.md) - Backend development guide
 - [SPEC.md](./docs/SPEC.md) - Complete technical specification
-- [IMPLEMENTATION_PLAN.md](./docs/IMPLEMENTATION_PLAN.md) - Implementation roadmap
 - [API_SPEC.md](./docs/API_SPEC.md) - API reference
 - [DATABASE_SCHEMA.md](./docs/DATABASE_SCHEMA.md) - Database design
-- [IMPLEMENTATION_STATUS.md](./docs/IMPLEMENTATION_STATUS.md) - Current status
 
 ## Development
 
@@ -61,8 +58,8 @@ uv run uvicorn aml_filter.api.main:app --reload
 
 ```bash
 cd frontend
-npm install
-npm run dev
+bun install
+bun run dev
 ```
 
 ## License

@@ -6,13 +6,13 @@ React + TypeScript frontend for AML-Filter v2.
 
 ```bash
 cd frontend
-npm install
+bun install
 ```
 
 ## Development
 
 ```bash
-npm run dev
+bun run dev
 ```
 
 Frontend will be available at `http://localhost:5173`
@@ -20,7 +20,7 @@ Frontend will be available at `http://localhost:5173`
 ## Build
 
 ```bash
-npm run build
+bun run build
 ```
 
 ## Project Structure
