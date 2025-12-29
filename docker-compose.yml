@@ -1,20 +1,92 @@
-version: "3"
+version: '3.8'
+
 services:
-  aml-filter-database:
-    image: mongo:3.2.4
-    container_name: "aml-filter-database"
-    ports:
-      - 27018:27017
-    command: --smallfiles
-  aml-filter-api:
-    image: hseshadr/aml-filter-image
-    container_name: "aml-filter-api"
-    command: env
-    ports:
-      - 8081:8080
+  postgres:
+    image: pgvector/pgvector:pg15
+    container_name: aml-filter-postgres
     environment:
-      DB_HOST: aml-filter-database
-      DB_PORT: 27017
-      JAVA_OPTIONS: -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005
+      POSTGRES_USER: amlfilter
+      POSTGRES_PASSWORD: amlfilter_dev_password
+      POSTGRES_DB: amlfilter
+    ports:
+      - "5435:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U amlfilter"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - aml-filter-network
+
+  redis:
+    image: valkey/valkey:7.2-alpine
+    container_name: aml-filter-redis
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - aml-filter-network
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: api
+    container_name: aml-filter-api
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://amlfilter:amlfilter_dev_password@postgres:5432/amlfilter
+      REDIS_URL: redis://redis:6379/0
+      ENVIRONMENT: development
+    ports:
+      - "8000:8000"
     depends_on:
-      - aml-filter-database
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+    command: uv run uvicorn aml_filter.api.main:app --host 0.0.0.0 --port 8000 --reload
+    networks:
+      - aml-filter-network
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: worker
+    container_name: aml-filter-worker
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://amlfilter:amlfilter_dev_password@postgres:5432/amlfilter
+      REDIS_URL: redis://redis:6379/0
+      ENVIRONMENT: development
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+    command: uv run rq worker --url redis://redis:6379/0 aml-filter-queue
+    networks:
+      - aml-filter-network
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  aml-filter-network:
+    driver: bridge

@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <!-- Shield background -->
+  <path d="M100 10 L180 40 L180 100 C180 150 140 180 100 195 C60 180 20 150 20 100 L20 40 Z" fill="#1a365d" stroke="#2c5282" stroke-width="3"/>
+
+  <!-- Globe grid lines -->
+  <ellipse cx="100" cy="80" rx="50" ry="35" fill="none" stroke="#4299e1" stroke-width="1.5" opacity="0.6"/>
+  <ellipse cx="100" cy="80" rx="25" ry="35" fill="none" stroke="#4299e1" stroke-width="1.5" opacity="0.6"/>
+  <line x1="50" y1="80" x2="150" y2="80" stroke="#4299e1" stroke-width="1.5" opacity="0.6"/>
+  <line x1="100" y1="45" x2="100" y2="115" stroke="#4299e1" stroke-width="1.5" opacity="0.6"/>
+
+  <!-- Money stack -->
+  <rect x="35" y="110" width="55" height="12" rx="2" fill="#38a169"/>
+  <rect x="35" y="100" width="55" height="12" rx="2" fill="#48bb78"/>
+  <rect x="35" y="90" width="55" height="12" rx="2" fill="#68d391"/>
+  <text x="62" y="107" font-family="Arial, sans-serif" font-size="8" fill="#fff" text-anchor="middle">$</text>
+
+  <!-- Magnifying glass -->
+  <circle cx="130" cy="90" r="25" fill="none" stroke="#ed8936" stroke-width="4"/>
+  <line x1="148" y1="108" x2="165" y2="125" stroke="#ed8936" stroke-width="6" stroke-linecap="round"/>
+
+  <!-- Alert icon in magnifier -->
+  <circle cx="130" cy="90" r="15" fill="#fff" opacity="0.9"/>
+  <text x="130" y="97" font-family="Arial, sans-serif" font-size="20" fill="#e53e3e" text-anchor="middle" font-weight="bold">!</text>
+
+  <!-- Text -->
+  <text x="100" y="160" font-family="Arial, sans-serif" font-size="18" fill="#38a169" text-anchor="middle" font-weight="bold">AML FILTER</text>
+
+  <!-- Stars -->
+  <text x="55" y="178" font-family="Arial, sans-serif" font-size="10" fill="#1a365d">&#9733;</text>
+  <text x="75" y="178" font-family="Arial, sans-serif" font-size="10" fill="#1a365d">&#9733;</text>
+  <text x="95" y="178" font-family="Arial, sans-serif" font-size="10" fill="#1a365d">&#9733;</text>
+  <text x="115" y="178" font-family="Arial, sans-serif" font-size="10" fill="#1a365d">&#9733;</text>
+  <text x="135" y="178" font-family="Arial, sans-serif" font-size="10" fill="#1a365d">&#9733;</text>
+</svg>
