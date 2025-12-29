@@ -1,8 +1,7 @@
 """Lexical search backend using pg_trgm."""
 
-from typing import Any
 
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aml_filter.db.models import Entity

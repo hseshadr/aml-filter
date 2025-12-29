@@ -1,6 +1,5 @@
 """Ingestion service for loading sanctions lists."""
 
-import asyncio
 import os
 from datetime import datetime
 from typing import Any
@@ -8,12 +7,12 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aml_filter.db.models import Entity as DBEntity, EntityEmbedding, ListVersion
+from aml_filter.db.models import Entity as DBEntity
+from aml_filter.db.models import EntityEmbedding, ListVersion
 from aml_filter.domain.entity import Entity
 from aml_filter.domain.normalization import prepare_embedding_text
 from aml_filter.embedding.service import EmbeddingService
 from aml_filter.ingest.parsers.ofac import OFACParser
-from shared_libs_python.core.types import VectorEmbedding
 
 
 class IngestionService:
@@ -118,7 +117,7 @@ class IngestionService:
             embeddings = await self.embedding_service.embed_batch(embedding_texts, batch_size=batch_size)
 
             # Process each entity
-            for entity, embedding in zip(batch, embeddings):
+            for entity, embedding in zip(batch, embeddings, strict=False):
                 # Convert domain entity to DB entity
                 db_entity = self._domain_to_db_entity(entity, existing_entities.get(entity.entity_id))
 
@@ -160,7 +159,8 @@ class IngestionService:
             queue = Queue("screening", connection=redis_conn)
 
             # Get all tenants that have whitelist customers
-            from aml_filter.db.models import Tenant, Entity as DBEntityModel
+            from aml_filter.db.models import Entity as DBEntityModel
+            from aml_filter.db.models import Tenant
 
             tenants_with_whitelist = await self.session.execute(
                 select(Tenant.tenant_id).distinct().join(

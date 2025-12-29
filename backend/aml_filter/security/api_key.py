@@ -1,8 +1,7 @@
 """API key generation and validation."""
 
 import secrets
-from datetime import datetime, timedelta
-from typing import Optional
+from datetime import UTC, datetime, timedelta
 
 import bcrypt
 from sqlalchemy import select
@@ -58,8 +57,8 @@ def verify_api_key(plaintext_key: str, hashed_key: str) -> bool:
 async def create_api_key(
     session: AsyncSession,
     tenant_id: str,
-    name: Optional[str] = None,
-    expires_in_days: Optional[int] = None,
+    name: str | None = None,
+    expires_in_days: int | None = None,
 ) -> tuple[str, str]:
     """
     Create a new API key for a tenant.
@@ -90,7 +89,7 @@ async def create_api_key(
     # Calculate expiration
     expires_at = None
     if expires_in_days:
-        expires_at = datetime.utcnow() + timedelta(days=expires_in_days)
+        expires_at = datetime.now(UTC) + timedelta(days=expires_in_days)
 
     # Create API key record
     api_key = ApiKey(
@@ -110,7 +109,7 @@ async def create_api_key(
 async def validate_api_key(
     session: AsyncSession,
     plaintext_key: str,
-) -> Optional[tuple[str, str]]:
+) -> tuple[str, str] | None:
     """
     Validate an API key and return tenant information.
 
@@ -130,7 +129,7 @@ async def validate_api_key(
     # This is a limitation - in production, consider using a key prefix for faster lookup
 
     # Get all active, non-expired, non-revoked keys
-    now = datetime.utcnow()
+    now = datetime.now(UTC)
     result = await session.execute(
         select(ApiKey).where(
             ApiKey.revoked_at.is_(None),
@@ -174,7 +173,7 @@ async def revoke_api_key(
         return False
 
     if api_key.revoked_at is None:
-        api_key.revoked_at = datetime.utcnow()
+        api_key.revoked_at = datetime.now(UTC)
         await session.commit()
         return True
 

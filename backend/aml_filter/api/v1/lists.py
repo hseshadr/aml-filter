@@ -1,17 +1,18 @@
 """List configuration API endpoints."""
 
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Query
-from pydantic import BaseModel, Field
 import csv
-import json
 import io
+import json
 import uuid
-from typing import Any, Optional
-from sqlalchemy import select, func
+from typing import Any
+
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aml_filter.api.dependencies import get_db_session
-from aml_filter.db.models import ListVersion, TenantListConfig, Entity, EntityEmbedding
+from aml_filter.db.models import Entity, EntityEmbedding, ListVersion, TenantListConfig
 from aml_filter.domain.normalization import normalize_name, prepare_embedding_text
 from aml_filter.embedding.service import EmbeddingService
 from aml_filter.security.middleware import require_api_key
@@ -22,14 +23,13 @@ router = APIRouter(prefix="/lists", tags=["lists"])
 class ListConfigResponse(BaseModel):
     """Response model for list configuration."""
 
+    model_config = ConfigDict(from_attributes=True)
+
     list_id: str
     enabled: bool
     version_override: str | None
     current_version: str | None
     updated_at: str
-
-    class Config:
-        from_attributes = True
 
 
 class ListConfigUpdate(BaseModel):
@@ -61,10 +61,10 @@ async def upload_custom_list(
     # 1. Parse file
     content = await file.read()
     content_str = content.decode("utf-8")
-    
+
     entities_to_create = []
     errors = []
-    
+
     filename = file.filename or ""
     if filename.endswith(".csv"):
         reader = csv.DictReader(io.StringIO(content_str))
@@ -99,9 +99,9 @@ async def upload_custom_list(
     # 2. Process entities
     list_id = f"custom:{tenant_id}:{uuid.uuid4().hex[:8]}"
     version = "v1"
-    
+
     embedding_service = EmbeddingService()
-    
+
     for item in entities_to_create:
         name = str(item.get("name", ""))
         entity_type_str = str(item.get("type", "PERSON")).upper()
@@ -128,7 +128,7 @@ async def upload_custom_list(
         # Generate and save embedding
         emb_text = prepare_embedding_text(name, country_str)
         vector = await embedding_service.embed(emb_text)
-        
+
         embedding = EntityEmbedding(
             entity_id=entity.entity_id,
             embedding=vector,
@@ -147,7 +147,7 @@ async def upload_custom_list(
         status="ACTIVE"
     )
     session.add(lv)
-    
+
     # 4. Enable list for tenant
     config = TenantListConfig(
         tenant_id=tenant_id,
@@ -155,7 +155,7 @@ async def upload_custom_list(
         enabled=True
     )
     session.add(config)
-    
+
     await session.commit()
 
     return CustomListUploadResponse(

@@ -2,7 +2,7 @@
 
 import xml.etree.ElementTree as ET
 from datetime import date, datetime
-from typing import Any, Literal
+from typing import Literal
 
 from aml_filter.domain.entity import Alias, Entity, EntityIdentifier
 from aml_filter.domain.normalization import normalize_name
@@ -201,7 +201,7 @@ class OFACParser:
                 val = address_elem.find(sub_elem, self.namespace)
                 if val is not None and val.text:
                     parts.append(val.text.strip())
-            
+
             if parts:
                 addresses.append(", ".join(parts))
 

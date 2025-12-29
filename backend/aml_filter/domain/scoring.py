@@ -1,6 +1,6 @@
 """Scoring policy domain models."""
 
-from typing import Any, Literal
+from typing import Literal
 
 from pydantic import BaseModel, Field, ValidationInfo, field_validator
 

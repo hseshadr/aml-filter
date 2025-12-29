@@ -1,6 +1,6 @@
 /** Usage dashboard page. */
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { apiClient, UsageSummaryResponse } from '../lib/api'
 
 export default function UsagePage() {
@@ -9,11 +9,7 @@ export default function UsagePage() {
   const [error, setError] = useState<string | null>(null)
   const [days, setDays] = useState(30)
 
-  useEffect(() => {
-    loadUsage()
-  }, [days])
-
-  const loadUsage = async () => {
+  const loadUsage = useCallback(async () => {
     try {
       setLoading(true)
       const data = await apiClient.getUsage(days)
@@ -23,7 +19,11 @@ export default function UsagePage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [days])
+
+  useEffect(() => {
+    loadUsage()
+  }, [loadUsage])
 
   return (
     <div>

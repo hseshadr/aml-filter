@@ -2,10 +2,9 @@
 
 from typing import Any
 
+from shared_libs_python.core.types import IndexConfig, IndexStats, VectorEmbedding, VectorIndex
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
-
-from shared_libs_python.core.types import IndexConfig, IndexStats, VectorEmbedding, VectorIndex
 
 from aml_filter.db.models import EntityEmbedding
 

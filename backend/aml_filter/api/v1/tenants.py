@@ -1,13 +1,13 @@
 """Tenant management API endpoints."""
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aml_filter.api.dependencies import get_db_session
 from aml_filter.db.models import Tenant
 from aml_filter.security.middleware import require_api_key
-from sqlalchemy import select
 
 router = APIRouter(prefix="/tenants", tags=["tenants"])
 
@@ -26,14 +26,13 @@ class TenantCreate(BaseModel):
 class TenantResponse(BaseModel):
     """Response model for tenant."""
 
+    model_config = ConfigDict(from_attributes=True)
+
     tenant_id: str
     name: str
     plan: str
     created_at: str
     updated_at: str
-
-    class Config:
-        from_attributes = True
 
 
 @router.post("", response_model=TenantResponse, status_code=status.HTTP_201_CREATED)

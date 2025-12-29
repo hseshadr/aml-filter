@@ -187,7 +187,7 @@ class TestCreateApiKey:
         assert added_key is not None
         assert added_key.expires_at is not None
         # Expiration should be approximately 30 days from now
-        expected_expiry = datetime.utcnow() + timedelta(days=30)
+        expected_expiry = datetime.now(UTC) + timedelta(days=30)
         assert abs((added_key.expires_at - expected_expiry).total_seconds()) < 10
 
     @pytest.mark.asyncio

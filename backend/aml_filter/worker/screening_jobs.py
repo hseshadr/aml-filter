@@ -1,8 +1,8 @@
 """Background job workers for bidirectional screening."""
 
 import uuid
-from datetime import datetime
-from typing import Any, Optional
+from datetime import UTC, datetime
+from typing import Any
 
 try:
     from dotenv import find_dotenv, load_dotenv
@@ -12,20 +12,17 @@ except Exception:
     pass
 
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from aml_filter.db.models import ScreeningJob, Tenant
 from aml_filter.db.session import create_database
 from aml_filter.screening.bidirectional import BidirectionalScreeningService
 
 
-
-
 async def screen_whitelist_on_blacklist_update(
     tenant_id: str,
-    list_id: Optional[str] = None,
-    list_version: Optional[str] = None,
-    job_id: Optional[str] = None,
+    list_id: str | None = None,
+    list_version: str | None = None,
+    job_id: str | None = None,
 ) -> dict[str, Any]:
     """
     Screen all whitelist customers against updated blacklist.
@@ -69,7 +66,7 @@ async def screen_whitelist_on_blacklist_update(
                 list_id=list_id,
                 list_version=list_version,
                 status="RUNNING",
-                started_at=datetime.utcnow(),
+                started_at=datetime.now(UTC),
             )
             session.add(job)
             await session.commit()
@@ -89,7 +86,7 @@ async def screen_whitelist_on_blacklist_update(
 
             # Update job record
             job.status = "COMPLETED"
-            job.completed_at = datetime.utcnow()
+            job.completed_at = datetime.now(UTC)
             job.entities_scanned = results["entities_scanned"]
             job.matches_found = results["matches_found"]
             await session.commit()
@@ -104,7 +101,7 @@ async def screen_whitelist_on_blacklist_update(
         except Exception as e:
             # Update job record with error
             job.status = "FAILED"
-            job.completed_at = datetime.utcnow()
+            job.completed_at = datetime.now(UTC)
             job.error_message = str(e)
             await session.commit()
 
@@ -117,8 +114,8 @@ async def screen_whitelist_on_blacklist_update(
 
 async def screen_blacklist_on_whitelist_update(
     tenant_id: str,
-    whitelist_entity_id: Optional[str] = None,
-    job_id: Optional[str] = None,
+    whitelist_entity_id: str | None = None,
+    job_id: str | None = None,
 ) -> dict[str, Any]:
     """
     Screen new/updated whitelist customer against all blacklists.
@@ -159,7 +156,7 @@ async def screen_blacklist_on_whitelist_update(
                 job_type="BLACKLIST_SCAN",
                 trigger_type="LIST_UPDATE",
                 status="RUNNING",
-                started_at=datetime.utcnow(),
+                started_at=datetime.now(UTC),
             )
             session.add(job)
             await session.commit()
@@ -202,7 +199,7 @@ async def screen_blacklist_on_whitelist_update(
 
             # Update job record
             job.status = "COMPLETED"
-            job.completed_at = datetime.utcnow()
+            job.completed_at = datetime.now(UTC)
             job.entities_scanned = entities_scanned
             job.matches_found = matches_found
             await session.commit()
@@ -217,7 +214,7 @@ async def screen_blacklist_on_whitelist_update(
         except Exception as e:
             # Update job record with error
             job.status = "FAILED"
-            job.completed_at = datetime.utcnow()
+            job.completed_at = datetime.now(UTC)
             job.error_message = str(e)
             await session.commit()
 
@@ -229,8 +226,8 @@ async def screen_blacklist_on_whitelist_update(
 
 
 async def run_bidirectional_screening(
-    tenant_id: Optional[str] = None,
-    job_id: Optional[str] = None,
+    tenant_id: str | None = None,
+    job_id: str | None = None,
 ) -> dict[str, Any]:
     """
     Run full bidirectional screening for all tenants or a specific tenant.
@@ -268,7 +265,7 @@ async def run_bidirectional_screening(
                 job_type="BIDIRECTIONAL",
                 trigger_type="MANUAL",
                 status="RUNNING",
-                started_at=datetime.utcnow(),
+                started_at=datetime.now(UTC),
             )
             session.add(job)
             await session.commit()
@@ -304,7 +301,7 @@ async def run_bidirectional_screening(
 
             # Update job record
             job.status = "COMPLETED"
-            job.completed_at = datetime.utcnow()
+            job.completed_at = datetime.now(UTC)
             job.entities_scanned = total_entities_scanned
             job.matches_found = total_matches_found
             await session.commit()
@@ -319,7 +316,7 @@ async def run_bidirectional_screening(
         except Exception as e:
             # Update job record with error
             job.status = "FAILED"
-            job.completed_at = datetime.utcnow()
+            job.completed_at = datetime.now(UTC)
             job.error_message = str(e)
             await session.commit()
 

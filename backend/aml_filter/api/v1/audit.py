@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
@@ -86,8 +86,8 @@ async def get_audit_record(
 async def list_audit_records(
     session: AsyncSession = Depends(get_db_session),
     tenant_id: str = Depends(require_api_key),
-    start_date: Optional[str] = Query(None, description="Start date (ISO format)"),
-    end_date: Optional[str] = Query(None, description="End date (ISO format)"),
+    start_date: str | None = Query(None, description="Start date (ISO format)"),
+    end_date: str | None = Query(None, description="End date (ISO format)"),
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
 ) -> AuditListResponse:

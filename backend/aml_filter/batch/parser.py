@@ -4,7 +4,7 @@ import csv
 import json
 from datetime import date
 from io import StringIO
-from typing import Any, Literal
+from typing import Literal
 
 from aml_filter.domain.search import SearchQuery
 

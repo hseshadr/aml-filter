@@ -1,6 +1,5 @@
 """Embedding service with caching."""
 
-from functools import lru_cache
 from hashlib import sha256
 from typing import Any
 
@@ -102,7 +101,7 @@ class EmbeddingService:
             )
 
             # Store in cache and map back to original indices
-            for (orig_idx, text), embedding in zip(to_embed, embeddings):
+            for (orig_idx, text), embedding in zip(to_embed, embeddings, strict=False):
                 cache_key = self._get_cache_key(text)
                 # Simple LRU: remove oldest if cache is full
                 if len(self._cache) >= self._cache_size:

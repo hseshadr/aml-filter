@@ -1,11 +1,10 @@
 """Rate limiting utilities using Redis."""
 
-from typing import Optional
 
 from redis.asyncio import Redis
 
 # Global Redis client (will be initialized on startup)
-_redis_client: Optional[Redis] = None
+_redis_client: Redis | None = None
 
 
 def set_redis_client(redis_client: Redis) -> None:
@@ -14,7 +13,7 @@ def set_redis_client(redis_client: Redis) -> None:
     _redis_client = redis_client
 
 
-def get_redis_client() -> Optional[Redis]:
+def get_redis_client() -> Redis | None:
     """Get the global Redis client."""
     return _redis_client
 

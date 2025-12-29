@@ -1,12 +1,10 @@
 """Batch processing service."""
 
 import asyncio
-from typing import Any
 from uuid import uuid4
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aml_filter.batch.parser import BatchParser
 from aml_filter.db.models import BatchJob
 from aml_filter.domain.search import SearchQuery, SearchResponse
 from aml_filter.search.service import SearchService

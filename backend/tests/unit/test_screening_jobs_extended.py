@@ -1,7 +1,7 @@
 """Extended unit tests for worker/screening_jobs.py - comprehensive coverage."""
 
 import os
-from datetime import datetime
+from datetime import datetime, UTC
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -608,9 +608,9 @@ class TestJobTimestamps:
             "matches_found": 1,
         }
 
-        before_call = datetime.utcnow()
+        before_call = datetime.now(UTC)
         await screen_whitelist_on_blacklist_update(tenant_id="tenant-1")
-        after_call = datetime.utcnow()
+        after_call = datetime.now(UTC)
 
         job = added_objects[0]
         assert job.started_at is not None

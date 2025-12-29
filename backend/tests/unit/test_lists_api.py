@@ -6,7 +6,7 @@ from aml_filter.api.dependencies import get_db_session
 from aml_filter.security.middleware import require_api_key
 from aml_filter.db.models import TenantListConfig, ListVersion
 from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime
+from datetime import datetime, UTC
 import io
 
 app = FastAPI()
@@ -19,7 +19,7 @@ async def test_list_tenant_lists():
     app.dependency_overrides[require_api_key] = lambda: "tenant-123"
     
     # Mock configs
-    now = datetime.utcnow()
+    now = datetime.now(UTC)
     mock_config = TenantListConfig(
         tenant_id="tenant-123",
         list_id="OFAC_SDN",
@@ -57,7 +57,7 @@ async def test_get_list_config_success():
     app.dependency_overrides[get_db_session] = lambda: mock_session
     app.dependency_overrides[require_api_key] = lambda: "tenant-123"
     
-    now = datetime.utcnow()
+    now = datetime.now(UTC)
     mock_config = TenantListConfig(
         tenant_id="tenant-123",
         list_id="OFAC_SDN",
@@ -104,7 +104,7 @@ async def test_update_list_config_new():
     mock_session.execute.side_effect = [mock_result_none, mock_version_result]
     
     # Use real TenantListConfig but mock refresh
-    now = datetime.utcnow()
+    now = datetime.now(UTC)
     async def mock_refresh(obj):
         obj.updated_at = now
         

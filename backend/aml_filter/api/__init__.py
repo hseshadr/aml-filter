@@ -1,9 +1,9 @@
 """FastAPI application and API endpoints."""
 
 import os
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from contextlib import AbstractAsyncContextManager
-from typing import Any, Callable
+from typing import Any
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware

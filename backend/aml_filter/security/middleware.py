@@ -1,6 +1,5 @@
 """Authentication middleware for FastAPI."""
 
-from typing import Optional
 
 from fastapi import Depends, Header, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,9 +9,9 @@ from aml_filter.security.api_key import validate_api_key
 
 
 async def get_tenant_from_api_key(
-    api_key: Optional[str] = Header(None, alias="X-API-Key"),
+    api_key: str | None = Header(None, alias="X-API-Key"),
     session: AsyncSession = Depends(get_db_session),
-) -> Optional[str]:
+) -> str | None:
     """
     Extract and validate API key, returning tenant ID.
 
@@ -46,7 +45,7 @@ async def get_tenant_from_api_key(
 
 async def require_api_key(
     request: Request,
-    api_key: Optional[str] = Header(None, alias="X-API-Key"),
+    api_key: str | None = Header(None, alias="X-API-Key"),
     session: AsyncSession = Depends(get_db_session),
 ) -> str:
     """

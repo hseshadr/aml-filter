@@ -1,5 +1,5 @@
 import pytest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 from unittest.mock import AsyncMock, MagicMock, patch
 from sqlalchemy.ext.asyncio import AsyncSession
 from aml_filter.usage.service import record_usage, get_usage_summary, get_usage_count
@@ -60,8 +60,8 @@ async def test_get_usage_summary():
 async def test_get_usage_summary_with_filters():
     mock_session = AsyncMock(spec=AsyncSession)
     tenant_id = "tenant-123"
-    start_date = datetime.utcnow() - timedelta(days=7)
-    end_date = datetime.utcnow()
+    start_date = datetime.now(UTC) - timedelta(days=7)
+    end_date = datetime.now(UTC)
     event_type = "screen"
     
     mock_result = MagicMock()
@@ -100,8 +100,8 @@ async def test_get_usage_count():
 async def test_get_usage_count_with_filters():
     mock_session = AsyncMock(spec=AsyncSession)
     tenant_id = "tenant-123"
-    start_date = datetime.utcnow() - timedelta(days=7)
-    end_date = datetime.utcnow()
+    start_date = datetime.now(UTC) - timedelta(days=7)
+    end_date = datetime.now(UTC)
     event_type = "screen"
     
     mock_result = MagicMock()

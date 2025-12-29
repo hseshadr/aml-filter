@@ -4,13 +4,13 @@ import hashlib
 import json
 import time
 import uuid
-from datetime import date
 from typing import Any, Literal
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aml_filter.db.models import Entity as DBEntity, SearchRequest
+from aml_filter.db.models import Entity as DBEntity
+from aml_filter.db.models import SearchRequest
 from aml_filter.domain.entity import Alias, Entity, EntityIdentifier
 from aml_filter.domain.normalization import normalize_name, prepare_embedding_text
 from aml_filter.domain.scoring import ScoringPolicy
@@ -18,7 +18,6 @@ from aml_filter.domain.search import Match, MatchReason, SearchFilters, SearchQu
 from aml_filter.embedding.service import EmbeddingService
 from aml_filter.scoring.policy import DefaultScoringPolicy
 from aml_filter.search.hybrid_search import HybridSearchService
-
 
 EntityType = Literal["PERSON", "ORGANIZATION"]
 RiskCategory = Literal["SANCTION", "PEP", "CUSTOM", "WHITELIST"]
@@ -131,7 +130,7 @@ class SearchService:
 
         # Load entities for scoring
         entity_ids = [entity_id for entity_id, _, _ in search_results]
-        
+
         # Create default search response structure
         response_matches = []
         list_versions_used: dict[str, str] = {}
@@ -258,7 +257,6 @@ class SearchService:
 
     def _db_to_domain_entity(self, db_entity: DBEntity) -> Entity:
         """Convert database entity to domain entity."""
-        from aml_filter.domain.entity import Alias
 
         # Parse aliases from JSONB
         aliases = []

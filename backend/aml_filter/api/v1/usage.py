@@ -1,9 +1,8 @@
 """Usage metering API endpoints."""
 
-from datetime import datetime, timedelta
-from typing import Optional
+from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,9 +17,9 @@ class UsageSummaryResponse(BaseModel):
     """Response model for usage summary."""
 
     tenant_id: str
-    period_start: Optional[str]
-    period_end: Optional[str]
-    event_type: Optional[str]
+    period_start: str | None
+    period_end: str | None
+    event_type: str | None
     summary: dict[str, int]  # event_type -> total_units
     total_units: int
 
@@ -29,10 +28,10 @@ class UsageSummaryResponse(BaseModel):
 async def get_usage(
     session: AsyncSession = Depends(get_db_session),
     tenant_id: str = Depends(require_api_key),
-    start_date: Optional[str] = Query(None, description="Start date (ISO format)"),
-    end_date: Optional[str] = Query(None, description="End date (ISO format)"),
-    event_type: Optional[str] = Query(None, description="Filter by event type"),
-    days: Optional[int] = Query(None, ge=1, description="Number of days to look back"),
+    start_date: str | None = Query(None, description="Start date (ISO format)"),
+    end_date: str | None = Query(None, description="End date (ISO format)"),
+    event_type: str | None = Query(None, description="Filter by event type"),
+    days: int | None = Query(None, ge=1, description="Number of days to look back"),
 ) -> UsageSummaryResponse:
     """
     Get usage summary for the authenticated tenant.
@@ -47,7 +46,7 @@ async def get_usage(
     if end_date:
         end = datetime.fromisoformat(end_date.replace("Z", "+00:00"))
     elif days:
-        end = datetime.utcnow()
+        end = datetime.now(UTC)
 
     start = None
     if start_date:

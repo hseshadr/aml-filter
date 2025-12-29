@@ -1,13 +1,10 @@
 """API key management endpoints."""
 
-from datetime import datetime
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
-from sqlalchemy.ext.asyncio import AsyncSession
-
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from aml_filter.api.dependencies import get_db_session
 from aml_filter.db.models import ApiKey
@@ -20,8 +17,8 @@ router = APIRouter(prefix="/api-keys", tags=["api-keys"])
 class ApiKeyCreate(BaseModel):
     """Request model for creating an API key."""
 
-    name: Optional[str] = Field(None, max_length=200, description="Optional name for the key")
-    expires_in_days: Optional[int] = Field(
+    name: str | None = Field(None, max_length=200, description="Optional name for the key")
+    expires_in_days: int | None = Field(
         None, ge=1, description="Optional expiration in days"
     )
 
@@ -29,16 +26,15 @@ class ApiKeyCreate(BaseModel):
 class ApiKeyResponse(BaseModel):
     """Response model for API key (without sensitive data)."""
 
+    model_config = ConfigDict(from_attributes=True)
+
     key_id: str
-    name: Optional[str]
+    name: str | None
     tenant_id: str
     created_at: str
-    expires_at: Optional[str]
-    revoked_at: Optional[str]
-    last_used_at: Optional[str]
-
-    class Config:
-        from_attributes = True
+    expires_at: str | None
+    revoked_at: str | None
+    last_used_at: str | None
 
 
 class ApiKeyCreateResponse(BaseModel):
@@ -46,11 +42,11 @@ class ApiKeyCreateResponse(BaseModel):
 
     key_id: str
     api_key: str  # Plaintext key - show only once!
-    name: Optional[str]
+    name: str | None
     tenant_id: str
     created_at: str
-    expires_at: Optional[str]
-    expires_in_days: Optional[int]
+    expires_at: str | None
+    expires_in_days: int | None
 
 
 @router.post("", response_model=ApiKeyCreateResponse, status_code=status.HTTP_201_CREATED)

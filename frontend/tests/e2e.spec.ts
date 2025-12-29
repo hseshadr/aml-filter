@@ -110,7 +110,7 @@ test.describe('AML-Filter v2 Dashboard', () => {
     await expect(page).toHaveURL(/.*search/);
 
     await page.fill('input#name', 'John Doe');
-    await page.click('button[type=\"submit\"]');
+    await page.click('button[type="submit"]');
 
     await expect(page.locator('text=Results')).toBeVisible();
     await expect(page.locator('text=JOHN DOE')).toBeVisible();

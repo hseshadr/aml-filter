@@ -6,7 +6,7 @@ from aml_filter.api.dependencies import get_db_session
 from aml_filter.security.middleware import require_api_key
 from aml_filter.db.models import BatchJob
 from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime
+from datetime import datetime, UTC
 import io
 
 app = FastAPI()
@@ -21,7 +21,7 @@ async def test_create_batch_job_success():
     csv_content = "name,country\nJohn Doe,US"
     file = ("test.csv", io.BytesIO(csv_content.encode()), "text/csv")
     
-    now = datetime.utcnow()
+    now = datetime.now(UTC)
     mock_job = MagicMock(spec=BatchJob)
     mock_job.job_id = "job-123"
     mock_job.tenant_id = "tenant-123"
@@ -52,7 +52,7 @@ async def test_get_batch_job_success():
     app.dependency_overrides[get_db_session] = lambda: mock_session
     app.dependency_overrides[require_api_key] = lambda: "tenant-123"
     
-    now = datetime.utcnow()
+    now = datetime.now(UTC)
     mock_job = MagicMock(spec=BatchJob)
     mock_job.job_id = "job-123"
     mock_job.tenant_id = "tenant-123"
@@ -82,7 +82,7 @@ async def test_list_batch_jobs():
     app.dependency_overrides[get_db_session] = lambda: mock_session
     app.dependency_overrides[require_api_key] = lambda: "tenant-123"
     
-    now = datetime.utcnow()
+    now = datetime.now(UTC)
     mock_job = MagicMock(spec=BatchJob)
     mock_job.job_id = "job-123"
     mock_job.tenant_id = "tenant-123"

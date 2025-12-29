@@ -5,8 +5,6 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from aml_filter.domain.entity import Entity
-
 
 class SearchQuery(BaseModel):
     """Query for entity screening."""

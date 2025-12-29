@@ -6,7 +6,7 @@ from aml_filter.api.dependencies import get_db_session
 from aml_filter.security.middleware import require_api_key
 from aml_filter.db.models import Entity as DBEntity, ScreeningJob, WhitelistBlacklistMatch
 from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime
+from datetime import datetime, UTC
 
 app = FastAPI()
 app.include_router(router, prefix="/v1")
@@ -17,7 +17,7 @@ async def test_add_customer():
     app.dependency_overrides[get_db_session] = lambda: mock_session
     app.dependency_overrides[require_api_key] = lambda: "tenant-123"
     
-    now = datetime.utcnow()
+    now = datetime.now(UTC)
     mock_entity = DBEntity(
         entity_id="cust-123",
         tenant_id="tenant-123",
@@ -50,7 +50,7 @@ async def test_list_customers():
     app.dependency_overrides[get_db_session] = lambda: mock_session
     app.dependency_overrides[require_api_key] = lambda: "tenant-123"
     
-    now = datetime.utcnow()
+    now = datetime.now(UTC)
     mock_entity = DBEntity(
         entity_id="cust-123",
         tenant_id="tenant-123",
@@ -83,7 +83,7 @@ async def test_get_customer_success():
     app.dependency_overrides[get_db_session] = lambda: mock_session
     app.dependency_overrides[require_api_key] = lambda: "tenant-123"
     
-    now = datetime.utcnow()
+    now = datetime.now(UTC)
     mock_entity = MagicMock(spec=DBEntity)
     mock_entity.entity_id = "cust-123"
     mock_entity.tenant_id = "tenant-123"
@@ -144,7 +144,7 @@ async def test_get_matches():
     app.dependency_overrides[get_db_session] = lambda: mock_session
     app.dependency_overrides[require_api_key] = lambda: "tenant-123"
     
-    now = datetime.utcnow()
+    now = datetime.now(UTC)
     mock_match = MagicMock(spec=WhitelistBlacklistMatch)
     mock_match.match_id = "m-1"
     mock_match.tenant_id = "tenant-123"

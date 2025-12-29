@@ -1,20 +1,21 @@
 """Scoring policy service for managing tenant policies."""
 
-from typing import Literal, Optional
+from typing import Literal
 from uuid import uuid4
 
-from sqlalchemy import select, func
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aml_filter.db.models import ScoringPolicy, Tenant
-from aml_filter.domain.scoring import ScoringPolicy as DomainScoringPolicy, ScoringWeights
+from aml_filter.db.models import ScoringPolicy
+from aml_filter.domain.scoring import ScoringPolicy as DomainScoringPolicy
+from aml_filter.domain.scoring import ScoringWeights
 from aml_filter.scoring.policy import create_preset_policy
 
 # Valid preset types
 PresetType = Literal["strict", "balanced", "lenient", "custom"]
 
 
-def _normalize_preset(preset: Optional[str]) -> Optional[PresetType]:
+def _normalize_preset(preset: str | None) -> PresetType | None:
     """Normalize preset string to valid Literal type."""
     if preset in ("strict", "balanced", "lenient", "custom"):
         return preset  # type: ignore[return-value]
@@ -60,8 +61,8 @@ async def create_policy(
     name: str,
     weights: ScoringWeights,
     threshold: float,
-    preset: Optional[PresetType] = None,
-    created_by: Optional[str] = None,
+    preset: PresetType | None = None,
+    created_by: str | None = None,
 ) -> DomainScoringPolicy:
     """Create a new scoring policy for a tenant."""
     # Get next version number

@@ -2,10 +2,9 @@
 
 from typing import Any
 
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from shared_libs_python import GlobalPartitionStrategy, IndexConfig, IndexManager
 from shared_libs_python.core.types import VectorEmbedding
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from aml_filter.domain.search import SearchFilters
 from aml_filter.search.pgvector_index import PgVectorIndex

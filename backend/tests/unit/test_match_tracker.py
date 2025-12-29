@@ -1,6 +1,6 @@
 """Unit tests for MatchTracker service."""
 
-from datetime import datetime
+from datetime import datetime, UTC
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -407,12 +407,12 @@ class TestResolveMatch:
         mock_result.scalar_one_or_none.return_value = match
         mock_session.execute.return_value = mock_result
 
-        before_resolve = datetime.utcnow()
+        before_resolve = datetime.now(UTC)
         await tracker.resolve_match(
             match_id="match-1",
             resolution_status="RESOLVED",
         )
-        after_resolve = datetime.utcnow()
+        after_resolve = datetime.now(UTC)
 
         assert match.resolved_at is not None
         # The resolved_at should be set to a datetime

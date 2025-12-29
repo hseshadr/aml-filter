@@ -1,6 +1,5 @@
 """FastAPI middleware for security headers and rate limiting."""
 
-from typing import Callable
 
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
@@ -21,9 +20,21 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["X-XSS-Protection"] = "1; mode=block"
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
-        response.headers["Content-Security-Policy"] = (
-            "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'"
-        )
+
+        # Use relaxed CSP for Swagger UI and ReDoc endpoints to allow CDN resources
+        if request.url.path in ["/docs", "/redoc", "/openapi.json"]:
+            response.headers["Content-Security-Policy"] = (
+                "default-src 'self'; "
+                "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+                "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+                "img-src 'self' data: https://fastapi.tiangolo.com; "
+                "font-src 'self' https://cdn.jsdelivr.net"
+            )
+        else:
+            # Strict CSP for API endpoints
+            response.headers["Content-Security-Policy"] = (
+                "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'"
+            )
 
         return response
 
@@ -69,7 +80,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 request.state.rate_limit_reset = reset_after
 
                 if not allowed:
-                    from fastapi import HTTPException, status
+                    from fastapi import status
 
                     response = Response(
                         content=f'{{"detail": "Rate limit exceeded. {remaining} requests remaining. Resets in {reset_after}s."}}',

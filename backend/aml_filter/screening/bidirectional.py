@@ -1,20 +1,19 @@
 """Bidirectional screening service for whitelist vs blacklist matching."""
 
-from typing import Literal, Optional
+from typing import Literal
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aml_filter.db.models import Entity as DBEntity
 from aml_filter.domain.entity import Alias, Entity, EntityIdentifier
-from aml_filter.domain.normalization import normalize_name, prepare_embedding_text
+from aml_filter.domain.normalization import prepare_embedding_text
 from aml_filter.domain.search import SearchQuery
 from aml_filter.embedding.service import EmbeddingService
-from aml_filter.search.hybrid_search import HybridSearchService
-from aml_filter.search.service import SearchService
 from aml_filter.scoring.policy import DefaultScoringPolicy, create_preset_policy
 from aml_filter.screening.match_tracker import MatchTracker
-
+from aml_filter.search.hybrid_search import HybridSearchService
+from aml_filter.search.service import SearchService
 
 EntityType = Literal["PERSON", "ORGANIZATION"]
 RiskCategory = Literal["SANCTION", "PEP", "CUSTOM", "WHITELIST"]
@@ -40,9 +39,9 @@ class BidirectionalScreeningService:
     def __init__(
         self,
         session: AsyncSession,
-        search_service: Optional[SearchService] = None,
-        match_tracker: Optional[MatchTracker] = None,
-        embedding_service: Optional[EmbeddingService] = None,
+        search_service: SearchService | None = None,
+        match_tracker: MatchTracker | None = None,
+        embedding_service: EmbeddingService | None = None,
     ):
         """
         Initialize bidirectional screening service.
@@ -61,8 +60,8 @@ class BidirectionalScreeningService:
     async def screen_whitelist_against_blacklist(
         self,
         tenant_id: str,
-        list_id: Optional[str] = None,
-        list_version: Optional[str] = None,
+        list_id: str | None = None,
+        list_version: str | None = None,
         threshold: float = 0.65,
         batch_size: int = 100,
     ) -> dict[str, int]:
@@ -116,8 +115,8 @@ class BidirectionalScreeningService:
 
     async def screen_blacklist_against_whitelist(
         self,
-        list_id: Optional[str] = None,
-        list_version: Optional[str] = None,
+        list_id: str | None = None,
+        list_version: str | None = None,
         threshold: float = 0.65,
         batch_size: int = 100,
     ) -> dict[str, int]:
@@ -186,11 +185,11 @@ class BidirectionalScreeningService:
         self,
         entity: DBEntity,
         target_risk_category: str,
-        list_id: Optional[str] = None,
-        list_version: Optional[str] = None,
+        list_id: str | None = None,
+        list_version: str | None = None,
         threshold: float = 0.65,
         match_type: str = "WHITELIST_VS_BLACKLIST",
-        tenant_id: Optional[str] = None,
+        tenant_id: str | None = None,
     ) -> list[str]:
         """
         Screen a single entity against entities of opposite type.
@@ -273,8 +272,6 @@ class BidirectionalScreeningService:
         entity_map = {e.entity_id: e for e in db_entities}
 
         # Score matches using search service's scoring
-        from aml_filter.scoring.policy import create_preset_policy
-        from aml_filter.scoring.policy import DefaultScoringPolicy
 
         scoring_policy = create_preset_policy(
             "balanced", f"default-{search_tenant_id or 'global'}", search_tenant_id or "global"
@@ -356,7 +353,6 @@ class BidirectionalScreeningService:
 
     def _db_to_domain_entity(self, db_entity: DBEntity) -> Entity:
         """Convert database entity to domain entity."""
-        from aml_filter.domain.entity import Alias
 
         # Parse aliases from JSONB
         aliases = []
@@ -370,7 +366,6 @@ class BidirectionalScreeningService:
                     )
                 )
 
-        from aml_filter.domain.entity import EntityIdentifier
 
         # Parse identifiers
         identifiers_dict = db_entity.identifiers or {}

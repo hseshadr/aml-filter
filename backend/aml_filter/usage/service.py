@@ -1,7 +1,6 @@
 """Usage metering service."""
 
 from datetime import datetime
-from typing import Optional
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,8 +13,8 @@ async def record_usage(
     tenant_id: str,
     event_type: str,
     units: int = 1,
-    request_id: Optional[str] = None,
-    job_id: Optional[str] = None,
+    request_id: str | None = None,
+    job_id: str | None = None,
 ) -> UsageMeter:
     """
     Record a usage event.
@@ -47,9 +46,9 @@ async def record_usage(
 async def get_usage_summary(
     session: AsyncSession,
     tenant_id: str,
-    start_date: Optional[datetime] = None,
-    end_date: Optional[datetime] = None,
-    event_type: Optional[str] = None,
+    start_date: datetime | None = None,
+    end_date: datetime | None = None,
+    event_type: str | None = None,
 ) -> dict[str, int]:
     """
     Get usage summary for a tenant.
@@ -87,9 +86,9 @@ async def get_usage_summary(
 async def get_usage_count(
     session: AsyncSession,
     tenant_id: str,
-    start_date: Optional[datetime] = None,
-    end_date: Optional[datetime] = None,
-    event_type: Optional[str] = None,
+    start_date: datetime | None = None,
+    end_date: datetime | None = None,
+    event_type: str | None = None,
 ) -> int:
     """
     Get total usage count for a tenant.

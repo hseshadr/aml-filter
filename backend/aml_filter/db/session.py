@@ -1,13 +1,12 @@
 """Database session management."""
 
-from typing import AsyncGenerator
+from collections.abc import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
     create_async_engine,
 )
-from sqlalchemy.orm import DeclarativeBase
 
 from aml_filter.db.models import Base
 
@@ -48,7 +47,7 @@ class Database:
         await self.engine.dispose()
 
 
-async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
+async def get_db_session() -> AsyncGenerator[AsyncSession]:
     """Get database session dependency."""
     # This will be properly configured with FastAPI dependency injection
     # For now, it's a placeholder

@@ -1,10 +1,9 @@
 """Batch processing API endpoints."""
 
-from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aml_filter.api.dependencies import get_db_session
@@ -20,6 +19,8 @@ router = APIRouter(prefix="/batch", tags=["batch"])
 class BatchJobResponse(BaseModel):
     """Response model for batch job."""
 
+    model_config = ConfigDict(from_attributes=True)
+
     job_id: str
     tenant_id: str
     job_name: str | None
@@ -31,9 +32,6 @@ class BatchJobResponse(BaseModel):
     started_at: str | None
     completed_at: str | None
     error_message: str | None
-
-    class Config:
-        from_attributes = True
 
 
 @router.post("", response_model=BatchJobResponse, status_code=status.HTTP_201_CREATED)
@@ -86,7 +84,7 @@ async def create_batch_job(
     # In production, use a task queue like RQ or Celery
     # For now, we use a separate session for the background task
     from aml_filter.api.dependencies import _db
-    
+
     async def run_batch_job(job_id: str) -> None:
         if _db is None:
             return

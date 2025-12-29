@@ -1,8 +1,8 @@
 """Service for tracking matches between whitelist and blacklist entities."""
 
 import uuid
-from datetime import datetime
-from typing import Any, Optional
+from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,8 +29,8 @@ class MatchTracker:
         blacklist_entity_id: str,
         match_score: float,
         match_type: str,
-        list_version: Optional[str] = None,
-        metadata: Optional[dict[str, Any]] = None,
+        list_version: str | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> WhitelistBlacklistMatch:
         """
         Record a match between whitelist and blacklist entities.
@@ -57,7 +57,7 @@ class MatchTracker:
         if existing:
             # Update existing match
             existing.match_score = match_score
-            existing.detected_at = datetime.utcnow()
+            existing.detected_at = datetime.now(UTC)
             existing.resolution_status = "PENDING"  # Reset if previously resolved
             if metadata:
                 existing.metadata_json.update(metadata)
@@ -87,7 +87,7 @@ class MatchTracker:
         tenant_id: str,
         whitelist_entity_id: str,
         blacklist_entity_id: str,
-    ) -> Optional[WhitelistBlacklistMatch]:
+    ) -> WhitelistBlacklistMatch | None:
         """
         Get a specific match if it exists.
 
@@ -111,7 +111,7 @@ class MatchTracker:
     async def get_matches_for_tenant(
         self,
         tenant_id: str,
-        resolution_status: Optional[str] = None,
+        resolution_status: str | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> list[WhitelistBlacklistMatch]:
@@ -141,7 +141,7 @@ class MatchTracker:
 
     async def get_unresolved_matches(
         self,
-        tenant_id: Optional[str] = None,
+        tenant_id: str | None = None,
         limit: int = 100,
     ) -> list[WhitelistBlacklistMatch]:
         """
@@ -170,8 +170,8 @@ class MatchTracker:
         self,
         match_id: str,
         resolution_status: str,
-        tenant_id: Optional[str] = None,
-    ) -> Optional[WhitelistBlacklistMatch]:
+        tenant_id: str | None = None,
+    ) -> WhitelistBlacklistMatch | None:
         """
         Resolve a match.
 
@@ -193,7 +193,7 @@ class MatchTracker:
 
         if match:
             match.resolution_status = resolution_status
-            match.resolved_at = datetime.utcnow()
+            match.resolved_at = datetime.now(UTC)
             await self.session.commit()
             await self.session.refresh(match)
 

@@ -6,7 +6,7 @@ from aml_filter.api.dependencies import get_db_session
 from aml_filter.security.middleware import require_api_key
 from aml_filter.db.models import ApiKey
 from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime
+from datetime import datetime, UTC
 
 app = FastAPI()
 app.include_router(router, prefix="/v1")
@@ -17,7 +17,7 @@ async def test_create_api_key_endpoint():
     app.dependency_overrides[get_db_session] = lambda: mock_session
     app.dependency_overrides[require_api_key] = lambda: "tenant-123"
     
-    now = datetime.utcnow()
+    now = datetime.now(UTC)
     mock_api_key = MagicMock(spec=ApiKey)
     mock_api_key.key_id = "ak-123"
     mock_api_key.name = "Test Key"
@@ -46,7 +46,7 @@ async def test_list_api_keys_endpoint():
     app.dependency_overrides[get_db_session] = lambda: mock_session
     app.dependency_overrides[require_api_key] = lambda: "tenant-123"
     
-    now = datetime.utcnow()
+    now = datetime.now(UTC)
     mock_api_key = MagicMock(spec=ApiKey)
     mock_api_key.key_id = "ak-123"
     mock_api_key.name = "Test Key"

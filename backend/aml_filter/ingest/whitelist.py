@@ -2,13 +2,13 @@
 
 import uuid
 from datetime import date, datetime
-from typing import Any, Optional
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aml_filter.db.models import Entity as DBEntity, EntityEmbedding
-from aml_filter.domain.entity import Entity
+from aml_filter.db.models import Entity as DBEntity
+from aml_filter.db.models import EntityEmbedding
 from aml_filter.domain.normalization import normalize_name, prepare_embedding_text
 from aml_filter.embedding.service import EmbeddingService
 
@@ -19,7 +19,7 @@ class WhitelistIngestionService:
     def __init__(
         self,
         session: AsyncSession,
-        embedding_service: Optional[EmbeddingService] = None,
+        embedding_service: EmbeddingService | None = None,
     ):
         """
         Initialize whitelist ingestion service.
@@ -36,11 +36,11 @@ class WhitelistIngestionService:
         tenant_id: str,
         name: str,
         entity_type: str = "PERSON",
-        dob: Optional[list[date]] = None,
-        country: Optional[str] = None,
-        aliases: Optional[list[dict[str, Any]]] = None,
-        identifiers: Optional[dict[str, Any]] = None,
-        metadata: Optional[dict[str, Any]] = None,
+        dob: list[date] | None = None,
+        country: str | None = None,
+        aliases: list[dict[str, Any]] | None = None,
+        identifiers: dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> DBEntity:
         """
         Add a customer to the whitelist.
@@ -147,6 +147,7 @@ class WhitelistIngestionService:
         # This is done asynchronously via background job
         try:
             import os
+
             from redis import Redis
             from rq import Queue
 
@@ -168,7 +169,7 @@ class WhitelistIngestionService:
 
     async def _find_existing_customer(
         self, tenant_id: str, name_canonical: str
-    ) -> Optional[DBEntity]:
+    ) -> DBEntity | None:
         """Find existing customer by name."""
         result = await self.session.execute(
             select(DBEntity).where(
@@ -186,11 +187,11 @@ class WhitelistIngestionService:
         name_canonical: str,
         name_tokens: list[str],
         name_trigram: str,
-        dob: Optional[list[date]],
-        country: Optional[str],
-        aliases: Optional[list[dict[str, Any]]],
-        identifiers: Optional[dict[str, Any]],
-        metadata: Optional[dict[str, Any]],
+        dob: list[date] | None,
+        country: str | None,
+        aliases: list[dict[str, Any]] | None,
+        identifiers: dict[str, Any] | None,
+        metadata: dict[str, Any] | None,
     ) -> DBEntity:
         """Update existing customer."""
         entity.primary_name = name

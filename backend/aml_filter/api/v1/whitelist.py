@@ -2,15 +2,16 @@
 
 import uuid
 from datetime import date
-from typing import Any, Optional
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aml_filter.api.dependencies import get_db_session
-from aml_filter.db.models import Entity as DBEntity, ScreeningJob, WhitelistBlacklistMatch
+from aml_filter.db.models import Entity as DBEntity
+from aml_filter.db.models import ScreeningJob
 from aml_filter.ingest.whitelist import WhitelistIngestionService
 from aml_filter.screening.bidirectional import BidirectionalScreeningService
 from aml_filter.screening.match_tracker import MatchTracker
@@ -31,46 +32,47 @@ class CustomerCreate(BaseModel):
 
     name: str = Field(..., min_length=1, max_length=500)
     entity_type: str = Field(default="PERSON", pattern="^(PERSON|ORGANIZATION)$")
-    dob: Optional[list[date]] = Field(None, description="List of dates of birth")
-    country: Optional[str] = Field(None, min_length=2, max_length=2, description="ISO 3166-1 alpha-2 country code")
-    aliases: Optional[list[dict[str, Any]]] = Field(None, description="List of aliases")
-    identifiers: Optional[dict[str, Any]] = Field(None, description="Identifiers dictionary")
-    metadata: Optional[dict[str, Any]] = Field(None, description="Optional metadata")
+    dob: list[date] | None = Field(None, description="List of dates of birth")
+    country: str | None = Field(None, min_length=2, max_length=2, description="ISO 3166-1 alpha-2 country code")
+    aliases: list[dict[str, Any]] | None = Field(None, description="List of aliases")
+    identifiers: dict[str, Any] | None = Field(None, description="Identifiers dictionary")
+    metadata: dict[str, Any] | None = Field(None, description="Optional metadata")
 
 
 class CustomerUpdate(BaseModel):
     """Request model for updating a whitelist customer."""
 
-    name: Optional[str] = Field(None, min_length=1, max_length=500)
-    entity_type: Optional[str] = Field(None, pattern="^(PERSON|ORGANIZATION)$")
-    dob: Optional[list[date]] = None
-    country: Optional[str] = Field(None, min_length=2, max_length=2)
-    aliases: Optional[list[dict[str, Any]]] = None
-    identifiers: Optional[dict[str, Any]] = None
-    metadata: Optional[dict[str, Any]] = None
+    name: str | None = Field(None, min_length=1, max_length=500)
+    entity_type: str | None = Field(None, pattern="^(PERSON|ORGANIZATION)$")
+    dob: list[date] | None = None
+    country: str | None = Field(None, min_length=2, max_length=2)
+    aliases: list[dict[str, Any]] | None = None
+    identifiers: dict[str, Any] | None = None
+    metadata: dict[str, Any] | None = None
 
 
 class CustomerResponse(BaseModel):
     """Response model for whitelist customer."""
+
+    model_config = ConfigDict(from_attributes=True)
 
     entity_id: str
     tenant_id: str
     entity_type: str
     primary_name: str
     name_canonical: str
-    dob: Optional[list[str]]
-    countries: Optional[list[str]]
+    dob: list[str] | None
+    countries: list[str] | None
     aliases: list[dict[str, Any]]
     identifiers: dict[str, Any]
     created_at: str
     updated_at: str
 
-    class Config:
-        from_attributes = True
-
 
 class MatchResponse(BaseModel):
     """Response model for whitelist-blacklist match."""
+
+    model_config = ConfigDict(from_attributes=True)
 
     match_id: str
     tenant_id: str
@@ -78,31 +80,27 @@ class MatchResponse(BaseModel):
     blacklist_entity_id: str
     match_score: float
     match_type: str
-    list_version: Optional[str]
+    list_version: str | None
     detected_at: str
-    resolution_status: Optional[str]
-    resolved_at: Optional[str]
-
-    class Config:
-        from_attributes = True
+    resolution_status: str | None
+    resolved_at: str | None
 
 
 class ScreeningJobResponse(BaseModel):
     """Response model for screening job."""
 
+    model_config = ConfigDict(from_attributes=True)
+
     job_id: str
-    tenant_id: Optional[str]
+    tenant_id: str | None
     job_type: str
-    trigger_type: Optional[str]
+    trigger_type: str | None
     status: str
     entities_scanned: int
     matches_found: int
-    started_at: Optional[str]
-    completed_at: Optional[str]
-    error_message: Optional[str]
-
-    class Config:
-        from_attributes = True
+    started_at: str | None
+    completed_at: str | None
+    error_message: str | None
 
 
 @router.post("/customers", response_model=CustomerResponse, status_code=status.HTTP_201_CREATED)
@@ -302,6 +300,7 @@ async def trigger_screening(
     # Enqueue background job
     try:
         import os
+
         from redis import Redis
         from rq import Queue
 
@@ -348,7 +347,7 @@ async def trigger_screening(
 async def get_matches(
     session: AsyncSession = Depends(get_db_session),
     tenant_id: str = Depends(require_api_key),
-    resolution_status: Optional[str] = Query(None, description="Filter by resolution status"),
+    resolution_status: str | None = Query(None, description="Filter by resolution status"),
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
 ) -> list[MatchResponse]:
@@ -417,7 +416,7 @@ async def resolve_match(
 async def list_screening_jobs(
     session: AsyncSession = Depends(get_db_session),
     tenant_id: str = Depends(require_api_key),
-    status_filter: Optional[str] = Query(None, alias="status", description="Filter by job status"),
+    status_filter: str | None = Query(None, alias="status", description="Filter by job status"),
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
 ) -> list[ScreeningJobResponse]:

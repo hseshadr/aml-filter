@@ -1,24 +1,24 @@
 """SQLAlchemy database models."""
 
-from datetime import date as DateType, datetime
+from datetime import date as DateType
+from datetime import datetime
 from typing import Any
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     ARRAY,
+    TIMESTAMP,
     Boolean,
     Date,
     ForeignKey,
     Index,
     Integer,
-    JSON,
     Numeric,
     String,
     Text,
-    TIMESTAMP,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 

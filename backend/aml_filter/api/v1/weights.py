@@ -1,10 +1,9 @@
 """Scoring policy/weights management API endpoints."""
 
-from typing import Literal, Optional
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
-
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,29 +25,30 @@ router = APIRouter(prefix="/weights", tags=["weights"])
 class WeightsResponse(BaseModel):
     """Response model for scoring weights."""
 
+    model_config = ConfigDict(from_attributes=True)
+
     policy_id: str
     tenant_id: str
     name: str
     weights: ScoringWeights
     threshold: float
     version: int
-    preset: Optional[str] = None
-
-    class Config:
-        from_attributes = True
+    preset: str | None = None
 
 
 class WeightsUpdate(BaseModel):
     """Request model for updating weights."""
 
-    name: Optional[str] = Field(None, min_length=1, max_length=200)
-    weights: Optional[ScoringWeights] = None
-    threshold: Optional[float] = Field(None, ge=0.0, le=1.0)
-    preset: Optional[str] = Field(None, pattern="^(strict|balanced|lenient|custom)$")
+    name: str | None = Field(None, min_length=1, max_length=200)
+    weights: ScoringWeights | None = None
+    threshold: float | None = Field(None, ge=0.0, le=1.0)
+    preset: str | None = Field(None, pattern="^(strict|balanced|lenient|custom)$")
 
 
 class PolicyVersionResponse(BaseModel):
     """Response model for policy version."""
+
+    model_config = ConfigDict(from_attributes=True)
 
     policy_id: str
     tenant_id: str
@@ -56,11 +56,8 @@ class PolicyVersionResponse(BaseModel):
     weights: ScoringWeights
     threshold: float
     version: int
-    preset: Optional[str] = None
+    preset: str | None = None
     is_active: bool
-
-    class Config:
-        from_attributes = True
 
 
 class RollbackRequest(BaseModel):

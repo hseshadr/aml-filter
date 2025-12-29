@@ -4,8 +4,6 @@ from typing import Any
 
 from sentence_transformers import SentenceTransformer
 
-from aml_filter.embedding.providers.base import EmbeddingProvider
-
 
 class SentenceTransformersProvider:
     """SentenceTransformers-based embedding provider."""
@@ -90,10 +88,10 @@ class SentenceTransformersProvider:
         all_embeddings: list[list[float]] = []
         for i in range(0, len(texts), batch_size):
             batch = texts[i : i + batch_size]
-            
+
             def encode_batch(b: list[str] = batch) -> Any:
                 return self.model.encode(b, batch_size=len(b), show_progress_bar=False)
-            
+
             embeddings = await loop.run_in_executor(None, encode_batch)
             all_embeddings.extend(emb.tolist() for emb in embeddings)
 
