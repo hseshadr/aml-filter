@@ -1,26 +1,14 @@
 """Scoring policy implementations."""
 
 from datetime import date
-from typing import Any, Final, Literal, Protocol, runtime_checkable
+from typing import Final, Literal, Protocol, runtime_checkable
 
 from aml_filter.domain.entity import Entity
 from aml_filter.domain.scoring import ScoringPolicy, ScoringWeights
+from aml_filter.domain.search import MatchExplanation, MatchSignal
 
 STRONG_SIMILARITY_THRESHOLD: Final[float] = 0.8
 DOB_HALF_MATCH_THRESHOLD: Final[float] = 0.5
-
-
-def _signal_dict(
-    name: str, value: object, weight: float, contribution: float, description: str
-) -> dict[str, Any]:
-    """Build the explanation-signal dict used by compute_score."""
-    return {
-        "name": name,
-        "value": value,
-        "weight": weight,
-        "contribution": contribution,
-        "description": description,
-    }
 
 
 def _summarize(
@@ -62,26 +50,8 @@ class ScoringPolicyProtocol(Protocol):
         query_entity_type: str | None,
         vector_similarity: float | None,
         trigram_similarity: float | None,
-    ) -> tuple[float, dict[str, Any]]:
-        """
-        Compute weighted score for an entity match.
-
-        Args:
-            entity: Entity to score
-            query_name: Original query name
-            query_name_canonical: Canonicalized query name
-            query_dob: Query date of birth (optional)
-            query_country: Query country code (optional)
-            query_entity_type: Query entity type (optional)
-            vector_similarity: Vector similarity score (0-1, None if not available)
-            trigram_similarity: Trigram similarity score (0-1, None if not available)
-
-        Returns:
-            Tuple of (score, explanation_dict) where explanation contains:
-            - signals: List of signal contributions
-            - total_score: Final weighted score
-            - summary: Human-readable summary
-        """
+    ) -> tuple[float, MatchExplanation]:
+        """Compute (score, explanation) for one (entity, query) pair."""
         ...
 
 
@@ -195,9 +165,9 @@ class DefaultScoringPolicy:
         query_entity_type: str | None,
         vector_similarity: float | None,
         trigram_similarity: float | None,
-    ) -> tuple[float, dict[str, Any]]:
-        """Compute weighted score for one (entity, query) pair. Returns (score, explanation)."""
-        signals: list[dict[str, Any]] = []
+    ) -> tuple[float, MatchExplanation]:
+        """Compute (score, explanation) for one (entity, query) pair."""
+        signals: list[MatchSignal] = []
         total = 0.0
 
         if vector_similarity is not None:
@@ -252,14 +222,20 @@ class DefaultScoringPolicy:
             entity, query_entity_type
         )
         signals.append(
-            _signal_dict("entity_type_match", entity_type_score, 0.0, 0.0, entity_type_desc)
+            MatchSignal(
+                name="entity_type_match",
+                value=entity_type_score,
+                weight=0.0,
+                contribution=0.0,
+                description=entity_type_desc,
+            )
         )
 
         final_score = max(0.0, min(1.0, total))
-        return final_score, {
-            "signals": signals,
-            "total_score": final_score,
-            "summary": _summarize(
+        return final_score, MatchExplanation(
+            signals=signals,
+            total_score=final_score,
+            summary=_summarize(
                 final_score,
                 vector_similarity,
                 trigram_similarity,
@@ -267,22 +243,30 @@ class DefaultScoringPolicy:
                 dob_score,
                 country_score,
             ),
-        }
+        )
 
     @staticmethod
     def _add_weighted_signal(
-        signals: list[dict[str, Any]],
+        signals: list[MatchSignal],
         name: str,
         score: float,
         weight: float,
         description: str,
         *,
-        value_override: object | None = None,
+        value_override: float | str | None = None,
     ) -> float:
-        """Append a weighted signal dict to `signals`; return its contribution to the total."""
+        """Append a MatchSignal to `signals`; return its contribution to the total."""
         contribution = weight * score
-        value: object = value_override if value_override is not None else score
-        signals.append(_signal_dict(name, value, weight, contribution, description))
+        value: float | str = score if value_override is None else value_override
+        signals.append(
+            MatchSignal(
+                name=name,
+                value=value,
+                weight=weight,
+                contribution=contribution,
+                description=description,
+            )
+        )
         return contribution
 
 

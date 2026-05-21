@@ -29,6 +29,24 @@ class MatchReason(BaseModel):
     description: str | None = None
 
 
+class MatchSignal(BaseModel):
+    """A single weighted signal contributing to a match score (internal scoring shape)."""
+
+    name: str = Field(..., min_length=1)
+    value: float | str = Field(...)
+    weight: float = Field(..., ge=0.0, le=1.0)
+    contribution: float = Field(..., ge=0.0, le=1.0)
+    description: str = Field(..., min_length=1)
+
+
+class MatchExplanation(BaseModel):
+    """Full per-match explanation returned by ScoringPolicyProtocol.compute_score."""
+
+    signals: list[MatchSignal] = Field(default_factory=list)
+    total_score: float = Field(..., ge=0.0, le=1.0)
+    summary: str = Field(..., min_length=1)
+
+
 class Match(BaseModel):
     """A matched entity with score and explanation."""
 

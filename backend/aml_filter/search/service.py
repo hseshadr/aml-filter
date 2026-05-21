@@ -14,7 +14,14 @@ from aml_filter.db.models import SearchRequest
 from aml_filter.domain.entity import Alias, Entity, EntityIdentifier
 from aml_filter.domain.normalization import normalize_name, prepare_embedding_text
 from aml_filter.domain.scoring import ScoringPolicy
-from aml_filter.domain.search import Match, MatchReason, SearchFilters, SearchQuery, SearchResponse
+from aml_filter.domain.search import (
+    Match,
+    MatchExplanation,
+    MatchReason,
+    SearchFilters,
+    SearchQuery,
+    SearchResponse,
+)
 from aml_filter.embedding.service import EmbeddingService
 from aml_filter.scoring.policy import DefaultScoringPolicy, create_preset_policy
 from aml_filter.search.hybrid_search import HybridSearchService
@@ -143,7 +150,7 @@ class SearchService:
         query: SearchQuery,
         query_name_canonical: str,
         policy: ScoringPolicy,
-    ) -> list[tuple[float, Entity, dict[str, Any]]]:
+    ) -> list[tuple[float, Entity, MatchExplanation]]:
         """Load candidate entities, score each against the query, return above-threshold sorted desc."""
         entity_ids = [eid for eid, _, _ in candidates]
         if not entity_ids:
@@ -154,7 +161,7 @@ class SearchService:
         entity_map = {e.entity_id: e for e in result.scalars().all()}
 
         scorer = DefaultScoringPolicy(policy)
-        scored: list[tuple[float, Entity, dict[str, Any]]] = []
+        scored: list[tuple[float, Entity, MatchExplanation]] = []
         for entity_id, _max_score, metadata in candidates:
             db_entity = entity_map.get(entity_id)
             if db_entity is None:
@@ -177,7 +184,7 @@ class SearchService:
 
     @staticmethod
     def _build_response_matches(
-        scored: list[tuple[float, Entity, dict[str, Any]]],
+        scored: list[tuple[float, Entity, MatchExplanation]],
     ) -> tuple[list[Match], dict[str, str]]:
         """Convert scored entities to API Match objects; collect source-list versions seen."""
         matches: list[Match] = []
@@ -186,13 +193,13 @@ class SearchService:
             list_versions_used[entity.source_list] = entity.list_version
             reasons = [
                 MatchReason(
-                    signal=s["name"],
-                    value=s["value"],
-                    weight=s.get("weight"),
-                    contribution=s.get("contribution"),
-                    description=s.get("description"),
+                    signal=s.name,
+                    value=s.value,
+                    weight=s.weight,
+                    contribution=s.contribution,
+                    description=s.description,
                 )
-                for s in explanation["signals"]
+                for s in explanation.signals
             ]
             matches.append(
                 Match(
@@ -206,7 +213,7 @@ class SearchService:
                     countries=entity.countries,
                     dob=entity.dob,
                     reasons=reasons,
-                    explanation=explanation["summary"],
+                    explanation=explanation.summary,
                 )
             )
         return matches, list_versions_used

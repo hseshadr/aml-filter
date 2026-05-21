@@ -161,7 +161,7 @@ warn_no_return = true
 warn_unreachable = true
 strict_equality = true
 show_error_codes = true
-disallow_any_explicit = false  # TODO(quality): enable after JSONB columns are typed (Play C)
+disallow_any_explicit = false  # TODO(quality): enable after SQLAlchemy Mapped[dict[str, Any]] JSONB columns are typed via TypeDecorator
 
 [[tool.mypy.overrides]]
 module = [

@@ -68,19 +68,19 @@ class TestDefaultScoringPolicy:
         )
 
         assert 0.0 <= score <= 1.0
-        assert "signals" in explanation
-        assert "total_score" in explanation
-        assert "summary" in explanation
+        assert explanation.signals
+        assert 0.0 <= explanation.total_score <= 1.0
+        assert explanation.summary
 
         # Check that vector and trigram contributions are included
-        signal_names = [s["name"] for s in explanation["signals"]]
+        signal_names = [s.name for s in explanation.signals]
         assert "name_vector" in signal_names
         assert "name_trigram" in signal_names
 
         # Verify contributions
-        vector_signal = next(s for s in explanation["signals"] if s["name"] == "name_vector")
-        assert vector_signal["value"] == 0.90
-        assert vector_signal["contribution"] == pytest.approx(0.55 * 0.90, abs=0.001)
+        vector_signal = next(s for s in explanation.signals if s.name == "name_vector")
+        assert vector_signal.value == 0.90
+        assert vector_signal.contribution == pytest.approx(0.55 * 0.90, abs=0.001)
 
     def test_compute_score_with_alias_match(
         self, balanced_policy: ScoringPolicy, test_entity: Entity
@@ -99,12 +99,12 @@ class TestDefaultScoringPolicy:
         )
 
         # Check for alias match signal
-        signal_names = [s["name"] for s in explanation["signals"]]
+        signal_names = [s.name for s in explanation.signals]
         assert "alias_match" in signal_names
 
-        alias_signal = next(s for s in explanation["signals"] if s["name"] == "alias_match")
-        assert alias_signal["value"] == "J. Doe"  # Matched alias name
-        assert alias_signal["contribution"] > 0
+        alias_signal = next(s for s in explanation.signals if s.name == "alias_match")
+        assert alias_signal.value == "J. Doe"  # Matched alias name
+        assert alias_signal.contribution > 0
 
     def test_compute_score_with_dob_match(
         self, balanced_policy: ScoringPolicy, test_entity: Entity
@@ -122,9 +122,9 @@ class TestDefaultScoringPolicy:
             trigram_similarity=0.75,
         )
 
-        dob_signal = next(s for s in explanation["signals"] if s["name"] == "dob_match")
-        assert dob_signal["value"] == 1.0  # Exact match
-        assert dob_signal["contribution"] == pytest.approx(0.10 * 1.0, abs=0.001)
+        dob_signal = next(s for s in explanation.signals if s.name == "dob_match")
+        assert dob_signal.value == 1.0  # Exact match
+        assert dob_signal.contribution == pytest.approx(0.10 * 1.0, abs=0.001)
 
     def test_compute_score_with_year_match(
         self, balanced_policy: ScoringPolicy, test_entity: Entity
@@ -142,9 +142,9 @@ class TestDefaultScoringPolicy:
             trigram_similarity=0.75,
         )
 
-        dob_signal = next(s for s in explanation["signals"] if s["name"] == "dob_match")
-        assert dob_signal["value"] == 0.5  # Year match
-        assert dob_signal["contribution"] == pytest.approx(0.10 * 0.5, abs=0.001)
+        dob_signal = next(s for s in explanation.signals if s.name == "dob_match")
+        assert dob_signal.value == 0.5  # Year match
+        assert dob_signal.contribution == pytest.approx(0.10 * 0.5, abs=0.001)
 
     def test_compute_score_with_country_match(
         self, balanced_policy: ScoringPolicy, test_entity: Entity
@@ -162,9 +162,9 @@ class TestDefaultScoringPolicy:
             trigram_similarity=0.75,
         )
 
-        country_signal = next(s for s in explanation["signals"] if s["name"] == "country_match")
-        assert country_signal["value"] > 0
-        assert country_signal["contribution"] > 0
+        country_signal = next(s for s in explanation.signals if s.name == "country_match")
+        assert country_signal.value > 0
+        assert country_signal.contribution > 0
 
     def test_compute_score_with_entity_type_match(
         self, balanced_policy: ScoringPolicy, test_entity: Entity
@@ -182,12 +182,10 @@ class TestDefaultScoringPolicy:
             trigram_similarity=0.75,
         )
 
-        entity_type_signal = next(
-            s for s in explanation["signals"] if s["name"] == "entity_type_match"
-        )
-        assert entity_type_signal["value"] == 1.0
+        entity_type_signal = next(s for s in explanation.signals if s.name == "entity_type_match")
+        assert entity_type_signal.value == 1.0
         # Entity type is not weighted, so contribution is 0
-        assert entity_type_signal["contribution"] == 0.0
+        assert entity_type_signal.contribution == 0.0
 
     def test_compute_score_no_vector_similarity(
         self, balanced_policy: ScoringPolicy, test_entity: Entity
@@ -205,7 +203,7 @@ class TestDefaultScoringPolicy:
             trigram_similarity=0.85,
         )
 
-        signal_names = [s["name"] for s in explanation["signals"]]
+        signal_names = [s.name for s in explanation.signals]
         assert "name_vector" not in signal_names
         assert "name_trigram" in signal_names
 
