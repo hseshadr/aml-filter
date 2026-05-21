@@ -1,4 +1,4 @@
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -39,35 +39,36 @@ def test_get_rate_limit_for_plan():
 
 
 @pytest.mark.asyncio
-@patch("aml_filter.security.rate_limit._redis_client")
-async def test_check_rate_limit_allowed(mock_redis):
+async def test_check_rate_limit_allowed():
     """Test rate limit check when allowed."""
-    mock_redis.incr = AsyncMock(return_value=50)
-    mock_redis.ttl = AsyncMock(return_value=60)
+    mock_redis = AsyncMock()
+    mock_redis.incr.return_value = 50
+    mock_redis.ttl.return_value = 60
 
-    allowed, remaining, reset_after = await check_rate_limit("tenant_1", "screen", limit=100)
+    allowed, remaining, reset_after = await check_rate_limit(
+        mock_redis, tenant_id="tenant_1", endpoint="screen", limit=100
+    )
     assert allowed is True
     assert remaining == 50
     assert reset_after == 60
 
 
 @pytest.mark.asyncio
-@patch("aml_filter.security.rate_limit._redis_client")
-async def test_check_rate_limit_exceeded(mock_redis):
+async def test_check_rate_limit_exceeded():
     """Test rate limit check when exceeded."""
-    mock_redis.incr = AsyncMock(return_value=101)
-    mock_redis.ttl = AsyncMock(return_value=60)
+    mock_redis = AsyncMock()
+    mock_redis.incr.return_value = 101
+    mock_redis.ttl.return_value = 60
 
-    allowed, remaining, reset_after = await check_rate_limit("tenant_1", "screen", limit=100)
+    allowed, remaining, _ = await check_rate_limit(
+        mock_redis, tenant_id="tenant_1", endpoint="screen", limit=100
+    )
     assert allowed is False
     assert remaining == 0
 
 
 @pytest.mark.asyncio
-@patch("aml_filter.security.rate_limit._redis_client")
-async def test_check_rate_limit_no_redis(mock_redis):
+async def test_check_rate_limit_no_redis():
     """Test rate limit check when Redis is not available."""
-    # If _redis_client is None, it should allow by default
-    with patch("aml_filter.security.rate_limit._redis_client", None):
-        allowed, remaining, reset_after = await check_rate_limit("tenant_1", "screen", limit=100)
-        assert allowed is True
+    allowed, _, _ = await check_rate_limit(None, tenant_id="tenant_1", endpoint="screen", limit=100)
+    assert allowed is True

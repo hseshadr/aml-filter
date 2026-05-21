@@ -68,6 +68,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             # Check rate limit
             try:
                 allowed, remaining, reset_after = await check_rate_limit(
+                    getattr(request.app.state, "redis_client", None),
                     tenant_id=tenant_id,
                     endpoint=endpoint,
                     limit=limit,

@@ -4,13 +4,13 @@ import asyncio
 import csv
 from io import StringIO
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aml_filter.api.dependencies import _db, get_db_session
+from aml_filter.api.dependencies import get_db_session
 from aml_filter.batch.parser import BatchParser
 from aml_filter.batch.service import BatchService
 from aml_filter.db.models import BatchJob
@@ -44,6 +44,7 @@ class BatchJobResponse(BaseModel):
 
 @router.post("", response_model=BatchJobResponse, status_code=status.HTTP_201_CREATED)
 async def create_batch_job(
+    request: Request,
     file: UploadFile = File(...),
     session: AsyncSession = Depends(get_db_session),
     tenant_id: str = Depends(require_api_key),
@@ -90,11 +91,13 @@ async def create_batch_job(
 
     # Queue job for processing
     # In production, use a task queue like RQ or Celery
-    # For now, we use a separate session for the background task
+    # For now, we use a separate session for the background task.
+    db = getattr(request.app.state, "db", None)
+
     async def run_batch_job(job_id: str) -> None:
-        if _db is None:
+        if db is None:
             return
-        async with _db.async_session_maker() as bg_session:
+        async with db.async_session_maker() as bg_session:
             bg_search = SearchService(session=bg_session)
             bg_batch = BatchService(session=bg_session, search_service=bg_search)
             await bg_batch.process_job(job_id)

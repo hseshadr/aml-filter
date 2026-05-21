@@ -77,7 +77,6 @@ async def session(engine) -> AsyncGenerator[AsyncSession]:
 
 from httpx import ASGITransport, AsyncClient
 
-from aml_filter.api.dependencies import set_database
 from aml_filter.api.main import app
 from aml_filter.db.session import Database
 
@@ -85,9 +84,8 @@ from aml_filter.db.session import Database
 @pytest.fixture
 async def client(engine, database_url) -> AsyncGenerator[AsyncClient]:
     """Create a test client for the FastAPI app."""
-    database = Database(database_url)
-    set_database(database)
-
+    app.state.db = Database(database_url)
+    app.state.redis_client = None
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         yield ac
 
