@@ -10,6 +10,44 @@ STRONG_SIMILARITY_THRESHOLD: Final[float] = 0.8
 DOB_HALF_MATCH_THRESHOLD: Final[float] = 0.5
 
 
+def _signal_dict(
+    name: str, value: object, weight: float, contribution: float, description: str
+) -> dict[str, Any]:
+    """Build the explanation-signal dict used by compute_score."""
+    return {
+        "name": name,
+        "value": value,
+        "weight": weight,
+        "contribution": contribution,
+        "description": description,
+    }
+
+
+def _summarize(
+    final_score: float,
+    vector_similarity: float | None,
+    trigram_similarity: float | None,
+    alias_score: float,
+    dob_score: float,
+    country_score: float,
+) -> str:
+    """Human-readable summary of which signals carried this match."""
+    parts: list[str] = []
+    if vector_similarity and vector_similarity > STRONG_SIMILARITY_THRESHOLD:
+        parts.append("strong vector similarity")
+    if trigram_similarity and trigram_similarity > STRONG_SIMILARITY_THRESHOLD:
+        parts.append("strong name match")
+    if alias_score > 0:
+        parts.append("alias match")
+    if dob_score >= DOB_HALF_MATCH_THRESHOLD:
+        parts.append("DOB match")
+    if country_score > 0:
+        parts.append("country match")
+    if parts:
+        return f"Match due to: {', '.join(parts)}"
+    return f"Low confidence match (score: {final_score:.3f})"
+
+
 @runtime_checkable
 class ScoringPolicyProtocol(Protocol):
     """Protocol for scoring policy implementations."""
@@ -158,142 +196,94 @@ class DefaultScoringPolicy:
         vector_similarity: float | None,
         trigram_similarity: float | None,
     ) -> tuple[float, dict[str, Any]]:
-        """
-        Compute weighted score for an entity match.
-
-        Args:
-            entity: Entity to score
-            query_name: Original query name (kept for protocol parity; not used here)
-            query_name_canonical: Canonicalized query name
-            query_dob: Query date of birth (optional)
-            query_country: Query country code (optional)
-            query_entity_type: Query entity type (optional)
-            vector_similarity: Vector similarity score (0-1, None if not available)
-            trigram_similarity: Trigram similarity score (0-1, None if not available)
-
-        Returns:
-            Tuple of (score, explanation_dict)
-        """
+        """Compute weighted score for one (entity, query) pair. Returns (score, explanation)."""
         signals: list[dict[str, Any]] = []
-        total_score = 0.0
+        total = 0.0
 
-        # 1. Vector similarity
         if vector_similarity is not None:
-            contribution = self.weights.name_vector * vector_similarity
-            total_score += contribution
-            signals.append(
-                {
-                    "name": "name_vector",
-                    "value": vector_similarity,
-                    "weight": self.weights.name_vector,
-                    "contribution": contribution,
-                    "description": f"Vector similarity: {vector_similarity:.3f}",
-                }
+            total += self._add_weighted_signal(
+                signals,
+                "name_vector",
+                vector_similarity,
+                self.weights.name_vector,
+                f"Vector similarity: {vector_similarity:.3f}",
             )
-
-        # 2. Trigram similarity
         if trigram_similarity is not None:
-            contribution = self.weights.name_trigram * trigram_similarity
-            total_score += contribution
-            signals.append(
-                {
-                    "name": "name_trigram",
-                    "value": trigram_similarity,
-                    "weight": self.weights.name_trigram,
-                    "contribution": contribution,
-                    "description": f"Trigram similarity: {trigram_similarity:.3f}",
-                }
+            total += self._add_weighted_signal(
+                signals,
+                "name_trigram",
+                trigram_similarity,
+                self.weights.name_trigram,
+                f"Trigram similarity: {trigram_similarity:.3f}",
             )
 
-        # 3. Alias match
         alias_score, matched_alias = self._compute_alias_match(entity, query_name_canonical)
         if alias_score > 0:
-            contribution = self.weights.alias_match * alias_score
-            total_score += contribution
-            signals.append(
-                {
-                    "name": "alias_match",
-                    "value": matched_alias or "",
-                    "weight": self.weights.alias_match,
-                    "contribution": contribution,
-                    "description": f"Alias match: {matched_alias}"
-                    if matched_alias
-                    else "No alias match",
-                }
+            total += self._add_weighted_signal(
+                signals,
+                "alias_match",
+                alias_score,
+                self.weights.alias_match,
+                f"Alias match: {matched_alias}" if matched_alias else "No alias match",
+                value_override=matched_alias or "",
             )
 
-        # 4. DOB match
         dob_score, dob_desc = self._compute_dob_match(entity, query_dob)
         if dob_score > 0 or query_dob is not None:
-            contribution = self.weights.dob_match * dob_score
-            total_score += contribution
-            signals.append(
-                {
-                    "name": "dob_match",
-                    "value": dob_score,
-                    "weight": self.weights.dob_match,
-                    "contribution": contribution,
-                    "description": dob_desc,
-                }
+            total += self._add_weighted_signal(
+                signals,
+                "dob_match",
+                dob_score,
+                self.weights.dob_match,
+                dob_desc,
             )
 
-        # 5. Country match
         country_score, country_desc = self._compute_country_match(entity, query_country)
         if country_score > 0 or query_country is not None:
-            contribution = self.weights.country_match * country_score
-            total_score += contribution
-            signals.append(
-                {
-                    "name": "country_match",
-                    "value": country_score,
-                    "weight": self.weights.country_match,
-                    "contribution": contribution,
-                    "description": country_desc,
-                }
+            total += self._add_weighted_signal(
+                signals,
+                "country_match",
+                country_score,
+                self.weights.country_match,
+                country_desc,
             )
 
-        # 6. Entity type match (not weighted, but included in explanation)
         entity_type_score, entity_type_desc = self._compute_entity_type_match(
             entity, query_entity_type
         )
         signals.append(
-            {
-                "name": "entity_type_match",
-                "value": entity_type_score,
-                "weight": 0.0,  # Not included in weighted score
-                "contribution": 0.0,
-                "description": entity_type_desc,
-            }
+            _signal_dict("entity_type_match", entity_type_score, 0.0, 0.0, entity_type_desc)
         )
 
-        # Normalize score to 0-1 range (should already be in range, but ensure)
-        final_score = max(0.0, min(1.0, total_score))
-
-        # Generate summary
-        summary_parts = []
-        if vector_similarity and vector_similarity > STRONG_SIMILARITY_THRESHOLD:
-            summary_parts.append("strong vector similarity")
-        if trigram_similarity and trigram_similarity > STRONG_SIMILARITY_THRESHOLD:
-            summary_parts.append("strong name match")
-        if alias_score > 0:
-            summary_parts.append("alias match")
-        if dob_score >= DOB_HALF_MATCH_THRESHOLD:
-            summary_parts.append("DOB match")
-        if country_score > 0:
-            summary_parts.append("country match")
-
-        if summary_parts:
-            summary = f"Match due to: {', '.join(summary_parts)}"
-        else:
-            summary = f"Low confidence match (score: {final_score:.3f})"
-
-        explanation = {
+        final_score = max(0.0, min(1.0, total))
+        return final_score, {
             "signals": signals,
             "total_score": final_score,
-            "summary": summary,
+            "summary": _summarize(
+                final_score,
+                vector_similarity,
+                trigram_similarity,
+                alias_score,
+                dob_score,
+                country_score,
+            ),
         }
 
-        return (final_score, explanation)
+    @staticmethod
+    def _add_weighted_signal(
+        signals: list[dict[str, Any]],
+        name: str,
+        score: float,
+        weight: float,
+        description: str,
+        *,
+        value_override: object | None = None,
+    ) -> float:
+        """Append a weighted signal dict to `signals`; return its contribution to the total."""
+        contribution = weight * score
+        value: object = value_override if value_override is not None else score
+        signals.append(_signal_dict(name, value, weight, contribution, description))
+        return contribution
 
 
 def create_preset_policy(

@@ -48,95 +48,59 @@ class OFACParser:
         return entities
 
     def _parse_sdn_entry(self, sdn_entry: ET.Element) -> Entity | None:
-        """Parse a single SDN entry."""
+        """Parse a single SDN entry into an Entity. Returns None for malformed/missing-uid rows."""
         try:
-            # Get uid (unique identifier)
-            uid_elem = sdn_entry.find("ofac:uid", self.namespace)
-            if uid_elem is None or uid_elem.text is None:
+            uid = self._read_element_text(sdn_entry, "ofac:uid")
+            if not uid:
                 return None
-
-            uid = uid_elem.text.strip()
-            entity_id = f"ofac:sdn:{uid}"
-
-            # Get primary name
-            first_name_elem = sdn_entry.find("ofac:firstName", self.namespace)
-            last_name_elem = sdn_entry.find("ofac:lastName", self.namespace)
-            title_elem = sdn_entry.find("ofac:title", self.namespace)
-
-            first_name = (
-                first_name_elem.text.strip()
-                if first_name_elem is not None and first_name_elem.text
-                else ""
-            )
-            last_name = (
-                last_name_elem.text.strip()
-                if last_name_elem is not None and last_name_elem.text
-                else ""
-            )
-            title = title_elem.text.strip() if title_elem is not None and title_elem.text else ""
-
-            # Build primary name
-            name_parts = [p for p in [title, first_name, last_name] if p]
-            primary_name = " ".join(name_parts) if name_parts else "UNKNOWN"
-
-            # Normalize name
+            primary_name = self._build_sdn_primary_name(sdn_entry)
             normalized = normalize_name(primary_name)
-
-            # Determine entity type
-            entity_type: Literal["PERSON", "ORGANIZATION"] = "PERSON"  # Default for SDN
-            type_elem = sdn_entry.find("ofac:sdnType", self.namespace)
-            if type_elem is not None and type_elem.text:
-                entity_type_text = type_elem.text.upper()
-                if "ORGANIZATION" in entity_type_text or "ENTITY" in entity_type_text:
-                    entity_type = "ORGANIZATION"
-
-            # Parse aliases
-            aliases = self._parse_aliases(sdn_entry)
-
-            # Parse DOB
-            dob_list = self._parse_dates_of_birth(sdn_entry)
-
-            # Parse locations
             countries, nationalities, addresses = self._parse_locations(sdn_entry)
-
-            # Parse identifiers
-            identifiers = self._parse_identifiers(sdn_entry)
-
-            # Get list version (from publication date if available)
-            list_version = datetime.now().strftime("%Y-%m-%d")  # Default to today
-
-            # Build raw source
-            raw_source = {
-                "uid": uid,
-                "xml_entry": ET.tostring(sdn_entry, encoding="unicode"),
-            }
-
-            entity = Entity(
-                entity_id=entity_id,
-                tenant_id=None,  # Global entity
-                entity_type=entity_type,
+            return Entity(
+                entity_id=f"ofac:sdn:{uid}",
+                tenant_id=None,
+                entity_type=self._read_sdn_entity_type(sdn_entry),
                 primary_name=primary_name,
                 name_canonical=normalized["name_canonical"],
                 name_tokens=normalized["name_tokens"],
                 name_trigram=normalized["name_trigram"],
-                aliases=aliases,
-                dob=dob_list,
+                aliases=self._parse_aliases(sdn_entry),
+                dob=self._parse_dates_of_birth(sdn_entry),
                 countries=countries,
                 nationalities=nationalities,
                 addresses=addresses,
-                identifiers=identifiers,
+                identifiers=self._parse_identifiers(sdn_entry),
                 risk_category="SANCTION",
                 source_list="OFAC_SDN",
-                list_version=list_version,
+                list_version=datetime.now().strftime("%Y-%m-%d"),
                 custom_list_id=None,
-                raw_source=raw_source,
+                raw_source={"uid": uid, "xml_entry": ET.tostring(sdn_entry, encoding="unicode")},
             )
-
-            return entity
-
         except (ET.ParseError, AttributeError, ValueError, KeyError) as exc:
             logger.warning("Skipping malformed SDN entry: %s", exc)
             return None
+
+    def _read_element_text(self, parent: ET.Element, tag: str) -> str:
+        """Return the stripped text of `parent/tag`, or empty string if missing."""
+        elem = parent.find(tag, self.namespace)
+        return elem.text.strip() if elem is not None and elem.text else ""
+
+    def _build_sdn_primary_name(self, sdn_entry: ET.Element) -> str:
+        """Join title + first + last into the primary name; 'UNKNOWN' if all empty."""
+        parts = [
+            self._read_element_text(sdn_entry, "ofac:title"),
+            self._read_element_text(sdn_entry, "ofac:firstName"),
+            self._read_element_text(sdn_entry, "ofac:lastName"),
+        ]
+        non_empty = [p for p in parts if p]
+        return " ".join(non_empty) if non_empty else "UNKNOWN"
+
+    def _read_sdn_entity_type(self, sdn_entry: ET.Element) -> Literal["PERSON", "ORGANIZATION"]:
+        """Read ofac:sdnType; ORGANIZATION if it contains ORGANIZATION/ENTITY, else PERSON."""
+        text = self._read_element_text(sdn_entry, "ofac:sdnType").upper()
+        if "ORGANIZATION" in text or "ENTITY" in text:
+            return "ORGANIZATION"
+        return "PERSON"
 
     def _parse_aliases(self, sdn_entry: ET.Element) -> list[Alias]:
         """Parse aliases from SDN entry."""

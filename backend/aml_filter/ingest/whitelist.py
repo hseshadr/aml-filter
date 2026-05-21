@@ -14,6 +14,56 @@ from aml_filter.embedding.service import EmbeddingService
 from aml_filter.queue import enqueue_screening
 
 
+def _normalize_aliases(aliases: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    """Normalize alias entries for JSONB storage; missing fields default to '' / 'user'."""
+    if not aliases:
+        return []
+    return [
+        {
+            "name": alias.get("name", ""),
+            "name_canonical": normalize_name(alias.get("name", ""))["name_canonical"],
+            "source": alias.get("source", "user"),
+        }
+        for alias in aliases
+    ]
+
+
+def _build_whitelist_entity(
+    *,
+    entity_id: str,
+    tenant_id: str,
+    name: str,
+    entity_type: str,
+    normalized: dict[str, Any],
+    dob: list[date] | None,
+    country: str | None,
+    aliases_json: list[dict[str, Any]],
+    identifiers_json: dict[str, Any],
+    metadata: dict[str, Any],
+) -> DBEntity:
+    """Construct a WHITELIST DBEntity row from the canonicalized customer payload."""
+    return DBEntity(
+        entity_id=entity_id,
+        tenant_id=tenant_id,
+        entity_type=entity_type,
+        primary_name=name,
+        name_canonical=normalized["name_canonical"],
+        name_tokens=normalized["name_tokens"],
+        name_trigram=normalized["name_trigram"],
+        aliases=aliases_json,
+        dob=dob or [],
+        countries=[country] if country else [],
+        nationalities=[],
+        addresses=[],
+        identifiers=identifiers_json,
+        risk_category="WHITELIST",
+        source_list="CUSTOMER_WHITELIST",
+        list_version=datetime.now().strftime("%Y-%m-%d"),
+        custom_list_id=None,
+        raw_source=metadata,
+    )
+
+
 class WhitelistIngestionService:
     """Service for ingesting whitelist customers."""
 
@@ -43,41 +93,16 @@ class WhitelistIngestionService:
         identifiers: dict[str, Any] | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> DBEntity:
-        """
-        Add a customer to the whitelist.
-
-        Args:
-            tenant_id: Tenant ID
-            name: Customer name
-            entity_type: 'PERSON' or 'ORGANIZATION'
-            dob: Optional list of dates of birth
-            country: Optional country code (ISO 3166-1 alpha-2)
-            aliases: Optional list of aliases
-            identifiers: Optional identifiers dictionary
-            metadata: Optional metadata dictionary
-
-        Returns:
-            Created entity record
-        """
-        # Normalize name
+        """Add (or update) a whitelist customer; triggers bidirectional screening on insert."""
         normalized = normalize_name(name)
-        name_canonical = normalized["name_canonical"]
-        name_tokens = normalized["name_tokens"]
-        name_trigram = normalized["name_trigram"]
-
-        # Generate entity ID
-        entity_id = f"whitelist:{tenant_id}:{uuid.uuid4().hex[:16]}"
-
-        # Check if entity already exists (by name and tenant)
-        existing = await self._find_existing_customer(tenant_id, name_canonical)
+        existing = await self._find_existing_customer(tenant_id, normalized["name_canonical"])
         if existing:
-            # Update existing
             return await self._update_customer(
                 existing,
                 name=name,
-                name_canonical=name_canonical,
-                name_tokens=name_tokens,
-                name_trigram=name_trigram,
+                name_canonical=normalized["name_canonical"],
+                name_tokens=normalized["name_tokens"],
+                name_trigram=normalized["name_trigram"],
                 dob=dob,
                 country=country,
                 aliases=aliases,
@@ -85,73 +110,45 @@ class WhitelistIngestionService:
                 metadata=metadata,
             )
 
-        # Prepare embedding text
-        embedding_text = prepare_embedding_text(name, country)
-
-        # Generate embedding
-        embedding_vector = await self.embedding_service.embed(embedding_text)
-
-        # Prepare aliases JSONB
-        aliases_json = []
-        if aliases:
-            for alias in aliases:
-                alias_normalized = normalize_name(alias.get("name", ""))
-                aliases_json.append(
-                    {
-                        "name": alias.get("name", ""),
-                        "name_canonical": alias_normalized["name_canonical"],
-                        "source": alias.get("source", "user"),
-                    }
-                )
-
-        # Prepare identifiers JSONB
-        identifiers_json = identifiers or {}
-
-        # Create entity
-        entity = DBEntity(
+        entity_id = f"whitelist:{tenant_id}:{uuid.uuid4().hex[:16]}"
+        entity = _build_whitelist_entity(
             entity_id=entity_id,
             tenant_id=tenant_id,
+            name=name,
             entity_type=entity_type,
-            primary_name=name,
-            name_canonical=name_canonical,
-            name_tokens=name_tokens,
-            name_trigram=name_trigram,
-            aliases=aliases_json,
-            dob=dob or [],
-            countries=[country] if country else [],
-            nationalities=[],
-            addresses=[],
-            identifiers=identifiers_json,
-            risk_category="WHITELIST",
-            source_list="CUSTOMER_WHITELIST",
-            list_version=datetime.now().strftime("%Y-%m-%d"),
-            custom_list_id=None,
-            raw_source=metadata or {},
+            normalized=normalized,
+            dob=dob,
+            country=country,
+            aliases_json=_normalize_aliases(aliases),
+            identifiers_json=identifiers or {},
+            metadata=metadata or {},
         )
+        embedding_vector = await self.embedding_service.embed(prepare_embedding_text(name, country))
+        await self._persist_entity_with_embedding(entity, embedding_vector)
 
-        self.session.add(entity)
-        await self.session.flush()
-
-        # Create embedding
-        embedding = EntityEmbedding(
-            entity_id=entity_id,
-            embedding=embedding_vector,
-            embedding_model=self.embedding_service.get_model_info()["model_name"],
-            model_version="default",
-        )
-        await self.session.merge(embedding)
-
-        await self.session.commit()
-        await self.session.refresh(entity)
-
-        # Trigger bidirectional screening for this new customer (fail-soft)
         enqueue_screening(
             "aml_filter.worker.screening_jobs.screen_blacklist_on_whitelist_update",
             tenant_id=tenant_id,
             whitelist_entity_id=entity_id,
         )
-
         return entity
+
+    async def _persist_entity_with_embedding(
+        self, entity: DBEntity, embedding_vector: list[float]
+    ) -> None:
+        """Add the entity + its embedding to the session, commit, and refresh."""
+        self.session.add(entity)
+        await self.session.flush()
+        await self.session.merge(
+            EntityEmbedding(
+                entity_id=entity.entity_id,
+                embedding=embedding_vector,
+                embedding_model=self.embedding_service.get_model_info()["model_name"],
+                model_version="default",
+            )
+        )
+        await self.session.commit()
+        await self.session.refresh(entity)
 
     async def _find_existing_customer(self, tenant_id: str, name_canonical: str) -> DBEntity | None:
         """Find existing customer by name."""

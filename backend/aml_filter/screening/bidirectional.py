@@ -1,6 +1,6 @@
 """Bidirectional screening service for whitelist vs blacklist matching."""
 
-from typing import Literal
+from typing import Any, Literal
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -190,153 +190,160 @@ class BidirectionalScreeningService:
         match_type: str = "WHITELIST_VS_BLACKLIST",
         tenant_id: str | None = None,
     ) -> list[str]:
-        """
-        Screen a single entity against entities of opposite type.
-
-        Args:
-            entity: Entity to screen
-            target_risk_category: Risk category to screen against ('WHITELIST' or 'SANCTION', 'PEP', 'CUSTOM')
-            list_id: Optional specific list ID
-            list_version: Optional specific list version
-            threshold: Match threshold
-            match_type: 'WHITELIST_VS_BLACKLIST' or 'BLACKLIST_VS_WHITELIST'
-            tenant_id: Tenant ID (required for whitelist screening)
-
-        Returns:
-            List of matched entity IDs
-        """
-        # Convert DB entity to domain entity
+        """Screen one entity against entities of the opposite risk category. Returns match IDs."""
         domain_entity = self._db_to_domain_entity(entity)
+        search_tenant_id = self._resolve_search_tenant_id(target_risk_category, tenant_id)
+        if target_risk_category == "WHITELIST" and search_tenant_id is None:
+            return []
 
-        # Determine tenant_id and filters for search
-        search_tenant_id = tenant_id
+        candidates = await self._search_candidates_for(
+            domain_entity, target_risk_category, list_id, search_tenant_id
+        )
+        scored = await self._score_candidates_against(domain_entity, candidates, threshold)
+        return await self._record_qualifying_matches(
+            scored, entity, target_risk_category, list_id, list_version, match_type, tenant_id
+        )
 
-        # Create filters to target specific risk category
-        safe_risk_cat = _safe_risk_category(target_risk_category)
-        search_filters = SearchFilters(
+    @staticmethod
+    def _resolve_search_tenant_id(target_risk_category: str, tenant_id: str | None) -> str | None:
+        """Pick the search-scope tenant — None for global blacklists, tenant_id for whitelists."""
+        return tenant_id if target_risk_category == "WHITELIST" else None
+
+    async def _search_candidates_for(
+        self,
+        domain_entity: Entity,
+        target_risk_category: str,
+        list_id: str | None,
+        search_tenant_id: str | None,
+    ) -> list[tuple[str, float, dict[str, Any]]]:
+        """Embed the entity and hybrid-search for opposite-side candidates."""
+        query_vector = await self.embedding_service.embed(
+            prepare_embedding_text(
+                domain_entity.primary_name,
+                domain_entity.countries[0] if domain_entity.countries else None,
+            )
+        )
+        filters = SearchFilters(
             source_lists=[list_id] if list_id else None,
-            risk_categories=[safe_risk_cat],  # Filter by target risk category
+            risk_categories=[_safe_risk_category(target_risk_category)],
             entity_types=[domain_entity.entity_type] if domain_entity.entity_type else None,
         )
-
-        if target_risk_category == "WHITELIST":
-            # Screening blacklist against whitelist - need tenant_id
-            if not search_tenant_id:
-                return []
-        else:
-            # Screening whitelist against blacklist - use None for global entities
-            search_tenant_id = None
-
-        # Use hybrid search directly with filters
-        # Prepare embedding text
-        embedding_text = prepare_embedding_text(
-            domain_entity.primary_name,
-            domain_entity.countries[0] if domain_entity.countries else None,
-        )
-        query_vector = await self.embedding_service.embed(embedding_text)
-
-        # Perform hybrid search with filters
         hybrid_search = HybridSearchService(session=self.session)
-        search_results = await hybrid_search.search(
+        return await hybrid_search.search(
             query_vector=query_vector,
             query_text=domain_entity.name_canonical,
             k=20,
             tenant_id=search_tenant_id,
-            filters=search_filters,
+            filters=filters,
         )
 
-        # Load entities for scoring
-        entity_ids = [entity_id for entity_id, _, _ in search_results]
+    async def _score_candidates_against(
+        self,
+        domain_entity: Entity,
+        candidates: list[tuple[str, float, dict[str, Any]]],
+        threshold: float,
+    ) -> list[tuple[float, str, DBEntity]]:
+        """Score each candidate against the source entity; keep matches above threshold, sorted desc."""
+        entity_ids = [eid for eid, _, _ in candidates]
         if not entity_ids:
             return []
-
-        # Load entities from database
-        stmt = select(DBEntity).where(DBEntity.entity_id.in_(entity_ids))
-        result = await self.session.execute(stmt)
-        db_entities = result.scalars().all()
-
-        # Create entity map
-        entity_map = {e.entity_id: e for e in db_entities}
-
-        # Score matches using search service's scoring
-
-        scoring_policy = create_preset_policy(
-            "balanced", f"default-{search_tenant_id or 'global'}", search_tenant_id or "global"
+        result = await self.session.execute(
+            select(DBEntity).where(DBEntity.entity_id.in_(entity_ids))
         )
-        scorer = DefaultScoringPolicy(scoring_policy)
+        entity_map = {e.entity_id: e for e in result.scalars().all()}
 
-        # Score each candidate
-        scored_matches = []
-        for entity_id, _max_score, metadata in search_results:
-            if entity_id not in entity_map:
+        scorer = DefaultScoringPolicy(
+            create_preset_policy("balanced", "bidirectional", "bidirectional")
+        )
+        scored: list[tuple[float, str, DBEntity]] = []
+        for entity_id, _max_score, metadata in candidates:
+            db_entity = entity_map.get(entity_id)
+            if db_entity is None:
                 continue
-
-            db_entity = entity_map[entity_id]
-            domain_match_entity = self._db_to_domain_entity(db_entity)
-
-            # Get similarities from search metadata
-            vector_sim = metadata.get("vector_score")
-            trigram_sim = metadata.get("lexical_score")
-
-            # Compute score (explanation not surfaced in bidirectional results)
-            score, _explanation = scorer.compute_score(
-                entity=domain_match_entity,
+            match_domain = self._db_to_domain_entity(db_entity)
+            score, _ = scorer.compute_score(
+                entity=match_domain,
                 query_name=domain_entity.primary_name,
                 query_name_canonical=domain_entity.name_canonical,
                 query_dob=domain_entity.dob[0] if domain_entity.dob else None,
                 query_country=domain_entity.countries[0] if domain_entity.countries else None,
                 query_entity_type=domain_entity.entity_type,
-                vector_similarity=vector_sim,
-                trigram_similarity=trigram_sim,
+                vector_similarity=metadata.get("vector_score"),
+                trigram_similarity=metadata.get("lexical_score"),
             )
-
-            # Filter by threshold
             if score >= threshold:
-                scored_matches.append((score, entity_id, db_entity))
+                scored.append((score, entity_id, db_entity))
+        scored.sort(key=lambda x: x[0], reverse=True)
+        return scored
 
-        # Sort by score (descending)
-        scored_matches.sort(key=lambda x: x[0], reverse=True)
-
-        # Record matches
-        matched_entity_ids = []
-        for score, entity_id, db_entity in scored_matches:
-            # Check if match is of target risk category
-            if db_entity.risk_category != target_risk_category:
+    async def _record_qualifying_matches(
+        self,
+        scored: list[tuple[float, str, DBEntity]],
+        source_entity: DBEntity,
+        target_risk_category: str,
+        list_id: str | None,
+        list_version: str | None,
+        match_type: str,
+        tenant_id: str | None,
+    ) -> list[str]:
+        """Filter scored matches by category/list/version, persist each, return their IDs."""
+        matched_ids: list[str] = []
+        for score, entity_id, db_entity in scored:
+            if not self._match_qualifies(db_entity, target_risk_category, list_id, list_version):
                 continue
+            await self._record_match(
+                target_risk_category,
+                source_entity,
+                db_entity,
+                entity_id,
+                score,
+                match_type,
+                list_version,
+                tenant_id,
+            )
+            matched_ids.append(entity_id)
+        return matched_ids
 
-            # Check list_id if specified
-            if list_id and db_entity.source_list != list_id:
-                continue
+    @staticmethod
+    def _match_qualifies(
+        db_entity: DBEntity,
+        target_risk_category: str,
+        list_id: str | None,
+        list_version: str | None,
+    ) -> bool:
+        """True iff this candidate's category, source_list, and list_version match the filters."""
+        if db_entity.risk_category != target_risk_category:
+            return False
+        if list_id and db_entity.source_list != list_id:
+            return False
+        if list_version and db_entity.list_version != list_version:  # noqa: SIM103
+            return False
+        return True
 
-            # Check list_version if specified
-            if list_version and db_entity.list_version != list_version:
-                continue
-
-            # Record match
-            if target_risk_category == "WHITELIST":
-                # Blacklist vs Whitelist
-                await self.match_tracker.record_match(
-                    tenant_id=tenant_id or "",
-                    whitelist_entity_id=entity_id,
-                    blacklist_entity_id=entity.entity_id,
-                    match_score=score,
-                    match_type=match_type,
-                    list_version=list_version or db_entity.list_version,
-                )
-            else:
-                # Whitelist vs Blacklist
-                await self.match_tracker.record_match(
-                    tenant_id=tenant_id or "",
-                    whitelist_entity_id=entity.entity_id,
-                    blacklist_entity_id=entity_id,
-                    match_score=score,
-                    match_type=match_type,
-                    list_version=list_version or db_entity.list_version,
-                )
-
-            matched_entity_ids.append(entity_id)
-
-        return matched_entity_ids
+    async def _record_match(
+        self,
+        target_risk_category: str,
+        source_entity: DBEntity,
+        match_db_entity: DBEntity,
+        match_entity_id: str,
+        score: float,
+        match_type: str,
+        list_version: str | None,
+        tenant_id: str | None,
+    ) -> None:
+        """Persist a single match via the match tracker (orientation depends on target side)."""
+        if target_risk_category == "WHITELIST":
+            whitelist_id, blacklist_id = match_entity_id, source_entity.entity_id
+        else:
+            whitelist_id, blacklist_id = source_entity.entity_id, match_entity_id
+        await self.match_tracker.record_match(
+            tenant_id=tenant_id or "",
+            whitelist_entity_id=whitelist_id,
+            blacklist_entity_id=blacklist_id,
+            match_score=score,
+            match_type=match_type,
+            list_version=list_version or match_db_entity.list_version,
+        )
 
     def _db_to_domain_entity(self, db_entity: DBEntity) -> Entity:
         """Convert database entity to domain entity."""

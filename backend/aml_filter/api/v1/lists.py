@@ -49,6 +49,95 @@ class CustomListUploadResponse(BaseModel):
     errors: list[dict[str, Any]] = []
 
 
+def _parse_uploaded_list(
+    content_str: str, filename: str
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Parse a CSV or JSON upload into (entities, per-row errors). Raises HTTPException on bad shape."""
+    if filename.endswith(".csv"):
+        return _parse_csv_rows(content_str)
+    if filename.endswith(".json"):
+        return _parse_json_items(content_str)
+    raise HTTPException(status_code=400, detail="Unsupported file format (CSV or JSON required)")
+
+
+def _parse_csv_rows(content_str: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Parse CSV rows. Empty `name` cells are recorded as errors and skipped."""
+    entities: list[dict[str, Any]] = []
+    errors: list[dict[str, Any]] = []
+    for i, row in enumerate(csv.DictReader(io.StringIO(content_str))):
+        if not row.get("name"):
+            errors.append({"row": i, "error": "Missing name"})
+            continue
+        entities.append(
+            {
+                "name": row["name"],
+                "type": row.get("type", "PERSON"),
+                "country": row.get("country"),
+                "dob": row.get("dob"),
+            }
+        )
+    return entities, errors
+
+
+def _parse_json_items(content_str: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Parse JSON (array or single object). Items missing `name` are recorded as errors."""
+    try:
+        data = json.loads(content_str)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail="Invalid JSON format") from exc
+    if not isinstance(data, list):
+        data = [data]
+    entities: list[dict[str, Any]] = []
+    errors: list[dict[str, Any]] = []
+    for i, item in enumerate(data):
+        if not item.get("name"):
+            errors.append({"item": i, "error": "Missing name"})
+            continue
+        entities.append(item)
+    return entities, errors
+
+
+async def _persist_custom_entity(
+    session: AsyncSession,
+    embedding_service: EmbeddingService,
+    item: dict[str, Any],
+    *,
+    list_id: str,
+    list_name: str,
+    version: str,
+    tenant_id: str,
+) -> None:
+    """Add one (Entity, EntityEmbedding) pair to the session for a custom-list row."""
+    name = str(item.get("name", ""))
+    country = item.get("country")
+    country_str = str(country) if country else None
+    normalized = normalize_name(name)
+    entity = Entity(
+        entity_id=f"{list_id}:{uuid.uuid4()}",
+        tenant_id=tenant_id,
+        entity_type=str(item.get("type", "PERSON")).upper(),
+        primary_name=name,
+        name_canonical=normalized["name_canonical"],
+        name_tokens=normalized["name_tokens"],
+        name_trigram=normalized["name_trigram"],
+        countries=[country_str] if country_str else [],
+        risk_category="CUSTOM",
+        source_list=list_name,
+        list_version=version,
+        custom_list_id=list_id,
+    )
+    session.add(entity)
+    vector = await embedding_service.embed(prepare_embedding_text(name, country_str))
+    session.add(
+        EntityEmbedding(
+            entity_id=entity.entity_id,
+            embedding=vector,
+            embedding_model="sentence-transformers",
+            model_version="default",
+        )
+    )
+
+
 @router.post(
     "/custom/upload", response_model=CustomListUploadResponse, status_code=status.HTTP_201_CREATED
 )
@@ -58,105 +147,37 @@ async def upload_custom_list(
     session: AsyncSession = Depends(get_db_session),
     tenant_id: str = Depends(require_api_key),
 ) -> CustomListUploadResponse:
-    """Upload a custom list (CSV or JSON)."""
-    # 1. Parse file
-    content = await file.read()
-    content_str = content.decode("utf-8")
-
-    entities_to_create = []
-    errors = []
-
-    filename = file.filename or ""
-    if filename.endswith(".csv"):
-        reader = csv.DictReader(io.StringIO(content_str))
-        for i, row in enumerate(reader):
-            if not row.get("name"):
-                errors.append({"row": i, "error": "Missing name"})
-                continue
-            entities_to_create.append(
-                {
-                    "name": row["name"],
-                    "type": row.get("type", "PERSON"),
-                    "country": row.get("country"),
-                    "dob": row.get("dob"),
-                }
-            )
-    elif filename.endswith(".json"):
-        try:
-            data = json.loads(content_str)
-            if not isinstance(data, list):
-                data = [data]
-            for i, item in enumerate(data):
-                if not item.get("name"):
-                    errors.append({"item": i, "error": "Missing name"})
-                    continue
-                entities_to_create.append(item)
-        except json.JSONDecodeError as exc:
-            raise HTTPException(status_code=400, detail="Invalid JSON format") from exc
-    else:
-        raise HTTPException(
-            status_code=400, detail="Unsupported file format (CSV or JSON required)"
-        )
-
+    """Upload a custom list (CSV or JSON) — persists entities + embeddings + list activation."""
+    content_str = (await file.read()).decode("utf-8")
+    entities_to_create, errors = _parse_uploaded_list(content_str, file.filename or "")
     if not entities_to_create:
         raise HTTPException(status_code=400, detail="No valid entities found in file")
 
-    # 2. Process entities
     list_id = f"custom:{tenant_id}:{uuid.uuid4().hex[:8]}"
     version = "v1"
-
     embedding_service = EmbeddingService()
-
     for item in entities_to_create:
-        name = str(item.get("name", ""))
-        entity_type_str = str(item.get("type", "PERSON")).upper()
-        country = item.get("country")
-        country_str = str(country) if country else None
-
-        normalized = normalize_name(name)
-        entity = Entity(
-            entity_id=f"{list_id}:{uuid.uuid4()}",
+        await _persist_custom_entity(
+            session,
+            embedding_service,
+            item,
+            list_id=list_id,
+            list_name=list_name,
+            version=version,
             tenant_id=tenant_id,
-            entity_type=entity_type_str,
-            primary_name=name,
-            name_canonical=normalized["name_canonical"],
-            name_tokens=normalized["name_tokens"],
-            name_trigram=normalized["name_trigram"],
-            countries=[country_str] if country_str else [],
-            risk_category="CUSTOM",
-            source_list=list_name,
-            list_version=version,
-            custom_list_id=list_id,
         )
-        session.add(entity)
 
-        # Generate and save embedding
-        emb_text = prepare_embedding_text(name, country_str)
-        vector = await embedding_service.embed(emb_text)
-
-        embedding = EntityEmbedding(
-            entity_id=entity.entity_id,
-            embedding=vector,
-            embedding_model="sentence-transformers",
-            model_version="default",
+    session.add(
+        ListVersion(
+            list_id=list_id,
+            version=version,
+            entity_count=len(entities_to_create),
+            ingested_at=func.now(),
+            activated_at=func.now(),
+            status="ACTIVE",
         )
-        session.add(embedding)
-
-    # 3. Create ListVersion record
-    lv = ListVersion(
-        list_id=list_id,
-        version=version,
-        entity_count=len(entities_to_create),
-        ingested_at=func.now(),
-        activated_at=func.now(),
-        status="ACTIVE",
     )
-    session.add(lv)
-
-    # 4. Enable list for tenant
-    config = TenantListConfig(tenant_id=tenant_id, list_id=list_id, enabled=True)
-    session.add(config)
-
+    session.add(TenantListConfig(tenant_id=tenant_id, list_id=list_id, enabled=True))
     await session.commit()
 
     return CustomListUploadResponse(
