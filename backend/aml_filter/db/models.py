@@ -1,7 +1,6 @@
 """SQLAlchemy database models."""
 
-from datetime import date as DateType
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 from pgvector.sqlalchemy import Vector
@@ -36,14 +35,18 @@ class Tenant(Base):
 
     tenant_id: Mapped[str] = mapped_column(String(100), primary_key=True)
     name: Mapped[str] = mapped_column(String(500), nullable=False)
-    plan: Mapped[str] = mapped_column(String(50), nullable=False)  # starter, professional, enterprise
+    plan: Mapped[str] = mapped_column(
+        String(50), nullable=False
+    )  # starter, professional, enterprise
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
-    metadata_json: Mapped[dict[str, Any]] = mapped_column("metadata", JSONB, default=dict, nullable=False)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(
+        "metadata", JSONB, default=dict, nullable=False
+    )
 
     # Relationships
     list_configs: Mapped[list["TenantListConfig"]] = relationship(
@@ -56,9 +59,7 @@ class Tenant(Base):
         "SearchRequest", back_populates="tenant", cascade="all, delete-orphan"
     )
 
-    __table_args__ = (
-        Index("idx_tenants_plan", "plan"),
-    )
+    __table_args__ = (Index("idx_tenants_plan", "plan"),)
 
 
 class Entity(Base):
@@ -76,12 +77,14 @@ class Entity(Base):
     name_tokens: Mapped[list[str]] = mapped_column(ARRAY(Text), default=list, nullable=False)
     name_trigram: Mapped[str] = mapped_column(String(500), nullable=False)
     aliases: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, default=list, nullable=False)
-    dob: Mapped[list[DateType] | None] = mapped_column(ARRAY(Date), nullable=True)
+    dob: Mapped[list[date] | None] = mapped_column(ARRAY(Date), nullable=True)
     countries: Mapped[list[str] | None] = mapped_column(ARRAY(String(2)), nullable=True)
     nationalities: Mapped[list[str] | None] = mapped_column(ARRAY(String(2)), nullable=True)
     addresses: Mapped[list[str] | None] = mapped_column(ARRAY(Text), nullable=True)
     identifiers: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=False)
-    risk_category: Mapped[str] = mapped_column(String(20), nullable=False)  # SANCTION, PEP, CUSTOM, WHITELIST
+    risk_category: Mapped[str] = mapped_column(
+        String(20), nullable=False
+    )  # SANCTION, PEP, CUSTOM, WHITELIST
     source_list: Mapped[str] = mapped_column(String(100), nullable=False)
     list_version: Mapped[str] = mapped_column(String(50), nullable=False)
     custom_list_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
@@ -155,7 +158,9 @@ class ListVersion(Base):
     ingested_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
     activated_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False)  # PENDING, ACTIVE, ARCHIVED
-    metadata_json: Mapped[dict[str, Any]] = mapped_column("metadata", JSONB, default=dict, nullable=False)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(
+        "metadata", JSONB, default=dict, nullable=False
+    )
 
     __table_args__ = (
         Index("idx_list_versions_status", "list_id", "status"),
@@ -181,9 +186,7 @@ class TenantListConfig(Base):
     # Relationships
     tenant: Mapped["Tenant"] = relationship("Tenant", back_populates="list_configs")
 
-    __table_args__ = (
-        Index("idx_tenant_list_configs_enabled", "tenant_id", "enabled"),
-    )
+    __table_args__ = (Index("idx_tenant_list_configs_enabled", "tenant_id", "enabled"),)
 
 
 class ScoringPolicy(Base):
@@ -317,7 +320,9 @@ class WhitelistBlacklistMatch(Base):
         String(500), ForeignKey("entities.entity_id", ondelete="CASCADE"), nullable=False
     )
     match_score: Mapped[float] = mapped_column(Numeric(5, 4), nullable=False)
-    match_type: Mapped[str] = mapped_column(String(50), nullable=False)  # WHITELIST_VS_BLACKLIST, BLACKLIST_VS_WHITELIST
+    match_type: Mapped[str] = mapped_column(
+        String(50), nullable=False
+    )  # WHITELIST_VS_BLACKLIST, BLACKLIST_VS_WHITELIST
     list_version: Mapped[str | None] = mapped_column(String(50), nullable=True)
     detected_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
@@ -327,7 +332,9 @@ class WhitelistBlacklistMatch(Base):
     resolution_status: Mapped[str | None] = mapped_column(
         String(20), nullable=True
     )  # PENDING, FALSE_POSITIVE, TRUE_POSITIVE, RESOLVED
-    metadata_json: Mapped[dict[str, Any]] = mapped_column("metadata", JSONB, default=dict, nullable=False)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(
+        "metadata", JSONB, default=dict, nullable=False
+    )
 
     __table_args__ = (
         Index("idx_wb_matches_tenant", "tenant_id"),
@@ -347,17 +354,25 @@ class ScreeningJob(Base):
     tenant_id: Mapped[str | None] = mapped_column(
         String(100), ForeignKey("tenants.tenant_id", ondelete="CASCADE"), nullable=True
     )
-    job_type: Mapped[str] = mapped_column(String(50), nullable=False)  # WHITELIST_SCAN, BLACKLIST_SCAN, BIDIRECTIONAL
-    trigger_type: Mapped[str | None] = mapped_column(String(50), nullable=True)  # LIST_UPDATE, MANUAL, SCHEDULED
+    job_type: Mapped[str] = mapped_column(
+        String(50), nullable=False
+    )  # WHITELIST_SCAN, BLACKLIST_SCAN, BIDIRECTIONAL
+    trigger_type: Mapped[str | None] = mapped_column(
+        String(50), nullable=True
+    )  # LIST_UPDATE, MANUAL, SCHEDULED
     list_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     list_version: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    status: Mapped[str] = mapped_column(String(20), nullable=False)  # PENDING, RUNNING, COMPLETED, FAILED
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False
+    )  # PENDING, RUNNING, COMPLETED, FAILED
     entities_scanned: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     matches_found: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     started_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
-    metadata_json: Mapped[dict[str, Any]] = mapped_column("metadata", JSONB, default=dict, nullable=False)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(
+        "metadata", JSONB, default=dict, nullable=False
+    )
 
     __table_args__ = (
         Index("idx_screening_jobs_tenant", "tenant_id"),
@@ -377,7 +392,9 @@ class BatchJob(Base):
         String(100), ForeignKey("tenants.tenant_id", ondelete="CASCADE"), nullable=False
     )
     job_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
-    status: Mapped[str] = mapped_column(String(20), default="PENDING", nullable=False)  # PENDING, RUNNING, COMPLETED, FAILED
+    status: Mapped[str] = mapped_column(
+        String(20), default="PENDING", nullable=False
+    )  # PENDING, RUNNING, COMPLETED, FAILED
     total_records: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     processed_records: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     matches_found: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
@@ -387,7 +404,9 @@ class BatchJob(Base):
     started_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
-    metadata_json: Mapped[dict[str, Any]] = mapped_column("metadata", JSONB, default=dict, nullable=False)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(
+        "metadata", JSONB, default=dict, nullable=False
+    )
 
     tenant: Mapped["Tenant"] = relationship("Tenant")
 
@@ -395,4 +414,3 @@ class BatchJob(Base):
         Index("idx_batch_jobs_tenant", "tenant_id", "status"),
         Index("idx_batch_jobs_status", "status", "created_at"),
     )
-

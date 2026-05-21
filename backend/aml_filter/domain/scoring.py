@@ -1,8 +1,10 @@
 """Scoring policy domain models."""
 
-from typing import Literal
+from typing import Final, Literal
 
-from pydantic import BaseModel, Field, ValidationInfo, field_validator
+from pydantic import BaseModel, Field, field_validator
+
+WEIGHT_SUM_TOLERANCE: Final[float] = 0.01
 
 
 class ScoringWeights(BaseModel):
@@ -35,20 +37,13 @@ class ScoringPolicy(BaseModel):
 
     @field_validator("weights", mode="after")
     @classmethod
-    def validate_weights_sum(cls, v: ScoringWeights, info: ValidationInfo) -> ScoringWeights:
+    def validate_weights_sum(cls, v: ScoringWeights) -> ScoringWeights:
         """Validate that all weights sum to approximately 1.0."""
-        total = (
-            v.name_vector
-            + v.name_trigram
-            + v.alias_match
-            + v.dob_match
-            + v.country_match
-        )
-        if abs(total - 1.0) > 0.01:
+        total = v.name_vector + v.name_trigram + v.alias_match + v.dob_match + v.country_match
+        if abs(total - 1.0) > WEIGHT_SUM_TOLERANCE:
             raise ValueError(
                 f"Weights must sum to 1.0, got {total:.3f}. "
                 f"Adjust weights: vector={v.name_vector}, trigram={v.name_trigram}, "
                 f"alias={v.alias_match}, dob={v.dob_match}, country={v.country_match}"
             )
         return v
-

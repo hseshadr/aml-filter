@@ -15,7 +15,9 @@ router = APIRouter(prefix="/tenants", tags=["tenants"])
 class TenantCreate(BaseModel):
     """Request model for creating a tenant."""
 
-    tenant_id: str = Field(..., min_length=1, max_length=100, description="Unique tenant identifier")
+    tenant_id: str = Field(
+        ..., min_length=1, max_length=100, description="Unique tenant identifier"
+    )
     name: str = Field(..., min_length=1, max_length=500, description="Tenant name")
     plan: str = Field(
         default="starter",
@@ -139,4 +141,3 @@ async def list_tenants(
         )
         for tenant in tenants
     ]
-

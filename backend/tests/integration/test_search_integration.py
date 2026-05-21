@@ -1,14 +1,17 @@
 """Integration tests for complete search pipeline with PostgreSQL."""
 
-import pytest
 from datetime import date
-from aml_filter.db.models import Entity as DBEntity, EntityEmbedding, ListVersion, Tenant
-from aml_filter.domain.entity import Alias, Entity
+
+import pytest
+
+from aml_filter.db.models import Entity as DBEntity
+from aml_filter.db.models import EntityEmbedding
 from aml_filter.domain.normalization import prepare_embedding_text
 from aml_filter.domain.search import SearchQuery
 from aml_filter.embedding.service import EmbeddingService
-from aml_filter.search.service import SearchService
 from aml_filter.scoring.policy import create_preset_policy
+from aml_filter.search.service import SearchService
+
 
 @pytest.mark.integration
 class TestSearchIntegration:
@@ -25,9 +28,7 @@ class TestSearchIntegration:
             name_canonical="john doe",
             name_tokens=["john", "doe"],
             name_trigram="john doe",
-            aliases=[
-                {"name": "J. Doe", "name_canonical": "j. doe", "source": "OFAC"}
-            ],
+            aliases=[{"name": "J. Doe", "name_canonical": "j. doe", "source": "OFAC"}],
             dob=[date(1980, 1, 15)],
             countries=["US"],
             risk_category="SANCTION",

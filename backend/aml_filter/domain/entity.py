@@ -43,4 +43,3 @@ class Entity(BaseModel):
     list_version: str = Field(..., min_length=1, max_length=50)
     custom_list_id: str | None = Field(None, max_length=200)
     raw_source: dict[str, Any] = Field(default_factory=dict)
-

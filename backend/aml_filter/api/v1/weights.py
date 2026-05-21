@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aml_filter.api.dependencies import get_db_session
+from aml_filter.db.models import ScoringPolicy
 from aml_filter.domain.scoring import ScoringWeights
 from aml_filter.scoring.policy import create_preset_policy
 from aml_filter.scoring.service import (
@@ -146,14 +147,11 @@ async def get_policy_history(
     tenant_id: str = Depends(require_api_key),
 ) -> list[PolicyVersionResponse]:
     """Get the version history of scoring policies."""
-    from aml_filter.db.models import ScoringPolicy
-
     policies = await list_policy_versions(session, tenant_id)
 
     # Get active status
     result = await session.execute(
-        select(ScoringPolicy)
-        .where(
+        select(ScoringPolicy).where(
             ScoringPolicy.tenant_id == tenant_id,
             ScoringPolicy.is_active.is_(True),
         )
@@ -198,4 +196,3 @@ async def rollback_policy(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
         ) from e
-

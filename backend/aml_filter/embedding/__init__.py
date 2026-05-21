@@ -4,4 +4,3 @@ from aml_filter.embedding.providers import EmbeddingProvider, SentenceTransforme
 from aml_filter.embedding.service import EmbeddingService
 
 __all__ = ["EmbeddingProvider", "EmbeddingService", "SentenceTransformersProvider"]
-

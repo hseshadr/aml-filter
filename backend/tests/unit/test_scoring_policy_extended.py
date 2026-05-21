@@ -4,7 +4,7 @@ from datetime import date
 
 import pytest
 
-from aml_filter.domain.entity import Alias, Entity, EntityIdentifier
+from aml_filter.domain.entity import Alias, Entity
 from aml_filter.domain.scoring import ScoringPolicy, ScoringWeights
 from aml_filter.scoring.policy import (
     DefaultScoringPolicy,
@@ -166,7 +166,9 @@ class TestDefaultScoringPolicyEdgeCases:
             list_version="2024-01",
         )
 
-    def test_no_similarities_provided(self, strict_policy: ScoringPolicy, entity_no_aliases: Entity):
+    def test_no_similarities_provided(
+        self, strict_policy: ScoringPolicy, entity_no_aliases: Entity
+    ):
         """Test scoring with no similarities provided."""
         scorer = DefaultScoringPolicy(strict_policy)
         score, explanation = scorer.compute_score(
@@ -284,9 +286,7 @@ class TestDefaultScoringPolicyEdgeCases:
         dob_signal = next(s for s in explanation["signals"] if s["name"] == "dob_match")
         assert dob_signal["value"] == 0.5
 
-    def test_entity_no_dob_query_has_dob(
-        self, strict_policy: ScoringPolicy, entity_no_dob: Entity
-    ):
+    def test_entity_no_dob_query_has_dob(self, strict_policy: ScoringPolicy, entity_no_dob: Entity):
         """Test DOB scoring when entity has no DOB but query does."""
         scorer = DefaultScoringPolicy(strict_policy)
         score, explanation = scorer.compute_score(
@@ -304,9 +304,7 @@ class TestDefaultScoringPolicyEdgeCases:
         assert dob_signal["value"] == 0.0
         assert "No DOB provided or entity has no DOB" in dob_signal["description"]
 
-    def test_country_no_match(
-        self, strict_policy: ScoringPolicy, entity_single_country: Entity
-    ):
+    def test_country_no_match(self, strict_policy: ScoringPolicy, entity_single_country: Entity):
         """Test country scoring with no match."""
         scorer = DefaultScoringPolicy(strict_policy)
         score, explanation = scorer.compute_score(
@@ -401,9 +399,7 @@ class TestDefaultScoringPolicyEdgeCases:
         assert country_signal["value"] == 0.0
         assert "No country provided or entity has no countries" in country_signal["description"]
 
-    def test_entity_type_mismatch(
-        self, strict_policy: ScoringPolicy, entity_no_countries: Entity
-    ):
+    def test_entity_type_mismatch(self, strict_policy: ScoringPolicy, entity_no_countries: Entity):
         """Test entity type mismatch."""
         scorer = DefaultScoringPolicy(strict_policy)
         score, explanation = scorer.compute_score(
@@ -444,9 +440,7 @@ class TestDefaultScoringPolicyEdgeCases:
         )
         assert entity_type_signal["value"] == 1.0
 
-    def test_alias_exact_match(
-        self, strict_policy: ScoringPolicy, entity_many_aliases: Entity
-    ):
+    def test_alias_exact_match(self, strict_policy: ScoringPolicy, entity_many_aliases: Entity):
         """Test alias exact match."""
         scorer = DefaultScoringPolicy(strict_policy)
         score, explanation = scorer.compute_score(
@@ -486,9 +480,7 @@ class TestDefaultScoringPolicyEdgeCases:
         # Should have partial match (0.5 score)
         assert alias_signal["contribution"] > 0
 
-    def test_alias_no_match(
-        self, strict_policy: ScoringPolicy, entity_many_aliases: Entity
-    ):
+    def test_alias_no_match(self, strict_policy: ScoringPolicy, entity_many_aliases: Entity):
         """Test alias with no match."""
         scorer = DefaultScoringPolicy(strict_policy)
         score, explanation = scorer.compute_score(
@@ -527,9 +519,7 @@ class TestDefaultScoringPolicyEdgeCases:
         # Should still score well due to vector/trigram similarity
         assert score > 0.5
 
-    def test_summary_strong_vector(
-        self, strict_policy: ScoringPolicy, entity_no_aliases: Entity
-    ):
+    def test_summary_strong_vector(self, strict_policy: ScoringPolicy, entity_no_aliases: Entity):
         """Test summary includes strong vector similarity."""
         scorer = DefaultScoringPolicy(strict_policy)
         _, explanation = scorer.compute_score(

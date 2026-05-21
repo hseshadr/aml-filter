@@ -21,11 +21,9 @@ __all__ = [
     "ApiKey",
     "Base",
     "BatchJob",
-    "create_database",
     "Database",
     "Entity",
     "EntityEmbedding",
-    "get_db_session",
     "ListVersion",
     "ScoringPolicy",
     "ScreeningJob",
@@ -34,4 +32,6 @@ __all__ = [
     "TenantListConfig",
     "UsageMeter",
     "WhitelistBlacklistMatch",
+    "create_database",
+    "get_db_session",
 ]

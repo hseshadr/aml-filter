@@ -6,9 +6,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aml_filter.db.models import Entity as DBEntity
+from aml_filter.db.models import Tenant
 from aml_filter.domain.entity import Alias, Entity, EntityIdentifier
 from aml_filter.domain.normalization import prepare_embedding_text
-from aml_filter.domain.search import SearchQuery
+from aml_filter.domain.search import SearchFilters
 from aml_filter.embedding.service import EmbeddingService
 from aml_filter.scoring.policy import DefaultScoringPolicy, create_preset_policy
 from aml_filter.screening.match_tracker import MatchTracker
@@ -150,8 +151,6 @@ class BidirectionalScreeningService:
         matches_found = 0
 
         # Get all tenants with whitelists
-        from aml_filter.db.models import Tenant
-
         tenants_query = select(Tenant)
         tenants_result = await self.session.execute(tenants_query)
         tenants = list(tenants_result.scalars().all())
@@ -209,20 +208,8 @@ class BidirectionalScreeningService:
         # Convert DB entity to domain entity
         domain_entity = self._db_to_domain_entity(entity)
 
-        # Create search query from entity
-        search_query = SearchQuery(
-            name=domain_entity.primary_name,
-            entity_type=domain_entity.entity_type,
-            dob=domain_entity.dob[0] if domain_entity.dob else None,
-            country=domain_entity.countries[0] if domain_entity.countries else None,
-            threshold=threshold,
-            k=20,  # Get top 20 matches
-            lists=[list_id] if list_id else None,
-        )
-
         # Determine tenant_id and filters for search
         search_tenant_id = tenant_id
-        from aml_filter.domain.search import SearchFilters
 
         # Create filters to target specific risk category
         safe_risk_cat = _safe_risk_category(target_risk_category)
@@ -280,7 +267,7 @@ class BidirectionalScreeningService:
 
         # Score each candidate
         scored_matches = []
-        for entity_id, max_score, metadata in search_results:
+        for entity_id, _max_score, metadata in search_results:
             if entity_id not in entity_map:
                 continue
 
@@ -291,8 +278,8 @@ class BidirectionalScreeningService:
             vector_sim = metadata.get("vector_score")
             trigram_sim = metadata.get("lexical_score")
 
-            # Compute score
-            score, explanation = scorer.compute_score(
+            # Compute score (explanation not surfaced in bidirectional results)
+            score, _explanation = scorer.compute_score(
                 entity=domain_match_entity,
                 query_name=domain_entity.primary_name,
                 query_name_canonical=domain_entity.name_canonical,
@@ -366,7 +353,6 @@ class BidirectionalScreeningService:
                     )
                 )
 
-
         # Parse identifiers
         identifiers_dict = db_entity.identifiers or {}
         identifiers = EntityIdentifier(
@@ -395,4 +381,3 @@ class BidirectionalScreeningService:
             custom_list_id=db_entity.custom_list_id,
             raw_source=db_entity.raw_source or {},
         )
-

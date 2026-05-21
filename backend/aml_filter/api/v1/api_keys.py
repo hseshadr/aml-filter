@@ -1,6 +1,5 @@
 """API key management endpoints."""
 
-
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
@@ -18,9 +17,7 @@ class ApiKeyCreate(BaseModel):
     """Request model for creating an API key."""
 
     name: str | None = Field(None, max_length=200, description="Optional name for the key")
-    expires_in_days: int | None = Field(
-        None, ge=1, description="Optional expiration in days"
-    )
+    expires_in_days: int | None = Field(None, ge=1, description="Optional expiration in days")
 
 
 class ApiKeyResponse(BaseModel):
@@ -68,9 +65,7 @@ async def create_api_key_endpoint(
     )
 
     # Get the created key to return full details
-    result = await session.execute(
-        select(ApiKey).where(ApiKey.key_id == key_id)
-    )
+    result = await session.execute(select(ApiKey).where(ApiKey.key_id == key_id))
     api_key = result.scalar_one()
 
     return ApiKeyCreateResponse(
@@ -119,4 +114,3 @@ async def revoke_api_key_endpoint(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"API key {key_id} not found or already revoked",
         )
-

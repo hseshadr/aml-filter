@@ -92,8 +92,8 @@ async def list_audit_records(
     offset: int = Query(0, ge=0),
 ) -> AuditListResponse:
     """List audit records for the tenant with optional date filtering."""
-    count_stmt = select(func.count()).select_from(SearchRequest).where(
-        SearchRequest.tenant_id == tenant_id
+    count_stmt = (
+        select(func.count()).select_from(SearchRequest).where(SearchRequest.tenant_id == tenant_id)
     )
     stmt = select(SearchRequest).where(SearchRequest.tenant_id == tenant_id)
 
@@ -130,4 +130,3 @@ async def list_audit_records(
     ]
 
     return AuditListResponse(total=total, items=items, limit=limit, offset=offset)
-

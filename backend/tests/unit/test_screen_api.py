@@ -1,7 +1,7 @@
-import pytest
+from unittest.mock import AsyncMock
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from unittest.mock import AsyncMock
 
 from aml_filter.api.dependencies import get_db_session
 from aml_filter.api.v1.screen import get_search_service, router
@@ -34,5 +34,3 @@ def test_screen_endpoint_returns_500_on_internal_error() -> None:
     resp = client.post("/v1/screen", json={"name": "John Doe"})
     assert resp.status_code == 500
     assert "Search failed" in resp.json()["detail"]
-
-

@@ -5,9 +5,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from aml_filter.db.models import Entity as DBEntity, Tenant
-from aml_filter.domain.entity import Alias, Entity
-from aml_filter.domain.search import SearchFilters, SearchQuery
+from aml_filter.db.models import Entity as DBEntity
+from aml_filter.db.models import Tenant
 from aml_filter.screening.bidirectional import BidirectionalScreeningService
 
 
@@ -253,7 +252,9 @@ class TestScreenWhitelistAgainstBlacklist:
         mock_result.scalars.return_value.all.return_value = [whitelist_entity]
         mock_session.execute.return_value = mock_result
 
-        with patch.object(service, "screen_entity_against_list", new_callable=AsyncMock) as mock_screen:
+        with patch.object(
+            service, "screen_entity_against_list", new_callable=AsyncMock
+        ) as mock_screen:
             mock_screen.return_value = []
 
             result = await service.screen_whitelist_against_blacklist(
@@ -295,7 +296,9 @@ class TestScreenWhitelistAgainstBlacklist:
         mock_result.scalars.return_value.all.return_value = entities
         mock_session.execute.return_value = mock_result
 
-        with patch.object(service, "screen_entity_against_list", new_callable=AsyncMock) as mock_screen:
+        with patch.object(
+            service, "screen_entity_against_list", new_callable=AsyncMock
+        ) as mock_screen:
             # First entity has 2 matches, second has 1, third has 0
             mock_screen.side_effect = [["b1", "b2"], ["b3"], []]
 
@@ -334,7 +337,9 @@ class TestScreenWhitelistAgainstBlacklist:
         mock_result.scalars.return_value.all.return_value = [whitelist_entity]
         mock_session.execute.return_value = mock_result
 
-        with patch.object(service, "screen_entity_against_list", new_callable=AsyncMock) as mock_screen:
+        with patch.object(
+            service, "screen_entity_against_list", new_callable=AsyncMock
+        ) as mock_screen:
             mock_screen.return_value = ["b1"]
 
             result = await service.screen_whitelist_against_blacklist(
@@ -382,7 +387,9 @@ class TestScreenWhitelistAgainstBlacklist:
         mock_result.scalars.return_value.all.return_value = entities
         mock_session.execute.return_value = mock_result
 
-        with patch.object(service, "screen_entity_against_list", new_callable=AsyncMock) as mock_screen:
+        with patch.object(
+            service, "screen_entity_against_list", new_callable=AsyncMock
+        ) as mock_screen:
             mock_screen.return_value = []
 
             result = await service.screen_whitelist_against_blacklist(
@@ -508,7 +515,9 @@ class TestScreenBlacklistAgainstWhitelist:
 
         mock_session.execute.side_effect = [mock_result1, mock_result2]
 
-        with patch.object(service, "screen_entity_against_list", new_callable=AsyncMock) as mock_screen:
+        with patch.object(
+            service, "screen_entity_against_list", new_callable=AsyncMock
+        ) as mock_screen:
             # Match in tenant1, no match in tenant2
             mock_screen.side_effect = [["w1"], []]
 
@@ -551,7 +560,9 @@ class TestScreenBlacklistAgainstWhitelist:
 
         mock_session.execute.side_effect = [mock_result1, mock_result2]
 
-        with patch.object(service, "screen_entity_against_list", new_callable=AsyncMock) as mock_screen:
+        with patch.object(
+            service, "screen_entity_against_list", new_callable=AsyncMock
+        ) as mock_screen:
             mock_screen.return_value = []
 
             await service.screen_blacklist_against_whitelist(
@@ -666,7 +677,9 @@ class TestScreenEntityAgainstList:
             mock_result.scalars.return_value.all.return_value = [match_entity]
             mock_session.execute.return_value = mock_result
 
-            with patch("aml_filter.screening.bidirectional.DefaultScoringPolicy") as mock_scorer_class:
+            with patch(
+                "aml_filter.screening.bidirectional.DefaultScoringPolicy"
+            ) as mock_scorer_class:
                 mock_scorer = MagicMock()
                 mock_scorer_class.return_value = mock_scorer
                 mock_scorer.compute_score.return_value = (0.85, {"summary": "Match"})
@@ -715,7 +728,9 @@ class TestScreenEntityAgainstList:
             mock_result.scalars.return_value.all.return_value = [match_entity]
             mock_session.execute.return_value = mock_result
 
-            with patch("aml_filter.screening.bidirectional.DefaultScoringPolicy") as mock_scorer_class:
+            with patch(
+                "aml_filter.screening.bidirectional.DefaultScoringPolicy"
+            ) as mock_scorer_class:
                 mock_scorer = MagicMock()
                 mock_scorer_class.return_value = mock_scorer
                 mock_scorer.compute_score.return_value = (0.35, {"summary": "Low match"})
@@ -731,7 +746,9 @@ class TestScreenEntityAgainstList:
                 assert not service.match_tracker.record_match.called
 
     @pytest.mark.asyncio
-    async def test_screening_whitelist_requires_tenant_id(self, service, mock_session, whitelist_entity):
+    async def test_screening_whitelist_requires_tenant_id(
+        self, service, mock_session, whitelist_entity
+    ):
         """Test that screening against WHITELIST requires tenant_id."""
         # Create a blacklist entity to screen against whitelist
         blacklist_entity = MagicMock(spec=DBEntity)
@@ -818,7 +835,9 @@ class TestScreenEntityAgainstList:
             mock_result.scalars.return_value.all.return_value = [match_entity1, match_entity2]
             mock_session.execute.return_value = mock_result
 
-            with patch("aml_filter.screening.bidirectional.DefaultScoringPolicy") as mock_scorer_class:
+            with patch(
+                "aml_filter.screening.bidirectional.DefaultScoringPolicy"
+            ) as mock_scorer_class:
                 mock_scorer = MagicMock()
                 mock_scorer_class.return_value = mock_scorer
                 mock_scorer.compute_score.return_value = (0.85, {"summary": "Match"})
@@ -890,7 +909,9 @@ class TestScreenEntityAgainstList:
             mock_result.scalars.return_value.all.return_value = [match_entity1, match_entity2]
             mock_session.execute.return_value = mock_result
 
-            with patch("aml_filter.screening.bidirectional.DefaultScoringPolicy") as mock_scorer_class:
+            with patch(
+                "aml_filter.screening.bidirectional.DefaultScoringPolicy"
+            ) as mock_scorer_class:
                 mock_scorer = MagicMock()
                 mock_scorer_class.return_value = mock_scorer
                 mock_scorer.compute_score.return_value = (0.85, {"summary": "Match"})
@@ -908,7 +929,9 @@ class TestScreenEntityAgainstList:
                 assert "b2" not in matches
 
     @pytest.mark.asyncio
-    async def test_match_recording_whitelist_vs_blacklist(self, service, mock_session, whitelist_entity):
+    async def test_match_recording_whitelist_vs_blacklist(
+        self, service, mock_session, whitelist_entity
+    ):
         """Test correct match recording for whitelist vs blacklist."""
         match_entity = MagicMock(spec=DBEntity)
         match_entity.entity_id = "b1"
@@ -941,7 +964,9 @@ class TestScreenEntityAgainstList:
             mock_result.scalars.return_value.all.return_value = [match_entity]
             mock_session.execute.return_value = mock_result
 
-            with patch("aml_filter.screening.bidirectional.DefaultScoringPolicy") as mock_scorer_class:
+            with patch(
+                "aml_filter.screening.bidirectional.DefaultScoringPolicy"
+            ) as mock_scorer_class:
                 mock_scorer = MagicMock()
                 mock_scorer_class.return_value = mock_scorer
                 mock_scorer.compute_score.return_value = (0.85, {"summary": "Match"})
@@ -997,7 +1022,9 @@ class TestScreenEntityAgainstList:
             mock_result.scalars.return_value.all.return_value = [pep_entity]
             mock_session.execute.return_value = mock_result
 
-            with patch("aml_filter.screening.bidirectional.DefaultScoringPolicy") as mock_scorer_class:
+            with patch(
+                "aml_filter.screening.bidirectional.DefaultScoringPolicy"
+            ) as mock_scorer_class:
                 mock_scorer = MagicMock()
                 mock_scorer_class.return_value = mock_scorer
                 mock_scorer.compute_score.return_value = (0.85, {"summary": "Match"})

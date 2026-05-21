@@ -1,17 +1,25 @@
 """Batch processing API endpoints."""
 
+import asyncio
+import csv
+from io import StringIO
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aml_filter.api.dependencies import get_db_session
+from aml_filter.api.dependencies import _db, get_db_session
 from aml_filter.batch.parser import BatchParser
 from aml_filter.batch.service import BatchService
 from aml_filter.db.models import BatchJob
 from aml_filter.search.service import SearchService
 from aml_filter.security.middleware import require_api_key
+
+# Tracks background batch jobs so the event loop doesn't garbage-collect them mid-flight.
+# Done callback discards each task once complete.
+_BACKGROUND_TASKS: set[asyncio.Task[None]] = set()
 
 router = APIRouter(prefix="/batch", tags=["batch"])
 
@@ -60,7 +68,7 @@ async def create_batch_job(
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Failed to parse file: {str(e)}",
+            detail=f"Failed to parse file: {e!s}",
         ) from e
 
     if not queries:
@@ -83,8 +91,6 @@ async def create_batch_job(
     # Queue job for processing
     # In production, use a task queue like RQ or Celery
     # For now, we use a separate session for the background task
-    from aml_filter.api.dependencies import _db
-
     async def run_batch_job(job_id: str) -> None:
         if _db is None:
             return
@@ -93,8 +99,9 @@ async def create_batch_job(
             bg_batch = BatchService(session=bg_session, search_service=bg_search)
             await bg_batch.process_job(job_id)
 
-    import asyncio
-    asyncio.create_task(run_batch_job(job.job_id))
+    task = asyncio.create_task(run_batch_job(job.job_id))
+    _BACKGROUND_TASKS.add(task)
+    task.add_done_callback(_BACKGROUND_TASKS.discard)
 
     return BatchJobResponse(
         job_id=job.job_id,
@@ -118,12 +125,8 @@ async def get_batch_job(
     tenant_id: str = Depends(require_api_key),
 ) -> BatchJobResponse:
     """Get batch job status."""
-    from sqlalchemy import select
-
     result = await session.execute(
-        select(BatchJob).where(
-            BatchJob.job_id == job_id, BatchJob.tenant_id == tenant_id
-        )
+        select(BatchJob).where(BatchJob.job_id == job_id, BatchJob.tenant_id == tenant_id)
     )
     job = result.scalar_one_or_none()
 
@@ -155,9 +158,7 @@ async def list_batch_jobs(
     tenant_id: str = Depends(require_api_key),
 ) -> list[BatchJobResponse]:
     """List batch jobs for the tenant."""
-    batch_service = BatchService(
-        session=session, search_service=SearchService(session=session)
-    )
+    batch_service = BatchService(session=session, search_service=SearchService(session=session))
     jobs = await batch_service.list_jobs(tenant_id=tenant_id, status=status)
 
     return [
@@ -185,15 +186,8 @@ async def get_batch_results(
     tenant_id: str = Depends(require_api_key),
 ) -> StreamingResponse:
     """Download batch job results as CSV."""
-    import csv
-    from io import StringIO
-
-    from sqlalchemy import select
-
     result = await session.execute(
-        select(BatchJob).where(
-            BatchJob.job_id == job_id, BatchJob.tenant_id == tenant_id
-        )
+        select(BatchJob).where(BatchJob.job_id == job_id, BatchJob.tenant_id == tenant_id)
     )
     job = result.scalar_one_or_none()
 
@@ -245,8 +239,5 @@ async def get_batch_results(
     return StreamingResponse(
         iter([output.getvalue()]),
         media_type="text/csv",
-        headers={
-            "Content-Disposition": f'attachment; filename="batch-{job_id}-results.csv"'
-        },
+        headers={"Content-Disposition": f'attachment; filename="batch-{job_id}-results.csv"'},
     )
-

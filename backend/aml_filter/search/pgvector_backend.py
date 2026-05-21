@@ -147,4 +147,3 @@ class PgVectorBackend:
             "tombstone_count": stats.tombstone_count,
             "tombstone_percentage": stats.tombstone_percentage,
         }
-

@@ -1,5 +1,6 @@
 """SentenceTransformers embedding provider."""
 
+import asyncio
 from typing import Any
 
 from sentence_transformers import SentenceTransformer
@@ -40,10 +41,9 @@ class SentenceTransformersProvider:
     @property
     def dimension(self) -> int:
         """Get embedding dimension."""
+        _ = self.model  # triggers lazy load which sets self._dimension
         if self._dimension is None:
-            # Trigger model load to get dimension
-            _ = self.model
-        assert self._dimension is not None, "Model dimension not available"
+            raise RuntimeError("Model dimension not available after load")
         return self._dimension
 
     async def embed(self, text: str) -> list[float]:
@@ -56,16 +56,11 @@ class SentenceTransformersProvider:
         Returns:
             Embedding vector as list of floats
         """
-        # Run in thread pool to avoid blocking
-        import asyncio
-
         loop = asyncio.get_event_loop()
         embedding = await loop.run_in_executor(None, self.model.encode, text)
         return embedding.tolist()
 
-    async def embed_batch(
-        self, texts: list[str], batch_size: int = 32
-    ) -> list[list[float]]:
+    async def embed_batch(self, texts: list[str], batch_size: int = 32) -> list[list[float]]:
         """
         Generate embeddings for multiple texts in batches.
 
@@ -78,9 +73,6 @@ class SentenceTransformersProvider:
         """
         if not texts:
             return []
-
-        # Run in thread pool to avoid blocking
-        import asyncio
 
         loop = asyncio.get_event_loop()
 
@@ -109,4 +101,3 @@ class SentenceTransformersProvider:
             "dimension": self.dimension,
             "device": str(self.model.device) if self._model else "not_loaded",
         }
-

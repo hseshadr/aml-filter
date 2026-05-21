@@ -96,9 +96,7 @@ class EmbeddingService:
         # Embed uncached texts
         if to_embed:
             texts_to_embed = [text for _, text in to_embed]
-            embeddings = await self.provider.embed_batch(
-                texts_to_embed, batch_size=batch_size
-            )
+            embeddings = await self.provider.embed_batch(texts_to_embed, batch_size=batch_size)
 
             # Store in cache and map back to original indices
             for (orig_idx, text), embedding in zip(to_embed, embeddings, strict=False):
@@ -138,4 +136,3 @@ class EmbeddingService:
             Dictionary with model information
         """
         return self.provider.get_model_info()
-

@@ -1,6 +1,6 @@
 """FastAPI application and API endpoints."""
 
-import os
+import logging
 from collections.abc import Callable, Mapping
 from contextlib import AbstractAsyncContextManager
 from typing import Any
@@ -11,12 +11,13 @@ from redis.asyncio import Redis
 
 from aml_filter.api.middleware import RateLimitMiddleware, SecurityHeadersMiddleware
 from aml_filter.api.v1 import router as v1_router
+from aml_filter.config import get_settings
 from aml_filter.security.rate_limit import set_redis_client
 
+logger = logging.getLogger(__name__)
+
 # Type alias for lifespan context manager (matches FastAPI's expected type)
-LifespanType = (
-    Callable[[FastAPI], AbstractAsyncContextManager[Mapping[str, Any] | None]] | None
-)
+LifespanType = Callable[[FastAPI], AbstractAsyncContextManager[Mapping[str, Any] | None]] | None
 
 
 def create_app(
@@ -47,15 +48,12 @@ def create_app(
     # Rate limiting middleware (after CORS, before routes)
     app.add_middleware(RateLimitMiddleware)
 
-    # Initialize Redis for rate limiting (optional)
-    redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-    if redis_url:
-        try:
-            redis_client = Redis.from_url(redis_url, decode_responses=False)
-            set_redis_client(redis_client)
-        except Exception:
-            # Redis is optional, continue without it
-            pass
+    # Initialize Redis for rate limiting (optional; fail-soft)
+    try:
+        redis_client = Redis.from_url(get_settings().redis_url, decode_responses=False)
+        set_redis_client(redis_client)
+    except Exception as exc:  # noqa: BLE001 — Redis is optional; never block app startup
+        logger.warning("Redis unavailable; rate limiting disabled: %s", exc)
 
     # Include API routers
     app.include_router(v1_router)

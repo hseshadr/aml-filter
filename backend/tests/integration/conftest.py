@@ -1,18 +1,21 @@
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
-from aml_filter.db.models import ApiKey, Tenant
 
+from aml_filter.db.models import ApiKey, Tenant
 from aml_filter.security.api_key import hash_api_key
+
 
 @pytest.fixture
 async def db_session(session: AsyncSession) -> AsyncSession:
     """Compatibility fixture for integration tests."""
     return session
 
+
 @pytest.fixture
 async def clean_database():
     """No-op fixture now that cleaning is done in session fixture."""
     yield
+
 
 @pytest.fixture
 async def test_tenant(db_session: AsyncSession):

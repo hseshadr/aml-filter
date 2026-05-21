@@ -1,9 +1,11 @@
 """Integration tests for ingestion pipeline with PostgreSQL."""
 
-import pytest
 from datetime import date
 
-from aml_filter.db.models import Entity as DBEntity, EntityEmbedding, ListVersion
+import pytest
+
+from aml_filter.db.models import Entity as DBEntity
+from aml_filter.db.models import EntityEmbedding, ListVersion
 from aml_filter.domain.entity import Alias, Entity, EntityIdentifier
 from aml_filter.ingest.service import IngestionService
 
@@ -26,9 +28,7 @@ class TestIngestionIntegration:
             name_canonical="test person",
             name_tokens=["test", "person"],
             name_trigram="test person",
-            aliases=[
-                Alias(name="T. Person", name_canonical="t. person", source="OFAC")
-            ],
+            aliases=[Alias(name="T. Person", name_canonical="t. person", source="OFAC")],
             dob=[date(1990, 1, 1)],
             countries=["US"],
             nationalities=[],
@@ -59,7 +59,9 @@ class TestIngestionIntegration:
         from aml_filter.embedding.service import EmbeddingService
 
         embedding_service = EmbeddingService()
-        embedding_text = prepare_embedding_text(entity.primary_name, entity.countries[0] if entity.countries else None)
+        embedding_text = prepare_embedding_text(
+            entity.primary_name, entity.countries[0] if entity.countries else None
+        )
         embedding = await embedding_service.embed(embedding_text)
 
         # Convert to DB entity
@@ -153,9 +155,7 @@ class TestIngestionIntegration:
         await db_session.commit()
 
         # Create embeddings in batch
-        embedding_texts = [
-            prepare_embedding_text(e.primary_name) for e in entities
-        ]
+        embedding_texts = [prepare_embedding_text(e.primary_name) for e in entities]
         embeddings = await embedding_service.embed_batch(embedding_texts, batch_size=2)
 
         # Add embeddings
@@ -181,4 +181,3 @@ class TestIngestionIntegration:
         for emb in saved_embeddings:
             assert emb.embedding is not None
             assert len(emb.embedding) == 384
-

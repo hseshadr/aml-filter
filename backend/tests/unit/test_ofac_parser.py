@@ -1,13 +1,14 @@
 """Unit tests for OFACParser."""
 
 import pytest
-import xml.etree.ElementTree as ET
+
 from aml_filter.ingest.parsers.ofac import OFACParser
-from aml_filter.domain.entity import Entity
+
 
 @pytest.fixture
 def parser():
     return OFACParser()
+
 
 def test_parse_bytes(parser):
     """Test parsing with bytes input."""
@@ -24,6 +25,7 @@ def test_parse_bytes(parser):
     assert len(entities) == 1
     assert entities[0].primary_name == "John Doe"
 
+
 def test_parse_sdn_entry_missing_uid(parser):
     """Test parsing entry with missing UID."""
     xml_content = """<?xml version="1.0" encoding="UTF-8"?>
@@ -35,6 +37,7 @@ def test_parse_sdn_entry_missing_uid(parser):
     </sdnList>"""
     entities = parser.parse(xml_content)
     assert len(entities) == 0
+
 
 def test_parse_sdn_entry_organization(parser):
     """Test parsing an organization entry."""
@@ -49,6 +52,7 @@ def test_parse_sdn_entry_organization(parser):
     entities = parser.parse(xml_content)
     assert len(entities) == 1
     assert entities[0].entity_type == "ORGANIZATION"
+
 
 def test_parse_aliases(parser):
     """Test parsing aliases."""
@@ -70,6 +74,7 @@ def test_parse_aliases(parser):
     assert len(entities[0].aliases) == 1
     assert entities[0].aliases[0].name == "Alias One"
 
+
 def test_parse_dob_formats(parser):
     """Test parsing various DOB formats."""
     xml_content = """<?xml version="1.0" encoding="UTF-8"?>
@@ -89,6 +94,7 @@ def test_parse_dob_formats(parser):
     assert len(entities[0].dob) == 2
     assert entities[0].dob[0].year == 1980
     assert entities[0].dob[1].year == 1970
+
 
 def test_parse_locations_and_identifiers(parser):
     """Test parsing locations (POB, citizenship) and identifiers."""
@@ -144,4 +150,3 @@ def test_parse_locations_and_identifiers(parser):
     assert "Kabul" in entities[0].addresses[0]
     assert "P12345" in entities[0].identifiers.passport
     assert "N98765" in entities[0].identifiers.national_id
-

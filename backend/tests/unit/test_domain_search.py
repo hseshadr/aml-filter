@@ -1,7 +1,8 @@
 """Unit tests for Search domain models."""
 
-import pytest
 from datetime import date
+
+import pytest
 
 from aml_filter.domain.search import Match, MatchReason, SearchQuery, SearchResponse
 
@@ -137,4 +138,3 @@ class TestSearchResponse:
         assert response.matches[0].entity_id == "ofac:sdn:12345"
         assert response.list_versions_used["ofac_sdn"] == "2025-12-28"
         assert response.execution_time_ms == 145
-

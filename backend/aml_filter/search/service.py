@@ -16,7 +16,7 @@ from aml_filter.domain.normalization import normalize_name, prepare_embedding_te
 from aml_filter.domain.scoring import ScoringPolicy
 from aml_filter.domain.search import Match, MatchReason, SearchFilters, SearchQuery, SearchResponse
 from aml_filter.embedding.service import EmbeddingService
-from aml_filter.scoring.policy import DefaultScoringPolicy
+from aml_filter.scoring.policy import DefaultScoringPolicy, create_preset_policy
 from aml_filter.search.hybrid_search import HybridSearchService
 
 EntityType = Literal["PERSON", "ORGANIZATION"]
@@ -146,8 +146,6 @@ class SearchService:
 
             # Create scoring policy if not provided
             if scoring_policy is None:
-                from aml_filter.scoring.policy import create_preset_policy
-
                 scoring_policy = create_preset_policy(
                     "balanced", f"default-{tenant_id or 'global'}", tenant_id or "global"
                 )
@@ -156,7 +154,7 @@ class SearchService:
 
             # Score each candidate
             scored_matches: list[tuple[float, dict[str, Any]]] = []
-            for entity_id, max_score, metadata in search_results:
+            for entity_id, _max_score, metadata in search_results:
                 if entity_id not in entity_map:
                     continue
 
@@ -183,7 +181,9 @@ class SearchService:
 
                 # Filter by threshold
                 if score >= query.threshold:
-                    scored_matches.append((score, {"entity": domain_entity, "explanation": explanation}))
+                    scored_matches.append(
+                        (score, {"entity": domain_entity, "explanation": explanation})
+                    )
 
             # Sort by score (descending)
             scored_matches.sort(key=lambda x: x[0], reverse=True)
@@ -244,8 +244,7 @@ class SearchService:
                 )
                 self.session.add(audit_record)
                 await self.session.commit()
-            except Exception:
-                # Best-effort: do not fail the request due to audit persistence issues.
+            except Exception:  # noqa: BLE001 — audit is best-effort, never fail the request
                 await self.session.rollback()
 
         return SearchResponse(
@@ -272,7 +271,9 @@ class SearchService:
 
         # Parse identifiers from dict to EntityIdentifier
         identifiers_dict = db_entity.identifiers or {}
-        entity_identifiers = EntityIdentifier(**identifiers_dict) if identifiers_dict else EntityIdentifier()
+        entity_identifiers = (
+            EntityIdentifier(**identifiers_dict) if identifiers_dict else EntityIdentifier()
+        )
 
         return Entity(
             entity_id=db_entity.entity_id,
@@ -294,4 +295,3 @@ class SearchService:
             custom_list_id=db_entity.custom_list_id,
             raw_source=db_entity.raw_source or {},
         )
-

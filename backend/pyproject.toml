@@ -26,7 +26,6 @@ dependencies = [
     "uvicorn[standard]>=0.24.0",
     "pydantic>=2.5.0",
     "pydantic-settings>=2.1.0",
-    "python-dotenv>=1.0.1",
     "sqlalchemy[asyncio]>=2.0.23",
     "asyncpg>=0.29.0",
     "alembic>=1.12.0",
@@ -43,6 +42,7 @@ dependencies = [
     "passlib[bcrypt]>=1.7.4",
     "python-dateutil>=2.8.2",
     "orjson>=3.9.0",
+    "defusedxml>=0.7.1",
     # Shared vector management library
     "shared-libs-python @ git+https://github.com/hseshadr/shared-libs-python.git",
 ]
@@ -56,6 +56,7 @@ dev = [
     "mypy>=1.7.0",
     "ruff>=0.1.6",
     "types-redis>=4.6.0.11",
+    "types-defusedxml>=0.7.0",
     "types-python-dateutil>=2.8.19.14",
     "pre-commit>=3.5.0",
     "poethepoet>=0.29.0",
@@ -107,6 +108,7 @@ select = [
     "ASYNC", # flake8-async
     "S",     # bandit (security)
     "PL",    # pylint
+    "BLE",   # flake8-blind-except
 ]
 ignore = [
     "E501",    # line too long (handled by formatter)
@@ -120,8 +122,21 @@ max-complexity = 5  # Radon Grade A
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = [
     "S101",     # asserts allowed in tests
+    "S105",     # hardcoded passwords ok in test data
+    "S106",     # hardcoded passwords ok in test data
     "PLR2004",  # magic numbers allowed in tests
+    "PLR0915",  # long test functions allowed (table-driven)
     "ARG",      # unused args allowed (fixtures)
+    "PLC0415",  # local imports allowed in tests (avoid heavy module-load on collection)
+    "F841",     # unused locals allowed in tests (placeholder fixtures)
+    "RUF059",   # unused unpacks allowed in tests
+    "E402",     # module-level imports after setup allowed in tests
+    "B017",     # pytest.raises(Exception) tolerated; tighten case-by-case
+    "B007",     # unused loop var allowed in tests
+    "ASYNC230", # open() in async tests is fine
+    "SIM117",   # nested with statements allowed in tests for clarity
+    "B905",     # zip without strict tolerated in tests
+    "RUF043",   # ambiguous pytest.raises pattern tolerated
 ]
 "alembic/**/*.py" = [
     "ALL",  # generated migrations exempt

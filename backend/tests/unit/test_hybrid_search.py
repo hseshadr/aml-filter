@@ -1,7 +1,7 @@
 """Unit tests for hybrid search service."""
 
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -542,9 +542,9 @@ class TestScoreConversion:
         # Distance 1 = least similar -> similarity 0.0
         mock_vector_backend.vector_search.return_value = [
             ("entity_perfect", 0.0),  # Perfect match
-            ("entity_good", 0.25),    # Good match
-            ("entity_mid", 0.5),      # Mid match
-            ("entity_low", 0.75),     # Low match
+            ("entity_good", 0.25),  # Good match
+            ("entity_mid", 0.5),  # Mid match
+            ("entity_low", 0.75),  # Low match
         ]
         mock_lexical_backend.combined_lexical_search.return_value = []
 

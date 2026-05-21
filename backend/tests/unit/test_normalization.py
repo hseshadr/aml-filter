@@ -1,7 +1,5 @@
 """Unit tests for name normalization."""
 
-import pytest
-
 from aml_filter.domain.normalization import normalize_name, prepare_embedding_text
 
 
@@ -86,4 +84,3 @@ class TestPrepareEmbeddingText:
         """Test with None country."""
         text = prepare_embedding_text("John Doe", None)
         assert text == "John Doe"
-

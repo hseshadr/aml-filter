@@ -22,9 +22,7 @@ def _normalize_preset(preset: str | None) -> PresetType | None:
     return None
 
 
-async def get_active_policy(
-    session: AsyncSession, tenant_id: str
-) -> DomainScoringPolicy:
+async def get_active_policy(session: AsyncSession, tenant_id: str) -> DomainScoringPolicy:
     """
     Get the active scoring policy for a tenant.
 
@@ -67,23 +65,20 @@ async def create_policy(
     """Create a new scoring policy for a tenant."""
     # Get next version number
     result = await session.execute(
-        select(func.max(ScoringPolicy.version))
-        .where(ScoringPolicy.tenant_id == tenant_id)
+        select(func.max(ScoringPolicy.version)).where(ScoringPolicy.tenant_id == tenant_id)
     )
     max_version = result.scalar_one_or_none() or 0
     next_version = max_version + 1
 
     # Deactivate all existing policies
     await session.execute(
-        select(ScoringPolicy)
-        .where(
+        select(ScoringPolicy).where(
             ScoringPolicy.tenant_id == tenant_id,
             ScoringPolicy.is_active.is_(True),
         )
     )
     existing_policies = await session.execute(
-        select(ScoringPolicy)
-        .where(
+        select(ScoringPolicy).where(
             ScoringPolicy.tenant_id == tenant_id,
             ScoringPolicy.is_active.is_(True),
         )
@@ -119,9 +114,7 @@ async def create_policy(
     )
 
 
-async def list_policy_versions(
-    session: AsyncSession, tenant_id: str
-) -> list[DomainScoringPolicy]:
+async def list_policy_versions(session: AsyncSession, tenant_id: str) -> list[DomainScoringPolicy]:
     """List all policy versions for a tenant."""
     result = await session.execute(
         select(ScoringPolicy)
@@ -161,8 +154,7 @@ async def rollback_to_version(
 
     # Deactivate all existing policies
     existing_policies = await session.execute(
-        select(ScoringPolicy)
-        .where(
+        select(ScoringPolicy).where(
             ScoringPolicy.tenant_id == tenant_id,
             ScoringPolicy.is_active.is_(True),
         )
@@ -186,9 +178,7 @@ async def rollback_to_version(
     )
 
 
-async def initialize_default_policy(
-    session: AsyncSession, tenant_id: str
-) -> DomainScoringPolicy:
+async def initialize_default_policy(session: AsyncSession, tenant_id: str) -> DomainScoringPolicy:
     """Initialize default policy for a new tenant."""
     return await create_policy(
         session=session,
@@ -198,4 +188,3 @@ async def initialize_default_policy(
         threshold=0.65,
         preset="balanced",
     )
-

@@ -13,6 +13,7 @@ from aml_filter.api.dependencies import get_db_session
 from aml_filter.db.models import Entity as DBEntity
 from aml_filter.db.models import ScreeningJob
 from aml_filter.ingest.whitelist import WhitelistIngestionService
+from aml_filter.queue import enqueue_screening
 from aml_filter.screening.bidirectional import BidirectionalScreeningService
 from aml_filter.screening.match_tracker import MatchTracker
 from aml_filter.security.middleware import require_api_key
@@ -33,7 +34,9 @@ class CustomerCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=500)
     entity_type: str = Field(default="PERSON", pattern="^(PERSON|ORGANIZATION)$")
     dob: list[date] | None = Field(None, description="List of dates of birth")
-    country: str | None = Field(None, min_length=2, max_length=2, description="ISO 3166-1 alpha-2 country code")
+    country: str | None = Field(
+        None, min_length=2, max_length=2, description="ISO 3166-1 alpha-2 country code"
+    )
     aliases: list[dict[str, Any]] | None = Field(None, description="List of aliases")
     identifiers: dict[str, Any] | None = Field(None, description="Identifiers dictionary")
     metadata: dict[str, Any] | None = Field(None, description="Optional metadata")
@@ -297,31 +300,19 @@ async def trigger_screening(
     session.add(job)
     await session.commit()
 
-    # Enqueue background job
-    try:
-        import os
-
-        from redis import Redis
-        from rq import Queue
-
-        redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-        redis_conn = Redis.from_url(redis_url)
-        queue = Queue("screening", connection=redis_conn)
-
-        queue.enqueue(
-            "aml_filter.worker.screening_jobs.run_bidirectional_screening",
-            tenant_id=tenant_id,
-            job_id=job_id,
-        )
-    except Exception:
-        # If Redis/RQ is not available, run synchronously
+    # Enqueue background job; fall back to inline screening if Redis is unavailable.
+    enqueued = enqueue_screening(
+        "aml_filter.worker.screening_jobs.run_bidirectional_screening",
+        tenant_id=tenant_id,
+        job_id=job_id,
+    )
+    if not enqueued:
         screening_service = BidirectionalScreeningService(session=session)
         results = await screening_service.screen_whitelist_against_blacklist(
             tenant_id=tenant_id,
             threshold=0.65,
             batch_size=100,
         )
-
         job.status = "COMPLETED"
         job.entities_scanned = results["entities_scanned"]
         job.matches_found = results["matches_found"]
@@ -480,4 +471,3 @@ async def get_screening_job(
         completed_at=job.completed_at.isoformat() if job.completed_at else None,
         error_message=job.error_message,
     )
-

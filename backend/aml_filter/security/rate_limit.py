@@ -1,19 +1,24 @@
 """Rate limiting utilities using Redis."""
 
+from __future__ import annotations
+
+import logging
 
 from redis.asyncio import Redis
 
+logger = logging.getLogger(__name__)
+
 # Global Redis client (will be initialized on startup)
-_redis_client: Redis | None = None
+_redis_client: Redis[bytes] | None = None  # module-level singleton; see set_redis_client
 
 
-def set_redis_client(redis_client: Redis) -> None:
+def set_redis_client(redis_client: Redis[bytes]) -> None:
     """Set the global Redis client."""
-    global _redis_client
+    global _redis_client  # noqa: PLW0603 — module-level singleton wired at app startup
     _redis_client = redis_client
 
 
-def get_redis_client() -> Redis | None:
+def get_redis_client() -> Redis[bytes] | None:
     """Get the global Redis client."""
     return _redis_client
 
@@ -61,8 +66,8 @@ async def check_rate_limit(
         allowed = current <= limit
         return allowed, remaining, reset_after
 
-    except Exception:
-        # If Redis fails, allow the request (fail open)
+    except Exception as exc:  # noqa: BLE001 — fail-open: never block the request
+        logger.warning("Rate limit check failed (fail-open): %s", exc)
         return True, limit, window_seconds
 
 

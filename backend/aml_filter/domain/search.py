@@ -60,4 +60,3 @@ class SearchFilters(BaseModel):
     source_lists: list[str] | None = None
     risk_categories: list[Literal["SANCTION", "PEP", "CUSTOM", "WHITELIST"]] | None = None
     entity_types: list[Literal["PERSON", "ORGANIZATION"]] | None = None
-

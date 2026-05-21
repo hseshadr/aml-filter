@@ -260,4 +260,3 @@ class TestPresetPolicies:
         """Test that invalid preset raises error."""
         with pytest.raises(ValueError, match="Unknown preset"):
             create_preset_policy("invalid", "policy-5", "tenant-1")
-

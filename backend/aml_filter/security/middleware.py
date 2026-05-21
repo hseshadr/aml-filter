@@ -1,6 +1,5 @@
 """Authentication middleware for FastAPI."""
 
-
 from fastapi import Depends, Header, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -95,4 +94,3 @@ async def require_api_key(
         request.state.tenant_id = tenant_id
 
     return tenant_id
-

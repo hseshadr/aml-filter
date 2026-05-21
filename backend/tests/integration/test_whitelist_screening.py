@@ -2,10 +2,12 @@
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
-from aml_filter.db.models import Entity as DBEntity, WhitelistBlacklistMatch, Tenant
+
+from aml_filter.db.models import Entity as DBEntity
 from aml_filter.ingest.whitelist import WhitelistIngestionService
 from aml_filter.screening.bidirectional import BidirectionalScreeningService
 from aml_filter.screening.match_tracker import MatchTracker
+
 
 @pytest.mark.asyncio
 async def test_add_whitelist_customer(db_session: AsyncSession, test_tenant):
@@ -23,6 +25,7 @@ async def test_add_whitelist_customer(db_session: AsyncSession, test_tenant):
     assert entity.tenant_id == test_tenant.tenant_id
     assert entity.source_list == "CUSTOMER_WHITELIST"
     assert entity.primary_name == "John Doe"
+
 
 @pytest.mark.asyncio
 async def test_screen_whitelist_against_blacklist(
@@ -105,6 +108,7 @@ async def test_screen_whitelist_against_blacklist(
     assert match.blacklist_entity_id == blacklist_entity.entity_id
     assert match.match_type == "WHITELIST_VS_BLACKLIST"
     assert match.resolution_status == "PENDING"
+
 
 @pytest.mark.asyncio
 async def test_screen_blacklist_against_whitelist(
@@ -189,6 +193,7 @@ async def test_screen_blacklist_against_whitelist(
     assert match.blacklist_entity_id == blacklist_entity.entity_id
     assert match.match_type == "BLACKLIST_VS_WHITELIST"
 
+
 @pytest.mark.asyncio
 async def test_resolve_match(db_session: AsyncSession, test_tenant):
     """Test resolving a match."""
@@ -202,7 +207,7 @@ async def test_resolve_match(db_session: AsyncSession, test_tenant):
         name_trigram="whitelist person",
         risk_category="WHITELIST",
         source_list="CUSTOMER_WHITELIST",
-        list_version="v1"
+        list_version="v1",
     )
     blacklist_entity = DBEntity(
         entity_id="ofac:sdn:12345",
@@ -213,7 +218,7 @@ async def test_resolve_match(db_session: AsyncSession, test_tenant):
         name_trigram="blacklist person",
         risk_category="SANCTION",
         source_list="OFAC_SDN",
-        list_version="v1"
+        list_version="v1",
     )
     db_session.add(whitelist_entity)
     db_session.add(blacklist_entity)

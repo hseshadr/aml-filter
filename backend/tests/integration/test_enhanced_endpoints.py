@@ -1,9 +1,10 @@
 """Integration tests for newly added API endpoints (Batch, Weights, Usage, Audit)."""
 
 import pytest
-from datetime import date
-from aml_filter.db.models import Tenant, ApiKey, ScoringPolicy
+
+from aml_filter.db.models import ApiKey, Tenant
 from aml_filter.security.api_key import hash_api_key
+
 
 @pytest.mark.integration
 class TestAdditionalEndpoints:
@@ -45,7 +46,7 @@ class TestAdditionalEndpoints:
             json={
                 "name": "Audit Test",
                 "threshold": 0.5,
-            }
+            },
         )
 
         # 2. List audit records
@@ -68,15 +69,12 @@ class TestAdditionalEndpoints:
         # Get current
         response = await client.get("/v1/weights", headers=auth_header)
         assert response.status_code == 200
-        
+
         # Update policy
         response = await client.put(
             "/v1/weights",
             headers=auth_header,
-            json={
-                "preset": "strict",
-                "name": "Strict Compliance"
-            }
+            json={"preset": "strict", "name": "Strict Compliance"},
         )
         assert response.status_code == 200
         data = response.json()
@@ -93,14 +91,11 @@ class TestAdditionalEndpoints:
         """Test batch processing endpoints."""
         # Submit a small batch
         import io
+
         csv_content = "name,country\nJohn Doe,US\nJane Smith,CA"
         files = {"file": ("test.csv", io.BytesIO(csv_content.encode()), "text/csv")}
-        
-        response = await client.post(
-            "/v1/batch",
-            headers=auth_header,
-            files=files
-        )
+
+        response = await client.post("/v1/batch", headers=auth_header, files=files)
         assert response.status_code == 201
         job_id = response.json()["job_id"]
 

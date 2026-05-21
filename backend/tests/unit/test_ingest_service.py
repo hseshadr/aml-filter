@@ -1,12 +1,11 @@
 """Unit tests for ingestion service."""
 
 from datetime import date, datetime
-from unittest.mock import AsyncMock, MagicMock, patch
-import sys
+from unittest.mock import MagicMock
 
 import pytest
 
-from aml_filter.db.models import Entity as DBEntity, EntityEmbedding, ListVersion, Tenant
+from aml_filter.db.models import Entity as DBEntity
 from aml_filter.domain.entity import Alias, Entity, EntityIdentifier
 from aml_filter.ingest.service import IngestionService
 
@@ -22,9 +21,7 @@ def sample_entity() -> Entity:
         name_canonical="john doe",
         name_tokens=["john", "doe"],
         name_trigram="john doe",
-        aliases=[
-            Alias(name="Johnny D", name_canonical="johnny d", source="OFAC")
-        ],
+        aliases=[Alias(name="Johnny D", name_canonical="johnny d", source="OFAC")],
         dob=[date(1980, 1, 15)],
         countries=["US"],
         nationalities=["US"],

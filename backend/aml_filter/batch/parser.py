@@ -2,11 +2,16 @@
 
 import csv
 import json
+import logging
 from datetime import date
 from io import StringIO
 from typing import Literal
 
+from pydantic import ValidationError
+
 from aml_filter.domain.search import SearchQuery
+
+logger = logging.getLogger(__name__)
 
 
 def _parse_dob(value: str | None) -> date | None:
@@ -121,9 +126,9 @@ class BatchParser:
 
                     query = SearchQuery(**mapped_item)
                     queries.append(query)
-                except Exception:
+                except (ValidationError, TypeError, KeyError) as exc:
+                    logger.warning("Skipping invalid batch row: %s", exc)
                     continue
             return queries
         except json.JSONDecodeError:
             return []
-

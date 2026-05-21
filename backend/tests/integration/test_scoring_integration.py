@@ -24,9 +24,7 @@ class TestScoringIntegration:
             name_canonical="john doe",
             name_tokens=["john", "doe"],
             name_trigram="john doe",
-            aliases=[
-                {"name": "J. Doe", "name_canonical": "j. doe", "source": "OFAC"}
-            ],
+            aliases=[{"name": "J. Doe", "name_canonical": "j. doe", "source": "OFAC"}],
             dob=[date(1980, 1, 15)],
             countries=["US"],
             risk_category="SANCTION",
@@ -91,16 +89,11 @@ class TestScoringIntegration:
         assert "summary" in explanation
 
         # Check that DOB match contributed
-        dob_signal = next(
-            (s for s in explanation["signals"] if s["name"] == "dob_match"), None
-        )
+        dob_signal = next((s for s in explanation["signals"] if s["name"] == "dob_match"), None)
         assert dob_signal is not None
         assert dob_signal["value"] == 1.0  # Exact match
 
         # Check that alias match contributed
-        alias_signal = next(
-            (s for s in explanation["signals"] if s["name"] == "alias_match"), None
-        )
+        alias_signal = next((s for s in explanation["signals"] if s["name"] == "alias_match"), None)
         # Alias match might not trigger if query doesn't match alias exactly
         # But structure should be there
-

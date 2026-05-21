@@ -3,6 +3,7 @@
 import asyncio
 from uuid import uuid4
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aml_filter.db.models import BatchJob
@@ -46,11 +47,7 @@ class BatchService:
 
     async def process_job(self, job_id: str, chunk_size: int = 10) -> None:
         """Process a batch job."""
-        from sqlalchemy import select
-
-        result = await self.session.execute(
-            select(BatchJob).where(BatchJob.job_id == job_id)
-        )
+        result = await self.session.execute(select(BatchJob).where(BatchJob.job_id == job_id))
         job = result.scalar_one_or_none()
 
         if not job:
@@ -62,9 +59,7 @@ class BatchService:
         job.status = "RUNNING"
         await self.session.commit()
 
-        queries = [
-            SearchQuery(**q) for q in job.metadata_json.get("queries", [])
-        ]
+        queries = [SearchQuery(**q) for q in job.metadata_json.get("queries", [])]
         results: list[SearchResponse] = []
 
         try:
@@ -72,12 +67,7 @@ class BatchService:
             for i in range(0, len(queries), chunk_size):
                 chunk = queries[i : i + chunk_size]
                 chunk_results = await asyncio.gather(
-                    *[
-                        self.search_service.search(
-                            query=q, tenant_id=job.tenant_id
-                        )
-                        for q in chunk
-                    ]
+                    *[self.search_service.search(query=q, tenant_id=job.tenant_id) for q in chunk]
                 )
                 results.extend(chunk_results)
 
@@ -106,30 +96,22 @@ class BatchService:
             job.status = "COMPLETED"
             job.matches_found = sum(len(r.matches) for r in results)
 
-        except Exception as e:
+        except Exception as exc:  # noqa: BLE001 — job boundary: must record FAILED status for any error
             job.status = "FAILED"
-            job.error_message = str(e)
-            job.metadata_json["error"] = str(e)
+            job.error_message = str(exc)
+            job.metadata_json["error"] = str(exc)
 
         await self.session.commit()
 
     async def get_job(self, job_id: str, tenant_id: str) -> BatchJob | None:
         """Get a batch job."""
-        from sqlalchemy import select
-
         result = await self.session.execute(
-            select(BatchJob).where(
-                BatchJob.job_id == job_id, BatchJob.tenant_id == tenant_id
-            )
+            select(BatchJob).where(BatchJob.job_id == job_id, BatchJob.tenant_id == tenant_id)
         )
         return result.scalar_one_or_none()
 
-    async def list_jobs(
-        self, tenant_id: str, status: str | None = None
-    ) -> list[BatchJob]:
+    async def list_jobs(self, tenant_id: str, status: str | None = None) -> list[BatchJob]:
         """List batch jobs for a tenant."""
-        from sqlalchemy import select
-
         stmt = select(BatchJob).where(BatchJob.tenant_id == tenant_id)
         if status:
             stmt = stmt.where(BatchJob.status == status)
@@ -137,4 +119,3 @@ class BatchService:
 
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
-

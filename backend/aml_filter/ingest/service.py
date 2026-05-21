@@ -1,6 +1,5 @@
 """Ingestion service for loading sanctions lists."""
 
-import os
 from datetime import datetime
 from typing import Any
 
@@ -8,11 +7,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aml_filter.db.models import Entity as DBEntity
-from aml_filter.db.models import EntityEmbedding, ListVersion
+from aml_filter.db.models import EntityEmbedding, ListVersion, Tenant
 from aml_filter.domain.entity import Entity
 from aml_filter.domain.normalization import prepare_embedding_text
 from aml_filter.embedding.service import EmbeddingService
 from aml_filter.ingest.parsers.ofac import OFACParser
+from aml_filter.queue import enqueue_screening
 
 
 class IngestionService:
@@ -114,12 +114,16 @@ class IngestionService:
                 prepare_embedding_text(e.primary_name, e.countries[0] if e.countries else None)
                 for e in batch
             ]
-            embeddings = await self.embedding_service.embed_batch(embedding_texts, batch_size=batch_size)
+            embeddings = await self.embedding_service.embed_batch(
+                embedding_texts, batch_size=batch_size
+            )
 
             # Process each entity
             for entity, embedding in zip(batch, embeddings, strict=False):
                 # Convert domain entity to DB entity
-                db_entity = self._domain_to_db_entity(entity, existing_entities.get(entity.entity_id))
+                db_entity = self._domain_to_db_entity(
+                    entity, existing_entities.get(entity.entity_id)
+                )
 
                 if entity.entity_id in existing_entities:
                     # Update existing
@@ -148,37 +152,20 @@ class IngestionService:
         list_version.activated_at = datetime.now()
         await self.session.commit()
 
-        # Trigger bidirectional screening for all tenants with whitelists
-        # This is done asynchronously via background job
-        try:
-            from redis import Redis
-            from rq import Queue
-
-            redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-            redis_conn = Redis.from_url(redis_url)
-            queue = Queue("screening", connection=redis_conn)
-
-            # Get all tenants that have whitelist customers
-            from aml_filter.db.models import Entity as DBEntityModel
-            from aml_filter.db.models import Tenant
-
-            tenants_with_whitelist = await self.session.execute(
-                select(Tenant.tenant_id).distinct().join(
-                    DBEntityModel, DBEntityModel.tenant_id == Tenant.tenant_id
-                ).where(DBEntityModel.risk_category == "WHITELIST")
+        # Trigger bidirectional screening for all tenants with whitelists (fail-soft)
+        tenants_with_whitelist = await self.session.execute(
+            select(Tenant.tenant_id)
+            .distinct()
+            .join(DBEntity, DBEntity.tenant_id == Tenant.tenant_id)
+            .where(DBEntity.risk_category == "WHITELIST")
+        )
+        for (tenant_id,) in tenants_with_whitelist.all():
+            enqueue_screening(
+                "aml_filter.worker.screening_jobs.screen_whitelist_on_blacklist_update",
+                tenant_id=tenant_id,
+                list_id=source_list,
+                list_version=version,
             )
-            tenant_ids = [row[0] for row in tenants_with_whitelist.all()]
-
-            for tenant_id in tenant_ids:
-                queue.enqueue(
-                    "aml_filter.worker.screening_jobs.screen_whitelist_on_blacklist_update",
-                    tenant_id=tenant_id,
-                    list_id=source_list,
-                    list_version=version,
-                )
-        except Exception:
-            # If Redis/RQ is not available, continue without enqueueing
-            pass
 
         return {
             "list_id": source_list,
@@ -248,4 +235,3 @@ class IngestionService:
                 custom_list_id=domain_entity.custom_list_id,
                 raw_source=domain_entity.raw_source,
             )
-

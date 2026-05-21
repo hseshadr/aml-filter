@@ -101,4 +101,3 @@ def prepare_embedding_text(name: str, country: str | None = None) -> str:
     if country:
         text = f"{name} {country}"
     return text
-

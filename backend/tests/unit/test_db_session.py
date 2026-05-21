@@ -1,5 +1,6 @@
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 import aml_filter.db.session as session_mod
 
@@ -38,5 +39,3 @@ async def test_database_close_disposes_engine() -> None:
         db = session_mod.Database("postgresql+asyncpg://user:pass@localhost:5432/db")
         await db.close()
         fake_engine.dispose.assert_awaited_once()
-
-

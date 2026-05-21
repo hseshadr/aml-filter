@@ -1,5 +1,3 @@
-import pytest
-from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
 
 from fastapi import FastAPI
@@ -8,7 +6,6 @@ from fastapi.testclient import TestClient
 from aml_filter.api.dependencies import get_db_session
 from aml_filter.api.v1.audit import router
 from aml_filter.security.middleware import require_api_key
-from aml_filter.db.models import SearchRequest
 
 
 def _app(mock_session: AsyncMock) -> TestClient:
@@ -44,12 +41,8 @@ def test_list_audit_records_with_date_filters() -> None:
     mock_session.execute.side_effect = [mock_count_result, mock_records_result]
 
     client = _app(mock_session)
-    resp = client.get(
-        "/v1/audit?start_date=2025-01-01T00:00:00Z&end_date=2025-01-02T00:00:00Z"
-    )
+    resp = client.get("/v1/audit?start_date=2025-01-01T00:00:00Z&end_date=2025-01-02T00:00:00Z")
     assert resp.status_code == 200
     data = resp.json()
     assert data["total"] == 0
     assert data["items"] == []
-
-

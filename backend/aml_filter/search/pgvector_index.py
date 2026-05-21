@@ -6,7 +6,7 @@ from shared_libs_python.core.types import IndexConfig, IndexStats, VectorEmbeddi
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aml_filter.db.models import EntityEmbedding
+from aml_filter.db.models import Entity, EntityEmbedding
 
 
 class PgVectorIndex(VectorIndex):  # type: ignore[misc]
@@ -89,9 +89,6 @@ class PgVectorIndex(VectorIndex):  # type: ignore[misc]
 
         # Apply filters if provided
         if filters:
-            # Join with Entity table for filtering
-            from aml_filter.db.models import Entity
-
             stmt = stmt.join(Entity, EntityEmbedding.entity_id == Entity.entity_id)
 
             if "tenant_id" in filters:
@@ -204,4 +201,3 @@ class PgVectorIndex(VectorIndex):  # type: ignore[misc]
         raise NotImplementedError(
             "Index rebuild requires migration. Use Alembic to recreate index with new parameters."
         )
-

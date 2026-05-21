@@ -159,4 +159,3 @@ class HybridSearchService:
 
         # Return just the entity IDs
         return [entity_id for entity_id, _, _ in results]
-

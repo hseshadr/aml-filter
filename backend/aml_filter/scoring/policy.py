@@ -1,10 +1,13 @@
 """Scoring policy implementations."""
 
 from datetime import date
-from typing import Any, Literal, Protocol, runtime_checkable
+from typing import Any, Final, Literal, Protocol, runtime_checkable
 
 from aml_filter.domain.entity import Entity
 from aml_filter.domain.scoring import ScoringPolicy, ScoringWeights
+
+STRONG_SIMILARITY_THRESHOLD: Final[float] = 0.8
+DOB_HALF_MATCH_THRESHOLD: Final[float] = 0.5
 
 
 @runtime_checkable
@@ -78,9 +81,7 @@ class DefaultScoringPolicy:
                 return (0.5, alias.name)
         return (0.0, None)
 
-    def _compute_dob_match(
-        self, entity: Entity, query_dob: date | None
-    ) -> tuple[float, str]:
+    def _compute_dob_match(self, entity: Entity, query_dob: date | None) -> tuple[float, str]:
         """
         Compute DOB match score.
 
@@ -149,7 +150,7 @@ class DefaultScoringPolicy:
     def compute_score(
         self,
         entity: Entity,
-        query_name: str,
+        query_name: str,  # noqa: ARG002 — required by ScoringPolicyProtocol
         query_name_canonical: str,
         query_dob: date | None,
         query_country: str | None,
@@ -162,7 +163,7 @@ class DefaultScoringPolicy:
 
         Args:
             entity: Entity to score
-            query_name: Original query name
+            query_name: Original query name (kept for protocol parity; not used here)
             query_name_canonical: Canonicalized query name
             query_dob: Query date of birth (optional)
             query_country: Query country code (optional)
@@ -215,7 +216,9 @@ class DefaultScoringPolicy:
                     "value": matched_alias or "",
                     "weight": self.weights.alias_match,
                     "contribution": contribution,
-                    "description": f"Alias match: {matched_alias}" if matched_alias else "No alias match",
+                    "description": f"Alias match: {matched_alias}"
+                    if matched_alias
+                    else "No alias match",
                 }
             )
 
@@ -268,13 +271,13 @@ class DefaultScoringPolicy:
 
         # Generate summary
         summary_parts = []
-        if vector_similarity and vector_similarity > 0.8:
+        if vector_similarity and vector_similarity > STRONG_SIMILARITY_THRESHOLD:
             summary_parts.append("strong vector similarity")
-        if trigram_similarity and trigram_similarity > 0.8:
+        if trigram_similarity and trigram_similarity > STRONG_SIMILARITY_THRESHOLD:
             summary_parts.append("strong name match")
         if alias_score > 0:
             summary_parts.append("alias match")
-        if dob_score >= 0.5:
+        if dob_score >= DOB_HALF_MATCH_THRESHOLD:
             summary_parts.append("DOB match")
         if country_score > 0:
             summary_parts.append("country match")
@@ -350,4 +353,3 @@ def create_preset_policy(
         version=1,
         preset=preset,
     )
-

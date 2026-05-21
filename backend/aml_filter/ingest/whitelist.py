@@ -11,6 +11,7 @@ from aml_filter.db.models import Entity as DBEntity
 from aml_filter.db.models import EntityEmbedding
 from aml_filter.domain.normalization import normalize_name, prepare_embedding_text
 from aml_filter.embedding.service import EmbeddingService
+from aml_filter.queue import enqueue_screening
 
 
 class WhitelistIngestionService:
@@ -143,33 +144,16 @@ class WhitelistIngestionService:
         await self.session.commit()
         await self.session.refresh(entity)
 
-        # Trigger bidirectional screening for this new customer
-        # This is done asynchronously via background job
-        try:
-            import os
-
-            from redis import Redis
-            from rq import Queue
-
-            redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-            redis_conn = Redis.from_url(redis_url)
-            queue = Queue("screening", connection=redis_conn)
-
-            queue.enqueue(
-                "aml_filter.worker.screening_jobs.screen_blacklist_on_whitelist_update",
-                tenant_id=tenant_id,
-                whitelist_entity_id=entity_id,
-            )
-        except Exception:
-            # If Redis/RQ is not available, continue without enqueueing
-            # In production, you'd want to log this
-            pass
+        # Trigger bidirectional screening for this new customer (fail-soft)
+        enqueue_screening(
+            "aml_filter.worker.screening_jobs.screen_blacklist_on_whitelist_update",
+            tenant_id=tenant_id,
+            whitelist_entity_id=entity_id,
+        )
 
         return entity
 
-    async def _find_existing_customer(
-        self, tenant_id: str, name_canonical: str
-    ) -> DBEntity | None:
+    async def _find_existing_customer(self, tenant_id: str, name_canonical: str) -> DBEntity | None:
         """Find existing customer by name."""
         result = await self.session.execute(
             select(DBEntity).where(
@@ -293,4 +277,3 @@ class WhitelistIngestionService:
 
         result = await self.session.execute(query)
         return list(result.scalars().all())
-

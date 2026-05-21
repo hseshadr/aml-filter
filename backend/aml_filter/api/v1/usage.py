@@ -80,4 +80,3 @@ async def get_usage(
         summary=summary,
         total_units=total,
     )
-

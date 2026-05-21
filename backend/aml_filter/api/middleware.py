@@ -1,18 +1,19 @@
 """FastAPI middleware for security headers and rate limiting."""
 
+import logging
 
-from fastapi import Request, Response
+from fastapi import Request, Response, status
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 
 from aml_filter.security.rate_limit import check_rate_limit, get_rate_limit_for_plan
+
+logger = logging.getLogger(__name__)
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     """Middleware to add security headers to responses."""
 
-    async def dispatch(
-        self, request: Request, call_next: RequestResponseEndpoint
-    ) -> Response:
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         response = await call_next(request)
 
         # Add security headers
@@ -42,9 +43,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 class RateLimitMiddleware(BaseHTTPMiddleware):
     """Middleware to apply rate limiting."""
 
-    async def dispatch(
-        self, request: Request, call_next: RequestResponseEndpoint
-    ) -> Response:
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         # Skip rate limiting for health checks and docs
         if request.url.path in ["/health", "/docs", "/redoc", "/openapi.json", "/"]:
             return await call_next(request)
@@ -80,8 +79,6 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 request.state.rate_limit_reset = reset_after
 
                 if not allowed:
-                    from fastapi import status
-
                     response = Response(
                         content=f'{{"detail": "Rate limit exceeded. {remaining} requests remaining. Resets in {reset_after}s."}}',
                         status_code=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -92,9 +89,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                     response.headers["X-RateLimit-Reset"] = str(reset_after)
                     response.headers["Retry-After"] = str(reset_after)
                     return response
-            except Exception:
-                # If rate limiting fails, continue (fail open)
-                pass
+            except Exception as exc:  # noqa: BLE001 — middleware fail-open: never block the request
+                logger.warning("Rate limit check failed (fail-open): %s", exc)
 
         response = await call_next(request)
 
@@ -105,4 +101,3 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             response.headers["X-RateLimit-Reset"] = str(request.state.rate_limit_reset)
 
         return response
-

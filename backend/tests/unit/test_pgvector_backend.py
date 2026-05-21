@@ -1,10 +1,9 @@
 """Unit tests for pgvector search backend."""
 
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
 from shared_libs_python import IndexConfig
 
 from aml_filter.domain.search import SearchFilters
@@ -152,9 +151,7 @@ class TestVectorSearch:
         assert call_kwargs["partition_key"] is None
 
     @pytest.mark.asyncio
-    async def test_vector_search_with_source_lists_filter(
-        self, mock_session: AsyncMock
-    ) -> None:
+    async def test_vector_search_with_source_lists_filter(self, mock_session: AsyncMock) -> None:
         """Test vector_search applies source_lists filter."""
         backend = PgVectorBackend(session=mock_session)
 
@@ -174,9 +171,7 @@ class TestVectorSearch:
         assert call_kwargs["filters"]["source_list"] == ["OFAC_SDN", "EU_SANCTIONS"]
 
     @pytest.mark.asyncio
-    async def test_vector_search_with_risk_categories_filter(
-        self, mock_session: AsyncMock
-    ) -> None:
+    async def test_vector_search_with_risk_categories_filter(self, mock_session: AsyncMock) -> None:
         """Test vector_search applies risk_categories filter."""
         backend = PgVectorBackend(session=mock_session)
 
@@ -196,9 +191,7 @@ class TestVectorSearch:
         assert call_kwargs["filters"]["risk_category"] == ["SANCTION", "PEP"]
 
     @pytest.mark.asyncio
-    async def test_vector_search_with_entity_types_filter(
-        self, mock_session: AsyncMock
-    ) -> None:
+    async def test_vector_search_with_entity_types_filter(self, mock_session: AsyncMock) -> None:
         """Test vector_search applies entity_types filter."""
         backend = PgVectorBackend(session=mock_session)
 
@@ -281,9 +274,7 @@ class TestVectorSearch:
         assert call_kwargs["ef_search"] == 200
 
     @pytest.mark.asyncio
-    async def test_vector_search_with_default_ef_search(
-        self, mock_session: AsyncMock
-    ) -> None:
+    async def test_vector_search_with_default_ef_search(self, mock_session: AsyncMock) -> None:
         """Test vector_search uses config ef_search when not specified."""
         backend = PgVectorBackend(session=mock_session)
 
@@ -346,9 +337,7 @@ class TestInsertEmbeddings:
         )
 
     @pytest.mark.asyncio
-    async def test_insert_embeddings_with_tenant_id(
-        self, mock_session: AsyncMock
-    ) -> None:
+    async def test_insert_embeddings_with_tenant_id(self, mock_session: AsyncMock) -> None:
         """Test embedding insertion with tenant_id."""
         backend = PgVectorBackend(session=mock_session)
 
@@ -408,9 +397,7 @@ class TestDeleteEmbeddings:
         )
 
     @pytest.mark.asyncio
-    async def test_delete_embeddings_with_tenant_id(
-        self, mock_session: AsyncMock
-    ) -> None:
+    async def test_delete_embeddings_with_tenant_id(self, mock_session: AsyncMock) -> None:
         """Test embedding deletion with tenant_id."""
         backend = PgVectorBackend(session=mock_session)
 
@@ -469,9 +456,7 @@ class TestGetIndexStats:
 
         backend.index_manager = MagicMock()
         backend.index_manager.partition_strategy = MagicMock()
-        backend.index_manager.partition_strategy.get_index = AsyncMock(
-            return_value=mock_index
-        )
+        backend.index_manager.partition_strategy.get_index = AsyncMock(return_value=mock_index)
 
         stats = await backend.get_index_stats()
 
@@ -501,9 +486,7 @@ class TestGetIndexStats:
 
         backend.index_manager = MagicMock()
         backend.index_manager.partition_strategy = MagicMock()
-        backend.index_manager.partition_strategy.get_index = AsyncMock(
-            return_value=mock_index
-        )
+        backend.index_manager.partition_strategy.get_index = AsyncMock(return_value=mock_index)
 
         stats = await backend.get_index_stats()
 
@@ -516,9 +499,7 @@ class TestFilterConversion:
     """Test filter conversion to IndexManager format."""
 
     @pytest.mark.asyncio
-    async def test_filters_converted_to_flat_dict(
-        self, mock_session: AsyncMock
-    ) -> None:
+    async def test_filters_converted_to_flat_dict(self, mock_session: AsyncMock) -> None:
         """Test that SearchFilters are converted to flat dictionary."""
         backend = PgVectorBackend(session=mock_session)
 
@@ -544,9 +525,7 @@ class TestFilterConversion:
         assert "entity_type" in call_kwargs["filters"]
 
     @pytest.mark.asyncio
-    async def test_empty_filters_result_in_empty_dict(
-        self, mock_session: AsyncMock
-    ) -> None:
+    async def test_empty_filters_result_in_empty_dict(self, mock_session: AsyncMock) -> None:
         """Test that empty SearchFilters results in empty filter dict."""
         backend = PgVectorBackend(session=mock_session)
 
@@ -600,9 +579,7 @@ class TestResultFormat:
         backend = PgVectorBackend(session=mock_session)
 
         backend.index_manager = MagicMock()
-        backend.index_manager.search = AsyncMock(
-            return_value=[("entity_123", 0.15)]
-        )
+        backend.index_manager.search = AsyncMock(return_value=[("entity_123", 0.15)])
 
         results = await backend.vector_search(
             query_vector=[0.1] * 384,
@@ -616,9 +593,7 @@ class TestResultFormat:
         assert results[0][1] == 0.15
 
     @pytest.mark.asyncio
-    async def test_results_sorted_by_distance_ascending(
-        self, mock_session: AsyncMock
-    ) -> None:
+    async def test_results_sorted_by_distance_ascending(self, mock_session: AsyncMock) -> None:
         """Test that results are sorted by distance ascending."""
         backend = PgVectorBackend(session=mock_session)
 
@@ -647,9 +622,7 @@ class TestPgVectorBackendIntegration:
     """Integration-style tests for PgVectorBackend."""
 
     @pytest.mark.asyncio
-    async def test_search_then_insert_then_search(
-        self, mock_session: AsyncMock
-    ) -> None:
+    async def test_search_then_insert_then_search(self, mock_session: AsyncMock) -> None:
         """Test a typical workflow of search, insert, search."""
         backend = PgVectorBackend(session=mock_session)
 
@@ -675,9 +648,7 @@ class TestPgVectorBackendIntegration:
         backend.index_manager.insert.assert_called_once()
 
         # Second search - returns results
-        backend.index_manager.search = AsyncMock(
-            return_value=[("entity_1", 0.0)]
-        )
+        backend.index_manager.search = AsyncMock(return_value=[("entity_1", 0.0)])
         results2 = await backend.vector_search(
             query_vector=[0.1] * 384,
             k=10,

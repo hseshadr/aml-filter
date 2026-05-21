@@ -134,7 +134,9 @@ class MatchTracker:
         if resolution_status:
             query = query.where(WhitelistBlacklistMatch.resolution_status == resolution_status)
 
-        query = query.order_by(WhitelistBlacklistMatch.detected_at.desc()).limit(limit).offset(offset)
+        query = (
+            query.order_by(WhitelistBlacklistMatch.detected_at.desc()).limit(limit).offset(offset)
+        )
 
         result = await self.session.execute(query)
         return list(result.scalars().all())
@@ -198,4 +200,3 @@ class MatchTracker:
             await self.session.refresh(match)
 
         return match
-

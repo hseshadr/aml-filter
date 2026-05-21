@@ -1,11 +1,18 @@
 """OFAC SDN XML parser."""
 
-import xml.etree.ElementTree as ET
+import logging
+import xml.etree.ElementTree as ET  # type-only; parsing uses defusedxml below
 from datetime import date, datetime
-from typing import Literal
+from typing import Final, Literal
+
+from defusedxml.ElementTree import fromstring as defused_fromstring
 
 from aml_filter.domain.entity import Alias, Entity, EntityIdentifier
 from aml_filter.domain.normalization import normalize_name
+
+logger = logging.getLogger(__name__)
+
+ISO_COUNTRY_CODE_LENGTH: Final[int] = 2
 
 
 class OFACParser:
@@ -28,7 +35,7 @@ class OFACParser:
         if isinstance(xml_content, bytes):
             xml_content = xml_content.decode("utf-8")
 
-        root = ET.fromstring(xml_content)
+        root = defused_fromstring(xml_content)  # defusedxml — XXE / billion-laughs protection
 
         entities: list[Entity] = []
 
@@ -56,8 +63,16 @@ class OFACParser:
             last_name_elem = sdn_entry.find("ofac:lastName", self.namespace)
             title_elem = sdn_entry.find("ofac:title", self.namespace)
 
-            first_name = first_name_elem.text.strip() if first_name_elem is not None and first_name_elem.text else ""
-            last_name = last_name_elem.text.strip() if last_name_elem is not None and last_name_elem.text else ""
+            first_name = (
+                first_name_elem.text.strip()
+                if first_name_elem is not None and first_name_elem.text
+                else ""
+            )
+            last_name = (
+                last_name_elem.text.strip()
+                if last_name_elem is not None and last_name_elem.text
+                else ""
+            )
             title = title_elem.text.strip() if title_elem is not None and title_elem.text else ""
 
             # Build primary name
@@ -86,9 +101,6 @@ class OFACParser:
 
             # Parse identifiers
             identifiers = self._parse_identifiers(sdn_entry)
-
-            # Get program list (source list)
-            program_list = self._parse_program_list(sdn_entry)
 
             # Get list version (from publication date if available)
             list_version = datetime.now().strftime("%Y-%m-%d")  # Default to today
@@ -122,9 +134,8 @@ class OFACParser:
 
             return entity
 
-        except Exception as e:
-            # Log error and skip this entry
-            print(f"Error parsing SDN entry: {e}")
+        except (ET.ParseError, AttributeError, ValueError, KeyError) as exc:
+            logger.warning("Skipping malformed SDN entry: %s", exc)
             return None
 
     def _parse_aliases(self, sdn_entry: ET.Element) -> list[Alias]:
@@ -137,8 +148,16 @@ class OFACParser:
             last_name_elem = aka.find("ofac:lastName", self.namespace)
             title_elem = aka.find("ofac:title", self.namespace)
 
-            first_name = first_name_elem.text.strip() if first_name_elem is not None and first_name_elem.text else ""
-            last_name = last_name_elem.text.strip() if last_name_elem is not None and last_name_elem.text else ""
+            first_name = (
+                first_name_elem.text.strip()
+                if first_name_elem is not None and first_name_elem.text
+                else ""
+            )
+            last_name = (
+                last_name_elem.text.strip()
+                if last_name_elem is not None and last_name_elem.text
+                else ""
+            )
             title = title_elem.text.strip() if title_elem is not None and title_elem.text else ""
 
             name_parts = [p for p in [title, first_name, last_name] if p]
@@ -185,19 +204,27 @@ class OFACParser:
         # Parse places of birth
         for place_of_birth in sdn_entry.findall(".//ofac:placeOfBirth", self.namespace):
             country = place_of_birth.text.strip() if place_of_birth.text else ""
-            if country and len(country) == 2:  # ISO code
+            if country and len(country) == ISO_COUNTRY_CODE_LENGTH:
                 countries.append(country.upper())
 
         # Parse citizenships
         for citizenship in sdn_entry.findall(".//ofac:citizenship", self.namespace):
             country = citizenship.text.strip() if citizenship.text else ""
-            if country and len(country) == 2:  # ISO code
+            if country and len(country) == ISO_COUNTRY_CODE_LENGTH:
                 nationalities.append(country.upper())
 
         # Parse addresses
         for address_elem in sdn_entry.findall(".//ofac:address", self.namespace):
             parts = []
-            for sub_elem in ["ofac:address1", "ofac:address2", "ofac:address3", "ofac:city", "ofac:stateOrProvince", "ofac:postalCode", "ofac:country"]:
+            for sub_elem in [
+                "ofac:address1",
+                "ofac:address2",
+                "ofac:address3",
+                "ofac:city",
+                "ofac:stateOrProvince",
+                "ofac:postalCode",
+                "ofac:country",
+            ]:
                 val = address_elem.find(sub_elem, self.namespace)
                 if val is not None and val.text:
                     parts.append(val.text.strip())
@@ -224,16 +251,3 @@ class OFACParser:
                 identifiers.national_id.append(id_num)
 
         return identifiers
-
-    def _parse_program_list(self, sdn_entry: ET.Element) -> str:
-        """Parse program list from SDN entry."""
-        # OFAC SDN entries have programList elements
-        program_list = "OFAC_SDN"  # Default
-
-        program_list_elem = sdn_entry.find("ofac:programList", self.namespace)
-        if program_list_elem is not None:
-            # Could parse specific programs, but for now use default
-            pass
-
-        return program_list
-

@@ -108,4 +108,3 @@ class TestScoringPolicy:
                 threshold=1.5,  # > 1.0
                 version=1,
             )
-

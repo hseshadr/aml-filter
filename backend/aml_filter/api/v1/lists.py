@@ -36,13 +36,12 @@ class ListConfigUpdate(BaseModel):
     """Request model for updating list configuration."""
 
     enabled: bool = Field(..., description="Enable or disable the list")
-    version_override: str | None = Field(
-        None, description="Override the default list version"
-    )
+    version_override: str | None = Field(None, description="Override the default list version")
 
 
 class CustomListUploadResponse(BaseModel):
     """Response model for custom list upload."""
+
     list_id: str
     status: str
     total_rows: int
@@ -50,7 +49,9 @@ class CustomListUploadResponse(BaseModel):
     errors: list[dict[str, Any]] = []
 
 
-@router.post("/custom/upload", response_model=CustomListUploadResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/custom/upload", response_model=CustomListUploadResponse, status_code=status.HTTP_201_CREATED
+)
 async def upload_custom_list(
     list_name: str = Query(..., min_length=1, max_length=200),
     file: UploadFile = File(...),
@@ -72,12 +73,14 @@ async def upload_custom_list(
             if not row.get("name"):
                 errors.append({"row": i, "error": "Missing name"})
                 continue
-            entities_to_create.append({
-                "name": row["name"],
-                "type": row.get("type", "PERSON"),
-                "country": row.get("country"),
-                "dob": row.get("dob")
-            })
+            entities_to_create.append(
+                {
+                    "name": row["name"],
+                    "type": row.get("type", "PERSON"),
+                    "country": row.get("country"),
+                    "dob": row.get("dob"),
+                }
+            )
     elif filename.endswith(".json"):
         try:
             data = json.loads(content_str)
@@ -88,10 +91,12 @@ async def upload_custom_list(
                     errors.append({"item": i, "error": "Missing name"})
                     continue
                 entities_to_create.append(item)
-        except json.JSONDecodeError:
-            raise HTTPException(status_code=400, detail="Invalid JSON format")
+        except json.JSONDecodeError as exc:
+            raise HTTPException(status_code=400, detail="Invalid JSON format") from exc
     else:
-        raise HTTPException(status_code=400, detail="Unsupported file format (CSV or JSON required)")
+        raise HTTPException(
+            status_code=400, detail="Unsupported file format (CSV or JSON required)"
+        )
 
     if not entities_to_create:
         raise HTTPException(status_code=400, detail="No valid entities found in file")
@@ -121,7 +126,7 @@ async def upload_custom_list(
             risk_category="CUSTOM",
             source_list=list_name,
             list_version=version,
-            custom_list_id=list_id
+            custom_list_id=list_id,
         )
         session.add(entity)
 
@@ -133,7 +138,7 @@ async def upload_custom_list(
             entity_id=entity.entity_id,
             embedding=vector,
             embedding_model="sentence-transformers",
-            model_version="default"
+            model_version="default",
         )
         session.add(embedding)
 
@@ -144,16 +149,12 @@ async def upload_custom_list(
         entity_count=len(entities_to_create),
         ingested_at=func.now(),
         activated_at=func.now(),
-        status="ACTIVE"
+        status="ACTIVE",
     )
     session.add(lv)
 
     # 4. Enable list for tenant
-    config = TenantListConfig(
-        tenant_id=tenant_id,
-        list_id=list_id,
-        enabled=True
-    )
+    config = TenantListConfig(tenant_id=tenant_id, list_id=list_id, enabled=True)
     session.add(config)
 
     await session.commit()
@@ -163,7 +164,7 @@ async def upload_custom_list(
         status="active",
         total_rows=len(entities_to_create) + len(errors),
         valid_rows=len(entities_to_create),
-        errors=errors
+        errors=errors,
     )
 
 
