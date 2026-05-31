@@ -10,7 +10,20 @@
 // the load + inference off the main thread; the pure Embedder below is what the
 // parity test exercises directly in Node.
 
-import { pipeline } from "@huggingface/transformers";
+import { env, pipeline } from "@huggingface/transformers";
+
+// transformers.js browser env. The library's default `useBrowserCache = true`
+// routes model weights through the CacheStorage LRU (`caches.open` → an internal
+// get/put helper). Under a minified production build (Vite `serve`, NOT the dev
+// server) that helper is mangled and throws `Ke(...).call is not a function`
+// the moment the worker tries to load the model — the screening bundle never
+// boots. We don't need that cache: weights are already content-addressed and
+// served immutable by the edge CDN, and the browser's own HTTP cache covers
+// reloads. Disabling it takes the fragile path out entirely. `allowLocalModels`
+// is off so the worker always fetches the remote ONNX export instead of probing
+// a non-existent same-origin `/models/...` path (which 404s in this static SPA).
+env.useBrowserCache = false;
+env.allowLocalModels = false;
 
 /** The sentence-transformers model id, mirrored as its Xenova ONNX export. */
 export const EMBEDDING_MODEL = "Xenova/all-MiniLM-L6-v2";
