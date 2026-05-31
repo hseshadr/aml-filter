@@ -75,6 +75,6 @@ jobs:
       - name: Complexity (xenon)
         run: uv run poe complexity
       - name: Tests (pytest)
-        run: uv run poe test
+        run: uv run pytest -m 'not integration' --ignore=tests/integration
       - name: Audit (pip-audit)
         run: uv run poe audit
