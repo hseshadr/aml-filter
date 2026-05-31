@@ -1,12 +1,15 @@
 # AML-Filter v2 API Specification
 
-## Version
-v2.0.0
+> **Scope:** this is the reference for the **server, DB-backed** HTTP tier — the
+> FastAPI app over PostgreSQL whose front door is `POST /v1/screen`. The newer
+> **edge-proc** paths (the `amlfilter` CLI screening a signed bundle, and the
+> in-browser `@amlfilter/browser` tier) have **no HTTP surface** and are not
+> described here — see [`ARCHITECTURE.md`](ARCHITECTURE.md) for those.
 
 ## Base Information
 
-- **Base URL**: `https://api.amlfilter.io/v1`
-- **Protocol**: HTTPS
+- **Base URL**: `http://localhost:8000/v1` (local dev; deploy behind your own origin)
+- **Protocol**: HTTP(S)
 - **Content Type**: `application/json`
 - **Authentication**: API Key (`X-API-Key` header) or JWT Bearer token
 

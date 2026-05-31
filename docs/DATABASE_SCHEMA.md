@@ -1,5 +1,11 @@
 # AML-Filter v2 Database Schema
 
+> **Scope:** this schema backs the **server, DB-backed** screening path only. The
+> **edge-proc** paths — the `amlfilter` CLI screening a signed bundle and the
+> in-browser `@amlfilter/browser` tier — run **without Postgres** (they sync a
+> signed, content-addressed bundle into an in-memory entity set + a localvec FAISS
+> index). See [`ARCHITECTURE.md`](ARCHITECTURE.md) for how the tiers relate.
+
 ## Overview
 
 PostgreSQL 15+ with extensions:
