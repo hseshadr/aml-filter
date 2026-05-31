@@ -1,19 +1,18 @@
 /** Protected route component that requires authentication. */
 
-import { Navigate } from 'react-router-dom'
-import { useAuth } from '../contexts/AuthContext'
+import { Navigate } from "react-router-dom";
+import { useAuth } from "../contexts/AuthContext";
 
 interface ProtectedRouteProps {
-  children: React.ReactNode
+	children: React.ReactNode;
 }
 
 export default function ProtectedRoute({ children }: ProtectedRouteProps) {
-  const { isAuthenticated } = useAuth()
+	const { isAuthenticated } = useAuth();
 
-  if (!isAuthenticated) {
-    return <Navigate to="/login" replace />
-  }
+	if (!isAuthenticated) {
+		return <Navigate to="/login" replace />;
+	}
 
-  return <>{children}</>
+	return <>{children}</>;
 }
-

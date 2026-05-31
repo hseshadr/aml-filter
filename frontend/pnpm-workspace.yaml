@@ -1,0 +1,7 @@
+# Single-app frontend (no workspace packages). This file exists only to satisfy
+# pnpm v11's native-build allowlist, which moved out of package.json: pnpm v11
+# does not run a dependency's build/postinstall scripts unless it is explicitly
+# allowlisted here. esbuild is Vite 5's bundler and ships a native binary whose
+# postinstall must run for `vite build` / `vitest` to work.
+allowBuilds:
+  esbuild: true
