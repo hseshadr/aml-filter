@@ -48,6 +48,20 @@ class Settings(BaseSettings):
     #: ``.vector_index`` dir so a fresh checkout retrieves end-to-end with zero config.
     vector_index_dir: Path = Path(".vector_index")
 
+    #: Signed OFAC bundle origin (``BUNDLE_BASE_URL``): an ``http(s)://`` URL or a local
+    #: path. When set together with ``verify_key_path``, screening reads OFAC candidates
+    #: and metadata from a synced, ed25519-verified edge-proc bundle instead of Postgres.
+    bundle_base_url: str | None = None
+    #: Path to the pinned ed25519 public key (``VERIFY_KEY_PATH``) used to fail-closed
+    #: verify a synced bundle. Required (with ``bundle_base_url``) for bundle-backed mode.
+    verify_key_path: Path | None = None
+    #: Local cache root for synced bundle objects (``BUNDLE_CACHE_DIR``).
+    bundle_cache_dir: Path = Path(".ofac_bundle")
+
+    def bundle_mode_active(self) -> bool:
+        """True when both bundle base-url and verify-key are set (bundle read-path)."""
+        return self.bundle_base_url is not None and self.verify_key_path is not None
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:

@@ -72,6 +72,9 @@ dev = [
 Homepage = "https://github.com/hseshadr/aml-filter"
 Repository = "https://github.com/hseshadr/aml-filter"
 
+[project.scripts]
+amlfilter = "aml_filter.cli:app"
+
 [tool.uv]
 # Pin transitive deps up to their security-patched releases so `pip-audit` stays
 # clean. Constraints (not direct deps) — they only raise the floor when present.
