@@ -1,12 +1,31 @@
 """Hybrid search service combining vector and lexical search."""
 
-from typing import Literal
+from typing import Literal, Protocol
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from aml_filter.config import vector_index_dir
 from aml_filter.domain.search import CandidateScores, SearchCandidate, SearchFilters
 from aml_filter.search.lexical_backend import LexicalBackend
-from aml_filter.search.pgvector_backend import PgVectorBackend
+from aml_filter.search.localvec_backend import LocalVecBackend
+
+
+class VectorBackend(Protocol):
+    """The single vector-retrieval seam HybridSearchService depends on.
+
+    Both the localvec FAISS backend (default) and the legacy pgvector backend satisfy
+    this — the service only ever calls ``vector_search``, so swapping the concrete
+    implementation behind it leaves the hybrid contract untouched.
+    """
+
+    async def vector_search(
+        self,
+        query_vector: list[float],
+        k: int,
+        tenant_id: str | None = None,
+        filters: SearchFilters | None = None,
+        ef_search: int | None = None,
+    ) -> list[tuple[str, float]]: ...
 
 
 def _classify_candidate(vector_score: float | None, lexical_score: float | None) -> CandidateScores:
@@ -26,7 +45,7 @@ class HybridSearchService:
     def __init__(
         self,
         session: AsyncSession,
-        vector_backend: PgVectorBackend | None = None,
+        vector_backend: VectorBackend | None = None,
         lexical_backend: LexicalBackend | None = None,
     ) -> None:
         """
@@ -34,11 +53,12 @@ class HybridSearchService:
 
         Args:
             session: Async SQLAlchemy session
-            vector_backend: Optional pre-initialized vector backend
+            vector_backend: Optional pre-initialized vector backend (defaults to the
+                edge-proc localvec FAISS backend, loaded from ``vector_index_dir``)
             lexical_backend: Optional pre-initialized lexical backend
         """
         self.session = session
-        self.vector_backend = vector_backend or PgVectorBackend(session=session)
+        self.vector_backend = vector_backend or LocalVecBackend.load(vector_index_dir())
         self.lexical_backend = lexical_backend or LexicalBackend(session=session)
 
     async def search(

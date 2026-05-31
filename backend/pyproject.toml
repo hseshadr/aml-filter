@@ -43,8 +43,11 @@ dependencies = [
     "python-dateutil>=2.8.2",
     "orjson>=3.9.0",
     "defusedxml>=0.7.1",
-    # Shared vector management library
-    "shared-libs-python @ git+https://github.com/hseshadr/shared-libs-python.git@aca47dacabb8d20a3a7b7d1f127b6d7f93a95e09",
+    # Shared vector management library (0.1.1: vector_mgmt API edge-proc localvec needs).
+    # Git ref is pinned in [tool.uv.sources] below.
+    "shared-libs-python",
+    # Local-first vector retrieval substrate: FAISS index + sentence-transformers encoder.
+    "edge-proc[localvec,bundles]",
 ]
 
 [project.optional-dependencies]
@@ -77,6 +80,34 @@ constraint-dependencies = [
     "urllib3>=2.7.0",
     "virtualenv>=20.36.1",
 ]
+
+[tool.uv.sources]
+# Resolve both spine libs from their pinned git refs (mirrors the shared-libs git-dep style).
+shared-libs-python = { git = "https://github.com/hseshadr/shared-libs-python.git", rev = "0533ea0aa97f18d7db06b69efd2e5e0c5883bdb9" }
+edge-proc = { git = "https://github.com/hseshadr/edge-proc.git", rev = "e3f1faaaceed41b5ad4377d216fa198db30a2d14" }
+
+# edge-proc's published pyproject pins shared-libs at a sibling *path* source
+# (`../shared-libs-python`), which uv reinterprets as a non-existent git subdirectory.
+# Declaring edge-proc's metadata statically makes uv resolve `shared-libs-python` through
+# our git source above instead of reading edge-proc's local path source.
+[[tool.uv.dependency-metadata]]
+name = "edge-proc"
+version = "0.1.0"
+requires-dist = [
+    "pydantic>=2.9",
+    "pydantic-settings>=2.5",
+    "typer>=0.15",
+    "shared-libs-python>=0.1.1",
+    "faiss-cpu>=1.9; extra == 'localvec'",
+    "sentence-transformers>=3.3; extra == 'localvec'",
+    "rank-bm25>=0.2; extra == 'localvec'",
+    "numpy>=2.0; extra == 'localvec'",
+    "httpx>=0.27; extra == 'bundles'",
+    "structlog>=24.4; extra == 'bundles'",
+    "cryptography>=44; extra == 'bundles'",
+    "zstandard>=0.25; extra == 'bundles'",
+]
+provides-extras = ["localvec", "bundles"]
 
 [tool.hatch.metadata]
 allow-direct-references = true

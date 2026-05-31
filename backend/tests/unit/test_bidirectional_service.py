@@ -129,18 +129,17 @@ async def test_screen_entity_against_list_no_matches(service, mock_session):
     entity.identifiers = {}
     entity.raw_source = {}
 
-    with patch(
-        "aml_filter.screening.bidirectional.HybridSearchService", new_callable=MagicMock
-    ) as mock_hybrid_class:
-        mock_hybrid = AsyncMock()
-        mock_hybrid_class.return_value = mock_hybrid
-        mock_hybrid.search.return_value = []  # No search results
+    # Stub the hybrid-search seam directly so the test stays focused on screening logic
+    # (and skips the localvec index build, which would hit the mocked session).
+    mock_hybrid = AsyncMock()
+    mock_hybrid.search.return_value = []  # No search results
+    service._hybrid = AsyncMock(return_value=mock_hybrid)
 
-        matches = await service.screen_entity_against_list(
-            entity=entity, target_risk_category="SANCTION", tenant_id="t1"
-        )
+    matches = await service.screen_entity_against_list(
+        entity=entity, target_risk_category="SANCTION", tenant_id="t1"
+    )
 
-        assert matches == []
+    assert matches == []
 
 
 @pytest.mark.asyncio

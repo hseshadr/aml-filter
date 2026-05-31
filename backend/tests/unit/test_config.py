@@ -28,3 +28,21 @@ def test_redis_url_has_localhost_default() -> None:
         database_url="postgresql+asyncpg://u:p@localhost:5432/db",
     )
     assert settings.redis_url == "redis://localhost:6379/0"
+
+
+def test_vector_index_dir_default_and_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    """vector_index_dir has a sensible default and is overridable from the environment."""
+    from pathlib import Path
+
+    default = Settings(
+        _env_file=None,  # type: ignore[call-arg]
+        database_url="postgresql+asyncpg://u:p@localhost:5432/db",
+    )
+    assert default.vector_index_dir == Path(".vector_index")
+
+    monkeypatch.setenv("VECTOR_INDEX_DIR", "/data/aml_index")
+    overridden = Settings(
+        _env_file=None,  # type: ignore[call-arg]
+        database_url="postgresql+asyncpg://u:p@localhost:5432/db",
+    )
+    assert overridden.vector_index_dir == Path("/data/aml_index")

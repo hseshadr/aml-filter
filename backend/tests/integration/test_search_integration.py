@@ -10,7 +10,36 @@ from aml_filter.domain.normalization import prepare_embedding_text
 from aml_filter.domain.search import SearchQuery
 from aml_filter.embedding.service import EmbeddingService
 from aml_filter.scoring.policy import create_preset_policy
+from aml_filter.search.hybrid_search import HybridSearchService
+from aml_filter.search.localvec_backend import (
+    EntityVector,
+    LocalVecBackend,
+    entity_vector_to_embedding,
+)
 from aml_filter.search.service import SearchService
+
+
+async def _localvec_from(
+    entities: list[DBEntity], embeddings: list[list[float]]
+) -> LocalVecBackend:
+    """Build an in-memory localvec backend from DB entities + their embeddings.
+
+    Mirrors what ingest persists, so the vector leg of the pipeline retrieves from
+    edge-proc's FAISS index instead of pgvector — without touching disk. Async because
+    it runs inside the test's event loop (cannot nest ``asyncio.run``).
+    """
+    backend = LocalVecBackend()
+    await backend.insert_embeddings(
+        [
+            entity_vector_to_embedding(
+                EntityVector(
+                    e.entity_id, vec, e.source_list, e.risk_category, e.entity_type, e.tenant_id
+                )
+            )
+            for e, vec in zip(entities, embeddings, strict=True)
+        ]
+    )
+    return backend
 
 
 @pytest.mark.integration
@@ -80,8 +109,15 @@ class TestSearchIntegration:
         db_session.add(db_embedding2)
         await db_session.commit()
 
-        # Create search service
-        search_service = SearchService(session=db_session, embedding_service=embedding_service)
+        # Vector retrieval is served by edge-proc localvec: build its FAISS index from
+        # the same embeddings and inject it so the vector leg exercises the new backend.
+        localvec = await _localvec_from([entity1, entity2], [embedding1, embedding2])
+        hybrid = HybridSearchService(session=db_session, vector_backend=localvec)
+        search_service = SearchService(
+            session=db_session,
+            embedding_service=embedding_service,
+            hybrid_search_service=hybrid,
+        )
 
         # Create scoring policy
         scoring_policy = create_preset_policy("balanced", "test-policy", "test-tenant")
@@ -191,6 +227,32 @@ class TestSearchIntegration:
         assert any(entity_id == "test:lexical:1" for entity_id, _ in results)
 
     @pytest.mark.asyncio
+    async def test_localvec_vector_retrieval(self, db_session):
+        """The localvec backend retrieves an ingested entity by its embedding (parity
+        with the old pgvector vector_search, now served from edge-proc FAISS)."""
+        entity = DBEntity(
+            entity_id="test:localvec:1",
+            entity_type="PERSON",
+            primary_name="Test Person",
+            name_canonical="test person",
+            name_tokens=["test", "person"],
+            name_trigram="test person",
+            aliases=[],
+            risk_category="SANCTION",
+            source_list="OFAC_SDN",
+            list_version="2024-01",
+        )
+        db_session.add(entity)
+        await db_session.commit()
+
+        embedding = await EmbeddingService().embed(prepare_embedding_text("Test Person"))
+        backend = await _localvec_from([entity], [embedding])
+
+        results = await backend.vector_search(query_vector=embedding, k=10)
+
+        assert any(entity_id == "test:localvec:1" for entity_id, _ in results)
+
+    @pytest.mark.asyncio
     async def test_hybrid_search_integration(self, db_session):
         """Test hybrid search combining vector and lexical."""
         from aml_filter.embedding.service import EmbeddingService
@@ -227,8 +289,9 @@ class TestSearchIntegration:
         db_session.add(db_embedding)
         await db_session.commit()
 
-        # Test hybrid search
-        hybrid_service = HybridSearchService(session=db_session)
+        # Test hybrid search with the localvec vector backend (built from the embedding)
+        localvec = await _localvec_from([entity], [embedding])
+        hybrid_service = HybridSearchService(session=db_session, vector_backend=localvec)
 
         results = await hybrid_service.search(
             query_vector=embedding,
