@@ -2,11 +2,11 @@
 
 from collections.abc import Sequence
 
-from shared_libs_python import GlobalPartitionStrategy, IndexConfig, IndexManager
-from shared_libs_python.core.types import VectorEmbedding
+from shared_libs_python import GlobalPartitionStrategy, IndexConfig, IndexManager, VectorEmbedding
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aml_filter.domain.search import SearchFilters
+from aml_filter.embedding import EMBEDDING_DIM
 from aml_filter.search.pgvector_index import PgVectorIndex
 from aml_filter.types import JsonObject
 
@@ -43,7 +43,7 @@ class PgVectorBackend:
             m=32,
             ef_construction=200,
             ef_search=100,
-            dimension=1536,
+            dimension=EMBEDDING_DIM,
         )
 
         # Create index factory function
@@ -97,7 +97,9 @@ class PgVectorBackend:
             query_vector=query_vector,
             k=k,
             partition_key=tenant_id,
-            filters=_to_index_filters(filters),
+            # Legacy path: aml uses list-valued IN filters, which are wider than the
+            # shared-libs ``Metadata`` (scalar-only) type. The pgvector index handles them.
+            filters=_to_index_filters(filters),  # type: ignore[arg-type]
             ef_search=ef_search or self.index_config.ef_search,
         )
         return results

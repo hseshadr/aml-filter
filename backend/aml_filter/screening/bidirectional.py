@@ -2,12 +2,13 @@
 
 from typing import Literal
 
+from shared_libs_python import VectorEmbedding
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aml_filter.db.mapping import db_to_domain_entity
 from aml_filter.db.models import Entity as DBEntity
-from aml_filter.db.models import Tenant
+from aml_filter.db.models import EntityEmbedding, Tenant
 from aml_filter.domain.entity import Entity
 from aml_filter.domain.normalization import prepare_embedding_text
 from aml_filter.domain.search import CandidateScores, SearchCandidate, SearchFilters
@@ -15,6 +16,11 @@ from aml_filter.embedding.service import EmbeddingService
 from aml_filter.scoring.policy import DefaultScoringPolicy, create_preset_policy
 from aml_filter.screening.match_tracker import MatchTracker
 from aml_filter.search.hybrid_search import HybridSearchService
+from aml_filter.search.localvec_backend import (
+    EntityVector,
+    LocalVecBackend,
+    entity_vector_to_embedding,
+)
 from aml_filter.search.service import SearchService
 
 RiskCategory = Literal["SANCTION", "PEP", "CUSTOM", "WHITELIST"]
@@ -25,6 +31,20 @@ def _safe_risk_category(val: str | None) -> RiskCategory:
     if val and val.upper() in ("SANCTION", "PEP", "CUSTOM", "WHITELIST"):
         return val.upper()  # type: ignore[return-value]
     return "SANCTION"
+
+
+def _db_to_embedding(entity: DBEntity, embedding: list[float]) -> VectorEmbedding:
+    """Build a localvec VectorEmbedding (filter metadata carried) from a DB row."""
+    return entity_vector_to_embedding(
+        EntityVector(
+            entity.entity_id,
+            embedding,
+            entity.source_list,
+            entity.risk_category,
+            entity.entity_type,
+            entity.tenant_id,
+        )
+    )
 
 
 class BidirectionalScreeningService:
@@ -50,6 +70,30 @@ class BidirectionalScreeningService:
         self.search_service = search_service or SearchService(session=session)
         self.match_tracker = match_tracker or MatchTracker(session=session)
         self.embedding_service = embedding_service or EmbeddingService()
+        self._hybrid_search: HybridSearchService | None = None
+
+    async def _hybrid(self) -> HybridSearchService:
+        """A hybrid search service whose vector leg is a localvec index built from the
+        persisted entity embeddings — built once per run so screening retrieves the same
+        candidates the pgvector ANN used to surface, now from edge-proc FAISS.
+        """
+        if self._hybrid_search is None:
+            backend = await self._build_localvec_from_db()
+            self._hybrid_search = HybridSearchService(session=self.session, vector_backend=backend)
+        return self._hybrid_search
+
+    async def _build_localvec_from_db(self) -> LocalVecBackend:
+        """Load every (entity, embedding) pair from the DB into a fresh localvec index."""
+        rows = await self.session.execute(
+            select(DBEntity, EntityEmbedding.embedding).join(
+                EntityEmbedding, DBEntity.entity_id == EntityEmbedding.entity_id
+            )
+        )
+        backend = LocalVecBackend()
+        await backend.insert_embeddings(
+            [_db_to_embedding(entity, vec) for entity, vec in rows.all() if vec is not None]
+        )
+        return backend
 
     async def screen_whitelist_against_blacklist(
         self,
@@ -210,7 +254,7 @@ class BidirectionalScreeningService:
             risk_categories=[_safe_risk_category(target_risk_category)],
             entity_types=[domain_entity.entity_type] if domain_entity.entity_type else None,
         )
-        hybrid_search = HybridSearchService(session=self.session)
+        hybrid_search = await self._hybrid()
         return await hybrid_search.search(
             query_vector=query_vector,
             query_text=domain_entity.name_canonical,

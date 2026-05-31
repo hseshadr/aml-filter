@@ -1,15 +1,27 @@
 """PgVector index implementation for shared-libs-python."""
 
-from shared_libs_python.core.types import IndexConfig, IndexStats, VectorEmbedding, VectorIndex
+from typing import cast
+
+from shared_libs_python import IndexConfig, IndexStats, VectorEmbedding
+from shared_libs_python.vector_mgmt.core.types import Metadata
 from sqlalchemy import Select, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute
 
 from aml_filter.db.models import Entity, EntityEmbedding
 
+# aml passes list-valued IN filters (e.g. source_list=["OFAC_SDN", "EU"]), which are
+# wider than the shared-libs ``Metadata`` (scalar-only) Protocol type. This alias names
+# that real, wider runtime shape used by the SQL-building helpers below.
+_PgFilters = dict[str, str | list[str] | None]
 
-class PgVectorIndex(VectorIndex):  # type: ignore[misc]
-    """PgVector implementation of VectorIndex protocol."""
+
+class PgVectorIndex:
+    """Legacy pgvector implementation of the shared-libs ``VectorIndex`` Protocol.
+
+    Superseded by :class:`~aml_filter.search.localvec_backend.LocalVecBackend` for
+    retrieval; retained for the IndexManager/partition-strategy plumbing and tests.
+    """
 
     def __init__(
         self,
@@ -63,7 +75,7 @@ class PgVectorIndex(VectorIndex):  # type: ignore[misc]
         self,
         query_vector: list[float],
         k: int,
-        filters: dict[str, str | list[str] | None] | None = None,
+        filters: Metadata | None = None,
         ef_search: int | None = None,
     ) -> list[tuple[str, float]]:
         """
@@ -91,7 +103,8 @@ class PgVectorIndex(VectorIndex):  # type: ignore[misc]
         )
 
         if filters:
-            stmt = self._apply_filters(stmt, filters)
+            # aml supplies list-valued IN filters at runtime; recover that wider shape.
+            stmt = self._apply_filters(stmt, cast(_PgFilters, filters))
 
         result = await self.session.execute(stmt)
         rows = result.all()
@@ -101,7 +114,7 @@ class PgVectorIndex(VectorIndex):  # type: ignore[misc]
         return [(row.entity_id, 1.0 - row.similarity) for row in rows]
 
     def _apply_filters(
-        self, stmt: Select[tuple[str, float]], filters: dict[str, str | list[str] | None]
+        self, stmt: Select[tuple[str, float]], filters: _PgFilters
     ) -> Select[tuple[str, float]]:
         """Join Entity and narrow `stmt` by the supported filter keys."""
         stmt = stmt.join(Entity, EntityEmbedding.entity_id == Entity.entity_id)
@@ -124,7 +137,7 @@ class PgVectorIndex(VectorIndex):  # type: ignore[misc]
     def _apply_in_filter(
         stmt: Select[tuple[str, float]],
         column: InstrumentedAttribute[str | None],
-        filters: dict[str, str | list[str] | None],
+        filters: _PgFilters,
         key: str,
     ) -> Select[tuple[str, float]]:
         """Apply an equality (scalar) or IN (list) filter for `key`, if present."""

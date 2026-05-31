@@ -3,7 +3,7 @@
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from shared_libs_python.core.types import IndexConfig, VectorEmbedding
+from shared_libs_python import IndexConfig, VectorEmbedding
 
 from aml_filter.db.models import EntityEmbedding
 from aml_filter.search.pgvector_index import PgVectorIndex

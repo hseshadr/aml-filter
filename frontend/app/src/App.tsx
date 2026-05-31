@@ -7,6 +7,7 @@ import ApiKeysPage from "./pages/ApiKeysPage";
 import HomePage from "./pages/HomePage";
 import ListsPage from "./pages/ListsPage";
 import LoginPage from "./pages/LoginPage";
+import { ScreenPage } from "./pages/ScreenPage";
 import SearchPage from "./pages/SearchPage";
 import UsagePage from "./pages/UsagePage";
 import WhitelistPage from "./pages/WhitelistPage";
@@ -19,6 +20,8 @@ function App() {
 					<Layout>
 						<Routes>
 							<Route path="/login" element={<LoginPage />} />
+							{/* Public, backend-free in-browser OFAC screening tier. */}
+							<Route path="/screen" element={<ScreenPage />} />
 							<Route
 								path="/"
 								element={

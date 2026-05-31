@@ -5,6 +5,7 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from aml_filter.config import vector_index_dir
 from aml_filter.db.models import Entity as DBEntity
 from aml_filter.db.models import EntityEmbedding, ListVersion, Tenant
 from aml_filter.domain.entity import Entity
@@ -12,6 +13,11 @@ from aml_filter.domain.normalization import prepare_embedding_text
 from aml_filter.embedding.service import EmbeddingService
 from aml_filter.ingest.parsers.ofac import OFACParser
 from aml_filter.queue import enqueue_screening
+from aml_filter.search.localvec_backend import (
+    EntityVector,
+    LocalVecBackend,
+    entity_vector_to_embedding,
+)
 from aml_filter.types import JsonArray, JsonObject
 
 
@@ -19,6 +25,18 @@ def _embedding_text_for(entity: Entity) -> str:
     """Build the embedding input text for one entity (name plus first country)."""
     first_country = entity.countries[0] if entity.countries else None
     return prepare_embedding_text(entity.primary_name, first_country)
+
+
+def _entity_vector(entity: Entity, embedding: list[float]) -> EntityVector:
+    """Pair an entity's embedding with the metadata the localvec backend filters on."""
+    return EntityVector(
+        entity_id=entity.entity_id,
+        embedding=embedding,
+        source_list=entity.source_list,
+        risk_category=entity.risk_category,
+        entity_type=entity.entity_type,
+        tenant_id=entity.tenant_id,
+    )
 
 
 class IngestionService:
@@ -90,8 +108,11 @@ class IngestionService:
         self.session.add(list_version)
 
         stats = {"created": 0, "updated": 0, "embeddings": 0}
+        vectors: list[EntityVector] = []
         for i in range(0, len(entities), batch_size):
-            batch_stats = await self._ingest_batch(entities[i : i + batch_size], batch_size)
+            batch_stats = await self._ingest_batch(
+                entities[i : i + batch_size], batch_size, vectors
+            )
             for k, v in batch_stats.items():
                 stats[k] += v
             await self.session.commit()
@@ -100,11 +121,26 @@ class IngestionService:
         list_version.activated_at = datetime.now()
         await self.session.commit()
 
+        await self._build_vector_index(vectors)
         await self._enqueue_screening_for_tenants_with_whitelist(source_list, version)
         return {"list_id": source_list, "version": version, "total": len(entities), **stats}
 
-    async def _ingest_batch(self, batch: list[Entity], batch_size: int) -> dict[str, int]:
-        """Process one batch: load existing rows, embed, upsert entities + embeddings."""
+    async def _build_vector_index(self, vectors: list[EntityVector]) -> None:
+        """Build the edge-proc localvec FAISS index from the batch and persist it to disk.
+
+        This is what query-time retrieval loads — replacing the pgvector ANN — so a
+        completed ingest leaves a ready-to-search index at ``vector_index_dir()``.
+        """
+        if not vectors:
+            return
+        backend = LocalVecBackend()
+        await backend.insert_embeddings([entity_vector_to_embedding(v) for v in vectors])
+        backend.save(vector_index_dir())
+
+    async def _ingest_batch(
+        self, batch: list[Entity], batch_size: int, vectors: list[EntityVector]
+    ) -> dict[str, int]:
+        """Process one batch: load existing rows, embed, upsert entities + collect vectors."""
         entity_ids = [e.entity_id for e in batch]
         result = await self.session.execute(
             select(DBEntity).where(DBEntity.entity_id.in_(entity_ids))
@@ -115,10 +151,22 @@ class IngestionService:
             [_embedding_text_for(e) for e in batch], batch_size=batch_size
         )
         model_name = str(self.embedding_service.get_model_info()["model_name"])
+        return await self._apply_batch(batch, embeddings, existing, model_name, vectors)
+
+    async def _apply_batch(
+        self,
+        batch: list[Entity],
+        embeddings: list[list[float]],
+        existing: dict[str, DBEntity],
+        model_name: str,
+        vectors: list[EntityVector],
+    ) -> dict[str, int]:
+        """Upsert each entity + its embedding row, and collect its localvec vector."""
         stats = {"created": 0, "updated": 0, "embeddings": 0}
         for entity, embedding in zip(batch, embeddings, strict=False):
             await self._upsert_entity(entity, existing, stats)
             await self._merge_embedding(entity.entity_id, embedding, model_name)
+            vectors.append(_entity_vector(entity, embedding))
             stats["embeddings"] += 1
         return stats
 

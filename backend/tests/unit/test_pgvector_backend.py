@@ -48,7 +48,7 @@ class TestPgVectorBackendInit:
         assert backend.index_config.m == 32
         assert backend.index_config.ef_construction == 200
         assert backend.index_config.ef_search == 100
-        assert backend.index_config.dimension == 1536
+        assert backend.index_config.dimension == 384  # all-MiniLM-L6-v2 (was wrongly 1536)
 
     def test_pgvector_backend_custom_config(self, mock_session: AsyncMock) -> None:
         """Test initialization with custom config."""
@@ -322,7 +322,7 @@ class TestInsertEmbeddings:
         backend.index_manager = MagicMock()
         backend.index_manager.insert = AsyncMock()
 
-        from shared_libs_python.core.types import VectorEmbedding
+        from shared_libs_python import VectorEmbedding
 
         embeddings = [
             VectorEmbedding(entity_id="entity_1", embedding=[0.1] * 384),
@@ -344,7 +344,7 @@ class TestInsertEmbeddings:
         backend.index_manager = MagicMock()
         backend.index_manager.insert = AsyncMock()
 
-        from shared_libs_python.core.types import VectorEmbedding
+        from shared_libs_python import VectorEmbedding
 
         embeddings = [
             VectorEmbedding(entity_id="entity_1", embedding=[0.1] * 384),
@@ -441,7 +441,7 @@ class TestGetIndexStats:
         backend = PgVectorBackend(session=mock_session)
 
         # Mock stats object
-        from shared_libs_python.core.types import IndexStats
+        from shared_libs_python import IndexStats
 
         mock_stats = IndexStats(
             index_name="entity_embeddings_global",
@@ -471,7 +471,7 @@ class TestGetIndexStats:
         """Test get_index_stats for empty index."""
         backend = PgVectorBackend(session=mock_session)
 
-        from shared_libs_python.core.types import IndexStats
+        from shared_libs_python import IndexStats
 
         mock_stats = IndexStats(
             index_name="entity_embeddings_global",
@@ -638,7 +638,7 @@ class TestPgVectorBackendIntegration:
         assert results1 == []
 
         # Insert embeddings
-        from shared_libs_python.core.types import VectorEmbedding
+        from shared_libs_python import VectorEmbedding
 
         embeddings = [
             VectorEmbedding(entity_id="entity_1", embedding=[0.1] * 384),

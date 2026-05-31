@@ -630,18 +630,18 @@ class TestScreenEntityAgainstList:
     @pytest.mark.asyncio
     async def test_no_search_results(self, service, mock_session, whitelist_entity):
         """Test screening with no search results."""
-        with patch("aml_filter.screening.bidirectional.HybridSearchService") as mock_hybrid_class:
-            mock_hybrid = AsyncMock()
-            mock_hybrid_class.return_value = mock_hybrid
-            mock_hybrid.search.return_value = []
+        # Stub the hybrid-search seam (skips the localvec build over the mocked session).
+        mock_hybrid = AsyncMock()
+        mock_hybrid.search.return_value = []
+        service._hybrid = AsyncMock(return_value=mock_hybrid)
 
-            matches = await service.screen_entity_against_list(
-                entity=whitelist_entity,
-                target_risk_category="SANCTION",
-                tenant_id="tenant-1",
-            )
+        matches = await service.screen_entity_against_list(
+            entity=whitelist_entity,
+            target_risk_category="SANCTION",
+            tenant_id="tenant-1",
+        )
 
-            assert matches == []
+        assert matches == []
 
     @pytest.mark.asyncio
     async def test_with_matches_above_threshold(self, service, mock_session, whitelist_entity):

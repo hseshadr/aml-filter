@@ -1,0 +1,31 @@
+{
+	"name": "@amlfilter/browser",
+	"private": true,
+	"version": "2.1.0",
+	"type": "module",
+	"description": "In-browser signed-bundle sync + explainable OFAC name screening (the aml-filter browser tier).",
+	"exports": {
+		".": "./src/index.ts",
+		"./engine": "./src/engine.ts",
+		"./testing": "./src/testing.ts"
+	},
+	"scripts": {
+		"lint": "biome check .",
+		"typecheck": "tsc -b",
+		"test": "vitest run"
+	},
+	"dependencies": {
+		"@hpcc-js/wasm-zstd": "^1.12.6",
+		"@huggingface/transformers": "^4.2.0",
+		"@noble/ed25519": "^3.1.0"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "^2.4.15",
+		"@types/node": "^22.10.0",
+		"@vitejs/plugin-react": "^4.2.1",
+		"jsdom": "^29.1.1",
+		"typescript": "^5.2.2",
+		"vite": "^5.0.8",
+		"vitest": "^2.1.8"
+	}
+}

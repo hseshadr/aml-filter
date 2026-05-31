@@ -6,6 +6,41 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.1.0] — 2026-05-31
+
+Built on the [edge-proc](https://github.com/hseshadr/edge-proc) substrate:
+sanctions screening now runs **at the edge**. The OFAC list can be published as a
+signed, versioned bundle and screened against locally — on the server with no vector
+database, or entirely in a browser tab with no backend at all.
+
+### Added
+
+- **edge-proc localvec retrieval** (`aml_filter/search/localvec_backend.py`) — a
+  drop-in for the pgvector ANN backed by edge-proc's FAISS `IndexFlatIP`, preserving
+  aml's list/tenant filter semantics. Persisted via `VECTOR_INDEX_DIR`.
+- **Signed OFAC bundle + `amlfilter` CLI** (`aml_filter/bundle/`,
+  `aml_filter/cli.py`) — `keygen` / `bundle` / `sync` / `screen`. Publishes the list
+  as a content-addressed, Ed25519-signed edge-proc bundle (`entities.jsonl` +
+  prebuilt localvec `vector/` index + `ofac_meta.json` version pointer) and screens
+  against it with fail-closed verification.
+- **Config-gated, Postgres-free screening read-path** — `BUNDLE_BASE_URL` +
+  `VERIFY_KEY_PATH` (+ `BUNDLE_CACHE_DIR`) source candidates from a synced bundle
+  instead of a database (`aml_filter/bundle/runtime.py`).
+- **In-browser screening tier** — `@amlfilter/browser`
+  (`frontend/packages/amlfilter-browser/`), vendoring edge-proc's browser sync
+  engine and porting the explainable scorer, plus a backend-free `/screen` page that
+  syncs the signed bundle and screens names in-tab. Parity-tested against the Python
+  runtime.
+
+### Changed
+
+- The frontend is now a **pnpm workspace** (`app/` + `packages/amlfilter-browser/`).
+- Candidate generation is documented per path: hybrid search (pgvector + pg_trgm) on
+  the DB path; localvec + a trigram stand-in on the bundle/browser path. The
+  explainable `reasons[]` + `explanation` contract is identical across all three.
+- `README.md`, `docs/ARCHITECTURE.md`, and `docs/QUICKSTART.md` updated to hero the
+  edge-proc substrate and document both the server and in-browser paths.
+
 ## [2.0.0] — 2026-05-30
 
 Public-launch readiness: a teen-readable two-altitude README, legal attribution and
