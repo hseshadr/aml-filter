@@ -1,0 +1,50 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v5
+
+      # aml-filter depends on the private repo hseshadr/shared-libs-python via a
+      # `git+https://` requirement (not a uv path source, so no .deps/ checkout +
+      # path-patch machinery is needed). A fresh CI runner cannot clone that
+      # private repo anonymously, so authenticate git over HTTPS using a PAT.
+      #
+      # REQUIRED: create a GitHub Actions secret named PORTFOLIO_PAT with a
+      # Personal Access Token (classic or fine-grained) that has read access to
+      # hseshadr/shared-libs-python.
+      # Settings -> Secrets and variables -> Actions -> New repository secret.
+      #
+      # The token is passed via env (never interpolated into the run: script
+      # body) to stay injection-safe.
+      - name: Authenticate git for private GitHub dependency
+        env:
+          PORTFOLIO_PAT: ${{ secrets.PORTFOLIO_PAT }}
+        run: |
+          git config --global url."https://x-access-token:${PORTFOLIO_PAT}@github.com/".insteadOf "https://github.com/"
+
+      - uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: true
+      - name: Pin Python
+        run: uv python install 3.13
+      - name: Sync
+        run: uv sync --extra dev
+      - name: Lint (ruff check + format check)
+        run: uv run poe lint
+      - name: Typecheck (mypy --strict)
+        run: uv run poe typecheck
+      - name: Complexity (xenon)
+        run: uv run poe complexity
+      - name: Tests (pytest)
+        run: uv run poe test
+      - name: Audit (pip-audit)
+        run: uv run poe audit
