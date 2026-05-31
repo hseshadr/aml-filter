@@ -8,18 +8,21 @@ against edge-proc's :class:`~edgeproc.localvec.faiss_index.FaissVectorIndex`
 
 Filtering parity with pgvector is preserved by carrying each entity's filter
 metadata (``source_list``, ``risk_category``, ``entity_type``, ``tenant_id``) on its
-``VectorEmbedding``, then applying aml's list-IN and tenant-OR-global semantics in
-Python over an over-fetched candidate set. The index is persisted to a config-driven
-directory via FAISS ``save``/``load`` so retrieval survives restarts.
+``VectorEmbedding``. aml keeps its OWN ``entity_id -> metadata`` side-map (built as
+embeddings are inserted) and applies aml's list-IN and tenant-OR-global semantics in
+Python over an over-fetched candidate set — it never reads edge-proc's private index
+internals. Both the FAISS index and aml's side-map are persisted to a config-driven
+directory so retrieval and filtering survive restarts.
 """
 
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Final
+from typing import Final, TypeGuard
 
 from edgeproc.localvec.faiss_index import FaissVectorIndex
 from shared_libs_python import IndexConfig, VectorEmbedding
@@ -30,6 +33,7 @@ from aml_filter.embedding import EMBEDDING_DIM
 
 _INDEX_NAME: Final[str] = "aml_entities"
 _STATE_FILE: Final[str] = "state.json"  # FaissVectorIndex's on-disk sidecar marker
+_META_FILE: Final[str] = "aml_meta.json"  # aml-owned filter-metadata side-map sidecar
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,6 +69,34 @@ def _metadata_of(item: EntityVector) -> dict[str, Scalar]:
     return meta
 
 
+def _load_meta(directory: Path) -> dict[str, dict[str, Scalar]]:
+    """Reload aml's filter side-map from its sidecar (empty when no sidecar exists)."""
+    sidecar = directory / _META_FILE
+    if not sidecar.is_file():
+        return {}
+    raw: object = json.loads(sidecar.read_text())
+    return _coerce_meta(raw)
+
+
+def _coerce_meta(raw: object) -> dict[str, dict[str, Scalar]]:
+    """Narrow the parsed JSON object into the typed side-map shape."""
+    if not isinstance(raw, dict):
+        return {}
+    return {str(eid): _coerce_row(row) for eid, row in raw.items()}
+
+
+def _coerce_row(row: object) -> dict[str, Scalar]:
+    """Keep only scalar-valued keys from one parsed metadata row."""
+    if not isinstance(row, dict):
+        return {}
+    return {str(key): value for key, value in row.items() if _is_scalar(value)}
+
+
+def _is_scalar(value: object) -> TypeGuard[Scalar]:
+    """True for the JSON-representable scalar types aml stores as filter metadata."""
+    return value is None or isinstance(value, (str, int, float, bool))
+
+
 def _matches_list(meta: Metadata, key: str, allowed: Sequence[str] | None) -> bool:
     """True when no filter is set, or the entity's value is in the allowed list."""
     if not allowed:
@@ -83,15 +115,23 @@ def _matches_tenant(meta: Metadata, tenant_id: str | None) -> bool:
 class LocalVecBackend:
     """Vector search over edge-proc's FAISS localvec index with aml filter parity."""
 
-    def __init__(self, index: FaissVectorIndex | None = None) -> None:
+    def __init__(
+        self,
+        index: FaissVectorIndex | None = None,
+        meta: dict[str, dict[str, Scalar]] | None = None,
+    ) -> None:
         self._index = index or FaissVectorIndex(_INDEX_NAME, IndexConfig(dimension=EMBEDDING_DIM))
+        # aml-owned filter side-map; never read from the edge-proc index internals.
+        self._meta: dict[str, dict[str, Scalar]] = meta or {}
 
     def build(self, items: list[EntityVector]) -> None:
         """Populate the in-memory index from scratch (synchronous build helper)."""
         asyncio.run(self.insert_embeddings([entity_vector_to_embedding(item) for item in items]))
 
     async def insert_embeddings(self, embeddings: list[VectorEmbedding]) -> None:
-        """Insert metadata-carrying embeddings into the FAISS index."""
+        """Insert embeddings into FAISS and record their filter metadata in aml's side-map."""
+        for embedding in embeddings:
+            self._meta[embedding.entity_id] = dict(embedding.metadata)
         await self._index.insert(embeddings)
 
     async def vector_search(
@@ -113,8 +153,8 @@ class LocalVecBackend:
         return max((await self._index.get_stats()).vector_count, 1)
 
     def _passes(self, entity_id: str, tenant_id: str | None, filters: SearchFilters | None) -> bool:
-        """Apply tenant scope and list filters against the entity's carried metadata."""
-        meta = self._index._meta.get(entity_id, {})
+        """Apply tenant scope and list filters against aml's own metadata side-map."""
+        meta = self._meta.get(entity_id, {})
         return _matches_tenant(meta, tenant_id) and self._passes_filters(meta, filters)
 
     @staticmethod
@@ -129,12 +169,13 @@ class LocalVecBackend:
         )
 
     def save(self, directory: Path) -> None:
-        """Persist the FAISS index plus its filter metadata to ``directory``."""
+        """Persist the FAISS index and aml's own filter side-map to ``directory``."""
         self._index.save(directory)
+        (directory / _META_FILE).write_text(json.dumps(self._meta))
 
     @classmethod
     def load(cls, directory: Path) -> LocalVecBackend:
-        """Load a saved index, or an empty backend when the directory is absent."""
+        """Load a saved index plus aml's side-map, or an empty backend when absent."""
         if not (directory / _STATE_FILE).is_file():
             return cls()
-        return cls(FaissVectorIndex.load(_INDEX_NAME, directory))
+        return cls(FaissVectorIndex.load(_INDEX_NAME, directory), _load_meta(directory))
