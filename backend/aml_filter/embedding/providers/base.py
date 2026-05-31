@@ -43,4 +43,3 @@ class EmbeddingProvider(Protocol):
             Dictionary with model_name, dimension, and other metadata
         """
         ...
-

@@ -10,8 +10,8 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
+/lib/
+/lib64/
 parts/
 sdist/
 var/
@@ -73,6 +73,8 @@ backend/alembic/versions/*.pyc
 # Frontend build
 frontend/dist/
 frontend/build/
+frontend/playwright-report/
+frontend/test-results/
 
 # Legacy Java/Gradle artifacts (shouldn't exist, but just in case)
 .gradle/

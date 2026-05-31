@@ -1,7 +1,6 @@
 """Unit tests for embedding service."""
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 
 from aml_filter.embedding.providers.sentence_transformers import SentenceTransformersProvider
 from aml_filter.embedding.service import EmbeddingService
@@ -13,18 +12,14 @@ class TestSentenceTransformersProvider:
     @pytest.mark.asyncio
     async def test_provider_initialization(self):
         """Test provider initialization."""
-        provider = SentenceTransformersProvider(
-            model_name="sentence-transformers/all-MiniLM-L6-v2"
-        )
+        provider = SentenceTransformersProvider(model_name="sentence-transformers/all-MiniLM-L6-v2")
         assert provider.model_name == "sentence-transformers/all-MiniLM-L6-v2"
         assert provider.dimension > 0  # Will load model to get dimension
 
     @pytest.mark.asyncio
     async def test_embed_single_text(self):
         """Test embedding a single text."""
-        provider = SentenceTransformersProvider(
-            model_name="sentence-transformers/all-MiniLM-L6-v2"
-        )
+        provider = SentenceTransformersProvider(model_name="sentence-transformers/all-MiniLM-L6-v2")
         embedding = await provider.embed("test text")
         assert isinstance(embedding, list)
         assert len(embedding) == provider.dimension
@@ -33,9 +28,7 @@ class TestSentenceTransformersProvider:
     @pytest.mark.asyncio
     async def test_embed_batch(self):
         """Test batch embedding."""
-        provider = SentenceTransformersProvider(
-            model_name="sentence-transformers/all-MiniLM-L6-v2"
-        )
+        provider = SentenceTransformersProvider(model_name="sentence-transformers/all-MiniLM-L6-v2")
         texts = ["first text", "second text", "third text"]
         embeddings = await provider.embed_batch(texts, batch_size=2)
         assert len(embeddings) == len(texts)
@@ -43,9 +36,7 @@ class TestSentenceTransformersProvider:
 
     def test_get_model_info(self):
         """Test getting model info."""
-        provider = SentenceTransformersProvider(
-            model_name="sentence-transformers/all-MiniLM-L6-v2"
-        )
+        provider = SentenceTransformersProvider(model_name="sentence-transformers/all-MiniLM-L6-v2")
         info = provider.get_model_info()
         assert "model_name" in info
         assert "dimension" in info
@@ -146,4 +137,3 @@ class TestEmbeddingService:
         info = service.get_model_info()
         assert "model_name" in info
         assert "dimension" in info
-

@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from aml_filter.api.dependencies import get_db_session
 from aml_filter.domain.search import SearchQuery, SearchResponse
+from aml_filter.scoring.service import get_active_policy
 from aml_filter.search.service import SearchService
 from aml_filter.security.middleware import get_tenant_from_api_key
 from aml_filter.usage.service import record_usage
@@ -68,8 +69,6 @@ async def screen_entity(
         # Load tenant's active scoring policy if authenticated
         scoring_policy = None
         if tenant_id:
-            from aml_filter.scoring.service import get_active_policy
-
             scoring_policy = await get_active_policy(session, tenant_id)
 
         response = await search_service.search(
@@ -87,15 +86,14 @@ async def screen_entity(
             )
 
         return response
-    except Exception as e:
+    except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Search failed: {str(e)}",
-        ) from e
+            detail=f"Search failed: {exc!s}",
+        ) from exc
 
 
 @router.get("/health", status_code=status.HTTP_200_OK)
 async def health_check() -> dict[str, str]:
     """Health check endpoint."""
     return {"status": "healthy", "service": "screening"}
-

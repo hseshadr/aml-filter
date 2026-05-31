@@ -4,7 +4,8 @@ from datetime import date
 
 import pytest
 
-from aml_filter.db.models import Entity as DBEntity, EntityEmbedding
+from aml_filter.db.models import Entity as DBEntity
+from aml_filter.db.models import EntityEmbedding
 from aml_filter.domain.normalization import prepare_embedding_text
 from aml_filter.embedding.service import EmbeddingService
 
@@ -78,5 +79,3 @@ class TestAuditEndpoints:
         data = resp.json()
         assert "items" in data
         assert isinstance(data["items"], list)
-
-

@@ -1,8 +1,10 @@
 """Integration tests for authentication and tenant management."""
 
 import pytest
-from aml_filter.db.models import Tenant, ApiKey
+
+from aml_filter.db.models import ApiKey, Tenant
 from aml_filter.security.api_key import hash_api_key
+
 
 @pytest.mark.integration
 class TestAuthIntegration:

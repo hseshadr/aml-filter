@@ -1,16 +1,13 @@
 """Comprehensive unit tests for SearchService."""
 
-import hashlib
-import json
 from datetime import date
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from aml_filter.db.models import Entity as DBEntity, SearchRequest
-from aml_filter.domain.entity import Alias, Entity
+from aml_filter.db.models import Entity as DBEntity
 from aml_filter.domain.scoring import ScoringPolicy, ScoringWeights
-from aml_filter.domain.search import SearchFilters, SearchQuery, SearchResponse
+from aml_filter.domain.search import CandidateScores, SearchQuery, SearchResponse
 from aml_filter.search.service import SearchService
 
 
@@ -271,9 +268,7 @@ class TestSearchMethod:
         )
 
     @pytest.mark.asyncio
-    async def test_search_no_results(
-        self, service, mock_session, mock_hybrid_search_service
-    ):
+    async def test_search_no_results(self, service, mock_session, mock_hybrid_search_service):
         """Test search with no results."""
         mock_hybrid_search_service.search.return_value = []
 
@@ -285,13 +280,11 @@ class TestSearchMethod:
         assert response.request_id is not None
 
     @pytest.mark.asyncio
-    async def test_search_with_results(
-        self, service, mock_session, mock_hybrid_search_service
-    ):
+    async def test_search_with_results(self, service, mock_session, mock_hybrid_search_service):
         """Test search with results."""
         # Mock hybrid search results
         mock_hybrid_search_service.search.return_value = [
-            ("entity-1", 0.9, {"vector_score": 0.9, "lexical_score": 0.85}),
+            ("entity-1", 0.9, CandidateScores(vector_score=0.9, lexical_score=0.85, source="both")),
         ]
 
         # Mock entity from database
@@ -332,8 +325,8 @@ class TestSearchMethod:
         """Test search filters results by threshold."""
         # Mock hybrid search with multiple results
         mock_hybrid_search_service.search.return_value = [
-            ("entity-1", 0.9, {"vector_score": 0.9, "lexical_score": 0.85}),
-            ("entity-2", 0.4, {"vector_score": 0.4, "lexical_score": 0.35}),
+            ("entity-1", 0.9, CandidateScores(vector_score=0.9, lexical_score=0.85, source="both")),
+            ("entity-2", 0.4, CandidateScores(vector_score=0.4, lexical_score=0.35, source="both")),
         ]
 
         # Mock entities
@@ -390,9 +383,7 @@ class TestSearchMethod:
             assert match.score >= 0.8
 
     @pytest.mark.asyncio
-    async def test_search_with_dob_filter(
-        self, service, mock_session, mock_hybrid_search_service
-    ):
+    async def test_search_with_dob_filter(self, service, mock_session, mock_hybrid_search_service):
         """Test search with DOB filter."""
         mock_hybrid_search_service.search.return_value = []
 
@@ -441,9 +432,7 @@ class TestSearchMethod:
         assert isinstance(response, SearchResponse)
 
     @pytest.mark.asyncio
-    async def test_search_with_list_filter(
-        self, service, mock_session, mock_hybrid_search_service
-    ):
+    async def test_search_with_list_filter(self, service, mock_session, mock_hybrid_search_service):
         """Test search with list filter."""
         mock_hybrid_search_service.search.return_value = []
 
@@ -480,9 +469,7 @@ class TestSearchMethod:
             version=1,
         )
 
-        response = await service.search(
-            query=query, tenant_id="tenant-1", scoring_policy=policy
-        )
+        response = await service.search(query=query, tenant_id="tenant-1", scoring_policy=policy)
 
         assert isinstance(response, SearchResponse)
 
@@ -508,9 +495,7 @@ class TestSearchMethod:
         mock_hybrid_search_service.search.return_value = []
 
         query = SearchQuery(name="John Doe", threshold=0.65, k=10)
-        response = await service.search(
-            query=query, tenant_id="tenant-1", user_id="user-123"
-        )
+        response = await service.search(query=query, tenant_id="tenant-1", user_id="user-123")
 
         assert isinstance(response, SearchResponse)
         # Verify audit record was added
@@ -560,15 +545,13 @@ class TestSearchMethod:
         assert response1.request_id != response2.request_id
 
     @pytest.mark.asyncio
-    async def test_search_sorts_by_score(
-        self, service, mock_session, mock_hybrid_search_service
-    ):
+    async def test_search_sorts_by_score(self, service, mock_session, mock_hybrid_search_service):
         """Test search results are sorted by score descending."""
         # Mock hybrid search with multiple results
         mock_hybrid_search_service.search.return_value = [
-            ("entity-1", 0.7, {"vector_score": 0.7, "lexical_score": 0.65}),
-            ("entity-2", 0.9, {"vector_score": 0.9, "lexical_score": 0.85}),
-            ("entity-3", 0.5, {"vector_score": 0.5, "lexical_score": 0.45}),
+            ("entity-1", 0.7, CandidateScores(vector_score=0.7, lexical_score=0.65, source="both")),
+            ("entity-2", 0.9, CandidateScores(vector_score=0.9, lexical_score=0.85, source="both")),
+            ("entity-3", 0.5, CandidateScores(vector_score=0.5, lexical_score=0.45, source="both")),
         ]
 
         # Mock entities
@@ -608,13 +591,15 @@ class TestSearchMethod:
                 assert response.matches[i].score >= response.matches[i + 1].score
 
     @pytest.mark.asyncio
-    async def test_search_respects_k_limit(
-        self, service, mock_session, mock_hybrid_search_service
-    ):
+    async def test_search_respects_k_limit(self, service, mock_session, mock_hybrid_search_service):
         """Test search respects K limit."""
         # Mock many results
         mock_hybrid_search_service.search.return_value = [
-            (f"entity-{i}", 0.9 - i * 0.01, {"vector_score": 0.9 - i * 0.01, "lexical_score": 0.85})
+            (
+                f"entity-{i}",
+                0.9 - i * 0.01,
+                CandidateScores(vector_score=0.9 - i * 0.01, lexical_score=0.85, source="both"),
+            )
             for i in range(20)
         ]
 
@@ -657,7 +642,7 @@ class TestSearchMethod:
     ):
         """Test search tracks list versions used."""
         mock_hybrid_search_service.search.return_value = [
-            ("entity-1", 0.9, {"vector_score": 0.9, "lexical_score": 0.85}),
+            ("entity-1", 0.9, CandidateScores(vector_score=0.9, lexical_score=0.85, source="both")),
         ]
 
         db_entity = MagicMock(spec=DBEntity)
@@ -692,13 +677,15 @@ class TestSearchMethod:
             assert response.list_versions_used["OFAC"] == "2024-01-15"
 
     @pytest.mark.asyncio
-    async def test_search_entity_not_in_db(
-        self, service, mock_session, mock_hybrid_search_service
-    ):
+    async def test_search_entity_not_in_db(self, service, mock_session, mock_hybrid_search_service):
         """Test search handles entity ID from search not found in DB."""
         # Search returns entity that doesn't exist in DB
         mock_hybrid_search_service.search.return_value = [
-            ("nonexistent-entity", 0.9, {"vector_score": 0.9, "lexical_score": 0.85}),
+            (
+                "nonexistent-entity",
+                0.9,
+                CandidateScores(vector_score=0.9, lexical_score=0.85, source="both"),
+            ),
         ]
 
         mock_result = MagicMock()

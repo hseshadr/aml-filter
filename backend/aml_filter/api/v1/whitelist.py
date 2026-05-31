@@ -2,7 +2,7 @@
 
 import uuid
 from datetime import date
-from typing import Any
+from typing import cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field
@@ -12,10 +12,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from aml_filter.api.dependencies import get_db_session
 from aml_filter.db.models import Entity as DBEntity
 from aml_filter.db.models import ScreeningJob
-from aml_filter.ingest.whitelist import WhitelistIngestionService
+from aml_filter.ingest.whitelist import AliasInput, WhitelistIngestionService
+from aml_filter.queue import enqueue_screening
 from aml_filter.screening.bidirectional import BidirectionalScreeningService
 from aml_filter.screening.match_tracker import MatchTracker
 from aml_filter.security.middleware import require_api_key
+from aml_filter.types import JsonArray, JsonObject
 
 router = APIRouter(prefix="/whitelist", tags=["whitelist"])
 
@@ -33,10 +35,12 @@ class CustomerCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=500)
     entity_type: str = Field(default="PERSON", pattern="^(PERSON|ORGANIZATION)$")
     dob: list[date] | None = Field(None, description="List of dates of birth")
-    country: str | None = Field(None, min_length=2, max_length=2, description="ISO 3166-1 alpha-2 country code")
-    aliases: list[dict[str, Any]] | None = Field(None, description="List of aliases")
-    identifiers: dict[str, Any] | None = Field(None, description="Identifiers dictionary")
-    metadata: dict[str, Any] | None = Field(None, description="Optional metadata")
+    country: str | None = Field(
+        None, min_length=2, max_length=2, description="ISO 3166-1 alpha-2 country code"
+    )
+    aliases: list[AliasInput] | None = Field(None, description="List of aliases")
+    identifiers: JsonObject | None = Field(None, description="Identifiers dictionary")
+    metadata: JsonObject | None = Field(None, description="Optional metadata")
 
 
 class CustomerUpdate(BaseModel):
@@ -46,9 +50,9 @@ class CustomerUpdate(BaseModel):
     entity_type: str | None = Field(None, pattern="^(PERSON|ORGANIZATION)$")
     dob: list[date] | None = None
     country: str | None = Field(None, min_length=2, max_length=2)
-    aliases: list[dict[str, Any]] | None = None
-    identifiers: dict[str, Any] | None = None
-    metadata: dict[str, Any] | None = None
+    aliases: list[AliasInput] | None = None
+    identifiers: JsonObject | None = None
+    metadata: JsonObject | None = None
 
 
 class CustomerResponse(BaseModel):
@@ -63,10 +67,55 @@ class CustomerResponse(BaseModel):
     name_canonical: str
     dob: list[str] | None
     countries: list[str] | None
-    aliases: list[dict[str, Any]]
-    identifiers: dict[str, Any]
+    aliases: JsonArray
+    identifiers: JsonObject
     created_at: str
     updated_at: str
+
+
+def _to_customer_response(entity: DBEntity) -> "CustomerResponse":
+    """Map a whitelist DBEntity row to its API response model."""
+    return CustomerResponse(
+        entity_id=entity.entity_id,
+        tenant_id=entity.tenant_id or "",
+        entity_type=entity.entity_type,
+        primary_name=entity.primary_name,
+        name_canonical=entity.name_canonical,
+        dob=_format_dates(entity.dob),
+        countries=entity.countries,
+        aliases=entity.aliases or [],
+        identifiers=entity.identifiers or {},
+        created_at=entity.created_at.isoformat(),
+        updated_at=entity.updated_at.isoformat(),
+    )
+
+
+def _apply_customer_updates(entity: DBEntity, customer: "CustomerUpdate") -> None:
+    """Apply each provided (non-None) field from the update onto the entity in place."""
+    _apply_customer_identity(entity, customer)
+    if customer.aliases is not None:
+        entity.aliases = cast(JsonArray, customer.aliases)
+    if customer.identifiers is not None:
+        entity.identifiers = customer.identifiers
+    if customer.metadata is not None:
+        entity.raw_source = customer.metadata
+
+
+def _apply_customer_identity(entity: DBEntity, customer: "CustomerUpdate") -> None:
+    """Apply the provided identity fields (name, type, dob, country) onto the entity."""
+    if customer.name is not None:
+        entity.primary_name = customer.name
+    if customer.entity_type is not None:
+        entity.entity_type = customer.entity_type
+    if customer.dob is not None:
+        entity.dob = customer.dob
+    if customer.country is not None:
+        entity.countries = _country_list(customer.country)
+
+
+def _country_list(country: str) -> list[str]:
+    """Wrap a country in a single-element list, or empty when blank."""
+    return [country] if country else []
 
 
 class MatchResponse(BaseModel):
@@ -123,19 +172,7 @@ async def add_customer(
         metadata=customer.metadata,
     )
 
-    return CustomerResponse(
-        entity_id=entity.entity_id,
-        tenant_id=entity.tenant_id or "",
-        entity_type=entity.entity_type,
-        primary_name=entity.primary_name,
-        name_canonical=entity.name_canonical,
-        dob=_format_dates(entity.dob),
-        countries=entity.countries,
-        aliases=entity.aliases or [],
-        identifiers=entity.identifiers or {},
-        created_at=entity.created_at.isoformat(),
-        updated_at=entity.updated_at.isoformat(),
-    )
+    return _to_customer_response(entity)
 
 
 @router.get("/customers", response_model=list[CustomerResponse])
@@ -153,22 +190,7 @@ async def list_customers(
         offset=offset,
     )
 
-    return [
-        CustomerResponse(
-            entity_id=entity.entity_id,
-            tenant_id=entity.tenant_id or "",
-            entity_type=entity.entity_type,
-            primary_name=entity.primary_name,
-            name_canonical=entity.name_canonical,
-            dob=_format_dates(entity.dob),
-            countries=entity.countries,
-            aliases=entity.aliases or [],
-            identifiers=entity.identifiers or {},
-            created_at=entity.created_at.isoformat(),
-            updated_at=entity.updated_at.isoformat(),
-        )
-        for entity in entities
-    ]
+    return [_to_customer_response(entity) for entity in entities]
 
 
 @router.get("/customers/{entity_id}", response_model=CustomerResponse)
@@ -192,19 +214,7 @@ async def get_customer(
             detail=f"Customer {entity_id} not found",
         )
 
-    return CustomerResponse(
-        entity_id=entity.entity_id,
-        tenant_id=entity.tenant_id or "",
-        entity_type=entity.entity_type,
-        primary_name=entity.primary_name,
-        name_canonical=entity.name_canonical,
-        dob=_format_dates(entity.dob),
-        countries=entity.countries,
-        aliases=entity.aliases or [],
-        identifiers=entity.identifiers or {},
-        created_at=entity.created_at.isoformat(),
-        updated_at=entity.updated_at.isoformat(),
-    )
+    return _to_customer_response(entity)
 
 
 @router.put("/customers/{entity_id}", response_model=CustomerResponse)
@@ -229,38 +239,10 @@ async def update_customer(
             detail=f"Customer {entity_id} not found",
         )
 
-    # Update fields if provided
-    if customer.name is not None:
-        entity.primary_name = customer.name
-    if customer.entity_type is not None:
-        entity.entity_type = customer.entity_type
-    if customer.dob is not None:
-        entity.dob = customer.dob
-    if customer.country is not None:
-        entity.countries = [customer.country] if customer.country else []
-    if customer.aliases is not None:
-        entity.aliases = customer.aliases
-    if customer.identifiers is not None:
-        entity.identifiers = customer.identifiers
-    if customer.metadata is not None:
-        entity.raw_source = customer.metadata
-
+    _apply_customer_updates(entity, customer)
     await session.commit()
     await session.refresh(entity)
-
-    return CustomerResponse(
-        entity_id=entity.entity_id,
-        tenant_id=entity.tenant_id or "",
-        entity_type=entity.entity_type,
-        primary_name=entity.primary_name,
-        name_canonical=entity.name_canonical,
-        dob=_format_dates(entity.dob),
-        countries=entity.countries,
-        aliases=entity.aliases or [],
-        identifiers=entity.identifiers or {},
-        created_at=entity.created_at.isoformat(),
-        updated_at=entity.updated_at.isoformat(),
-    )
+    return _to_customer_response(entity)
 
 
 @router.delete("/customers/{entity_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -297,31 +279,19 @@ async def trigger_screening(
     session.add(job)
     await session.commit()
 
-    # Enqueue background job
-    try:
-        import os
-
-        from redis import Redis
-        from rq import Queue
-
-        redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-        redis_conn = Redis.from_url(redis_url)
-        queue = Queue("screening", connection=redis_conn)
-
-        queue.enqueue(
-            "aml_filter.worker.screening_jobs.run_bidirectional_screening",
-            tenant_id=tenant_id,
-            job_id=job_id,
-        )
-    except Exception:
-        # If Redis/RQ is not available, run synchronously
+    # Enqueue background job; fall back to inline screening if Redis is unavailable.
+    enqueued = enqueue_screening(
+        "aml_filter.worker.screening_jobs.run_bidirectional_screening",
+        tenant_id=tenant_id,
+        job_id=job_id,
+    )
+    if not enqueued:
         screening_service = BidirectionalScreeningService(session=session)
         results = await screening_service.screen_whitelist_against_blacklist(
             tenant_id=tenant_id,
             threshold=0.65,
             batch_size=100,
         )
-
         job.status = "COMPLETED"
         job.entities_scanned = results["entities_scanned"]
         job.matches_found = results["matches_found"]
@@ -480,4 +450,3 @@ async def get_screening_job(
         completed_at=job.completed_at.isoformat() if job.completed_at else None,
         error_message=job.error_message,
     )
-

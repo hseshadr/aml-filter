@@ -51,5 +51,3 @@ class TestWeightsUsageBatchEndpoints:
         job_id = job["job_id"]
         get_job = await client.get(f"/v1/batch/{job_id}", headers=auth_headers)
         assert get_job.status_code == 200
-
-

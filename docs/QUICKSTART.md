@@ -1,120 +1,90 @@
-# AML-Filter v2 Quick Start Guide
+# Quickstart
+
+Clone → run the quality gate → load a sanctions list → screen a name. About ten
+minutes, mostly waiting on Docker and the OFAC download.
+
+> Reminder: aml-filter is a portfolio demo, **not** a compliance product. See
+> [`../NOTICE`](../NOTICE).
 
 ## Prerequisites
 
-- Python 3.13+
-- PostgreSQL 15+ with pgvector extension
-- Docker and Docker Compose (for local development)
+- **Python 3.13+** and [`uv`](https://docs.astral.sh/uv/)
+- **Docker** + Docker Compose
+- `curl` and `jq` (for the demo request)
 
-## Setup Steps
-
-### 1. Install Dependencies
+## 1. Clone and check the build
 
 ```bash
-# Install uv if not already installed
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# Sync dependencies
+git clone https://github.com/hseshadr/aml-filter.git
+cd aml-filter/backend
 uv sync
+uv run poe gate     # ruff + mypy --strict + xenon (Radon A) + pytest (≥90% cov)
 ```
 
-### 2. Start Database
+`uv run poe gate` must pass before anything else — it's the same gate CI runs.
+
+## 2. Start the services
+
+From the repo root:
 
 ```bash
-# Start PostgreSQL with pgvector
-docker-compose up -d postgres
-
-# Wait for database to be ready (about 10 seconds)
-sleep 10
+docker compose up -d
 ```
 
-### 3. Initialize Database
+This starts Postgres (pgvector, published on `localhost:5435`), Valkey/Redis
+(`localhost:6380`), the API (`localhost:8000`), and the batch worker.
+
+## 3. Create the schema
 
 ```bash
-# Create extensions and run migrations
-uv run python scripts/init_db.py
-uv run alembic upgrade head
+docker compose exec api uv run python scripts/init_db.py
 ```
 
-### 4. Ingest Sample Data (Optional)
+(Schema migrations live in `backend/alembic/`; `init_db.py` brings a fresh database
+up to head.)
+
+## 4. Load the official OFAC SDN list
+
+aml-filter does **not** ship the sanctions data. Download the current SDN list as
+`SDN.XML` from the official source —
+<https://sanctionslist.ofac.treasury.gov> — then ingest it:
 
 ```bash
-# Download OFAC SDN XML from https://ofac.treasury.gov
-# Then ingest:
-uv run python scripts/ingest_ofac.py path/to/sdn.xml
+docker compose exec api uv run python scripts/ingest_ofac.py SDN.XML
 ```
 
-### 5. Start API Server
+This parses the XML, upserts sanctioned entities + aliases, builds a name embedding
+for each, and stamps a `list_version`. Re-run it whenever you refresh the list.
+
+## 5. Screen a name
 
 ```bash
-uv run uvicorn aml_filter.api.main:app --reload
+curl -s http://localhost:8000/v1/screen \
+  -H 'Content-Type: application/json' \
+  -d '{"name": "Jon Q. Fakename", "threshold": 0.65}' | jq
 ```
 
-The API will be available at `http://localhost:8000`
+### Request fields (`SearchQuery`)
 
-## Testing the API
+| Field | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `name` | string | — | **Required.** The name to screen. |
+| `dob` | date | — | Optional `YYYY-MM-DD`; feeds the `dob_match` signal. |
+| `country` | string | — | Optional ISO-3166 alpha-2; feeds `country_match`. |
+| `entity_type` | `PERSON`\|`ORGANIZATION` | — | Optional filter. |
+| `threshold` | float | `0.65` | Minimum score to count as a match. |
+| `k` | int | `20` | Max candidates to retrieve. |
 
-### Using curl
-
-```bash
-# Screen an entity
-curl -X POST "http://localhost:8000/v1/screen" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "John Doe",
-    "country": "US",
-    "entity_type": "PERSON",
-    "threshold": 0.65,
-    "k": 10
-  }'
-```
-
-### Using the Swagger UI
-
-Visit `http://localhost:8000/docs` for interactive API documentation.
-
-## Environment Variables
-
-Set these environment variables if needed:
-
-```bash
-export DATABASE_URL="postgresql+asyncpg://postgres:postgres@localhost:5432/aml_filter"
-```
-
-## Project Structure
-
-```
-aml_filter/
-  api/          # FastAPI endpoints
-  db/           # Database models and session
-  domain/       # Domain models (Pydantic)
-  embedding/    # Embedding service
-  ingest/       # Data ingestion (OFAC parser)
-  scoring/      # Scoring engine
-  search/       # Search backends (vector + lexical)
-```
-
-## Next Steps
-
-- Read the full [README_PYTHON.md](./README_PYTHON.md) for detailed documentation
-- Check [docs/SPEC.md](./docs/SPEC.md) for architecture details
-- Review [docs/IMPLEMENTATION_PLAN.md](./docs/IMPLEMENTATION_PLAN.md) for roadmap
+The response is a `SearchResponse` with scored `matches[]` — each carrying a
+`reasons[]` signal breakdown and a plain-language `explanation`. See
+[`ARCHITECTURE.md`](ARCHITECTURE.md) for the scoring contract.
 
 ## Troubleshooting
 
-### Database Connection Issues
-
-- Ensure PostgreSQL is running: `docker-compose ps`
-- Check database URL in environment variables
-- Verify pgvector extension: `psql -c "CREATE EXTENSION IF NOT EXISTS vector;"`
-
-### Migration Issues
-
-- Ensure database extensions are created: `uv run python scripts/init_db.py`
-- Check Alembic configuration in `alembic.ini`
-
-### Import Errors
-
-- Ensure virtual environment is activated: `source .venv/bin/activate`
-- Reinstall dependencies: `uv sync`
-
+- **`DATABASE_URL` error on startup** — aml-filter fails closed by design. For a
+  host-run API, `cp backend/.env.example backend/.env` first.
+- **No matches ever** — confirm step 4 succeeded (the SDN list is loaded) and that
+  you're screening a name that's actually on it.
+- **Port already in use** — Postgres/Valkey publish on `5435`/`6380` (not the
+  defaults) specifically to avoid clashing with local installs; adjust
+  `docker-compose.yml` if needed.

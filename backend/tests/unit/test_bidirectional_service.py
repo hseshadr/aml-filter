@@ -1,21 +1,28 @@
 """Unit tests for BidirectionalScreeningService."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
+from aml_filter.db.models import Entity as DBEntity
+from aml_filter.domain.search import CandidateScores
 from aml_filter.screening.bidirectional import BidirectionalScreeningService
-from aml_filter.db.models import Entity as DBEntity, Tenant
+
 
 @pytest.fixture
 def mock_session():
     return AsyncMock()
 
+
 @pytest.fixture
 def mock_search_service():
     return AsyncMock()
 
+
 @pytest.fixture
 def mock_match_tracker():
     return AsyncMock()
+
 
 @pytest.fixture
 def mock_embedding_service():
@@ -24,14 +31,16 @@ def mock_embedding_service():
     service.get_model_info.return_value = {"model_name": "test-model"}
     return service
 
+
 @pytest.fixture
 def service(mock_session, mock_search_service, mock_match_tracker, mock_embedding_service):
     return BidirectionalScreeningService(
         session=mock_session,
         search_service=mock_search_service,
         match_tracker=mock_match_tracker,
-        embedding_service=mock_embedding_service
+        embedding_service=mock_embedding_service,
     )
+
 
 @pytest.mark.asyncio
 async def test_screen_whitelist_against_blacklist(service, mock_session):
@@ -47,20 +56,21 @@ async def test_screen_whitelist_against_blacklist(service, mock_session):
     e1.dob = []
     e1.aliases = []
     e1.identifiers = {}
-    
+
     mock_result = MagicMock()
     mock_result.scalars().all.return_value = [e1]
     mock_session.execute.return_value = mock_result
-    
+
     # Mock screen_entity_against_list (internal call)
     with patch.object(service, "screen_entity_against_list", new_callable=AsyncMock) as mock_screen:
         mock_screen.return_value = ["b1"]
-        
+
         results = await service.screen_whitelist_against_blacklist("t1")
-        
+
         assert results["entities_scanned"] == 1
         assert results["matches_found"] == 1
         mock_screen.assert_called_once()
+
 
 @pytest.mark.asyncio
 async def test_screen_blacklist_against_whitelist(service, mock_session):
@@ -76,19 +86,25 @@ async def test_screen_blacklist_against_whitelist(service, mock_session):
     b1.dob = []
     b1.aliases = []
     b1.identifiers = {}
-    
+
     mock_result = MagicMock()
-    mock_result.scalars().all.side_effect = [[b1], [MagicMock(tenant_id="t1")]] # Blacklist, then Tenants
+    mock_result.scalars().all.side_effect = [
+        [b1],
+        [MagicMock(tenant_id="t1")],
+    ]  # Blacklist, then Tenants
     mock_session.execute.return_value = mock_result
-    
+
     with patch.object(service, "screen_entity_against_list", new_callable=AsyncMock) as mock_screen:
         mock_screen.return_value = ["w1"]
-        
-        results = await service.screen_blacklist_against_whitelist(list_id="OFAC", list_version="v1")
-        
+
+        results = await service.screen_blacklist_against_whitelist(
+            list_id="OFAC", list_version="v1"
+        )
+
         assert results["entities_scanned"] == 1
         assert results["matches_found"] == 1
         mock_screen.assert_called_once()
+
 
 @pytest.mark.asyncio
 async def test_screen_entity_against_list_no_matches(service, mock_session):
@@ -112,19 +128,20 @@ async def test_screen_entity_against_list_no_matches(service, mock_session):
     entity.aliases = []
     entity.identifiers = {}
     entity.raw_source = {}
-    
-    with patch("aml_filter.screening.bidirectional.HybridSearchService", new_callable=MagicMock) as mock_hybrid_class:
+
+    with patch(
+        "aml_filter.screening.bidirectional.HybridSearchService", new_callable=MagicMock
+    ) as mock_hybrid_class:
         mock_hybrid = AsyncMock()
         mock_hybrid_class.return_value = mock_hybrid
-        mock_hybrid.search.return_value = [] # No search results
-        
+        mock_hybrid.search.return_value = []  # No search results
+
         matches = await service.screen_entity_against_list(
-            entity=entity,
-            target_risk_category="SANCTION",
-            tenant_id="t1"
+            entity=entity, target_risk_category="SANCTION", tenant_id="t1"
         )
-        
+
         assert matches == []
+
 
 @pytest.mark.asyncio
 async def test_screen_entity_against_list_with_matches(service, mock_session):
@@ -148,7 +165,7 @@ async def test_screen_entity_against_list_with_matches(service, mock_session):
     entity.aliases = []
     entity.identifiers = {}
     entity.raw_source = {}
-    
+
     match_entity = MagicMock(spec=DBEntity)
     match_entity.entity_id = "b1"
     match_entity.tenant_id = None
@@ -168,28 +185,32 @@ async def test_screen_entity_against_list_with_matches(service, mock_session):
     match_entity.aliases = []
     match_entity.identifiers = {}
     match_entity.raw_source = {}
-    
-    with patch("aml_filter.screening.bidirectional.HybridSearchService", new_callable=MagicMock) as mock_hybrid_class, \
-         patch("aml_filter.screening.bidirectional.DefaultScoringPolicy", new_callable=MagicMock) as mock_scorer_class:
-        
+
+    with (
+        patch(
+            "aml_filter.screening.bidirectional.HybridSearchService", new_callable=MagicMock
+        ) as mock_hybrid_class,
+        patch(
+            "aml_filter.screening.bidirectional.DefaultScoringPolicy", new_callable=MagicMock
+        ) as mock_scorer_class,
+    ):
         mock_hybrid = AsyncMock()
         mock_hybrid_class.return_value = mock_hybrid
-        mock_hybrid.search.return_value = [("b1", 0.9, {"vector_score": 0.9, "lexical_score": 0.9})]
-        
+        mock_hybrid.search.return_value = [
+            ("b1", 0.9, CandidateScores(vector_score=0.9, lexical_score=0.9, source="both"))
+        ]
+
         mock_scorer = MagicMock()
         mock_scorer_class.return_value = mock_scorer
         mock_scorer.compute_score.return_value = (0.9, {"reason": "Test"})
-        
+
         mock_result = MagicMock()
         mock_result.scalars.return_value.all.return_value = [match_entity]
         mock_session.execute.return_value = mock_result
-        
+
         matches = await service.screen_entity_against_list(
-            entity=entity,
-            target_risk_category="SANCTION",
-            tenant_id="t1"
+            entity=entity, target_risk_category="SANCTION", tenant_id="t1"
         )
-        
+
         assert matches == ["b1"]
         assert service.match_tracker.record_match.called
-

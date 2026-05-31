@@ -1,7 +1,8 @@
 """Unit tests for Entity domain models."""
 
-import pytest
 from datetime import date
+
+import pytest
 
 from aml_filter.domain.entity import Alias, Entity, EntityIdentifier
 
@@ -71,9 +72,7 @@ class TestEntity:
             name_canonical="mohammed ali",
             name_tokens=["mohammed", "ali"],
             name_trigram="mohammed ali",
-            aliases=[
-                Alias(name="MUHAMMAD ALI", name_canonical="muhammad ali", source="OFAC")
-            ],
+            aliases=[Alias(name="MUHAMMAD ALI", name_canonical="muhammad ali", source="OFAC")],
             dob=[date(1985, 2, 10)],
             countries=["PK"],
             nationalities=["PK"],
@@ -118,4 +117,3 @@ class TestEntity:
                 source_list="test",
                 list_version="v1",
             )
-

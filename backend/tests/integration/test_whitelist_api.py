@@ -1,5 +1,5 @@
 import pytest
-from aml_filter.db.models import Entity
+
 
 @pytest.mark.integration
 class TestWhitelistAPI:
@@ -9,6 +9,7 @@ class TestWhitelistAPI:
     async def auth_headers(self, db_session, test_tenant):
         """Headers with a valid API key for the test tenant."""
         from aml_filter.security.api_key import create_api_key
+
         key_id, plaintext = await create_api_key(db_session, test_tenant.tenant_id, name="Test Key")
         return {"X-API-Key": plaintext}
 
@@ -16,11 +17,7 @@ class TestWhitelistAPI:
     async def test_crud_customers(self, client, auth_headers):
         """Test CRUD operations for whitelist customers."""
         # 1. Create
-        payload = {
-            "name": "Target Customer",
-            "country": "US",
-            "dob": ["1990-01-01"]
-        }
+        payload = {"name": "Target Customer", "country": "US", "dob": ["1990-01-01"]}
         response = await client.post("/v1/whitelist/customers", json=payload, headers=auth_headers)
         assert response.status_code == 201
         customer_id = response.json()["entity_id"]
@@ -39,12 +36,16 @@ class TestWhitelistAPI:
 
         # 4. Update
         update_payload = {"country": "CA"}
-        response = await client.put(f"/v1/whitelist/customers/{customer_id}", json=update_payload, headers=auth_headers)
+        response = await client.put(
+            f"/v1/whitelist/customers/{customer_id}", json=update_payload, headers=auth_headers
+        )
         assert response.status_code == 200
         assert response.json()["countries"] == ["CA"]
 
         # 5. Delete
-        response = await client.delete(f"/v1/whitelist/customers/{customer_id}", headers=auth_headers)
+        response = await client.delete(
+            f"/v1/whitelist/customers/{customer_id}", headers=auth_headers
+        )
         assert response.status_code == 204
 
     @pytest.mark.asyncio
@@ -67,4 +68,3 @@ class TestWhitelistAPI:
         response = await client.get("/v1/whitelist/screening-jobs", headers=auth_headers)
         assert response.status_code == 200
         assert isinstance(response.json(), list)
-

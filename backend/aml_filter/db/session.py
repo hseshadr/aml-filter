@@ -57,4 +57,3 @@ async def get_db_session() -> AsyncGenerator[AsyncSession]:
 def create_database(database_url: str) -> Database:
     """Create and return database instance."""
     return Database(database_url)
-

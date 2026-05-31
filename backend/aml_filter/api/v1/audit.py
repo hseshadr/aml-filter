@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
@@ -13,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from aml_filter.api.dependencies import get_db_session
 from aml_filter.db.models import SearchRequest
 from aml_filter.security.middleware import require_api_key
+from aml_filter.types import JsonObject, JsonValue
 
 router = APIRouter(prefix="/audit", tags=["audit"])
 
@@ -22,10 +22,10 @@ class AuditRecordResponse(BaseModel):
     tenant_id: str
     user_id: str | None
     request_hash: str
-    query: dict[str, Any]
+    query: JsonObject
     policy_version: int | None
     list_versions_used: dict[str, str]
-    matches: dict[str, Any]
+    matches: JsonObject
     created_at: str
     execution_time_ms: int | None
 
@@ -39,13 +39,18 @@ class AuditListResponse(BaseModel):
     offset: int
 
 
-def _normalize_matches(value: Any) -> dict[str, Any]:
+def _normalize_matches(value: JsonValue) -> JsonObject:
     """Normalize stored matches payload to a consistent dict shape."""
     if isinstance(value, dict):
         return value
     if isinstance(value, list):
         return {"matches": value}
     return {"matches": []}
+
+
+def _string_map(value: JsonObject) -> dict[str, str]:
+    """Coerce a stored JSONB string-map (e.g. list_versions_used) to dict[str, str]."""
+    return {key: str(item) for key, item in value.items()}
 
 
 @router.get("/{request_id}", response_model=AuditRecordResponse)
@@ -75,7 +80,7 @@ async def get_audit_record(
         request_hash=record.request_hash,
         query=record.query,
         policy_version=record.policy_version,
-        list_versions_used=record.list_versions_used,
+        list_versions_used=_string_map(record.list_versions_used),
         matches=_normalize_matches(record.matches),
         created_at=record.created_at.isoformat(),
         execution_time_ms=record.execution_time_ms,
@@ -92,8 +97,8 @@ async def list_audit_records(
     offset: int = Query(0, ge=0),
 ) -> AuditListResponse:
     """List audit records for the tenant with optional date filtering."""
-    count_stmt = select(func.count()).select_from(SearchRequest).where(
-        SearchRequest.tenant_id == tenant_id
+    count_stmt = (
+        select(func.count()).select_from(SearchRequest).where(SearchRequest.tenant_id == tenant_id)
     )
     stmt = select(SearchRequest).where(SearchRequest.tenant_id == tenant_id)
 
@@ -121,7 +126,7 @@ async def list_audit_records(
             request_hash=r.request_hash,
             query=r.query,
             policy_version=r.policy_version,
-            list_versions_used=r.list_versions_used,
+            list_versions_used=_string_map(r.list_versions_used),
             matches=_normalize_matches(r.matches),
             created_at=r.created_at.isoformat(),
             execution_time_ms=r.execution_time_ms,
@@ -130,4 +135,3 @@ async def list_audit_records(
     ]
 
     return AuditListResponse(total=total, items=items, limit=limit, offset=offset)
-

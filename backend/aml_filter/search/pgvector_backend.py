@@ -1,6 +1,6 @@
 """PgVector search backend implementation."""
 
-from typing import Any
+from collections.abc import Sequence
 
 from shared_libs_python import GlobalPartitionStrategy, IndexConfig, IndexManager
 from shared_libs_python.core.types import VectorEmbedding
@@ -8,6 +8,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from aml_filter.domain.search import SearchFilters
 from aml_filter.search.pgvector_index import PgVectorIndex
+from aml_filter.types import JsonObject
+
+
+def _to_index_filters(filters: SearchFilters | None) -> dict[str, Sequence[str]]:
+    """Translate domain SearchFilters into the IndexManager metadata-filter dict."""
+    if not filters:
+        return {}
+    mapping: list[tuple[str, Sequence[str] | None]] = [
+        ("source_list", filters.source_lists),
+        ("risk_category", filters.risk_categories),
+        ("entity_type", filters.entity_types),
+    ]
+    return {key: values for key, values in mapping if values}
 
 
 class PgVectorBackend:
@@ -80,26 +93,13 @@ class PgVectorBackend:
         Returns:
             List of (entity_id, distance) tuples, sorted by distance (ascending)
         """
-        # Build filter dict for IndexManager
-        search_filters: dict[str, Any] = {}
-
-        if filters:
-            if filters.source_lists:
-                search_filters["source_list"] = filters.source_lists
-            if filters.risk_categories:
-                search_filters["risk_category"] = filters.risk_categories
-            if filters.entity_types:
-                search_filters["entity_type"] = filters.entity_types
-
-        # Use IndexManager to search
         results: list[tuple[str, float]] = await self.index_manager.search(
             query_vector=query_vector,
             k=k,
             partition_key=tenant_id,
-            filters=search_filters,
+            filters=_to_index_filters(filters),
             ef_search=ef_search or self.index_config.ef_search,
         )
-
         return results
 
     async def insert_embeddings(
@@ -130,7 +130,7 @@ class PgVectorBackend:
         """
         await self.index_manager.delete(entity_ids=entity_ids, partition_key=tenant_id)
 
-    async def get_index_stats(self) -> dict[str, Any]:
+    async def get_index_stats(self) -> JsonObject:
         """
         Get index statistics.
 
@@ -147,4 +147,3 @@ class PgVectorBackend:
             "tombstone_count": stats.tombstone_count,
             "tombstone_percentage": stats.tombstone_percentage,
         }
-

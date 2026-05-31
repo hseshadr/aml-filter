@@ -1,10 +1,13 @@
 """Integration tests for OFAC ingestion pipeline."""
 
-import pytest
 import os
+
+import pytest
+
+from aml_filter.db.models import Entity, EntityEmbedding, ListVersion
 from aml_filter.ingest.parsers.ofac import OFACParser
 from aml_filter.ingest.service import IngestionService
-from aml_filter.db.models import Entity, EntityEmbedding, ListVersion
+
 
 @pytest.mark.integration
 class TestOFACIngestion:
@@ -57,11 +60,11 @@ class TestOFACIngestion:
         """Test complete OFAC ingestion flow."""
         # 1. Parse
         parser = OFACParser()
-        with open(ofac_xml_path, "r") as f:
+        with open(ofac_xml_path) as f:
             xml_content = f.read()
         entities = parser.parse(xml_content)
         assert len(entities) == 1
-        
+
         entity = entities[0]
         assert entity.primary_name == "MOHAMMED ALI"
         assert len(entity.aliases) == 1
@@ -70,30 +73,32 @@ class TestOFACIngestion:
         # 2. Ingest
         service = IngestionService(session=db_session)
         stats = await service.ingest_entities(
-            entities=entities,
-            source_list="OFAC_SDN_TEST",
-            version="2025-12-28"
+            entities=entities, source_list="OFAC_SDN_TEST", version="2025-12-28"
         )
-    
+
         assert stats["total"] == 1
         assert stats["created"] == 1
-    
+
         # 3. Verify in DB
         from sqlalchemy import select
+
         result = await db_session.execute(select(Entity).where(Entity.entity_id == "ofac:sdn:123"))
         db_entity = result.scalar_one()
         assert db_entity.primary_name == "MOHAMMED ALI"
         assert db_entity.risk_category == "SANCTION"
-    
+
         # Verify embedding
-        result = await db_session.execute(select(EntityEmbedding).where(EntityEmbedding.entity_id == "ofac:sdn:123"))
+        result = await db_session.execute(
+            select(EntityEmbedding).where(EntityEmbedding.entity_id == "ofac:sdn:123")
+        )
         db_emb = result.scalar_one()
         assert db_emb.embedding is not None
         assert len(db_emb.embedding) == 384
-    
+
         # Verify version
-        result = await db_session.execute(select(ListVersion).where(ListVersion.list_id == "OFAC_SDN_TEST"))
+        result = await db_session.execute(
+            select(ListVersion).where(ListVersion.list_id == "OFAC_SDN_TEST")
+        )
         db_ver = result.scalar_one()
         assert db_ver.version == "2025-12-28"
         assert db_ver.status == "ACTIVE"
-

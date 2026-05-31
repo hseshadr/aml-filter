@@ -2,12 +2,12 @@
 
 import uuid
 from datetime import UTC, datetime
-from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aml_filter.db.models import WhitelistBlacklistMatch
+from aml_filter.types import JsonObject
 
 
 class MatchTracker:
@@ -30,7 +30,7 @@ class MatchTracker:
         match_score: float,
         match_type: str,
         list_version: str | None = None,
-        metadata: dict[str, Any] | None = None,
+        metadata: JsonObject | None = None,
     ) -> WhitelistBlacklistMatch:
         """
         Record a match between whitelist and blacklist entities.
@@ -134,7 +134,9 @@ class MatchTracker:
         if resolution_status:
             query = query.where(WhitelistBlacklistMatch.resolution_status == resolution_status)
 
-        query = query.order_by(WhitelistBlacklistMatch.detected_at.desc()).limit(limit).offset(offset)
+        query = (
+            query.order_by(WhitelistBlacklistMatch.detected_at.desc()).limit(limit).offset(offset)
+        )
 
         result = await self.session.execute(query)
         return list(result.scalars().all())
@@ -198,4 +200,3 @@ class MatchTracker:
             await self.session.refresh(match)
 
         return match
-

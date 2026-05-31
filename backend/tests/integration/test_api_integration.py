@@ -1,8 +1,12 @@
 """Integration tests for API endpoints with real database."""
 
-import pytest
 from datetime import date
-from aml_filter.db.models import Entity as DBEntity, EntityEmbedding
+
+import pytest
+
+from aml_filter.db.models import Entity as DBEntity
+from aml_filter.db.models import EntityEmbedding
+
 
 @pytest.mark.integration
 class TestAPIIntegration:
@@ -25,9 +29,7 @@ class TestAPIIntegration:
         assert data["version"] == "2.0.0"
 
     @pytest.mark.asyncio
-    async def test_screen_endpoint_with_data(
-        self, client, db_session
-    ):
+    async def test_screen_endpoint_with_data(self, client, db_session):
         """Test screening endpoint with real data."""
         from aml_filter.domain.normalization import prepare_embedding_text
         from aml_filter.embedding.service import EmbeddingService

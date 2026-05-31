@@ -1,0 +1,42 @@
+aml-filter
+Copyright (c) 2026 Harish Seshadri
+Licensed under the MIT License (see LICENSE).
+
+================================================================================
+Third-party data attribution
+================================================================================
+
+aml-filter screens names against the OFAC SDN (Specially Designated Nationals
+and Blocked Persons) list.
+
+    Specially Designated Nationals and Blocked Persons List (SDN List)
+    Source:  U.S. Department of the Treasury,
+             Office of Foreign Assets Control (OFAC)
+             https://ofac.treasury.gov
+             https://sanctionslist.ofac.treasury.gov
+    Status:  Work of the U.S. Government, in the public domain
+             (not subject to copyright in the United States).
+
+aml-filter does NOT bundle or redistribute the SDN list. The list is not
+included in this repository. The operator downloads it directly from the
+official OFAC source at runtime and ingests it locally
+(see docs/QUICKSTART.md). Always screen against the current official list —
+the SDN list changes frequently, and a stale copy can miss or mis-match.
+
+================================================================================
+Disclaimer
+================================================================================
+
+aml-filter is a software demonstration and engineering-portfolio project.
+
+It is NOT legal advice, NOT a regulatory-compliance product, and NOT a
+substitute for a qualified compliance program or a commercial sanctions-
+screening vendor.
+
+Sanctions screening has real legal consequences. Any match — or absence of a
+match — produced by this software must be reviewed by qualified compliance
+personnel against the official OFAC source before any decision is made.
+Do not rely on aml-filter to meet any legal, regulatory, or contractual
+obligation.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND. See LICENSE.

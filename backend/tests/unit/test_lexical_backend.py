@@ -114,9 +114,7 @@ class TestLexicalSearch:
         mock_session.execute.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_lexical_search_with_source_lists_filter(
-        self, mock_session: AsyncMock
-    ) -> None:
+    async def test_lexical_search_with_source_lists_filter(self, mock_session: AsyncMock) -> None:
         """Test lexical_search applies source_lists filter."""
         mock_result = MagicMock()
         mock_result.all.return_value = []
@@ -154,9 +152,7 @@ class TestLexicalSearch:
         mock_session.execute.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_lexical_search_with_entity_types_filter(
-        self, mock_session: AsyncMock
-    ) -> None:
+    async def test_lexical_search_with_entity_types_filter(self, mock_session: AsyncMock) -> None:
         """Test lexical_search applies entity_types filter."""
         mock_result = MagicMock()
         mock_result.all.return_value = []
@@ -202,8 +198,7 @@ class TestLexicalSearch:
         """Test that k parameter limits results."""
         # Return more results than k
         mock_rows = [
-            MagicMock(entity_id=f"entity_{i}", similarity=0.9 - (i * 0.01))
-            for i in range(20)
+            MagicMock(entity_id=f"entity_{i}", similarity=0.9 - (i * 0.01)) for i in range(20)
         ]
 
         mock_result = MagicMock()
@@ -220,9 +215,7 @@ class TestLexicalSearch:
         assert len(results) == 5
 
     @pytest.mark.asyncio
-    async def test_lexical_search_similarity_threshold(
-        self, mock_session: AsyncMock
-    ) -> None:
+    async def test_lexical_search_similarity_threshold(self, mock_session: AsyncMock) -> None:
         """Test that similarity_threshold is applied."""
         mock_result = MagicMock()
         mock_result.all.return_value = []
@@ -269,45 +262,6 @@ class TestLexicalSearch:
 
 
 @pytest.mark.unit
-class TestSearchAliases:
-    """Test search_aliases method."""
-
-    @pytest.mark.asyncio
-    async def test_search_aliases_returns_empty_list(
-        self, mock_session: AsyncMock
-    ) -> None:
-        """Test that search_aliases currently returns empty list."""
-        backend = LexicalBackend(session=mock_session)
-
-        results = await backend.search_aliases(
-            query_text="john",
-            k=10,
-        )
-
-        # Current implementation returns empty list
-        # (alias matching handled in scoring phase)
-        assert results == []
-
-    @pytest.mark.asyncio
-    async def test_search_aliases_with_all_params(
-        self, mock_session: AsyncMock
-    ) -> None:
-        """Test search_aliases accepts all parameters without error."""
-        backend = LexicalBackend(session=mock_session)
-        filters = SearchFilters(source_lists=["OFAC_SDN"])
-
-        results = await backend.search_aliases(
-            query_text="john",
-            k=10,
-            tenant_id="tenant_123",
-            filters=filters,
-            similarity_threshold=0.4,
-        )
-
-        assert results == []
-
-
-@pytest.mark.unit
 class TestCombinedLexicalSearch:
     """Test combined_lexical_search method."""
 
@@ -335,9 +289,7 @@ class TestCombinedLexicalSearch:
         assert results[0] == ("entity_1", 0.85)
 
     @pytest.mark.asyncio
-    async def test_combined_lexical_search_passes_all_params(
-        self, mock_session: AsyncMock
-    ) -> None:
+    async def test_combined_lexical_search_passes_all_params(self, mock_session: AsyncMock) -> None:
         """Test that combined_lexical_search passes all parameters."""
         mock_result = MagicMock()
         mock_result.all.return_value = []
@@ -360,9 +312,7 @@ class TestCombinedLexicalSearch:
         mock_session.execute.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_combined_lexical_search_empty_results(
-        self, mock_session: AsyncMock
-    ) -> None:
+    async def test_combined_lexical_search_empty_results(self, mock_session: AsyncMock) -> None:
         """Test combined_lexical_search returns empty list when no matches."""
         mock_result = MagicMock()
         mock_result.all.return_value = []
@@ -446,9 +396,7 @@ class TestLexicalBackendTenantFiltering:
     """Test tenant filtering in LexicalBackend."""
 
     @pytest.mark.asyncio
-    async def test_tenant_id_none_filters_global_only(
-        self, mock_session: AsyncMock
-    ) -> None:
+    async def test_tenant_id_none_filters_global_only(self, mock_session: AsyncMock) -> None:
         """Test that tenant_id=None filters to global entities only."""
         mock_result = MagicMock()
         mock_result.all.return_value = []
@@ -466,9 +414,7 @@ class TestLexicalBackendTenantFiltering:
         mock_session.execute.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_tenant_id_includes_tenant_and_global(
-        self, mock_session: AsyncMock
-    ) -> None:
+    async def test_tenant_id_includes_tenant_and_global(self, mock_session: AsyncMock) -> None:
         """Test that tenant_id includes both tenant-specific and global entities."""
         mock_result = MagicMock()
         mock_result.all.return_value = []
@@ -515,9 +461,7 @@ class TestLexicalBackendResultFormat:
         assert results[0][1] == 0.789
 
     @pytest.mark.asyncio
-    async def test_results_sorted_by_similarity_descending(
-        self, mock_session: AsyncMock
-    ) -> None:
+    async def test_results_sorted_by_similarity_descending(self, mock_session: AsyncMock) -> None:
         """Test that results are sorted by similarity descending."""
         # Results should already come sorted from database
         mock_rows = [

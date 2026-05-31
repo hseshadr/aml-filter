@@ -1,12 +1,13 @@
 """Extended unit tests for worker/screening_jobs.py - comprehensive coverage."""
 
 import os
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from aml_filter.db.models import Entity as DBEntity, ScreeningJob, Tenant
+from aml_filter.db.models import Entity as DBEntity
+from aml_filter.db.models import ScreeningJob, Tenant
 from aml_filter.worker.screening_jobs import (
     run_bidirectional_screening,
     screen_blacklist_on_whitelist_update,
@@ -35,7 +36,7 @@ class TestScreenWhitelistOnBlacklistUpdate:
 
         # Track added objects
         added_objects = []
-        mock_session.add = MagicMock(side_effect=lambda x: added_objects.append(x))
+        mock_session.add = MagicMock(side_effect=added_objects.append)
 
         mock_service = AsyncMock()
         mock_service_class.return_value = mock_service
@@ -117,7 +118,7 @@ class TestScreenWhitelistOnBlacklistUpdate:
         mock_session.execute.return_value = mock_result
 
         added_objects = []
-        mock_session.add = MagicMock(side_effect=lambda x: added_objects.append(x))
+        mock_session.add = MagicMock(side_effect=added_objects.append)
 
         mock_service = AsyncMock()
         mock_service_class.return_value = mock_service
@@ -140,9 +141,10 @@ class TestScreenWhitelistOnBlacklistUpdate:
     async def test_missing_database_url_raises_error(self):
         """Test that missing DATABASE_URL raises RuntimeError."""
         # Clear the environment variable
-        with patch.dict(os.environ, {}, clear=True):
-            # Remove DATABASE_URL if it exists
-            os.environ.pop("DATABASE_URL", None)
+        with patch(
+            "aml_filter.worker.screening_jobs.get_settings",
+            return_value=MagicMock(database_url=None),
+        ):
             with pytest.raises(RuntimeError, match="DATABASE_URL"):
                 await screen_whitelist_on_blacklist_update(tenant_id="tenant-1")
 
@@ -316,9 +318,7 @@ class TestScreenBlacklistOnWhitelistUpdate:
             "matches_found": 5,
         }
 
-        result = await screen_blacklist_on_whitelist_update(
-            tenant_id="tenant-1", job_id="job-456"
-        )
+        result = await screen_blacklist_on_whitelist_update(tenant_id="tenant-1", job_id="job-456")
 
         assert result["job_id"] == "job-456"
         assert existing_job.status == "COMPLETED"
@@ -341,7 +341,7 @@ class TestScreenBlacklistOnWhitelistUpdate:
         mock_session.execute.return_value = mock_result
 
         added_objects = []
-        mock_session.add = MagicMock(side_effect=lambda x: added_objects.append(x))
+        mock_session.add = MagicMock(side_effect=added_objects.append)
 
         mock_service = AsyncMock()
         mock_service_class.return_value = mock_service
@@ -360,8 +360,10 @@ class TestScreenBlacklistOnWhitelistUpdate:
     @pytest.mark.asyncio
     async def test_missing_database_url(self):
         """Test missing DATABASE_URL raises error."""
-        with patch.dict(os.environ, {}, clear=True):
-            os.environ.pop("DATABASE_URL", None)
+        with patch(
+            "aml_filter.worker.screening_jobs.get_settings",
+            return_value=MagicMock(database_url=None),
+        ):
             with pytest.raises(RuntimeError, match="DATABASE_URL"):
                 await screen_blacklist_on_whitelist_update(tenant_id="tenant-1")
 
@@ -522,13 +524,11 @@ class TestRunBidirectionalScreening:
         mock_session.execute.return_value = mock_result
 
         added_objects = []
-        mock_session.add = MagicMock(side_effect=lambda x: added_objects.append(x))
+        mock_session.add = MagicMock(side_effect=added_objects.append)
 
         mock_service = AsyncMock()
         mock_service_class.return_value = mock_service
-        mock_service.screen_whitelist_against_blacklist.side_effect = Exception(
-            "Critical failure"
-        )
+        mock_service.screen_whitelist_against_blacklist.side_effect = Exception("Critical failure")
 
         result = await run_bidirectional_screening(tenant_id="tenant-1")
 
@@ -555,7 +555,7 @@ class TestRunBidirectionalScreening:
         mock_session.execute.return_value = mock_result
 
         added_objects = []
-        mock_session.add = MagicMock(side_effect=lambda x: added_objects.append(x))
+        mock_session.add = MagicMock(side_effect=added_objects.append)
 
         mock_service = AsyncMock()
         mock_service_class.return_value = mock_service
@@ -574,8 +574,10 @@ class TestRunBidirectionalScreening:
     @pytest.mark.asyncio
     async def test_missing_database_url(self):
         """Test missing DATABASE_URL raises error."""
-        with patch.dict(os.environ, {}, clear=True):
-            os.environ.pop("DATABASE_URL", None)
+        with patch(
+            "aml_filter.worker.screening_jobs.get_settings",
+            return_value=MagicMock(database_url=None),
+        ):
             with pytest.raises(RuntimeError, match="DATABASE_URL"):
                 await run_bidirectional_screening(tenant_id="tenant-1")
 
@@ -599,7 +601,7 @@ class TestJobTimestamps:
         mock_session.execute.return_value = mock_result
 
         added_objects = []
-        mock_session.add = MagicMock(side_effect=lambda x: added_objects.append(x))
+        mock_session.add = MagicMock(side_effect=added_objects.append)
 
         mock_service = AsyncMock()
         mock_service_class.return_value = mock_service
@@ -632,7 +634,7 @@ class TestJobTimestamps:
         mock_session.execute.return_value = mock_result
 
         added_objects = []
-        mock_session.add = MagicMock(side_effect=lambda x: added_objects.append(x))
+        mock_session.add = MagicMock(side_effect=added_objects.append)
 
         mock_service = AsyncMock()
         mock_service_class.return_value = mock_service
@@ -662,7 +664,7 @@ class TestJobTimestamps:
         mock_session.execute.return_value = mock_result
 
         added_objects = []
-        mock_session.add = MagicMock(side_effect=lambda x: added_objects.append(x))
+        mock_session.add = MagicMock(side_effect=added_objects.append)
 
         mock_service = AsyncMock()
         mock_service_class.return_value = mock_service

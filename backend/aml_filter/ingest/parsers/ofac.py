@@ -1,11 +1,18 @@
 """OFAC SDN XML parser."""
 
-import xml.etree.ElementTree as ET
+import logging
+import xml.etree.ElementTree as ET  # type-only; parsing uses defusedxml below
 from datetime import date, datetime
-from typing import Literal
+from typing import Final, Literal
+
+from defusedxml.ElementTree import fromstring as defused_fromstring
 
 from aml_filter.domain.entity import Alias, Entity, EntityIdentifier
 from aml_filter.domain.normalization import normalize_name
+
+logger = logging.getLogger(__name__)
+
+ISO_COUNTRY_CODE_LENGTH: Final[int] = 2
 
 
 class OFACParser:
@@ -28,7 +35,7 @@ class OFACParser:
         if isinstance(xml_content, bytes):
             xml_content = xml_content.decode("utf-8")
 
-        root = ET.fromstring(xml_content)
+        root = defused_fromstring(xml_content)  # defusedxml — XXE / billion-laughs protection
 
         entities: list[Entity] = []
 
@@ -41,199 +48,139 @@ class OFACParser:
         return entities
 
     def _parse_sdn_entry(self, sdn_entry: ET.Element) -> Entity | None:
-        """Parse a single SDN entry."""
+        """Parse a single SDN entry into an Entity. Returns None for malformed/missing-uid rows."""
         try:
-            # Get uid (unique identifier)
-            uid_elem = sdn_entry.find("ofac:uid", self.namespace)
-            if uid_elem is None or uid_elem.text is None:
+            uid = self._read_element_text(sdn_entry, "ofac:uid")
+            if not uid:
                 return None
-
-            uid = uid_elem.text.strip()
-            entity_id = f"ofac:sdn:{uid}"
-
-            # Get primary name
-            first_name_elem = sdn_entry.find("ofac:firstName", self.namespace)
-            last_name_elem = sdn_entry.find("ofac:lastName", self.namespace)
-            title_elem = sdn_entry.find("ofac:title", self.namespace)
-
-            first_name = first_name_elem.text.strip() if first_name_elem is not None and first_name_elem.text else ""
-            last_name = last_name_elem.text.strip() if last_name_elem is not None and last_name_elem.text else ""
-            title = title_elem.text.strip() if title_elem is not None and title_elem.text else ""
-
-            # Build primary name
-            name_parts = [p for p in [title, first_name, last_name] if p]
-            primary_name = " ".join(name_parts) if name_parts else "UNKNOWN"
-
-            # Normalize name
+            primary_name = self._build_sdn_primary_name(sdn_entry)
             normalized = normalize_name(primary_name)
-
-            # Determine entity type
-            entity_type: Literal["PERSON", "ORGANIZATION"] = "PERSON"  # Default for SDN
-            type_elem = sdn_entry.find("ofac:sdnType", self.namespace)
-            if type_elem is not None and type_elem.text:
-                entity_type_text = type_elem.text.upper()
-                if "ORGANIZATION" in entity_type_text or "ENTITY" in entity_type_text:
-                    entity_type = "ORGANIZATION"
-
-            # Parse aliases
-            aliases = self._parse_aliases(sdn_entry)
-
-            # Parse DOB
-            dob_list = self._parse_dates_of_birth(sdn_entry)
-
-            # Parse locations
             countries, nationalities, addresses = self._parse_locations(sdn_entry)
-
-            # Parse identifiers
-            identifiers = self._parse_identifiers(sdn_entry)
-
-            # Get program list (source list)
-            program_list = self._parse_program_list(sdn_entry)
-
-            # Get list version (from publication date if available)
-            list_version = datetime.now().strftime("%Y-%m-%d")  # Default to today
-
-            # Build raw source
-            raw_source = {
-                "uid": uid,
-                "xml_entry": ET.tostring(sdn_entry, encoding="unicode"),
-            }
-
-            entity = Entity(
-                entity_id=entity_id,
-                tenant_id=None,  # Global entity
-                entity_type=entity_type,
+            return Entity(
+                entity_id=f"ofac:sdn:{uid}",
+                tenant_id=None,
+                entity_type=self._read_sdn_entity_type(sdn_entry),
                 primary_name=primary_name,
-                name_canonical=normalized["name_canonical"],
-                name_tokens=normalized["name_tokens"],
-                name_trigram=normalized["name_trigram"],
-                aliases=aliases,
-                dob=dob_list,
+                name_canonical=normalized.name_canonical,
+                name_tokens=normalized.name_tokens,
+                name_trigram=normalized.name_trigram,
+                aliases=self._parse_aliases(sdn_entry),
+                dob=self._parse_dates_of_birth(sdn_entry),
                 countries=countries,
                 nationalities=nationalities,
                 addresses=addresses,
-                identifiers=identifiers,
+                identifiers=self._parse_identifiers(sdn_entry),
                 risk_category="SANCTION",
                 source_list="OFAC_SDN",
-                list_version=list_version,
+                list_version=datetime.now().strftime("%Y-%m-%d"),
                 custom_list_id=None,
-                raw_source=raw_source,
+                raw_source={"uid": uid, "xml_entry": ET.tostring(sdn_entry, encoding="unicode")},
             )
-
-            return entity
-
-        except Exception as e:
-            # Log error and skip this entry
-            print(f"Error parsing SDN entry: {e}")
+        except (ET.ParseError, AttributeError, ValueError, KeyError) as exc:
+            logger.warning("Skipping malformed SDN entry: %s", exc)
             return None
+
+    def _read_element_text(self, parent: ET.Element, tag: str) -> str:
+        """Return the stripped text of `parent/tag`, or empty string if missing."""
+        elem = parent.find(tag, self.namespace)
+        return elem.text.strip() if elem is not None and elem.text else ""
+
+    def _build_sdn_primary_name(self, sdn_entry: ET.Element) -> str:
+        """Join title + first + last into the primary name; 'UNKNOWN' if all empty."""
+        parts = [
+            self._read_element_text(sdn_entry, "ofac:title"),
+            self._read_element_text(sdn_entry, "ofac:firstName"),
+            self._read_element_text(sdn_entry, "ofac:lastName"),
+        ]
+        non_empty = [p for p in parts if p]
+        return " ".join(non_empty) if non_empty else "UNKNOWN"
+
+    def _read_sdn_entity_type(self, sdn_entry: ET.Element) -> Literal["PERSON", "ORGANIZATION"]:
+        """Read ofac:sdnType; ORGANIZATION if it contains ORGANIZATION/ENTITY, else PERSON."""
+        text = self._read_element_text(sdn_entry, "ofac:sdnType").upper()
+        if "ORGANIZATION" in text or "ENTITY" in text:
+            return "ORGANIZATION"
+        return "PERSON"
 
     def _parse_aliases(self, sdn_entry: ET.Element) -> list[Alias]:
         """Parse aliases from SDN entry."""
-        aliases: list[Alias] = []
+        aliases = [
+            self._build_alias(aka) for aka in sdn_entry.findall(".//ofac:aka", self.namespace)
+        ]
+        return [alias for alias in aliases if alias is not None]
 
-        # Parse aka (also known as) entries
-        for aka in sdn_entry.findall(".//ofac:aka", self.namespace):
-            first_name_elem = aka.find("ofac:firstName", self.namespace)
-            last_name_elem = aka.find("ofac:lastName", self.namespace)
-            title_elem = aka.find("ofac:title", self.namespace)
-
-            first_name = first_name_elem.text.strip() if first_name_elem is not None and first_name_elem.text else ""
-            last_name = last_name_elem.text.strip() if last_name_elem is not None and last_name_elem.text else ""
-            title = title_elem.text.strip() if title_elem is not None and title_elem.text else ""
-
-            name_parts = [p for p in [title, first_name, last_name] if p]
-            if name_parts:
-                alias_name = " ".join(name_parts)
-                normalized = normalize_name(alias_name)
-                aliases.append(
-                    Alias(
-                        name=alias_name,
-                        name_canonical=normalized["name_canonical"],
-                        source="OFAC",
-                    )
-                )
-
-        return aliases
+    def _build_alias(self, aka: ET.Element) -> Alias | None:
+        """Build an Alias from an aka element, or None when no name parts exist."""
+        name_parts = [
+            self._read_element_text(aka, tag)
+            for tag in ("ofac:title", "ofac:firstName", "ofac:lastName")
+        ]
+        non_empty = [part for part in name_parts if part]
+        if not non_empty:
+            return None
+        alias_name = " ".join(non_empty)
+        normalized = normalize_name(alias_name)
+        return Alias(name=alias_name, name_canonical=normalized.name_canonical, source="OFAC")
 
     def _parse_dates_of_birth(self, sdn_entry: ET.Element) -> list[date]:
         """Parse dates of birth from SDN entry."""
-        dob_list: list[date] = []
+        elements = sdn_entry.findall(".//ofac:dateOfBirth", self.namespace)
+        parsed = (self._parse_dob_text(elem.text.strip() if elem.text else "") for elem in elements)
+        return [dob for dob in parsed if dob is not None]
 
-        for date_of_birth in sdn_entry.findall(".//ofac:dateOfBirth", self.namespace):
-            date_str = date_of_birth.text.strip() if date_of_birth.text else ""
-            if date_str:
-                try:
-                    # OFAC dates are typically in YYYY-MM-DD format
-                    parsed_date = datetime.strptime(date_str, "%Y-%m-%d").date()
-                    dob_list.append(parsed_date)
-                except ValueError:
-                    # Try other formats or skip
-                    try:
-                        parsed_date = datetime.strptime(date_str, "%Y").date()
-                        dob_list.append(parsed_date)
-                    except ValueError:
-                        pass
+    @staticmethod
+    def _parse_dob_text(date_str: str) -> date | None:
+        """Parse an OFAC DOB string (YYYY-MM-DD, then YYYY), or None if unparseable."""
+        for fmt in ("%Y-%m-%d", "%Y"):
+            try:
+                return datetime.strptime(date_str, fmt).date()
+            except ValueError:
+                continue
+        return None
 
-        return dob_list
+    _ADDRESS_SUBTAGS: Final = (
+        "ofac:address1",
+        "ofac:address2",
+        "ofac:address3",
+        "ofac:city",
+        "ofac:stateOrProvince",
+        "ofac:postalCode",
+        "ofac:country",
+    )
 
     def _parse_locations(self, sdn_entry: ET.Element) -> tuple[list[str], list[str], list[str]]:
         """Parse countries, nationalities, and addresses from SDN entry."""
-        countries: list[str] = []
-        nationalities: list[str] = []
-        addresses: list[str] = []
-
-        # Parse places of birth
-        for place_of_birth in sdn_entry.findall(".//ofac:placeOfBirth", self.namespace):
-            country = place_of_birth.text.strip() if place_of_birth.text else ""
-            if country and len(country) == 2:  # ISO code
-                countries.append(country.upper())
-
-        # Parse citizenships
-        for citizenship in sdn_entry.findall(".//ofac:citizenship", self.namespace):
-            country = citizenship.text.strip() if citizenship.text else ""
-            if country and len(country) == 2:  # ISO code
-                nationalities.append(country.upper())
-
-        # Parse addresses
-        for address_elem in sdn_entry.findall(".//ofac:address", self.namespace):
-            parts = []
-            for sub_elem in ["ofac:address1", "ofac:address2", "ofac:address3", "ofac:city", "ofac:stateOrProvince", "ofac:postalCode", "ofac:country"]:
-                val = address_elem.find(sub_elem, self.namespace)
-                if val is not None and val.text:
-                    parts.append(val.text.strip())
-
-            if parts:
-                addresses.append(", ".join(parts))
-
+        countries = self._parse_country_codes(sdn_entry, ".//ofac:placeOfBirth")
+        nationalities = self._parse_country_codes(sdn_entry, ".//ofac:citizenship")
+        addresses = [
+            joined
+            for address_elem in sdn_entry.findall(".//ofac:address", self.namespace)
+            if (joined := self._join_address(address_elem))
+        ]
         return countries, nationalities, addresses
+
+    def _parse_country_codes(self, sdn_entry: ET.Element, path: str) -> list[str]:
+        """Collect upper-cased ISO-2 country codes under `path`."""
+        codes = (
+            self._read_element_text(elem, ".") for elem in sdn_entry.findall(path, self.namespace)
+        )
+        return [code.upper() for code in codes if len(code) == ISO_COUNTRY_CODE_LENGTH]
+
+    def _join_address(self, address_elem: ET.Element) -> str:
+        """Join populated address sub-fields into a single comma-separated line."""
+        parts = [self._read_element_text(address_elem, tag) for tag in self._ADDRESS_SUBTAGS]
+        return ", ".join(part for part in parts if part)
 
     def _parse_identifiers(self, sdn_entry: ET.Element) -> EntityIdentifier:
         """Parse identifiers (passports, etc.) from SDN entry."""
-        identifiers = EntityIdentifier()
+        return EntityIdentifier(
+            passport=self._collect_texts(sdn_entry, ".//ofac:passport"),
+            national_id=self._collect_texts(sdn_entry, ".//ofac:nationalId"),
+        )
 
-        # Parse passports
-        for passport in sdn_entry.findall(".//ofac:passport", self.namespace):
-            passport_num = passport.text.strip() if passport.text else ""
-            if passport_num:
-                identifiers.passport.append(passport_num)
-
-        # Parse national IDs
-        for national_id in sdn_entry.findall(".//ofac:nationalId", self.namespace):
-            id_num = national_id.text.strip() if national_id.text else ""
-            if id_num:
-                identifiers.national_id.append(id_num)
-
-        return identifiers
-
-    def _parse_program_list(self, sdn_entry: ET.Element) -> str:
-        """Parse program list from SDN entry."""
-        # OFAC SDN entries have programList elements
-        program_list = "OFAC_SDN"  # Default
-
-        program_list_elem = sdn_entry.find("ofac:programList", self.namespace)
-        if program_list_elem is not None:
-            # Could parse specific programs, but for now use default
-            pass
-
-        return program_list
-
+    def _collect_texts(self, sdn_entry: ET.Element, path: str) -> list[str]:
+        """Collect non-empty stripped texts of all elements under `path`."""
+        texts = (
+            self._read_element_text(elem, ".") for elem in sdn_entry.findall(path, self.namespace)
+        )
+        return [text for text in texts if text]

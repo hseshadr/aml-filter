@@ -4,8 +4,9 @@ from datetime import date
 
 import pytest
 
-from aml_filter.domain.entity import Alias, Entity, EntityIdentifier
+from aml_filter.domain.entity import Alias, Entity
 from aml_filter.domain.scoring import ScoringPolicy, ScoringWeights
+from aml_filter.domain.search import MatchExplanation
 from aml_filter.scoring.policy import (
     DefaultScoringPolicy,
     ScoringPolicyProtocol,
@@ -166,7 +167,9 @@ class TestDefaultScoringPolicyEdgeCases:
             list_version="2024-01",
         )
 
-    def test_no_similarities_provided(self, strict_policy: ScoringPolicy, entity_no_aliases: Entity):
+    def test_no_similarities_provided(
+        self, strict_policy: ScoringPolicy, entity_no_aliases: Entity
+    ):
         """Test scoring with no similarities provided."""
         scorer = DefaultScoringPolicy(strict_policy)
         score, explanation = scorer.compute_score(
@@ -181,8 +184,8 @@ class TestDefaultScoringPolicyEdgeCases:
         )
 
         assert score == 0.0
-        assert len(explanation["signals"]) == 1  # Only entity_type_match
-        assert explanation["summary"] == "Low confidence match (score: 0.000)"
+        assert len(explanation.signals) == 1  # Only entity_type_match
+        assert explanation.summary == "Low confidence match (score: 0.000)"
 
     def test_zero_similarities(self, strict_policy: ScoringPolicy, entity_no_aliases: Entity):
         """Test scoring with zero similarities."""
@@ -199,7 +202,7 @@ class TestDefaultScoringPolicyEdgeCases:
         )
 
         assert score == 0.0
-        signal_names = [s["name"] for s in explanation["signals"]]
+        signal_names = [s.name for s in explanation.signals]
         assert "name_vector" in signal_names
         assert "name_trigram" in signal_names
 
@@ -242,9 +245,9 @@ class TestDefaultScoringPolicyEdgeCases:
             trigram_similarity=0.7,
         )
 
-        dob_signal = next(s for s in explanation["signals"] if s["name"] == "dob_match")
-        assert dob_signal["value"] == 0.0
-        assert dob_signal["description"] == "No DOB match"
+        dob_signal = next(s for s in explanation.signals if s.name == "dob_match")
+        assert dob_signal.value == 0.0
+        assert dob_signal.description == "No DOB match"
 
     def test_dob_exact_match_second_dob(
         self, strict_policy: ScoringPolicy, entity_multiple_dobs: Entity
@@ -262,8 +265,8 @@ class TestDefaultScoringPolicyEdgeCases:
             trigram_similarity=0.7,
         )
 
-        dob_signal = next(s for s in explanation["signals"] if s["name"] == "dob_match")
-        assert dob_signal["value"] == 1.0
+        dob_signal = next(s for s in explanation.signals if s.name == "dob_match")
+        assert dob_signal.value == 1.0
 
     def test_dob_year_match_first_dob(
         self, strict_policy: ScoringPolicy, entity_multiple_dobs: Entity
@@ -281,12 +284,10 @@ class TestDefaultScoringPolicyEdgeCases:
             trigram_similarity=0.7,
         )
 
-        dob_signal = next(s for s in explanation["signals"] if s["name"] == "dob_match")
-        assert dob_signal["value"] == 0.5
+        dob_signal = next(s for s in explanation.signals if s.name == "dob_match")
+        assert dob_signal.value == 0.5
 
-    def test_entity_no_dob_query_has_dob(
-        self, strict_policy: ScoringPolicy, entity_no_dob: Entity
-    ):
+    def test_entity_no_dob_query_has_dob(self, strict_policy: ScoringPolicy, entity_no_dob: Entity):
         """Test DOB scoring when entity has no DOB but query does."""
         scorer = DefaultScoringPolicy(strict_policy)
         score, explanation = scorer.compute_score(
@@ -300,13 +301,11 @@ class TestDefaultScoringPolicyEdgeCases:
             trigram_similarity=0.7,
         )
 
-        dob_signal = next(s for s in explanation["signals"] if s["name"] == "dob_match")
-        assert dob_signal["value"] == 0.0
-        assert "No DOB provided or entity has no DOB" in dob_signal["description"]
+        dob_signal = next(s for s in explanation.signals if s.name == "dob_match")
+        assert dob_signal.value == 0.0
+        assert "No DOB provided or entity has no DOB" in dob_signal.description
 
-    def test_country_no_match(
-        self, strict_policy: ScoringPolicy, entity_single_country: Entity
-    ):
+    def test_country_no_match(self, strict_policy: ScoringPolicy, entity_single_country: Entity):
         """Test country scoring with no match."""
         scorer = DefaultScoringPolicy(strict_policy)
         score, explanation = scorer.compute_score(
@@ -320,8 +319,8 @@ class TestDefaultScoringPolicyEdgeCases:
             trigram_similarity=0.7,
         )
 
-        country_signal = next(s for s in explanation["signals"] if s["name"] == "country_match")
-        assert country_signal["value"] == 0.0
+        country_signal = next(s for s in explanation.signals if s.name == "country_match")
+        assert country_signal.value == 0.0
 
     def test_country_exact_match_single(
         self, strict_policy: ScoringPolicy, entity_single_country: Entity
@@ -339,8 +338,8 @@ class TestDefaultScoringPolicyEdgeCases:
             trigram_similarity=0.7,
         )
 
-        country_signal = next(s for s in explanation["signals"] if s["name"] == "country_match")
-        assert country_signal["value"] == 1.0
+        country_signal = next(s for s in explanation.signals if s.name == "country_match")
+        assert country_signal.value == 1.0
 
     def test_country_partial_match_multiple(
         self, strict_policy: ScoringPolicy, entity_many_aliases: Entity
@@ -358,9 +357,9 @@ class TestDefaultScoringPolicyEdgeCases:
             trigram_similarity=0.7,
         )
 
-        country_signal = next(s for s in explanation["signals"] if s["name"] == "country_match")
+        country_signal = next(s for s in explanation.signals if s.name == "country_match")
         # Score should be 1/2 = 0.5 (US matches one of two countries: US, CA)
-        assert country_signal["value"] == pytest.approx(0.5, abs=0.001)
+        assert country_signal.value == pytest.approx(0.5, abs=0.001)
 
     def test_country_case_insensitive(
         self, strict_policy: ScoringPolicy, entity_single_country: Entity
@@ -378,8 +377,8 @@ class TestDefaultScoringPolicyEdgeCases:
             trigram_similarity=0.7,
         )
 
-        country_signal = next(s for s in explanation["signals"] if s["name"] == "country_match")
-        assert country_signal["value"] == 1.0
+        country_signal = next(s for s in explanation.signals if s.name == "country_match")
+        assert country_signal.value == 1.0
 
     def test_entity_no_countries_query_has_country(
         self, strict_policy: ScoringPolicy, entity_no_countries: Entity
@@ -397,13 +396,11 @@ class TestDefaultScoringPolicyEdgeCases:
             trigram_similarity=0.7,
         )
 
-        country_signal = next(s for s in explanation["signals"] if s["name"] == "country_match")
-        assert country_signal["value"] == 0.0
-        assert "No country provided or entity has no countries" in country_signal["description"]
+        country_signal = next(s for s in explanation.signals if s.name == "country_match")
+        assert country_signal.value == 0.0
+        assert "No country provided or entity has no countries" in country_signal.description
 
-    def test_entity_type_mismatch(
-        self, strict_policy: ScoringPolicy, entity_no_countries: Entity
-    ):
+    def test_entity_type_mismatch(self, strict_policy: ScoringPolicy, entity_no_countries: Entity):
         """Test entity type mismatch."""
         scorer = DefaultScoringPolicy(strict_policy)
         score, explanation = scorer.compute_score(
@@ -417,11 +414,9 @@ class TestDefaultScoringPolicyEdgeCases:
             trigram_similarity=0.7,
         )
 
-        entity_type_signal = next(
-            s for s in explanation["signals"] if s["name"] == "entity_type_match"
-        )
-        assert entity_type_signal["value"] == 0.0
-        assert "mismatch" in entity_type_signal["description"].lower()
+        entity_type_signal = next(s for s in explanation.signals if s.name == "entity_type_match")
+        assert entity_type_signal.value == 0.0
+        assert "mismatch" in entity_type_signal.description.lower()
 
     def test_entity_type_case_insensitive(
         self, strict_policy: ScoringPolicy, entity_no_aliases: Entity
@@ -439,14 +434,10 @@ class TestDefaultScoringPolicyEdgeCases:
             trigram_similarity=0.7,
         )
 
-        entity_type_signal = next(
-            s for s in explanation["signals"] if s["name"] == "entity_type_match"
-        )
-        assert entity_type_signal["value"] == 1.0
+        entity_type_signal = next(s for s in explanation.signals if s.name == "entity_type_match")
+        assert entity_type_signal.value == 1.0
 
-    def test_alias_exact_match(
-        self, strict_policy: ScoringPolicy, entity_many_aliases: Entity
-    ):
+    def test_alias_exact_match(self, strict_policy: ScoringPolicy, entity_many_aliases: Entity):
         """Test alias exact match."""
         scorer = DefaultScoringPolicy(strict_policy)
         score, explanation = scorer.compute_score(
@@ -460,9 +451,9 @@ class TestDefaultScoringPolicyEdgeCases:
             trigram_similarity=0.6,
         )
 
-        alias_signal = next(s for s in explanation["signals"] if s["name"] == "alias_match")
-        assert alias_signal["value"] == "A. King"
-        assert alias_signal["contribution"] > 0
+        alias_signal = next(s for s in explanation.signals if s.name == "alias_match")
+        assert alias_signal.value == "A. King"
+        assert alias_signal.contribution > 0
 
     def test_alias_partial_match_query_contained(
         self, strict_policy: ScoringPolicy, entity_many_aliases: Entity
@@ -480,15 +471,13 @@ class TestDefaultScoringPolicyEdgeCases:
             trigram_similarity=0.5,
         )
 
-        signal_names = [s["name"] for s in explanation["signals"]]
+        signal_names = [s.name for s in explanation.signals]
         assert "alias_match" in signal_names
-        alias_signal = next(s for s in explanation["signals"] if s["name"] == "alias_match")
+        alias_signal = next(s for s in explanation.signals if s.name == "alias_match")
         # Should have partial match (0.5 score)
-        assert alias_signal["contribution"] > 0
+        assert alias_signal.contribution > 0
 
-    def test_alias_no_match(
-        self, strict_policy: ScoringPolicy, entity_many_aliases: Entity
-    ):
+    def test_alias_no_match(self, strict_policy: ScoringPolicy, entity_many_aliases: Entity):
         """Test alias with no match."""
         scorer = DefaultScoringPolicy(strict_policy)
         score, explanation = scorer.compute_score(
@@ -502,10 +491,10 @@ class TestDefaultScoringPolicyEdgeCases:
             trigram_similarity=0.2,
         )
 
-        signal_names = [s["name"] for s in explanation["signals"]]
+        signal_names = [s.name for s in explanation.signals]
         # alias_match signal should not be present when there's no match
         assert "alias_match" not in signal_names or all(
-            s["contribution"] == 0 for s in explanation["signals"] if s["name"] == "alias_match"
+            s.contribution == 0 for s in explanation.signals if s.name == "alias_match"
         )
 
     def test_entity_with_no_aliases_query_matches_primary(
@@ -527,9 +516,7 @@ class TestDefaultScoringPolicyEdgeCases:
         # Should still score well due to vector/trigram similarity
         assert score > 0.5
 
-    def test_summary_strong_vector(
-        self, strict_policy: ScoringPolicy, entity_no_aliases: Entity
-    ):
+    def test_summary_strong_vector(self, strict_policy: ScoringPolicy, entity_no_aliases: Entity):
         """Test summary includes strong vector similarity."""
         scorer = DefaultScoringPolicy(strict_policy)
         _, explanation = scorer.compute_score(
@@ -543,7 +530,7 @@ class TestDefaultScoringPolicyEdgeCases:
             trigram_similarity=0.5,
         )
 
-        assert "strong vector similarity" in explanation["summary"]
+        assert "strong vector similarity" in explanation.summary
 
     def test_summary_strong_name_match(
         self, strict_policy: ScoringPolicy, entity_no_aliases: Entity
@@ -561,7 +548,7 @@ class TestDefaultScoringPolicyEdgeCases:
             trigram_similarity=0.95,
         )
 
-        assert "strong name match" in explanation["summary"]
+        assert "strong name match" in explanation.summary
 
     def test_summary_multiple_reasons(
         self, lenient_policy: ScoringPolicy, entity_many_aliases: Entity
@@ -579,7 +566,7 @@ class TestDefaultScoringPolicyEdgeCases:
             trigram_similarity=0.9,
         )
 
-        summary = explanation["summary"]
+        summary = explanation.summary
         assert "strong vector similarity" in summary
         assert "strong name match" in summary
         assert "country match" in summary
@@ -1072,8 +1059,7 @@ class TestScoringPolicyProtocol:
             trigram_similarity=0.5,
         )
 
-        # Should return tuple of (float, dict)
         assert isinstance(result, tuple)
         assert len(result) == 2
         assert isinstance(result[0], float)
-        assert isinstance(result[1], dict)
+        assert isinstance(result[1], MatchExplanation)

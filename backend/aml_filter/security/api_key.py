@@ -195,9 +195,6 @@ async def list_api_keys(
         List of API key records (without hashes)
     """
     result = await session.execute(
-        select(ApiKey)
-        .where(ApiKey.tenant_id == tenant_id)
-        .order_by(ApiKey.created_at.desc())
+        select(ApiKey).where(ApiKey.tenant_id == tenant_id).order_by(ApiKey.created_at.desc())
     )
     return list(result.scalars().all())
-

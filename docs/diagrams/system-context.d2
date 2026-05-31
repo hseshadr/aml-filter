@@ -1,0 +1,45 @@
+# aml-filter — system context
+# client -> API -> matcher -> OFAC data store
+
+direction: right
+
+client: {
+  label: "Client\n(curl / app / frontend)"
+  shape: person
+}
+
+api: {
+  label: "aml-filter API\n(FastAPI · POST /v1/screen)"
+  shape: rectangle
+}
+
+engine: {
+  label: "Screening engine\nnormalize · embed · hybrid search · score"
+  shape: rectangle
+}
+
+db: {
+  label: "PostgreSQL\npgvector + pg_trgm\nsanctioned entities · embeddings"
+  shape: cylinder
+}
+
+redis: {
+  label: "Redis / Valkey\nrate limit · batch queue"
+  shape: cylinder
+}
+
+ofac: {
+  label: "OFAC SDN list\n(U.S. Treasury — public domain)\nNOT bundled · downloaded at runtime"
+  shape: document
+}
+
+client -> api: "name + dob/country (JSON)"
+api -> engine: "SearchQuery"
+engine -> db: "vector + lexical candidates"
+engine -> api: "matches + reasons"
+api -> client: "scored, explained SearchResponse"
+api -> redis: "rate limit / enqueue batch"
+
+ofac -> db: "ingest_ofac.py (operator, ahead of time)" {
+  style.stroke-dash: 4
+}

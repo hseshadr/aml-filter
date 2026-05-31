@@ -1,7 +1,7 @@
-import pytest
+from unittest.mock import AsyncMock
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from unittest.mock import AsyncMock
 
 from aml_filter.api.dependencies import get_db_session
 from aml_filter.api.v1.screen import get_search_service, router
@@ -27,12 +27,10 @@ def test_screen_endpoint_returns_500_on_internal_error() -> None:
 
     mock_session = AsyncMock()
     app.dependency_overrides[get_db_session] = lambda: mock_session
-    app.dependency_overrides[get_search_service] = lambda: _FailingSearchService()
+    app.dependency_overrides[get_search_service] = _FailingSearchService
     app.dependency_overrides[get_tenant_from_api_key] = lambda: None
 
     client = TestClient(app)
     resp = client.post("/v1/screen", json={"name": "John Doe"})
     assert resp.status_code == 500
     assert "Search failed" in resp.json()["detail"]
-
-

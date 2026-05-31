@@ -1,12 +1,23 @@
 """Hybrid search service combining vector and lexical search."""
 
-from typing import Any
+from typing import Literal
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aml_filter.domain.search import SearchFilters
+from aml_filter.domain.search import CandidateScores, SearchCandidate, SearchFilters
 from aml_filter.search.lexical_backend import LexicalBackend
 from aml_filter.search.pgvector_backend import PgVectorBackend
+
+
+def _classify_candidate(vector_score: float | None, lexical_score: float | None) -> CandidateScores:
+    """Build per-candidate scores, tagging which backend(s) produced a hit."""
+    if vector_score is not None and lexical_score is not None:
+        source: Literal["vector", "lexical", "both"] = "both"
+    elif vector_score is not None:
+        source = "vector"
+    else:
+        source = "lexical"
+    return CandidateScores(vector_score=vector_score, lexical_score=lexical_score, source=source)
 
 
 class HybridSearchService:
@@ -39,7 +50,7 @@ class HybridSearchService:
         filters: SearchFilters | None = None,
         ef_search: int | None = None,
         similarity_threshold: float = 0.3,
-    ) -> list[tuple[str, float, dict[str, Any]]]:
+    ) -> list[SearchCandidate]:
         """
         Perform hybrid search combining vector and lexical search.
 
@@ -91,29 +102,13 @@ class HybridSearchService:
         all_entity_ids = set(vector_similarities.keys()) | set(lexical_similarities.keys())
 
         # Build merged results with metadata
-        merged_results: list[tuple[str, float, dict[str, Any]]] = []
+        merged_results: list[SearchCandidate] = []
         for entity_id in all_entity_ids:
             vector_score = vector_similarities.get(entity_id)
             lexical_score = lexical_similarities.get(entity_id)
-
-            # Determine source
-            if vector_score is not None and lexical_score is not None:
-                source = "both"
-                max_score = max(vector_score, lexical_score)
-            elif vector_score is not None:
-                source = "vector"
-                max_score = vector_score
-            else:
-                source = "lexical"
-                max_score = lexical_score or 0.0
-
-            metadata = {
-                "vector_score": vector_score,
-                "lexical_score": lexical_score,
-                "source": source,
-            }
-
-            merged_results.append((entity_id, max_score, metadata))
+            scores = _classify_candidate(vector_score, lexical_score)
+            max_score = max(s for s in (vector_score, lexical_score) if s is not None)
+            merged_results.append((entity_id, max_score, scores))
 
         # Sort by max_score (descending) and return top K
         merged_results.sort(key=lambda x: x[1], reverse=True)
@@ -159,4 +154,3 @@ class HybridSearchService:
 
         # Return just the entity IDs
         return [entity_id for entity_id, _, _ in results]
-

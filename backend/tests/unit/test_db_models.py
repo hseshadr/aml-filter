@@ -1,12 +1,15 @@
 """Unit tests for SQLAlchemy models."""
 
-import pytest
 from datetime import date
+
+import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from aml_filter.db.models import (
     Entity,
     Tenant,
 )
+
 
 @pytest.mark.asyncio
 async def test_create_tenant(session: AsyncSession) -> None:
@@ -22,6 +25,7 @@ async def test_create_tenant(session: AsyncSession) -> None:
     assert result is not None
     assert result.tenant_id == "acme"
     assert result.metadata_json["contact_email"] == "admin@acme.com"
+
 
 @pytest.mark.asyncio
 async def test_create_entity(session: AsyncSession) -> None:

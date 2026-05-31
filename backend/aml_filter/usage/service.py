@@ -115,4 +115,3 @@ async def get_usage_count(
     result = await session.execute(query)
     total = result.scalar() or 0
     return int(total)
-
