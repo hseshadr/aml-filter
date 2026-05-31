@@ -145,15 +145,15 @@ class TestHybridSearch:
 
         # Find entity_1 (vector only)
         entity_1_result = next(r for r in results if r[0] == "entity_1")
-        assert entity_1_result[2]["vector_score"] == pytest.approx(0.8)  # 1 - 0.2
-        assert entity_1_result[2]["lexical_score"] is None
-        assert entity_1_result[2]["source"] == "vector"
+        assert entity_1_result[2].vector_score == pytest.approx(0.8)  # 1 - 0.2
+        assert entity_1_result[2].lexical_score is None
+        assert entity_1_result[2].source == "vector"
 
         # Find entity_2 (lexical only)
         entity_2_result = next(r for r in results if r[0] == "entity_2")
-        assert entity_2_result[2]["vector_score"] is None
-        assert entity_2_result[2]["lexical_score"] == pytest.approx(0.75)
-        assert entity_2_result[2]["source"] == "lexical"
+        assert entity_2_result[2].vector_score is None
+        assert entity_2_result[2].lexical_score == pytest.approx(0.75)
+        assert entity_2_result[2].source == "lexical"
 
     @pytest.mark.asyncio
     async def test_search_both_source_for_overlapping_results(
@@ -188,9 +188,9 @@ class TestHybridSearch:
 
         assert entity_id == "entity_1"
         assert max_score == pytest.approx(0.9)  # max(0.85, 0.9) = 0.9
-        assert metadata["source"] == "both"
-        assert metadata["vector_score"] == pytest.approx(0.85)
-        assert metadata["lexical_score"] == pytest.approx(0.9)
+        assert metadata.source == "both"
+        assert metadata.vector_score == pytest.approx(0.85)
+        assert metadata.lexical_score == pytest.approx(0.9)
 
     @pytest.mark.asyncio
     async def test_search_respects_k_limit(
@@ -561,7 +561,7 @@ class TestScoreConversion:
         )
 
         # Check converted similarities
-        result_dict = {r[0]: r[2]["vector_score"] for r in results}
+        result_dict = {r[0]: r[2].vector_score for r in results}
 
         assert result_dict["entity_perfect"] == pytest.approx(1.0)
         assert result_dict["entity_good"] == pytest.approx(0.75)
@@ -594,7 +594,7 @@ class TestScoreConversion:
             k=50,
         )
 
-        result_dict = {r[0]: r[2]["lexical_score"] for r in results}
+        result_dict = {r[0]: r[2].lexical_score for r in results}
 
         assert result_dict["entity_1"] == pytest.approx(0.95)
         assert result_dict["entity_2"] == pytest.approx(0.67)

@@ -1,30 +1,23 @@
 """Bidirectional screening service for whitelist vs blacklist matching."""
 
-from typing import Any, Literal
+from typing import Literal
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from aml_filter.db.mapping import db_to_domain_entity
 from aml_filter.db.models import Entity as DBEntity
 from aml_filter.db.models import Tenant
-from aml_filter.domain.entity import Alias, Entity, EntityIdentifier
+from aml_filter.domain.entity import Entity
 from aml_filter.domain.normalization import prepare_embedding_text
-from aml_filter.domain.search import SearchFilters
+from aml_filter.domain.search import CandidateScores, SearchCandidate, SearchFilters
 from aml_filter.embedding.service import EmbeddingService
 from aml_filter.scoring.policy import DefaultScoringPolicy, create_preset_policy
 from aml_filter.screening.match_tracker import MatchTracker
 from aml_filter.search.hybrid_search import HybridSearchService
 from aml_filter.search.service import SearchService
 
-EntityType = Literal["PERSON", "ORGANIZATION"]
 RiskCategory = Literal["SANCTION", "PEP", "CUSTOM", "WHITELIST"]
-
-
-def _safe_entity_type(val: str | None) -> EntityType:
-    """Convert string to EntityType Literal, defaulting to PERSON."""
-    if val and val.upper() in ("PERSON", "ORGANIZATION"):
-        return val.upper()  # type: ignore[return-value]
-    return "PERSON"
 
 
 def _safe_risk_category(val: str | None) -> RiskCategory:
@@ -133,52 +126,41 @@ class BidirectionalScreeningService:
         Returns:
             Dictionary with statistics: {'entities_scanned': int, 'matches_found': int}
         """
-        # Get blacklist entities
-        query = select(DBEntity).where(
-            DBEntity.tenant_id.is_(None),  # Global entities
-            DBEntity.risk_category.in_(["SANCTION", "PEP", "CUSTOM"]),
-        )
-
-        if list_id:
-            query = query.where(DBEntity.source_list == list_id)
-        if list_version:
-            query = query.where(DBEntity.list_version == list_version)
-
-        result = await self.session.execute(query)
-        blacklist_entities = list(result.scalars().all())
+        blacklist_entities = await self._load_blacklist_entities(list_id, list_version)
+        tenants_result = await self.session.execute(select(Tenant))
+        tenants = list(tenants_result.scalars().all())
 
         entities_scanned = 0
         matches_found = 0
-
-        # Get all tenants with whitelists
-        tenants_query = select(Tenant)
-        tenants_result = await self.session.execute(tenants_query)
-        tenants = list(tenants_result.scalars().all())
-
-        # Process in batches
         for i in range(0, len(blacklist_entities), batch_size):
-            batch = blacklist_entities[i : i + batch_size]
-
-            for blacklist_entity in batch:
-                # Screen this blacklist entity against all tenant whitelists
+            for blacklist_entity in blacklist_entities[i : i + batch_size]:
                 for tenant in tenants:
                     matches = await self.screen_entity_against_list(
                         entity=blacklist_entity,
                         target_risk_category="WHITELIST",
-                        list_id=None,
-                        list_version=None,
                         threshold=threshold,
                         match_type="BLACKLIST_VS_WHITELIST",
                         tenant_id=tenant.tenant_id,
                     )
-
                     entities_scanned += 1
                     matches_found += len(matches)
 
-        return {
-            "entities_scanned": entities_scanned,
-            "matches_found": matches_found,
-        }
+        return {"entities_scanned": entities_scanned, "matches_found": matches_found}
+
+    async def _load_blacklist_entities(
+        self, list_id: str | None, list_version: str | None
+    ) -> list[DBEntity]:
+        """Load global blacklist entities, optionally narrowed by source list/version."""
+        query = select(DBEntity).where(
+            DBEntity.tenant_id.is_(None),
+            DBEntity.risk_category.in_(["SANCTION", "PEP", "CUSTOM"]),
+        )
+        if list_id:
+            query = query.where(DBEntity.source_list == list_id)
+        if list_version:
+            query = query.where(DBEntity.list_version == list_version)
+        result = await self.session.execute(query)
+        return list(result.scalars().all())
 
     async def screen_entity_against_list(
         self,
@@ -215,7 +197,7 @@ class BidirectionalScreeningService:
         target_risk_category: str,
         list_id: str | None,
         search_tenant_id: str | None,
-    ) -> list[tuple[str, float, dict[str, Any]]]:
+    ) -> list[SearchCandidate]:
         """Embed the entity and hybrid-search for opposite-side candidates."""
         query_vector = await self.embedding_service.embed(
             prepare_embedding_text(
@@ -240,41 +222,61 @@ class BidirectionalScreeningService:
     async def _score_candidates_against(
         self,
         domain_entity: Entity,
-        candidates: list[tuple[str, float, dict[str, Any]]],
+        candidates: list[SearchCandidate],
         threshold: float,
     ) -> list[tuple[float, str, DBEntity]]:
         """Score each candidate against the source entity; keep matches above threshold, sorted desc."""
         entity_ids = [eid for eid, _, _ in candidates]
         if not entity_ids:
             return []
-        result = await self.session.execute(
-            select(DBEntity).where(DBEntity.entity_id.in_(entity_ids))
-        )
-        entity_map = {e.entity_id: e for e in result.scalars().all()}
-
+        entity_map = await self._load_entity_map(entity_ids)
         scorer = DefaultScoringPolicy(
             create_preset_policy("balanced", "bidirectional", "bidirectional")
         )
-        scored: list[tuple[float, str, DBEntity]] = []
-        for entity_id, _max_score, metadata in candidates:
-            db_entity = entity_map.get(entity_id)
-            if db_entity is None:
-                continue
-            match_domain = self._db_to_domain_entity(db_entity)
-            score, _ = scorer.compute_score(
-                entity=match_domain,
-                query_name=domain_entity.primary_name,
-                query_name_canonical=domain_entity.name_canonical,
-                query_dob=domain_entity.dob[0] if domain_entity.dob else None,
-                query_country=domain_entity.countries[0] if domain_entity.countries else None,
-                query_entity_type=domain_entity.entity_type,
-                vector_similarity=metadata.get("vector_score"),
-                trigram_similarity=metadata.get("lexical_score"),
+        scored = [
+            row
+            for entity_id, _max_score, scores in candidates
+            if (
+                row := self._score_one_candidate(
+                    domain_entity, entity_id, scores, entity_map, scorer, threshold
+                )
             )
-            if score >= threshold:
-                scored.append((score, entity_id, db_entity))
+            is not None
+        ]
         scored.sort(key=lambda x: x[0], reverse=True)
         return scored
+
+    async def _load_entity_map(self, entity_ids: list[str]) -> dict[str, DBEntity]:
+        """Fetch DB entities for the given ids, keyed by entity_id."""
+        result = await self.session.execute(
+            select(DBEntity).where(DBEntity.entity_id.in_(entity_ids))
+        )
+        return {e.entity_id: e for e in result.scalars().all()}
+
+    def _score_one_candidate(
+        self,
+        domain_entity: Entity,
+        entity_id: str,
+        scores: CandidateScores,
+        entity_map: dict[str, DBEntity],
+        scorer: DefaultScoringPolicy,
+        threshold: float,
+    ) -> tuple[float, str, DBEntity] | None:
+        """Score a single candidate; return (score, id, row) if above threshold, else None."""
+        db_entity = entity_map.get(entity_id)
+        if db_entity is None:
+            return None
+        score, _ = scorer.compute_score(
+            entity=self._db_to_domain_entity(db_entity),
+            query_name=domain_entity.primary_name,
+            query_name_canonical=domain_entity.name_canonical,
+            query_dob=domain_entity.dob[0] if domain_entity.dob else None,
+            query_country=domain_entity.countries[0] if domain_entity.countries else None,
+            query_entity_type=domain_entity.entity_type,
+            vector_similarity=scores.vector_score,
+            trigram_similarity=scores.lexical_score,
+        )
+        return (score, entity_id, db_entity) if score >= threshold else None
 
     async def _record_qualifying_matches(
         self,
@@ -312,13 +314,10 @@ class BidirectionalScreeningService:
         list_version: str | None,
     ) -> bool:
         """True iff this candidate's category, source_list, and list_version match the filters."""
-        if db_entity.risk_category != target_risk_category:
-            return False
-        if list_id and db_entity.source_list != list_id:
-            return False
-        if list_version and db_entity.list_version != list_version:  # noqa: SIM103
-            return False
-        return True
+        category_ok = db_entity.risk_category == target_risk_category
+        list_ok = not list_id or db_entity.source_list == list_id
+        version_ok = not list_version or db_entity.list_version == list_version
+        return category_ok and list_ok and version_ok
 
     async def _record_match(
         self,
@@ -346,45 +345,5 @@ class BidirectionalScreeningService:
         )
 
     def _db_to_domain_entity(self, db_entity: DBEntity) -> Entity:
-        """Convert database entity to domain entity."""
-
-        # Parse aliases from JSONB
-        aliases = []
-        if db_entity.aliases:
-            for alias_dict in db_entity.aliases:
-                aliases.append(
-                    Alias(
-                        name=alias_dict.get("name", ""),
-                        name_canonical=alias_dict.get("name_canonical", ""),
-                        source=alias_dict.get("source", ""),
-                    )
-                )
-
-        # Parse identifiers
-        identifiers_dict = db_entity.identifiers or {}
-        identifiers = EntityIdentifier(
-            passport=identifiers_dict.get("passport", []),
-            national_id=identifiers_dict.get("national_id", []),
-            other=identifiers_dict.get("other", {}),
-        )
-
-        return Entity(
-            entity_id=db_entity.entity_id,
-            tenant_id=db_entity.tenant_id,
-            entity_type=_safe_entity_type(db_entity.entity_type),
-            primary_name=db_entity.primary_name,
-            name_canonical=db_entity.name_canonical,
-            name_tokens=db_entity.name_tokens or [],
-            name_trigram=db_entity.name_trigram,
-            aliases=aliases,
-            dob=db_entity.dob or [],
-            countries=db_entity.countries or [],
-            nationalities=db_entity.nationalities or [],
-            addresses=db_entity.addresses or [],
-            identifiers=identifiers,
-            risk_category=_safe_risk_category(db_entity.risk_category),
-            source_list=db_entity.source_list,
-            list_version=db_entity.list_version,
-            custom_list_id=db_entity.custom_list_id,
-            raw_source=db_entity.raw_source or {},
-        )
+        """Convert a database entity to a validated domain entity."""
+        return db_to_domain_entity(db_entity)

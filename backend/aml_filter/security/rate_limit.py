@@ -6,6 +6,8 @@ import logging
 
 from redis.asyncio import Redis
 
+from aml_filter.security.config import get_rate_limit_tiers
+
 logger = logging.getLogger(__name__)
 
 
@@ -42,9 +44,5 @@ async def check_rate_limit(
 
 def get_rate_limit_for_plan(plan: str) -> dict[str, int]:
     """Return the per-endpoint request-per-minute caps for `plan`. Falls back to `starter`."""
-    limits = {
-        "starter": {"screen": 100, "batch": 10, "api_keys": 5},
-        "professional": {"screen": 1000, "batch": 100, "api_keys": 20},
-        "enterprise": {"screen": 10000, "batch": 1000, "api_keys": 100},
-    }
-    return limits.get(plan, limits["starter"])
+    quota = get_rate_limit_tiers().for_plan(plan)
+    return {"screen": quota.screen, "batch": quota.batch, "api_keys": quota.api_keys}

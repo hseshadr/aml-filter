@@ -4,7 +4,7 @@ import csv
 import io
 import json
 import uuid
-from typing import Any
+from typing import TypeGuard
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel, ConfigDict, Field
@@ -16,6 +16,7 @@ from aml_filter.db.models import Entity, EntityEmbedding, ListVersion, TenantLis
 from aml_filter.domain.normalization import normalize_name, prepare_embedding_text
 from aml_filter.embedding.service import EmbeddingService
 from aml_filter.security.middleware import require_api_key
+from aml_filter.types import JsonObject, JsonValue
 
 router = APIRouter(prefix="/lists", tags=["lists"])
 
@@ -46,12 +47,12 @@ class CustomListUploadResponse(BaseModel):
     status: str
     total_rows: int
     valid_rows: int
-    errors: list[dict[str, Any]] = []
+    errors: list[JsonObject] = []
 
 
 def _parse_uploaded_list(
     content_str: str, filename: str
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+) -> tuple[list[JsonObject], list[JsonObject]]:
     """Parse a CSV or JSON upload into (entities, per-row errors). Raises HTTPException on bad shape."""
     if filename.endswith(".csv"):
         return _parse_csv_rows(content_str)
@@ -60,10 +61,10 @@ def _parse_uploaded_list(
     raise HTTPException(status_code=400, detail="Unsupported file format (CSV or JSON required)")
 
 
-def _parse_csv_rows(content_str: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+def _parse_csv_rows(content_str: str) -> tuple[list[JsonObject], list[JsonObject]]:
     """Parse CSV rows. Empty `name` cells are recorded as errors and skipped."""
-    entities: list[dict[str, Any]] = []
-    errors: list[dict[str, Any]] = []
+    entities: list[JsonObject] = []
+    errors: list[JsonObject] = []
     for i, row in enumerate(csv.DictReader(io.StringIO(content_str))):
         if not row.get("name"):
             errors.append({"row": i, "error": "Missing name"})
@@ -79,28 +80,36 @@ def _parse_csv_rows(content_str: str) -> tuple[list[dict[str, Any]], list[dict[s
     return entities, errors
 
 
-def _parse_json_items(content_str: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Parse JSON (array or single object). Items missing `name` are recorded as errors."""
+def _is_named_object(item: JsonValue) -> TypeGuard[JsonObject]:
+    """True iff `item` is a JSON object carrying a non-empty `name`."""
+    return isinstance(item, dict) and bool(item.get("name"))
+
+
+def _load_json(content_str: str) -> list[JsonValue]:
+    """Decode JSON content into a list of items (wrapping a lone object)."""
     try:
         data = json.loads(content_str)
     except json.JSONDecodeError as exc:
         raise HTTPException(status_code=400, detail="Invalid JSON format") from exc
-    if not isinstance(data, list):
-        data = [data]
-    entities: list[dict[str, Any]] = []
-    errors: list[dict[str, Any]] = []
-    for i, item in enumerate(data):
-        if not item.get("name"):
-            errors.append({"item": i, "error": "Missing name"})
-            continue
-        entities.append(item)
+    return data if isinstance(data, list) else [data]
+
+
+def _parse_json_items(content_str: str) -> tuple[list[JsonObject], list[JsonObject]]:
+    """Parse JSON (array or single object). Items missing `name` are recorded as errors."""
+    items = _load_json(content_str)
+    entities = [item for item in items if _is_named_object(item)]
+    errors: list[JsonObject] = [
+        {"item": i, "error": "Missing name"}
+        for i, item in enumerate(items)
+        if not _is_named_object(item)
+    ]
     return entities, errors
 
 
 async def _persist_custom_entity(
     session: AsyncSession,
     embedding_service: EmbeddingService,
-    item: dict[str, Any],
+    item: JsonObject,
     *,
     list_id: str,
     list_name: str,
@@ -117,9 +126,9 @@ async def _persist_custom_entity(
         tenant_id=tenant_id,
         entity_type=str(item.get("type", "PERSON")).upper(),
         primary_name=name,
-        name_canonical=normalized["name_canonical"],
-        name_tokens=normalized["name_tokens"],
-        name_trigram=normalized["name_trigram"],
+        name_canonical=normalized.name_canonical,
+        name_tokens=normalized.name_tokens,
+        name_trigram=normalized.name_trigram,
         countries=[country_str] if country_str else [],
         risk_category="CUSTOM",
         source_list=list_name,

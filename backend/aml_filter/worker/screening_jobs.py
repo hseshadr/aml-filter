@@ -5,7 +5,6 @@ import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
-from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,6 +14,7 @@ from aml_filter.db.models import Entity as DBEntity
 from aml_filter.db.models import ScreeningJob, Tenant
 from aml_filter.db.session import create_database
 from aml_filter.screening.bidirectional import BidirectionalScreeningService
+from aml_filter.types import JsonObject
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +67,7 @@ async def _load_or_create_job(
 
 async def _finalize_completed(
     session: AsyncSession, job: ScreeningJob, *, entities_scanned: int, matches_found: int
-) -> dict[str, Any]:
+) -> JsonObject:
     """Mark job COMPLETED, persist counts, and return the job summary."""
     job.status = "COMPLETED"
     job.completed_at = datetime.now(UTC)
@@ -84,7 +84,7 @@ async def _finalize_completed(
 
 async def _finalize_failed(
     session: AsyncSession, job: ScreeningJob, exc: BaseException
-) -> dict[str, Any]:
+) -> JsonObject:
     """Mark job FAILED, persist the error message, and return the job summary."""
     logger.exception("Screening job %s failed", job.job_id)
     job.status = "FAILED"
@@ -99,7 +99,7 @@ async def screen_whitelist_on_blacklist_update(
     list_id: str | None = None,
     list_version: str | None = None,
     job_id: str | None = None,
-) -> dict[str, Any]:
+) -> JsonObject:
     """Screen all whitelist customers against an updated blacklist."""
     async with _open_session() as session:
         job = await _load_or_create_job(
@@ -134,7 +134,7 @@ async def screen_blacklist_on_whitelist_update(
     tenant_id: str,
     whitelist_entity_id: str | None = None,
     job_id: str | None = None,
-) -> dict[str, Any]:
+) -> JsonObject:
     """Screen a new/updated whitelist customer against all blacklists."""
     async with _open_session() as session:
         job = await _load_or_create_job(
@@ -191,7 +191,7 @@ async def _screen_single_whitelist_entity(
 async def run_bidirectional_screening(
     tenant_id: str | None = None,
     job_id: str | None = None,
-) -> dict[str, Any]:
+) -> JsonObject:
     """Run full bidirectional screening for all tenants, or a specific tenant."""
     async with _open_session() as session:
         job = await _load_or_create_job(

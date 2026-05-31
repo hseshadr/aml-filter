@@ -10,6 +10,7 @@ from typing import Literal
 from pydantic import ValidationError
 
 from aml_filter.domain.search import SearchQuery
+from aml_filter.types import JsonArray, JsonObject, JsonValue
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +33,56 @@ def _parse_entity_type(value: str | None) -> Literal["PERSON", "ORGANIZATION"] |
     if upper_val in ("PERSON", "ORGANIZATION"):
         return upper_val  # type: ignore[return-value]
     return None
+
+
+def _detect_format(filename: str | None, format: str | None) -> str | None:
+    """Resolve an explicit format, else infer from the filename extension."""
+    if format is not None:
+        return format
+    suffix_formats = {".csv": "csv", ".json": "json"}
+    for suffix, name in suffix_formats.items():
+        if filename and filename.endswith(suffix):
+            return name
+    return None
+
+
+def _apply_csv_mapping(row: dict[str, str], field_mapping: dict[str, str] | None) -> dict[str, str]:
+    """Rename source columns to SearchQuery fields, or pass the row through unmapped."""
+    if not field_mapping:
+        return row
+    return {dest: row[src] for src, dest in field_mapping.items() if src in row}
+
+
+def _load_json_items(content: str) -> JsonArray:
+    """Decode JSON into a list of items; wrap a single object, [] on decode error."""
+    try:
+        data = json.loads(content)
+    except json.JSONDecodeError:
+        return []
+    return data if isinstance(data, list) else [data]
+
+
+def _apply_json_mapping(item: JsonObject, field_mapping: dict[str, str] | None) -> JsonObject:
+    """Rename source keys to SearchQuery fields, or pass the item through unmapped."""
+    if not field_mapping:
+        return item
+    return {dest: item[src] for src, dest in field_mapping.items() if src in item}
+
+
+def _csv_row_to_query(mapped_row: dict[str, str]) -> SearchQuery | None:
+    """Build a SearchQuery from a mapped CSV row, or None when name is empty/invalid."""
+    try:
+        query = SearchQuery(
+            name=mapped_row.get("name", "").strip(),
+            dob=_parse_dob(mapped_row.get("dob")),
+            country=mapped_row.get("country", "").strip() or None,
+            entity_type=_parse_entity_type(mapped_row.get("entity_type")),
+            threshold=float(mapped_row.get("threshold", "0.65")),
+            k=int(mapped_row.get("k", "20")),
+        )
+    except (ValueError, KeyError):
+        return None
+    return query if query.name else None
 
 
 class BatchParser:
@@ -58,77 +109,37 @@ class BatchParser:
         """
         if isinstance(content, bytes):
             content = content.decode("utf-8")
-
-        if format is None and filename:
-            if filename.endswith(".csv"):
-                format = "csv"
-            elif filename.endswith(".json"):
-                format = "json"
-
-        if format == "csv":
+        resolved = _detect_format(filename, format)
+        if resolved == "csv":
             return BatchParser.parse_csv(content, field_mapping)
-        elif format == "json":
+        if resolved == "json":
             return BatchParser.parse_json(content, field_mapping)
-        else:
-            raise ValueError(f"Unsupported format or file extension: {format or filename}")
+        raise ValueError(f"Unsupported format or file extension: {resolved or filename}")
 
     @staticmethod
     def parse_csv(content: str, field_mapping: dict[str, str] | None = None) -> list[SearchQuery]:
         """Parse CSV content into SearchQuery objects."""
         reader = csv.DictReader(StringIO(content))
-        queries = []
-
-        for row in reader:
-            try:
-                # Apply mapping if provided
-                mapped_row = {}
-                if field_mapping:
-                    for src, dest in field_mapping.items():
-                        if src in row:
-                            mapped_row[dest] = row[src]
-                else:
-                    mapped_row = row
-
-                query = SearchQuery(
-                    name=mapped_row.get("name", "").strip(),
-                    dob=_parse_dob(mapped_row.get("dob")),
-                    country=mapped_row.get("country", "").strip() or None,
-                    entity_type=_parse_entity_type(mapped_row.get("entity_type")),
-                    threshold=float(mapped_row.get("threshold", "0.65")),
-                    k=int(mapped_row.get("k", "20")),
-                )
-                if query.name:
-                    queries.append(query)
-            except (ValueError, KeyError):
-                continue
-
-        return queries
+        candidates = (_csv_row_to_query(_apply_csv_mapping(row, field_mapping)) for row in reader)
+        return [query for query in candidates if query is not None]
 
     @staticmethod
     def parse_json(content: str, field_mapping: dict[str, str] | None = None) -> list[SearchQuery]:
         """Parse JSON content into SearchQuery objects."""
+        items = _load_json_items(content)
+        candidates = (BatchParser._json_item_to_query(item, field_mapping) for item in items)
+        return [query for query in candidates if query is not None]
+
+    @staticmethod
+    def _json_item_to_query(
+        item: JsonValue, field_mapping: dict[str, str] | None
+    ) -> SearchQuery | None:
+        """Build a SearchQuery from one JSON item, logging and skipping invalid rows."""
+        if not isinstance(item, dict):
+            logger.warning("Skipping non-object batch row: %r", item)
+            return None
         try:
-            data = json.loads(content)
-            if not isinstance(data, list):
-                data = [data]
-
-            queries = []
-            for item in data:
-                try:
-                    # Apply mapping if provided
-                    mapped_item = {}
-                    if field_mapping:
-                        for src, dest in field_mapping.items():
-                            if src in item:
-                                mapped_item[dest] = item[src]
-                    else:
-                        mapped_item = item
-
-                    query = SearchQuery(**mapped_item)
-                    queries.append(query)
-                except (ValidationError, TypeError, KeyError) as exc:
-                    logger.warning("Skipping invalid batch row: %s", exc)
-                    continue
-            return queries
-        except json.JSONDecodeError:
-            return []
+            return SearchQuery.model_validate(_apply_json_mapping(item, field_mapping))
+        except (ValidationError, TypeError, KeyError) as exc:
+            logger.warning("Skipping invalid batch row: %s", exc)
+            return None

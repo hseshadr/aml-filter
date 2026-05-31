@@ -66,9 +66,8 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/yourorg/aml-filter"
-Documentation = "https://docs.amlfilter.io"
-Repository = "https://github.com/yourorg/aml-filter"
+Homepage = "https://github.com/hseshadr/aml-filter"
+Repository = "https://github.com/hseshadr/aml-filter"
 
 [tool.hatch.metadata]
 allow-direct-references = true
@@ -161,7 +160,7 @@ warn_no_return = true
 warn_unreachable = true
 strict_equality = true
 show_error_codes = true
-disallow_any_explicit = false  # TODO(quality): enable after SQLAlchemy Mapped[dict[str, Any]] JSONB columns are typed via TypeDecorator
+disallow_any_explicit = false  # incompatible with the Pydantic mypy plugin (flags every BaseModel subclass); source carries zero explicit Any
 
 [[tool.mypy.overrides]]
 module = [

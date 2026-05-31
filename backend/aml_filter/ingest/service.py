@@ -1,7 +1,6 @@
 """Ingestion service for loading sanctions lists."""
 
 from datetime import datetime
-from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,6 +12,13 @@ from aml_filter.domain.normalization import prepare_embedding_text
 from aml_filter.embedding.service import EmbeddingService
 from aml_filter.ingest.parsers.ofac import OFACParser
 from aml_filter.queue import enqueue_screening
+from aml_filter.types import JsonArray, JsonObject
+
+
+def _embedding_text_for(entity: Entity) -> str:
+    """Build the embedding input text for one entity (name plus first country)."""
+    first_country = entity.countries[0] if entity.countries else None
+    return prepare_embedding_text(entity.primary_name, first_country)
 
 
 class IngestionService:
@@ -40,7 +46,7 @@ class IngestionService:
         list_id: str = "OFAC_SDN",
         version: str | None = None,
         batch_size: int = 100,
-    ) -> dict[str, Any]:
+    ) -> dict[str, str | int]:
         """
         Ingest OFAC SDN XML file.
 
@@ -72,7 +78,7 @@ class IngestionService:
         source_list: str,
         version: str,
         batch_size: int = 100,
-    ) -> dict[str, Any]:
+    ) -> dict[str, str | int]:
         """Ingest entities into the DB in batches, activate the list version, enqueue screening."""
         list_version = ListVersion(
             list_id=source_list,
@@ -106,31 +112,39 @@ class IngestionService:
         existing = {e.entity_id: e for e in result.scalars().all()}
 
         embeddings = await self.embedding_service.embed_batch(
-            [
-                prepare_embedding_text(e.primary_name, e.countries[0] if e.countries else None)
-                for e in batch
-            ],
-            batch_size=batch_size,
+            [_embedding_text_for(e) for e in batch], batch_size=batch_size
         )
-        model_name = self.embedding_service.get_model_info()["model_name"]
+        model_name = str(self.embedding_service.get_model_info()["model_name"])
         stats = {"created": 0, "updated": 0, "embeddings": 0}
         for entity, embedding in zip(batch, embeddings, strict=False):
-            db_entity = self._domain_to_db_entity(entity, existing.get(entity.entity_id))
-            if entity.entity_id in existing:
-                stats["updated"] += 1
-            else:
-                self.session.add(db_entity)
-                stats["created"] += 1
-            await self.session.merge(
-                EntityEmbedding(
-                    entity_id=entity.entity_id,
-                    embedding=embedding,
-                    embedding_model=model_name,
-                    model_version="default",
-                )
-            )
+            await self._upsert_entity(entity, existing, stats)
+            await self._merge_embedding(entity.entity_id, embedding, model_name)
             stats["embeddings"] += 1
         return stats
+
+    async def _upsert_entity(
+        self, entity: Entity, existing: dict[str, DBEntity], stats: dict[str, int]
+    ) -> None:
+        """Add a new entity or count an update, mutating `stats` accordingly."""
+        db_entity = self._domain_to_db_entity(entity, existing.get(entity.entity_id))
+        if entity.entity_id in existing:
+            stats["updated"] += 1
+            return
+        self.session.add(db_entity)
+        stats["created"] += 1
+
+    async def _merge_embedding(
+        self, entity_id: str, embedding: list[float], model_name: str
+    ) -> None:
+        """Upsert the embedding row for one entity."""
+        await self.session.merge(
+            EntityEmbedding(
+                entity_id=entity_id,
+                embedding=embedding,
+                embedding_model=model_name,
+                model_version="default",
+            )
+        )
 
     async def _enqueue_screening_for_tenants_with_whitelist(
         self, source_list: str, version: str
@@ -155,7 +169,7 @@ class IngestionService:
     ) -> DBEntity:
         """Convert domain entity to database entity."""
         # Convert aliases to JSONB format
-        aliases_json = [
+        aliases_json: JsonArray = [
             {
                 "name": alias.name,
                 "name_canonical": alias.name_canonical,
@@ -165,11 +179,7 @@ class IngestionService:
         ]
 
         # Convert identifiers to JSONB format
-        identifiers_json = {
-            "passport": domain_entity.identifiers.passport,
-            "national_id": domain_entity.identifiers.national_id,
-            "other": domain_entity.identifiers.other,
-        }
+        identifiers_json: JsonObject = domain_entity.identifiers.model_dump(mode="json")
 
         if existing:
             # Update existing entity

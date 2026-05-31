@@ -1,9 +1,11 @@
 """Entity domain models for AML screening."""
 
 from datetime import date
-from typing import Any, Literal
+from typing import Literal
 
 from pydantic import BaseModel, Field
+
+from aml_filter.types import JsonObject
 
 
 class Alias(BaseModel):
@@ -42,4 +44,4 @@ class Entity(BaseModel):
     source_list: str = Field(..., min_length=1, max_length=100)
     list_version: str = Field(..., min_length=1, max_length=50)
     custom_list_id: str | None = Field(None, max_length=200)
-    raw_source: dict[str, Any] = Field(default_factory=dict)
+    raw_source: JsonObject = Field(default_factory=dict)

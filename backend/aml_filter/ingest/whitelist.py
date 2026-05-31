@@ -2,26 +2,29 @@
 
 import uuid
 from datetime import date, datetime
-from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aml_filter.db.models import Entity as DBEntity
 from aml_filter.db.models import EntityEmbedding
-from aml_filter.domain.normalization import normalize_name, prepare_embedding_text
+from aml_filter.domain.normalization import NormalizedName, normalize_name, prepare_embedding_text
 from aml_filter.embedding.service import EmbeddingService
 from aml_filter.queue import enqueue_screening
+from aml_filter.types import JsonArray, JsonObject
+
+# A user-supplied alias entry: {"name": ..., "source": ...}.
+AliasInput = dict[str, str]
 
 
-def _normalize_aliases(aliases: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+def _normalize_aliases(aliases: list[AliasInput] | None) -> JsonArray:
     """Normalize alias entries for JSONB storage; missing fields default to '' / 'user'."""
     if not aliases:
         return []
     return [
         {
             "name": alias.get("name", ""),
-            "name_canonical": normalize_name(alias.get("name", ""))["name_canonical"],
+            "name_canonical": normalize_name(alias.get("name", "")).name_canonical,
             "source": alias.get("source", "user"),
         }
         for alias in aliases
@@ -34,12 +37,12 @@ def _build_whitelist_entity(
     tenant_id: str,
     name: str,
     entity_type: str,
-    normalized: dict[str, Any],
+    normalized: NormalizedName,
     dob: list[date] | None,
     country: str | None,
-    aliases_json: list[dict[str, Any]],
-    identifiers_json: dict[str, Any],
-    metadata: dict[str, Any],
+    aliases_json: JsonArray,
+    identifiers_json: JsonObject,
+    metadata: JsonObject,
 ) -> DBEntity:
     """Construct a WHITELIST DBEntity row from the canonicalized customer payload."""
     return DBEntity(
@@ -47,9 +50,9 @@ def _build_whitelist_entity(
         tenant_id=tenant_id,
         entity_type=entity_type,
         primary_name=name,
-        name_canonical=normalized["name_canonical"],
-        name_tokens=normalized["name_tokens"],
-        name_trigram=normalized["name_trigram"],
+        name_canonical=normalized.name_canonical,
+        name_tokens=normalized.name_tokens,
+        name_trigram=normalized.name_trigram,
         aliases=aliases_json,
         dob=dob or [],
         countries=[country] if country else [],
@@ -89,20 +92,20 @@ class WhitelistIngestionService:
         entity_type: str = "PERSON",
         dob: list[date] | None = None,
         country: str | None = None,
-        aliases: list[dict[str, Any]] | None = None,
-        identifiers: dict[str, Any] | None = None,
-        metadata: dict[str, Any] | None = None,
+        aliases: list[AliasInput] | None = None,
+        identifiers: JsonObject | None = None,
+        metadata: JsonObject | None = None,
     ) -> DBEntity:
         """Add (or update) a whitelist customer; triggers bidirectional screening on insert."""
         normalized = normalize_name(name)
-        existing = await self._find_existing_customer(tenant_id, normalized["name_canonical"])
+        existing = await self._find_existing_customer(tenant_id, normalized.name_canonical)
         if existing:
             return await self._update_customer(
                 existing,
                 name=name,
-                name_canonical=normalized["name_canonical"],
-                name_tokens=normalized["name_tokens"],
-                name_trigram=normalized["name_trigram"],
+                name_canonical=normalized.name_canonical,
+                name_tokens=normalized.name_tokens,
+                name_trigram=normalized.name_trigram,
                 dob=dob,
                 country=country,
                 aliases=aliases,
@@ -143,7 +146,7 @@ class WhitelistIngestionService:
             EntityEmbedding(
                 entity_id=entity.entity_id,
                 embedding=embedding_vector,
-                embedding_model=self.embedding_service.get_model_info()["model_name"],
+                embedding_model=str(self.embedding_service.get_model_info()["model_name"]),
                 model_version="default",
             )
         )
@@ -170,54 +173,68 @@ class WhitelistIngestionService:
         name_trigram: str,
         dob: list[date] | None,
         country: str | None,
-        aliases: list[dict[str, Any]] | None,
-        identifiers: dict[str, Any] | None,
-        metadata: dict[str, Any] | None,
+        aliases: list[AliasInput] | None,
+        identifiers: JsonObject | None,
+        metadata: JsonObject | None,
     ) -> DBEntity:
         """Update existing customer."""
         entity.primary_name = name
         entity.name_canonical = name_canonical
         entity.name_tokens = name_tokens
         entity.name_trigram = name_trigram
+        self._apply_optional_fields(entity, dob, country, aliases, identifiers, metadata)
 
-        if dob is not None:
-            entity.dob = dob
-        if country is not None:
-            entity.countries = [country] if country else []
-        if aliases is not None:
-            aliases_json = []
-            for alias in aliases:
-                alias_normalized = normalize_name(alias.get("name", ""))
-                aliases_json.append(
-                    {
-                        "name": alias.get("name", ""),
-                        "name_canonical": alias_normalized["name_canonical"],
-                        "source": alias.get("source", "user"),
-                    }
-                )
-            entity.aliases = aliases_json
+        # Regenerate embedding if name changed.
+        if entity.primary_name != name:
+            await self._regenerate_embedding(entity, name, country)
+
+        await self.session.commit()
+        await self.session.refresh(entity)
+        return entity
+
+    @classmethod
+    def _apply_optional_fields(
+        cls,
+        entity: DBEntity,
+        dob: list[date] | None,
+        country: str | None,
+        aliases: list[AliasInput] | None,
+        identifiers: JsonObject | None,
+        metadata: JsonObject | None,
+    ) -> None:
+        """Apply each provided (non-None) optional field onto the entity in place."""
+        cls._apply_profile_fields(entity, dob, country, aliases)
         if identifiers is not None:
             entity.identifiers = identifiers
         if metadata is not None:
             entity.raw_source = metadata
 
-        # Regenerate embedding if name changed
-        if entity.primary_name != name:
-            embedding_text = prepare_embedding_text(name, country)
-            embedding_vector = await self.embedding_service.embed(embedding_text)
+    @staticmethod
+    def _apply_profile_fields(
+        entity: DBEntity,
+        dob: list[date] | None,
+        country: str | None,
+        aliases: list[AliasInput] | None,
+    ) -> None:
+        """Apply the provided name/profile fields (dob, country, aliases) onto the entity."""
+        if dob is not None:
+            entity.dob = dob
+        if country is not None:
+            entity.countries = [country] if country else []
+        if aliases is not None:
+            entity.aliases = _normalize_aliases(aliases)
 
-            embedding = EntityEmbedding(
+    async def _regenerate_embedding(self, entity: DBEntity, name: str, country: str | None) -> None:
+        """Recompute and merge the entity's embedding after a name change."""
+        embedding_vector = await self.embedding_service.embed(prepare_embedding_text(name, country))
+        await self.session.merge(
+            EntityEmbedding(
                 entity_id=entity.entity_id,
                 embedding=embedding_vector,
-                embedding_model=self.embedding_service.get_model_info()["model_name"],
+                embedding_model=str(self.embedding_service.get_model_info()["model_name"]),
                 model_version="default",
             )
-            await self.session.merge(embedding)
-
-        await self.session.commit()
-        await self.session.refresh(entity)
-
-        return entity
+        )
 
     async def delete_customer(self, tenant_id: str, entity_id: str) -> bool:
         """

@@ -7,7 +7,7 @@ import pytest
 
 from aml_filter.db.models import Entity as DBEntity
 from aml_filter.domain.scoring import ScoringPolicy, ScoringWeights
-from aml_filter.domain.search import SearchQuery, SearchResponse
+from aml_filter.domain.search import CandidateScores, SearchQuery, SearchResponse
 from aml_filter.search.service import SearchService
 
 
@@ -284,7 +284,7 @@ class TestSearchMethod:
         """Test search with results."""
         # Mock hybrid search results
         mock_hybrid_search_service.search.return_value = [
-            ("entity-1", 0.9, {"vector_score": 0.9, "lexical_score": 0.85}),
+            ("entity-1", 0.9, CandidateScores(vector_score=0.9, lexical_score=0.85, source="both")),
         ]
 
         # Mock entity from database
@@ -325,8 +325,8 @@ class TestSearchMethod:
         """Test search filters results by threshold."""
         # Mock hybrid search with multiple results
         mock_hybrid_search_service.search.return_value = [
-            ("entity-1", 0.9, {"vector_score": 0.9, "lexical_score": 0.85}),
-            ("entity-2", 0.4, {"vector_score": 0.4, "lexical_score": 0.35}),
+            ("entity-1", 0.9, CandidateScores(vector_score=0.9, lexical_score=0.85, source="both")),
+            ("entity-2", 0.4, CandidateScores(vector_score=0.4, lexical_score=0.35, source="both")),
         ]
 
         # Mock entities
@@ -549,9 +549,9 @@ class TestSearchMethod:
         """Test search results are sorted by score descending."""
         # Mock hybrid search with multiple results
         mock_hybrid_search_service.search.return_value = [
-            ("entity-1", 0.7, {"vector_score": 0.7, "lexical_score": 0.65}),
-            ("entity-2", 0.9, {"vector_score": 0.9, "lexical_score": 0.85}),
-            ("entity-3", 0.5, {"vector_score": 0.5, "lexical_score": 0.45}),
+            ("entity-1", 0.7, CandidateScores(vector_score=0.7, lexical_score=0.65, source="both")),
+            ("entity-2", 0.9, CandidateScores(vector_score=0.9, lexical_score=0.85, source="both")),
+            ("entity-3", 0.5, CandidateScores(vector_score=0.5, lexical_score=0.45, source="both")),
         ]
 
         # Mock entities
@@ -595,7 +595,11 @@ class TestSearchMethod:
         """Test search respects K limit."""
         # Mock many results
         mock_hybrid_search_service.search.return_value = [
-            (f"entity-{i}", 0.9 - i * 0.01, {"vector_score": 0.9 - i * 0.01, "lexical_score": 0.85})
+            (
+                f"entity-{i}",
+                0.9 - i * 0.01,
+                CandidateScores(vector_score=0.9 - i * 0.01, lexical_score=0.85, source="both"),
+            )
             for i in range(20)
         ]
 
@@ -638,7 +642,7 @@ class TestSearchMethod:
     ):
         """Test search tracks list versions used."""
         mock_hybrid_search_service.search.return_value = [
-            ("entity-1", 0.9, {"vector_score": 0.9, "lexical_score": 0.85}),
+            ("entity-1", 0.9, CandidateScores(vector_score=0.9, lexical_score=0.85, source="both")),
         ]
 
         db_entity = MagicMock(spec=DBEntity)
@@ -677,7 +681,11 @@ class TestSearchMethod:
         """Test search handles entity ID from search not found in DB."""
         # Search returns entity that doesn't exist in DB
         mock_hybrid_search_service.search.return_value = [
-            ("nonexistent-entity", 0.9, {"vector_score": 0.9, "lexical_score": 0.85}),
+            (
+                "nonexistent-entity",
+                0.9,
+                CandidateScores(vector_score=0.9, lexical_score=0.85, source="both"),
+            ),
         ]
 
         mock_result = MagicMock()

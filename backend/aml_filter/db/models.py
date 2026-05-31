@@ -1,7 +1,6 @@
 """SQLAlchemy database models."""
 
 from datetime import date, datetime
-from typing import Any
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
@@ -20,6 +19,8 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
+
+from aml_filter.types import JsonArray, JsonObject
 
 
 class Base(DeclarativeBase):
@@ -44,7 +45,7 @@ class Tenant(Base):
     updated_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
-    metadata_json: Mapped[dict[str, Any]] = mapped_column(
+    metadata_json: Mapped[JsonObject] = mapped_column(
         "metadata", JSONB, default=dict, nullable=False
     )
 
@@ -76,19 +77,19 @@ class Entity(Base):
     name_canonical: Mapped[str] = mapped_column(String(500), nullable=False)
     name_tokens: Mapped[list[str]] = mapped_column(ARRAY(Text), default=list, nullable=False)
     name_trigram: Mapped[str] = mapped_column(String(500), nullable=False)
-    aliases: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, default=list, nullable=False)
+    aliases: Mapped[JsonArray] = mapped_column(JSONB, default=list, nullable=False)
     dob: Mapped[list[date] | None] = mapped_column(ARRAY(Date), nullable=True)
     countries: Mapped[list[str] | None] = mapped_column(ARRAY(String(2)), nullable=True)
     nationalities: Mapped[list[str] | None] = mapped_column(ARRAY(String(2)), nullable=True)
     addresses: Mapped[list[str] | None] = mapped_column(ARRAY(Text), nullable=True)
-    identifiers: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=False)
+    identifiers: Mapped[JsonObject] = mapped_column(JSONB, default=dict, nullable=False)
     risk_category: Mapped[str] = mapped_column(
         String(20), nullable=False
     )  # SANCTION, PEP, CUSTOM, WHITELIST
     source_list: Mapped[str] = mapped_column(String(100), nullable=False)
     list_version: Mapped[str] = mapped_column(String(50), nullable=False)
     custom_list_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
-    raw_source: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=False)
+    raw_source: Mapped[JsonObject] = mapped_column(JSONB, default=dict, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
@@ -158,7 +159,7 @@ class ListVersion(Base):
     ingested_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
     activated_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False)  # PENDING, ACTIVE, ARCHIVED
-    metadata_json: Mapped[dict[str, Any]] = mapped_column(
+    metadata_json: Mapped[JsonObject] = mapped_column(
         "metadata", JSONB, default=dict, nullable=False
     )
 
@@ -199,7 +200,7 @@ class ScoringPolicy(Base):
         String(100), ForeignKey("tenants.tenant_id", ondelete="CASCADE"), nullable=False
     )
     name: Mapped[str] = mapped_column(String(200), nullable=False)
-    weights: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    weights: Mapped[JsonObject] = mapped_column(JSONB, nullable=False)
     threshold: Mapped[float] = mapped_column(Numeric(3, 2), nullable=False)
     version: Mapped[int] = mapped_column(Integer, nullable=False)
     preset: Mapped[str | None] = mapped_column(String(50), nullable=True)
@@ -234,10 +235,10 @@ class SearchRequest(Base):
     )
     user_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
     request_hash: Mapped[str] = mapped_column(String(64), nullable=False)
-    query: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    query: Mapped[JsonObject] = mapped_column(JSONB, nullable=False)
     policy_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    list_versions_used: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
-    matches: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    list_versions_used: Mapped[JsonObject] = mapped_column(JSONB, nullable=False)
+    matches: Mapped[JsonObject] = mapped_column(JSONB, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
@@ -332,7 +333,7 @@ class WhitelistBlacklistMatch(Base):
     resolution_status: Mapped[str | None] = mapped_column(
         String(20), nullable=True
     )  # PENDING, FALSE_POSITIVE, TRUE_POSITIVE, RESOLVED
-    metadata_json: Mapped[dict[str, Any]] = mapped_column(
+    metadata_json: Mapped[JsonObject] = mapped_column(
         "metadata", JSONB, default=dict, nullable=False
     )
 
@@ -370,7 +371,7 @@ class ScreeningJob(Base):
     started_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
-    metadata_json: Mapped[dict[str, Any]] = mapped_column(
+    metadata_json: Mapped[JsonObject] = mapped_column(
         "metadata", JSONB, default=dict, nullable=False
     )
 
@@ -404,7 +405,7 @@ class BatchJob(Base):
     started_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
-    metadata_json: Mapped[dict[str, Any]] = mapped_column(
+    metadata_json: Mapped[JsonObject] = mapped_column(
         "metadata", JSONB, default=dict, nullable=False
     )
 

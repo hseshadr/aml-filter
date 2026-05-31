@@ -3,7 +3,6 @@
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any
 
 from fastapi import FastAPI
 from redis.asyncio import Redis
@@ -16,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncIterator[dict[str, Any] | None]:
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Wire `app.state.db` and `app.state.redis_client` at startup; close on shutdown."""
     settings = get_settings()
     if not settings.database_url:

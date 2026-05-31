@@ -24,6 +24,32 @@ class UsageSummaryResponse(BaseModel):
     total_units: int
 
 
+def _parse_iso(value: str | None) -> datetime | None:
+    """Parse an ISO date string (accepting a trailing Z), or None."""
+    if not value:
+        return None
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def _resolve_end(end_date: str | None, days: int | None) -> datetime | None:
+    """End of window: explicit ISO date, else 'now' when a look-back is given."""
+    explicit = _parse_iso(end_date)
+    if explicit is not None:
+        return explicit
+    return datetime.now(UTC) if days else None
+
+
+def _resolve_window(
+    start_date: str | None, end_date: str | None, days: int | None
+) -> tuple[datetime | None, datetime | None]:
+    """Resolve the (start, end) usage window from explicit ISO dates or a look-back `days`."""
+    end = _resolve_end(end_date, days)
+    start = _parse_iso(start_date)
+    if start is None and days and end is not None:
+        start = end - timedelta(days=days)
+    return start, end
+
+
 @router.get("", response_model=UsageSummaryResponse)
 async def get_usage(
     session: AsyncSession = Depends(get_db_session),
@@ -41,20 +67,8 @@ async def get_usage(
     - `days` (number of days to look back from now)
     - `event_type` to filter by specific event type
     """
-    # Parse dates
-    end = None
-    if end_date:
-        end = datetime.fromisoformat(end_date.replace("Z", "+00:00"))
-    elif days:
-        end = datetime.now(UTC)
+    start, end = _resolve_window(start_date, end_date, days)
 
-    start = None
-    if start_date:
-        start = datetime.fromisoformat(start_date.replace("Z", "+00:00"))
-    elif days and end is not None:
-        start = end - timedelta(days=days)
-
-    # Get usage summary
     summary = await get_usage_summary(
         session=session,
         tenant_id=tenant_id,

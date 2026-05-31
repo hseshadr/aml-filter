@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from aml_filter.db.models import Entity as DBEntity
+from aml_filter.domain.search import CandidateScores
 from aml_filter.screening.bidirectional import BidirectionalScreeningService
 
 
@@ -195,7 +196,9 @@ async def test_screen_entity_against_list_with_matches(service, mock_session):
     ):
         mock_hybrid = AsyncMock()
         mock_hybrid_class.return_value = mock_hybrid
-        mock_hybrid.search.return_value = [("b1", 0.9, {"vector_score": 0.9, "lexical_score": 0.9})]
+        mock_hybrid.search.return_value = [
+            ("b1", 0.9, CandidateScores(vector_score=0.9, lexical_score=0.9, source="both"))
+        ]
 
         mock_scorer = MagicMock()
         mock_scorer_class.return_value = mock_scorer

@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from aml_filter.api.dependencies import get_db_session
 from aml_filter.db.models import ScoringPolicy
+from aml_filter.domain.scoring import ScoringPolicy as DomainScoringPolicy
 from aml_filter.domain.scoring import ScoringWeights
 from aml_filter.scoring.policy import create_preset_policy
 from aml_filter.scoring.service import (
@@ -86,6 +87,19 @@ async def get_current_weights(
     )
 
 
+def _resolve_weights(
+    update: WeightsUpdate, current_policy: DomainScoringPolicy, tenant_id: str
+) -> tuple[ScoringWeights, PresetType]:
+    """Pick the (weights, preset) for an update: named preset, custom weights, or keep current."""
+    if update.preset and update.preset in ("strict", "balanced", "lenient"):
+        preset_val: Literal["strict", "balanced", "lenient"] = update.preset  # type: ignore[assignment]
+        preset_policy = create_preset_policy(preset_val, f"{preset_val}-policy", tenant_id)
+        return preset_policy.weights, preset_val
+    if update.weights:
+        return update.weights, "custom"
+    return current_policy.weights, current_policy.preset or "custom"
+
+
 @router.put("", response_model=WeightsResponse)
 async def update_weights(
     update: WeightsUpdate,
@@ -94,38 +108,14 @@ async def update_weights(
 ) -> WeightsResponse:
     """Update the scoring policy for the tenant."""
     current_policy = await get_active_policy(session, tenant_id)
+    weights, preset = _resolve_weights(update, current_policy, tenant_id)
 
-    # Determine weights
-    preset: PresetType = "custom"
-    weights: ScoringWeights
-    if update.preset and update.preset in ("strict", "balanced", "lenient"):
-        # Use preset - these are the valid preset types for create_preset_policy
-        preset_val: Literal["strict", "balanced", "lenient"] = update.preset  # type: ignore[assignment]
-        preset_policy = create_preset_policy(preset_val, f"{preset_val}-policy", tenant_id)
-        weights = preset_policy.weights
-        preset = preset_val
-    elif update.weights:
-        # Use custom weights
-        weights = update.weights
-        preset = "custom"
-    else:
-        # Keep current weights
-        weights = current_policy.weights
-        preset = current_policy.preset or "custom"
-
-    # Determine threshold
-    threshold = update.threshold if update.threshold is not None else current_policy.threshold
-
-    # Determine name
-    name = update.name or current_policy.name
-
-    # Create new policy version
     new_policy = await create_policy(
         session=session,
         tenant_id=tenant_id,
-        name=name,
+        name=update.name or current_policy.name,
         weights=weights,
-        threshold=threshold,
+        threshold=update.threshold if update.threshold is not None else current_policy.threshold,
         preset=preset,
         created_by=tenant_id,  # In production, use actual user ID
     )

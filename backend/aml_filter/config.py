@@ -25,12 +25,13 @@ class Settings(BaseSettings):
         frozen=True,
     )
 
-    database_url: str | None = None
-    redis_url: str = "redis://localhost:6379/0"
+    database_url: str  # required, no default — fail closed if DATABASE_URL is unset
+    redis_url: str = "redis://localhost:6379/0"  # intentional non-secret localhost dev default
     screening_queue_name: str = "screening"
 
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     """Return the cached process-wide Settings."""
-    return Settings()
+    # database_url is populated from the environment, which mypy cannot see.
+    return Settings()  # type: ignore[call-arg]

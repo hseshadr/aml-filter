@@ -1,7 +1,6 @@
 """Embedding service with caching."""
 
 from hashlib import sha256
-from typing import Any
 
 from aml_filter.embedding.providers.base import EmbeddingProvider
 from aml_filter.embedding.providers.sentence_transformers import SentenceTransformersProvider
@@ -33,6 +32,16 @@ class EmbeddingService:
         """Generate cache key for text."""
         return sha256(text.encode("utf-8")).hexdigest()
 
+    def _caching_active(self, use_cache: bool) -> bool:
+        """True when both the service and this call opt into caching."""
+        return self.enable_cache and use_cache
+
+    def _cache_put(self, text: str, embedding: list[float]) -> None:
+        """Store an embedding, evicting the oldest entry (FIFO) when full."""
+        if len(self._cache) >= self._cache_size:
+            del self._cache[next(iter(self._cache))]
+        self._cache[self._get_cache_key(text)] = embedding
+
     async def embed(self, text: str, use_cache: bool = True) -> list[float]:
         """
         Generate embedding for a single text with optional caching.
@@ -44,22 +53,12 @@ class EmbeddingService:
         Returns:
             Embedding vector
         """
-        if self.enable_cache and use_cache:
-            cache_key = self._get_cache_key(text)
-            if cache_key in self._cache:
-                return self._cache[cache_key]
-
+        active = self._caching_active(use_cache)
+        if active and (cached := self._cache.get(self._get_cache_key(text))) is not None:
+            return cached
         embedding = await self.provider.embed(text)
-
-        if self.enable_cache and use_cache:
-            cache_key = self._get_cache_key(text)
-            # Simple LRU: remove oldest if cache is full
-            if len(self._cache) >= self._cache_size:
-                # Remove first item (FIFO approximation)
-                first_key = next(iter(self._cache))
-                del self._cache[first_key]
-            self._cache[cache_key] = embedding
-
+        if active:
+            self._cache_put(text, embedding)
         return embedding
 
     async def embed_batch(
@@ -78,44 +77,47 @@ class EmbeddingService:
         """
         if not texts:
             return []
-
-        if not self.enable_cache or not use_cache:
+        if not self._caching_active(use_cache):
             return await self.provider.embed_batch(texts, batch_size=batch_size)
 
-        # Check cache for each text
+        cached, to_embed = self._partition_cached(texts)
+        if to_embed:
+            await self._embed_and_cache(to_embed, cached, batch_size)
+        return [cached[i] for i in range(len(texts))]
+
+    def _partition_cached(
+        self, texts: list[str]
+    ) -> tuple[dict[int, list[float]], list[tuple[int, str]]]:
+        """Split texts into already-cached (by index) and still-to-embed (index, text)."""
         cached: dict[int, list[float]] = {}
         to_embed: list[tuple[int, str]] = []
-
         for i, text in enumerate(texts):
-            cache_key = self._get_cache_key(text)
-            if cache_key in self._cache:
-                cached[i] = self._cache[cache_key]
+            hit = self._cache.get(self._get_cache_key(text))
+            if hit is not None:
+                cached[i] = hit
             else:
                 to_embed.append((i, text))
+        return cached, to_embed
 
-        # Embed uncached texts
-        if to_embed:
-            texts_to_embed = [text for _, text in to_embed]
-            embeddings = await self.provider.embed_batch(texts_to_embed, batch_size=batch_size)
-
-            # Store in cache and map back to original indices
-            for (orig_idx, text), embedding in zip(to_embed, embeddings, strict=False):
-                cache_key = self._get_cache_key(text)
-                # Simple LRU: remove oldest if cache is full
-                if len(self._cache) >= self._cache_size:
-                    first_key = next(iter(self._cache))
-                    del self._cache[first_key]
-                self._cache[cache_key] = embedding
-                cached[orig_idx] = embedding
-
-        # Reconstruct results in original order
-        return [cached[i] for i in range(len(texts))]
+    async def _embed_and_cache(
+        self,
+        to_embed: list[tuple[int, str]],
+        cached: dict[int, list[float]],
+        batch_size: int,
+    ) -> None:
+        """Embed the uncached texts, store them, and fill `cached` by original index."""
+        embeddings = await self.provider.embed_batch(
+            [text for _, text in to_embed], batch_size=batch_size
+        )
+        for (orig_idx, text), embedding in zip(to_embed, embeddings, strict=False):
+            self._cache_put(text, embedding)
+            cached[orig_idx] = embedding
 
     def clear_cache(self) -> None:
         """Clear the embedding cache."""
         self._cache.clear()
 
-    def get_cache_stats(self) -> dict[str, Any]:
+    def get_cache_stats(self) -> dict[str, int | bool]:
         """
         Get cache statistics.
 
@@ -128,7 +130,7 @@ class EmbeddingService:
             "cache_enabled": self.enable_cache,
         }
 
-    def get_model_info(self) -> dict[str, Any]:
+    def get_model_info(self) -> dict[str, str | int]:
         """
         Get model information.
 

@@ -2,7 +2,6 @@
 
 from collections.abc import Callable, Mapping
 from contextlib import AbstractAsyncContextManager
-from typing import Any
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,7 +10,7 @@ from aml_filter.api.middleware import RateLimitMiddleware, SecurityHeadersMiddle
 from aml_filter.api.v1 import router as v1_router
 
 # Type alias for lifespan context manager (matches FastAPI's expected type)
-LifespanType = Callable[[FastAPI], AbstractAsyncContextManager[Mapping[str, Any] | None]] | None
+LifespanType = Callable[[FastAPI], AbstractAsyncContextManager[Mapping[str, object] | None]] | None
 
 
 def create_app(lifespan: LifespanType = None) -> FastAPI:

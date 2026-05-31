@@ -9,62 +9,62 @@ class TestNormalizeName:
     def test_basic_normalization(self):
         """Test basic name normalization."""
         result = normalize_name("John Doe")
-        assert result["name_canonical"] == "john doe"
-        assert result["name_tokens"] == ["john", "doe"]
-        assert result["name_trigram"] == "john doe"
+        assert result.name_canonical == "john doe"
+        assert result.name_tokens == ["john", "doe"]
+        assert result.name_trigram == "john doe"
 
     def test_title_removal(self):
         """Test that titles are removed."""
         result = normalize_name("Dr. John Doe")
-        assert "dr" not in result["name_canonical"]
-        assert result["name_canonical"] == "john doe"
+        assert "dr" not in result.name_canonical
+        assert result.name_canonical == "john doe"
 
         result = normalize_name("Mr. John Doe")
-        assert "mr" not in result["name_canonical"]
+        assert "mr" not in result.name_canonical
 
         result = normalize_name("Prof. Jane Smith")
-        assert "prof" not in result["name_canonical"]
+        assert "prof" not in result.name_canonical
 
     def test_punctuation_removal(self):
         """Test that punctuation is removed."""
         result = normalize_name("John O'Doe")
-        assert "o'doe" in result["name_canonical"] or "odoe" in result["name_canonical"]
+        assert "o'doe" in result.name_canonical or "odoe" in result.name_canonical
 
         result = normalize_name("John-Doe")
-        assert "john-doe" in result["name_canonical"] or "john doe" in result["name_canonical"]
+        assert "john-doe" in result.name_canonical or "john doe" in result.name_canonical
 
     def test_whitespace_canonicalization(self):
         """Test that multiple spaces are normalized."""
         result = normalize_name("John    Doe")
-        assert result["name_canonical"] == "john doe"
-        assert "    " not in result["name_canonical"]
+        assert result.name_canonical == "john doe"
+        assert "    " not in result.name_canonical
 
     def test_case_normalization(self):
         """Test that case is normalized to lowercase."""
         result = normalize_name("JOHN DOE")
-        assert result["name_canonical"] == "john doe"
+        assert result.name_canonical == "john doe"
 
         result = normalize_name("John Doe")
-        assert result["name_canonical"] == "john doe"
+        assert result.name_canonical == "john doe"
 
     def test_unicode_normalization(self):
         """Test Unicode normalization."""
         # Test with accented characters
         result = normalize_name("José García")
-        assert isinstance(result["name_canonical"], str)
+        assert isinstance(result.name_canonical, str)
 
     def test_empty_string(self):
         """Test handling of empty string."""
         result = normalize_name("")
-        assert result["name_canonical"] == ""
-        assert result["name_tokens"] == []
-        assert result["name_trigram"] == ""
+        assert result.name_canonical == ""
+        assert result.name_tokens == []
+        assert result.name_trigram == ""
 
     def test_whitespace_only(self):
         """Test handling of whitespace-only string."""
         result = normalize_name("   ")
-        assert result["name_canonical"] == ""
-        assert result["name_tokens"] == []
+        assert result.name_canonical == ""
+        assert result.name_tokens == []
 
 
 class TestPrepareEmbeddingText:

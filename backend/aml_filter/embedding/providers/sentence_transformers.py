@@ -1,8 +1,9 @@
 """SentenceTransformers embedding provider."""
 
 import asyncio
-from typing import Any
 
+import numpy as np
+import numpy.typing as npt
 from sentence_transformers import SentenceTransformer
 
 
@@ -13,7 +14,6 @@ class SentenceTransformersProvider:
         self,
         model_name: str = "sentence-transformers/all-MiniLM-L6-v2",
         device: str | None = None,
-        **kwargs: Any,
     ) -> None:
         """
         Initialize SentenceTransformers provider.
@@ -21,19 +21,17 @@ class SentenceTransformersProvider:
         Args:
             model_name: HuggingFace model name or path
             device: Device to run on ('cpu', 'cuda', etc.). Auto-detected if None.
-            **kwargs: Additional arguments passed to SentenceTransformer
         """
         self.model_name = model_name
         self._model: SentenceTransformer | None = None
         self._device = device
-        self._kwargs = kwargs
         self._dimension: int | None = None
 
     @property
     def model(self) -> SentenceTransformer:
         """Lazy load the model."""
         if self._model is None:
-            self._model = SentenceTransformer(self.model_name, device=self._device, **self._kwargs)
+            self._model = SentenceTransformer(self.model_name, device=self._device)
             # Get dimension from model
             self._dimension = self._model.get_sentence_embedding_dimension()
         return self._model
@@ -81,8 +79,9 @@ class SentenceTransformersProvider:
         for i in range(0, len(texts), batch_size):
             batch = texts[i : i + batch_size]
 
-            def encode_batch(b: list[str] = batch) -> Any:
-                return self.model.encode(b, batch_size=len(b), show_progress_bar=False)
+            def encode_batch(b: list[str] = batch) -> npt.NDArray[np.float32]:
+                result = self.model.encode(b, batch_size=len(b), show_progress_bar=False)
+                return np.asarray(result, dtype=np.float32)
 
             embeddings = await loop.run_in_executor(None, encode_batch)
             all_embeddings.extend(emb.tolist() for emb in embeddings)

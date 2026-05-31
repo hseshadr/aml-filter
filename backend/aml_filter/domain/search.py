@@ -78,3 +78,15 @@ class SearchFilters(BaseModel):
     source_lists: list[str] | None = None
     risk_categories: list[Literal["SANCTION", "PEP", "CUSTOM", "WHITELIST"]] | None = None
     entity_types: list[Literal["PERSON", "ORGANIZATION"]] | None = None
+
+
+class CandidateScores(BaseModel):
+    """Per-candidate hybrid-search scores returned alongside an entity id."""
+
+    vector_score: float | None = None
+    lexical_score: float | None = None
+    source: Literal["vector", "lexical", "both"]
+
+
+# A hybrid-search candidate: (entity_id, max_score, per-backend scores).
+SearchCandidate = tuple[str, float, CandidateScores]

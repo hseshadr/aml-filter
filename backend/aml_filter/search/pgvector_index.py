@@ -1,10 +1,9 @@
 """PgVector index implementation for shared-libs-python."""
 
-from typing import Any
-
 from shared_libs_python.core.types import IndexConfig, IndexStats, VectorEmbedding, VectorIndex
-from sqlalchemy import select, text
+from sqlalchemy import Select, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import InstrumentedAttribute
 
 from aml_filter.db.models import Entity, EntityEmbedding
 
@@ -42,26 +41,29 @@ class PgVectorIndex(VectorIndex):  # type: ignore[misc]
         existing = {row.entity_id: row for row in result.scalars().all()}
 
         for emb in embeddings:
-            if emb.entity_id in existing:
-                # Update existing embedding
-                existing[emb.entity_id].embedding = emb.embedding
-            else:
-                # Insert new embedding
-                db_embedding = EntityEmbedding(
-                    entity_id=emb.entity_id,
-                    embedding=emb.embedding,
-                    embedding_model="sentence-transformers",
-                    model_version="default",
-                )
-                self.session.add(db_embedding)
+            self._upsert_embedding(emb, existing)
 
         await self.session.commit()
+
+    def _upsert_embedding(self, emb: VectorEmbedding, existing: dict[str, EntityEmbedding]) -> None:
+        """Update an existing row's vector, or add a new EntityEmbedding."""
+        if emb.entity_id in existing:
+            existing[emb.entity_id].embedding = emb.embedding
+            return
+        self.session.add(
+            EntityEmbedding(
+                entity_id=emb.entity_id,
+                embedding=emb.embedding,
+                embedding_model="sentence-transformers",
+                model_version="default",
+            )
+        )
 
     async def search(
         self,
         query_vector: list[float],
         k: int,
-        filters: dict[str, Any] | None = None,
+        filters: dict[str, str | list[str] | None] | None = None,
         ef_search: int | None = None,
     ) -> list[tuple[str, float]]:
         """
@@ -76,7 +78,8 @@ class PgVectorIndex(VectorIndex):  # type: ignore[misc]
         Returns:
             List of (entity_id, distance) tuples, sorted by distance (ascending)
         """
-        # Build query with cosine distance
+        # pgvector has no per-query ef_search yet; accepted for protocol conformance.
+        del ef_search
         stmt = (
             select(
                 EntityEmbedding.entity_id,
@@ -87,47 +90,8 @@ class PgVectorIndex(VectorIndex):  # type: ignore[misc]
             .limit(k)
         )
 
-        # Apply filters if provided
         if filters:
-            stmt = stmt.join(Entity, EntityEmbedding.entity_id == Entity.entity_id)
-
-            if "tenant_id" in filters:
-                tenant_id = filters["tenant_id"]
-                if tenant_id is None:
-                    # Include only global entities (tenant_id IS NULL)
-                    stmt = stmt.where(Entity.tenant_id.is_(None))
-                else:
-                    # Include both tenant-specific and global entities
-                    stmt = stmt.where(
-                        (Entity.tenant_id == tenant_id) | (Entity.tenant_id.is_(None))
-                    )
-
-            if "source_list" in filters:
-                source_lists = filters["source_list"]
-                if isinstance(source_lists, list):
-                    stmt = stmt.where(Entity.source_list.in_(source_lists))
-                else:
-                    stmt = stmt.where(Entity.source_list == source_lists)
-
-            if "risk_category" in filters:
-                risk_categories = filters["risk_category"]
-                if isinstance(risk_categories, list):
-                    stmt = stmt.where(Entity.risk_category.in_(risk_categories))
-                else:
-                    stmt = stmt.where(Entity.risk_category == risk_categories)
-
-            if "entity_type" in filters:
-                entity_types = filters["entity_type"]
-                if isinstance(entity_types, list):
-                    stmt = stmt.where(Entity.entity_type.in_(entity_types))
-                else:
-                    stmt = stmt.where(Entity.entity_type == entity_types)
-
-        # Set ef_search if supported (pgvector 0.2.4+)
-        if ef_search is not None:
-            # Note: pgvector doesn't support per-query ef_search yet
-            # This would require index-level configuration
-            pass
+            stmt = self._apply_filters(stmt, filters)
 
         result = await self.session.execute(stmt)
         rows = result.all()
@@ -135,6 +99,41 @@ class PgVectorIndex(VectorIndex):  # type: ignore[misc]
         # Convert similarity to distance (1 - similarity = distance)
         # Return as (entity_id, distance) where distance is 1 - similarity
         return [(row.entity_id, 1.0 - row.similarity) for row in rows]
+
+    def _apply_filters(
+        self, stmt: Select[tuple[str, float]], filters: dict[str, str | list[str] | None]
+    ) -> Select[tuple[str, float]]:
+        """Join Entity and narrow `stmt` by the supported filter keys."""
+        stmt = stmt.join(Entity, EntityEmbedding.entity_id == Entity.entity_id)
+        if "tenant_id" in filters:
+            stmt = self._apply_tenant_filter(stmt, filters["tenant_id"])
+        stmt = self._apply_in_filter(stmt, Entity.source_list, filters, "source_list")
+        stmt = self._apply_in_filter(stmt, Entity.risk_category, filters, "risk_category")
+        return self._apply_in_filter(stmt, Entity.entity_type, filters, "entity_type")
+
+    @staticmethod
+    def _apply_tenant_filter(
+        stmt: Select[tuple[str, float]], tenant_id: str | list[str] | None
+    ) -> Select[tuple[str, float]]:
+        """Restrict to global entities (None) or tenant-specific plus global."""
+        if tenant_id is None:
+            return stmt.where(Entity.tenant_id.is_(None))
+        return stmt.where((Entity.tenant_id == tenant_id) | (Entity.tenant_id.is_(None)))
+
+    @staticmethod
+    def _apply_in_filter(
+        stmt: Select[tuple[str, float]],
+        column: InstrumentedAttribute[str | None],
+        filters: dict[str, str | list[str] | None],
+        key: str,
+    ) -> Select[tuple[str, float]]:
+        """Apply an equality (scalar) or IN (list) filter for `key`, if present."""
+        if key not in filters:
+            return stmt
+        value = filters[key]
+        if isinstance(value, list):
+            return stmt.where(column.in_(value))
+        return stmt.where(column == value)
 
     async def delete(self, entity_ids: list[str]) -> None:
         """Delete embeddings by entity_id."""
@@ -166,20 +165,22 @@ class PgVectorIndex(VectorIndex):  # type: ignore[misc]
         result = await self.session.execute(size_stmt)
         size_str = result.scalar() or "0 MB"
 
-        # Parse size to MB
-        size_mb = 0.0
-        if "MB" in size_str:
-            size_mb = float(size_str.replace(" MB", ""))
-        elif "GB" in size_str:
-            size_mb = float(size_str.replace(" GB", "")) * 1024
-        elif "KB" in size_str:
-            size_mb = float(size_str.replace(" KB", "")) / 1024
-
         return IndexStats(
             index_name=self.index_name,
             vector_count=vector_count,
-            index_size_mb=size_mb,
+            index_size_mb=self._size_to_mb(size_str),
         )
+
+    @staticmethod
+    def _size_to_mb(size_str: str) -> float:
+        """Convert a `pg_size_pretty` string (KB/MB/GB) into megabytes."""
+        if "MB" in size_str:
+            return float(size_str.replace(" MB", ""))
+        if "GB" in size_str:
+            return float(size_str.replace(" GB", "")) * 1024
+        if "KB" in size_str:
+            return float(size_str.replace(" KB", "")) / 1024
+        return 0.0
 
     async def rebuild(self, config: IndexConfig | None = None) -> None:
         """

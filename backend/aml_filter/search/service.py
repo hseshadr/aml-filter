@@ -4,20 +4,22 @@ import hashlib
 import json
 import time
 import uuid
-from typing import Any, Literal
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from aml_filter.db.mapping import db_to_domain_entity
 from aml_filter.db.models import Entity as DBEntity
 from aml_filter.db.models import SearchRequest
-from aml_filter.domain.entity import Alias, Entity, EntityIdentifier
+from aml_filter.domain.entity import Entity
 from aml_filter.domain.normalization import normalize_name, prepare_embedding_text
 from aml_filter.domain.scoring import ScoringPolicy
 from aml_filter.domain.search import (
+    CandidateScores,
     Match,
     MatchExplanation,
     MatchReason,
+    SearchCandidate,
     SearchFilters,
     SearchQuery,
     SearchResponse,
@@ -25,23 +27,7 @@ from aml_filter.domain.search import (
 from aml_filter.embedding.service import EmbeddingService
 from aml_filter.scoring.policy import DefaultScoringPolicy, create_preset_policy
 from aml_filter.search.hybrid_search import HybridSearchService
-
-EntityType = Literal["PERSON", "ORGANIZATION"]
-RiskCategory = Literal["SANCTION", "PEP", "CUSTOM", "WHITELIST"]
-
-
-def _safe_entity_type(val: str | None) -> EntityType:
-    """Convert string to EntityType Literal, defaulting to PERSON."""
-    if val and val.upper() in ("PERSON", "ORGANIZATION"):
-        return val.upper()  # type: ignore[return-value]
-    return "PERSON"
-
-
-def _safe_risk_category(val: str | None) -> RiskCategory:
-    """Convert string to RiskCategory Literal, defaulting to SANCTION."""
-    if val and val.upper() in ("SANCTION", "PEP", "CUSTOM", "WHITELIST"):
-        return val.upper()  # type: ignore[return-value]
-    return "SANCTION"
+from aml_filter.types import JsonObject
 
 
 class SearchService:
@@ -72,7 +58,7 @@ class SearchService:
         scoring_policy: ScoringPolicy | None,
     ) -> str:
         """Compute a stable SHA-256 hash of request inputs for audit immutability."""
-        request_data: dict[str, Any] = {
+        request_data: JsonObject = {
             "tenant_id": tenant_id,
             "query": query.model_dump(mode="json"),
         }
@@ -96,7 +82,7 @@ class SearchService:
         """Run the full entity-screening pipeline and return scored matches."""
         start_time = time.time()
         request_id = str(uuid.uuid4())
-        query_name_canonical = normalize_name(query.name)["name_canonical"]
+        query_name_canonical = normalize_name(query.name).name_canonical
 
         candidates = await self._fetch_candidates(query, query_name_canonical, tenant_id)
         policy = scoring_policy or create_preset_policy(
@@ -126,7 +112,7 @@ class SearchService:
 
     async def _fetch_candidates(
         self, query: SearchQuery, query_name_canonical: str, tenant_id: str | None
-    ) -> list[tuple[str, float, dict[str, Any]]]:
+    ) -> list[SearchCandidate]:
         """Embed the query and hybrid-search for candidate entities (2x requested k)."""
         query_vector = await self.embedding_service.embed(
             prepare_embedding_text(query.name, query.country)
@@ -146,7 +132,7 @@ class SearchService:
 
     async def _score_candidates(
         self,
-        candidates: list[tuple[str, float, dict[str, Any]]],
+        candidates: list[SearchCandidate],
         query: SearchQuery,
         query_name_canonical: str,
         policy: ScoringPolicy,
@@ -155,32 +141,53 @@ class SearchService:
         entity_ids = [eid for eid, _, _ in candidates]
         if not entity_ids:
             return []
+        entity_map = await self._load_entity_map(entity_ids)
+        scorer = DefaultScoringPolicy(policy)
+        scored = [
+            row
+            for entity_id, _max_score, scores in candidates
+            if (
+                row := self._score_one(
+                    entity_map, entity_id, scores, scorer, query, query_name_canonical
+                )
+            )
+            is not None
+        ]
+        scored.sort(key=lambda x: x[0], reverse=True)
+        return scored
+
+    async def _load_entity_map(self, entity_ids: list[str]) -> dict[str, DBEntity]:
+        """Fetch DB entities for the given ids, keyed by entity_id."""
         result = await self.session.execute(
             select(DBEntity).where(DBEntity.entity_id.in_(entity_ids))
         )
-        entity_map = {e.entity_id: e for e in result.scalars().all()}
+        return {e.entity_id: e for e in result.scalars().all()}
 
-        scorer = DefaultScoringPolicy(policy)
-        scored: list[tuple[float, Entity, MatchExplanation]] = []
-        for entity_id, _max_score, metadata in candidates:
-            db_entity = entity_map.get(entity_id)
-            if db_entity is None:
-                continue
-            domain_entity = self._db_to_domain_entity(db_entity)
-            score, explanation = scorer.compute_score(
-                entity=domain_entity,
-                query_name=query.name,
-                query_name_canonical=query_name_canonical,
-                query_dob=query.dob,
-                query_country=query.country,
-                query_entity_type=query.entity_type,
-                vector_similarity=metadata.get("vector_score"),
-                trigram_similarity=metadata.get("lexical_score"),
-            )
-            if score >= query.threshold:
-                scored.append((score, domain_entity, explanation))
-        scored.sort(key=lambda x: x[0], reverse=True)
-        return scored
+    def _score_one(
+        self,
+        entity_map: dict[str, DBEntity],
+        entity_id: str,
+        scores: CandidateScores,
+        scorer: DefaultScoringPolicy,
+        query: SearchQuery,
+        query_name_canonical: str,
+    ) -> tuple[float, Entity, MatchExplanation] | None:
+        """Score one candidate; return (score, entity, explanation) if above threshold else None."""
+        db_entity = entity_map.get(entity_id)
+        if db_entity is None:
+            return None
+        domain_entity = self._db_to_domain_entity(db_entity)
+        score, explanation = scorer.compute_score(
+            entity=domain_entity,
+            query_name=query.name,
+            query_name_canonical=query_name_canonical,
+            query_dob=query.dob,
+            query_country=query.country,
+            query_entity_type=query.entity_type,
+            vector_similarity=scores.vector_score,
+            trigram_similarity=scores.lexical_score,
+        )
+        return (score, domain_entity, explanation) if score >= query.threshold else None
 
     @staticmethod
     def _build_response_matches(
@@ -248,43 +255,5 @@ class SearchService:
             await self.session.rollback()
 
     def _db_to_domain_entity(self, db_entity: DBEntity) -> Entity:
-        """Convert database entity to domain entity."""
-
-        # Parse aliases from JSONB
-        aliases = []
-        if db_entity.aliases:
-            for alias_dict in db_entity.aliases:
-                aliases.append(
-                    Alias(
-                        name=alias_dict.get("name", ""),
-                        name_canonical=alias_dict.get("name_canonical", ""),
-                        source=alias_dict.get("source", ""),
-                    )
-                )
-
-        # Parse identifiers from dict to EntityIdentifier
-        identifiers_dict = db_entity.identifiers or {}
-        entity_identifiers = (
-            EntityIdentifier(**identifiers_dict) if identifiers_dict else EntityIdentifier()
-        )
-
-        return Entity(
-            entity_id=db_entity.entity_id,
-            tenant_id=db_entity.tenant_id,
-            entity_type=_safe_entity_type(db_entity.entity_type),
-            primary_name=db_entity.primary_name,
-            name_canonical=db_entity.name_canonical,
-            name_tokens=db_entity.name_tokens or [],
-            name_trigram=db_entity.name_trigram,
-            aliases=aliases,
-            dob=db_entity.dob or [],
-            countries=db_entity.countries or [],
-            nationalities=db_entity.nationalities or [],
-            addresses=db_entity.addresses or [],
-            identifiers=entity_identifiers,
-            risk_category=_safe_risk_category(db_entity.risk_category),
-            source_list=db_entity.source_list,
-            list_version=db_entity.list_version,
-            custom_list_id=db_entity.custom_list_id,
-            raw_source=db_entity.raw_source or {},
-        )
+        """Convert a database entity to a validated domain entity."""
+        return db_to_domain_entity(db_entity)

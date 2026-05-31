@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from aml_filter.db.models import ScoringPolicy
 from aml_filter.domain.scoring import ScoringPolicy as DomainScoringPolicy
 from aml_filter.domain.scoring import ScoringWeights
+from aml_filter.scoring.config import DEFAULT_THRESHOLD
 from aml_filter.scoring.policy import create_preset_policy
 
 # Valid preset types
@@ -43,7 +44,7 @@ async def get_active_policy(session: AsyncSession, tenant_id: str) -> DomainScor
             policy_id=policy.policy_id,
             tenant_id=policy.tenant_id,
             name=policy.name,
-            weights=ScoringWeights(**policy.weights),
+            weights=ScoringWeights.model_validate(policy.weights),
             threshold=float(policy.threshold),
             version=policy.version,
             preset=_normalize_preset(policy.preset),
@@ -107,7 +108,7 @@ async def create_policy(
         policy_id=policy.policy_id,
         tenant_id=policy.tenant_id,
         name=policy.name,
-        weights=ScoringWeights(**policy.weights),
+        weights=ScoringWeights.model_validate(policy.weights),
         threshold=float(policy.threshold),
         version=policy.version,
         preset=_normalize_preset(policy.preset),
@@ -128,7 +129,7 @@ async def list_policy_versions(session: AsyncSession, tenant_id: str) -> list[Do
             policy_id=p.policy_id,
             tenant_id=p.tenant_id,
             name=p.name,
-            weights=ScoringWeights(**p.weights),
+            weights=ScoringWeights.model_validate(p.weights),
             threshold=float(p.threshold),
             version=p.version,
             preset=_normalize_preset(p.preset),
@@ -171,7 +172,7 @@ async def rollback_to_version(
         policy_id=policy.policy_id,
         tenant_id=policy.tenant_id,
         name=policy.name,
-        weights=ScoringWeights(**policy.weights),
+        weights=ScoringWeights.model_validate(policy.weights),
         threshold=float(policy.threshold),
         version=policy.version,
         preset=_normalize_preset(policy.preset),
@@ -185,6 +186,6 @@ async def initialize_default_policy(session: AsyncSession, tenant_id: str) -> Do
         tenant_id=tenant_id,
         name="Default Balanced Policy",
         weights=ScoringWeights(),  # Uses default balanced weights
-        threshold=0.65,
+        threshold=DEFAULT_THRESHOLD,
         preset="balanced",
     )

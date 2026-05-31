@@ -7,6 +7,7 @@ import pytest
 
 from aml_filter.db.models import Entity as DBEntity
 from aml_filter.db.models import Tenant
+from aml_filter.domain.search import CandidateScores
 from aml_filter.screening.bidirectional import BidirectionalScreeningService
 
 
@@ -670,7 +671,7 @@ class TestScreenEntityAgainstList:
             mock_hybrid = AsyncMock()
             mock_hybrid_class.return_value = mock_hybrid
             mock_hybrid.search.return_value = [
-                ("b1", 0.9, {"vector_score": 0.9, "lexical_score": 0.85}),
+                ("b1", 0.9, CandidateScores(vector_score=0.9, lexical_score=0.85, source="both")),
             ]
 
             mock_result = MagicMock()
@@ -721,7 +722,7 @@ class TestScreenEntityAgainstList:
             mock_hybrid = AsyncMock()
             mock_hybrid_class.return_value = mock_hybrid
             mock_hybrid.search.return_value = [
-                ("b1", 0.4, {"vector_score": 0.4, "lexical_score": 0.35}),
+                ("b1", 0.4, CandidateScores(vector_score=0.4, lexical_score=0.35, source="both")),
             ]
 
             mock_result = MagicMock()
@@ -827,8 +828,8 @@ class TestScreenEntityAgainstList:
             mock_hybrid = AsyncMock()
             mock_hybrid_class.return_value = mock_hybrid
             mock_hybrid.search.return_value = [
-                ("b1", 0.9, {"vector_score": 0.9, "lexical_score": 0.85}),
-                ("b2", 0.85, {"vector_score": 0.85, "lexical_score": 0.80}),
+                ("b1", 0.9, CandidateScores(vector_score=0.9, lexical_score=0.85, source="both")),
+                ("b2", 0.85, CandidateScores(vector_score=0.85, lexical_score=0.80, source="both")),
             ]
 
             mock_result = MagicMock()
@@ -901,8 +902,8 @@ class TestScreenEntityAgainstList:
             mock_hybrid = AsyncMock()
             mock_hybrid_class.return_value = mock_hybrid
             mock_hybrid.search.return_value = [
-                ("b1", 0.9, {"vector_score": 0.9, "lexical_score": 0.85}),
-                ("b2", 0.85, {"vector_score": 0.85, "lexical_score": 0.80}),
+                ("b1", 0.9, CandidateScores(vector_score=0.9, lexical_score=0.85, source="both")),
+                ("b2", 0.85, CandidateScores(vector_score=0.85, lexical_score=0.80, source="both")),
             ]
 
             mock_result = MagicMock()
@@ -957,7 +958,7 @@ class TestScreenEntityAgainstList:
             mock_hybrid = AsyncMock()
             mock_hybrid_class.return_value = mock_hybrid
             mock_hybrid.search.return_value = [
-                ("b1", 0.9, {"vector_score": 0.9, "lexical_score": 0.85}),
+                ("b1", 0.9, CandidateScores(vector_score=0.9, lexical_score=0.85, source="both")),
             ]
 
             mock_result = MagicMock()
@@ -1015,7 +1016,7 @@ class TestScreenEntityAgainstList:
             mock_hybrid = AsyncMock()
             mock_hybrid_class.return_value = mock_hybrid
             mock_hybrid.search.return_value = [
-                ("p1", 0.9, {"vector_score": 0.9, "lexical_score": 0.85}),
+                ("p1", 0.9, CandidateScores(vector_score=0.9, lexical_score=0.85, source="both")),
             ]
 
             mock_result = MagicMock()
