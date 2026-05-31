@@ -29,6 +29,9 @@ export default function Layout({ children }: LayoutProps) {
 							/>
 							AML-Filter v2
 						</Link>
+						<Link to="/screen" className="nav-link">
+							Screen (in-browser)
+						</Link>
 						{isAuthenticated && (
 							<>
 								<Link to="/search" className="nav-link">

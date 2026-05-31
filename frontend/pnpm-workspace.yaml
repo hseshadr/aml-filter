@@ -1,7 +1,16 @@
-# Single-app frontend (no workspace packages). This file exists only to satisfy
-# pnpm v11's native-build allowlist, which moved out of package.json: pnpm v11
-# does not run a dependency's build/postinstall scripts unless it is explicitly
-# allowlisted here. esbuild is Vite 5's bundler and ships a native binary whose
-# postinstall must run for `vite build` / `vitest` to work.
+packages:
+  - app
+  - packages/*
+
+# pnpm v11 does not run a dependency's build/postinstall scripts unless it is
+# explicitly allowlisted here (replaces v10's onlyBuiltDependencies). esbuild is
+# Vite's bundler and ships a native binary whose postinstall must run for
+# `vite build` / `vitest` to work. The transitive native deps of
+# @huggingface/transformers (the in-browser MiniLM embedder) are needed by the
+# node-side embedding parity tests: onnxruntime-node is the native ONNX backend,
+# protobufjs compiles its proto bindings, sharp builds its native image binary.
 allowBuilds:
   esbuild: true
+  onnxruntime-node: true
+  protobufjs: true
+  sharp: true
