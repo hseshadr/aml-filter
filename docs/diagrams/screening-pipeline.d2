@@ -1,0 +1,63 @@
+# aml-filter — screening pipeline
+# normalize -> candidate-gen (fuzzy + vector) -> score -> threshold -> decision + explanation
+
+direction: down
+
+query: {
+  label: "POST /v1/screen\nname · dob? · country? · entity_type? · threshold · k"
+  shape: parallelogram
+}
+
+normalize: {
+  label: "1. Normalize\nlower-case · strip accents + honorifics · canonicalize"
+  shape: rectangle
+}
+
+embed: {
+  label: "2. Embed\nsentence-transformers (local) -> vector"
+  shape: rectangle
+}
+
+candidates: {
+  label: "3. Candidate generation (hybrid search) — union"
+  shape: rectangle
+
+  vector: {
+    label: "Vector\npgvector cosine\n(transliterations, near-spellings)"
+    shape: rectangle
+  }
+  lexical: {
+    label: "Lexical\npg_trgm trigram\n(typos, partial names)"
+    shape: rectangle
+  }
+}
+
+score: {
+  label: "4. Score (weighted, explainable)\nname_vector · name_trigram · alias · dob · country\nfinal = Σ (weight × value)"
+  shape: rectangle
+}
+
+threshold: {
+  label: "5. Threshold\nscore >= request.threshold ?"
+  shape: diamond
+}
+
+matches: {
+  label: "matches[] with reasons[] + explanation\n(per-signal value · weight · contribution)"
+  shape: parallelogram
+}
+
+empty: {
+  label: "no match\n(empty matches[])"
+  shape: parallelogram
+}
+
+query -> normalize
+normalize -> embed
+embed -> candidates.vector
+normalize -> candidates.lexical
+candidates.vector -> score
+candidates.lexical -> score
+score -> threshold
+threshold -> matches: "yes"
+threshold -> empty: "no"
