@@ -44,12 +44,12 @@ dependencies = [
     "orjson>=3.9.0",
     "defusedxml>=0.7.1",
     # Shared vector management library
-    "shared-libs-python @ git+https://github.com/hseshadr/shared-libs-python.git",
+    "shared-libs-python @ git+https://github.com/hseshadr/shared-libs-python.git@aca47dacabb8d20a3a7b7d1f127b6d7f93a95e09",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=7.4.3",
+    "pytest>=9.0.3",
     "pytest-asyncio>=0.21.1",
     "pytest-cov>=4.1.0",
     "pytest-mock>=3.12.0",
@@ -68,6 +68,15 @@ dev = [
 [project.urls]
 Homepage = "https://github.com/hseshadr/aml-filter"
 Repository = "https://github.com/hseshadr/aml-filter"
+
+[tool.uv]
+# Pin transitive deps up to their security-patched releases so `pip-audit` stays
+# clean. Constraints (not direct deps) — they only raise the floor when present.
+constraint-dependencies = [
+    "requests>=2.33.0",
+    "urllib3>=2.7.0",
+    "virtualenv>=20.36.1",
+]
 
 [tool.hatch.metadata]
 allow-direct-references = true
