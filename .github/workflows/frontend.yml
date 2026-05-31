@@ -60,6 +60,14 @@ jobs:
     defaults:
       run:
         working-directory: frontend
+    # The C1 suite loads the real ~25 MB Xenova/all-MiniLM-L6-v2 weights in a
+    # real browser over the MINIFIED production build (the lane the default
+    # `vite dev` suite can't catch the production model-load crash on). HF_HOME
+    # and TRANSFORMERS_CACHE are pinned to a cached dir so the weights download
+    # once and are restored on later runs instead of being re-fetched.
+    env:
+      HF_HOME: ${{ github.workspace }}/.cache/huggingface
+      TRANSFORMERS_CACHE: ${{ github.workspace }}/.cache/huggingface
     steps:
       - uses: actions/checkout@v5
 
@@ -89,9 +97,24 @@ jobs:
         working-directory: frontend/app
         run: pnpm exec playwright install --with-deps chromium
 
-      - name: E2E (playwright)
+      - name: Cache HuggingFace model weights
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.cache/huggingface
+          # Keyed on the model id so the ~25 MB MiniLM weights survive across runs
+          # and are only re-downloaded if the pinned model changes.
+          key: hf-model-${{ runner.os }}-Xenova-all-MiniLM-L6-v2
+
+      - name: E2E — admin + screening shell suite (default config, vite dev)
         working-directory: frontend/app
         run: pnpm test:e2e
+
+      # The headline regression guard: full sync → verify → in-browser model
+      # load → screen, run against the MINIFIED production build over `vite
+      # preview` + a CORS catalog server (its own playwright.c1.config.ts).
+      - name: E2E — C1 in-browser screening model-load suite (production build)
+        working-directory: frontend/app
+        run: pnpm test:e2e:c1
 
       - name: Upload Playwright report on failure
         if: ${{ failure() }}

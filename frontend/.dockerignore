@@ -1,0 +1,29 @@
+# Build context = the pnpm-workspace root (frontend/). The Dockerfile runs a
+# clean `pnpm install` inside the image, then `COPY . .` brings in sources only.
+# Without this file the host's node_modules is copied over the freshly-installed
+# one; pnpm 11 then refuses to purge that dirty modules dir in Docker's no-TTY
+# shell (ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY) and the build aborts.
+# Keep host-only / generated artifacts out so the image build is hermetic.
+
+# Installed dependencies — rebuilt in-image from the lockfile.
+node_modules
+**/node_modules
+
+# Build output — produced by the in-image `pnpm build`.
+dist
+**/dist
+
+# Playwright / test artifacts (host-only).
+test-results
+**/test-results
+playwright-report
+**/playwright-report
+.cache
+**/.cache
+
+# VCS + local tooling noise.
+.git
+.gitignore
+**/*.log
+.DS_Store
+**/.DS_Store
