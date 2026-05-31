@@ -19,14 +19,27 @@ spelling), scores each candidate, and hands back a number *plus a plain-English
 reason for that number* — "strong name-vector similarity, country match." No black
 box. A human reviewer can always see why.
 
+And it runs **at the edge**. aml-filter is built on the
+[**edge-proc**](https://github.com/hseshadr/edge-proc) substrate: the OFAC list is
+published once as a *signed, versioned bundle* that syncs to wherever you screen,
+and the matching itself runs **locally** — on the server with no vector database,
+or **entirely inside a browser tab** with no backend at all. Sync once, screen
+anywhere, nothing leaves the device.
+
 > _aml-filter is an engineering-portfolio demo, **not** a compliance product. Do not
 > use it to meet any legal or regulatory obligation. See the
 > [Disclaimer](#disclaimer) and [`NOTICE`](NOTICE)._
 
 ## Try it
 
-You need this repo, Docker, and `curl`. The sanctions data is **not** shipped — you
-load the official OFAC list yourself (it's public domain; see [the OFAC list](#the-ofac-list-data)).
+There are two honest ways to run it. The sanctions data is **not** shipped — you
+build it from the official OFAC list yourself (it's public domain; see
+[the OFAC list](#the-ofac-list-data)).
+
+### Path A — the server demo (the default DB-backed API)
+
+You need this repo, Docker, and `curl`. The HTTP `/v1/screen` endpoint is backed by
+PostgreSQL.
 
 ```bash
 # 1. Start the stack (Postgres + Valkey + API + worker)
@@ -43,8 +56,33 @@ curl -s http://localhost:8000/v1/screen \
   -d '{"name": "Jon Q. Fakename", "threshold": 0.65}' | jq
 ```
 
-A made-up name like `Jon Q. Fakename` returns no matches. Swap in a name from the
-SDN list and you get back something like:
+### Path B — backend-free, in-browser screening (the edge-proc tier)
+
+No database, no API server. Publish the OFAC list as a signed edge-proc bundle,
+serve it as static files, then screen a name **in your browser tab** — the bundle
+syncs into the tab, gets ed25519-verified fail-closed, and a small matching model
+loads once. (The same bundle is also screenable from the terminal with
+`amlfilter screen`.)
+
+```bash
+cd backend
+uv sync
+
+# 1. mint a trust root, then build a signed bundle from an entities JSONL
+uv run amlfilter keygen ./trust.key ./trust.pub
+uv run amlfilter bundle ./entities.jsonl ./origin ./trust.key --list-id OFAC_SDN
+
+# 2. screen a name straight against that bundle (no Postgres)
+uv run amlfilter screen "Jon Q. Fakename" ./origin ./trust.pub
+
+# 3. …or run the in-browser /screen page over the served bundle
+#    (serve ./origin as static files at VITE_BUNDLE_BASE_URL, then:)
+cd ../frontend && pnpm install && pnpm --filter aml-filter-app dev
+#    open http://localhost:5173/screen and type a name
+```
+
+Either path, a made-up name like `Jon Q. Fakename` returns no matches. Swap in a
+name from the SDN list and you get back something like:
 
 ```json
 {
@@ -72,27 +110,83 @@ weighted signals that produced it.
 
 ## Under the hood (for developers)
 
+### Built on edge-proc
+
+aml-filter is two layers, not one. The bottom layer is
+[**edge-proc**](https://github.com/hseshadr/edge-proc) — a generic local-compute
+substrate: signed, content-addressed bundle sync, an OPFS/CAS (content-addressed
+store) cache, Ed25519 + SHA-256 fail-closed verification, and local vector
+retrieval (a FAISS **localvec** index over a sentence-transformers space). The top
+layer is **aml-filter** — the sanctions-screening brain: the OFAC domain model, the
+explainable weighted scorer, and the screening pipeline.
+
+That dependency is real in both runtimes. The Python side pulls
+[`edge-proc[localvec,bundles]`](backend/pyproject.toml); the browser side runs
+[`@amlfilter/browser`](frontend/packages/amlfilter-browser/) — which vendors the
+edge-proc browser sync tier verbatim — over the *same* signed bundle and the *same*
+explainable scoring contract. The two tiers are parity-tested against each other.
+
 ### Architecture
 
-A single FastAPI service over one PostgreSQL database. `POST /v1/screen` is the
-front door; the screening engine lives in `backend/aml_filter/{search,scoring,embedding}/`;
-Redis/Valkey backs rate limiting and the batch-screening worker. Full write-up and
-diagrams: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+Three ways to screen, one scoring contract:
+
+1. **Server, DB-backed** — a FastAPI service over PostgreSQL. `POST /v1/screen` is
+   the front door; Redis/Valkey backs rate limiting and the batch worker. This is
+   still the default HTTP path.
+2. **Server, bundle-backed (no Postgres)** — when `BUNDLE_BASE_URL` +
+   `VERIFY_KEY_PATH` are set, screening sources candidates from a synced,
+   ed25519-verified edge-proc bundle (localvec FAISS index + in-memory entities)
+   instead of a database. Exposed through the `amlfilter` CLI (`sync` / `screen`).
+3. **Browser, backend-free** — the `/screen` page syncs the same signed bundle into
+   the tab, verifies it fail-closed, loads the MiniLM matcher once, and screens
+   names in-tab. No application backend in the request path. This mirrors
+   edge-reco's Nimbus demo.
+
+Full write-up and diagrams: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ### How matching & scoring works
 
-Each request flows through five stages: **normalize** the name (strip accents,
-honorifics, casing) → **embed** it with a local sentence-transformers model →
-**generate candidates** via hybrid search (the union of pgvector cosine similarity
-*and* `pg_trgm` lexical similarity) → **score** each candidate with a transparent
-weighted policy → **threshold** to keep only confident matches.
+Each request flows through the same shape: **normalize** the name (strip accents,
+honorifics, casing) → **embed** it with a sentence-transformers model →
+**generate candidates** via vector retrieval → **score** each candidate with a
+transparent weighted policy → **threshold** to keep only confident matches.
+
+The candidate-generation step is where the substrate shows through:
+
+- **DB path** — hybrid search: the union of pgvector cosine similarity *and*
+  `pg_trgm` lexical similarity.
+- **Bundle / browser path** — edge-proc **localvec** (FAISS `IndexFlatIP`) for the
+  vector candidates, with a Python/TS trigram stand-in for the lexical signal, so
+  name scoring stays meaningful without Postgres.
 
 The score is a sum of weighted signals (`name_vector`, `name_trigram`,
 `alias_match`, `dob_match`, `country_match`), clamped to `[0, 1]`, drawn from a
 named preset (`strict` / `balanced` / `lenient`). Every match carries the
-per-signal breakdown and a plain-language summary. The contract — *a reviewer can
-always see why a score is what it is* — is spelled out in
+per-signal breakdown and a plain-language summary, on **all three paths**. The
+contract — *a reviewer can always see why a score is what it is* — is spelled out in
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#scoring--explainability-contract).
+
+### The signed OFAC bundle (`amlfilter` CLI)
+
+The OFAC list is distributed exactly like edge-reco's catalog: a signed,
+content-addressed bundle (a `latest` version pointer → an immutable
+`manifest/<hash>` → immutable `chunk/<hash>` objects), carrying `entities.jsonl`, a
+prebuilt localvec `vector/` index, and `ofac_meta.json` (the version pointer). The
+`amlfilter` CLI is the whole delivery loop:
+
+```
+amlfilter keygen PRIVATE_KEY PUBLIC_KEY              # mint an ed25519 trust root
+amlfilter bundle ENTITIES.jsonl ORIGIN_DIR PRIVATE_KEY [--list-id OFAC_SDN] [--version v1]
+    # embed + index the entities, sign + publish a content-addressed origin
+amlfilter sync   ORIGIN PUBLIC_KEY [--cache ./.ofac_bundle]
+    # pull + ed25519-verify (fail-closed) a bundle into a local cache
+amlfilter screen "NAME" ORIGIN PUBLIC_KEY [--threshold 0.65] [--k 20]
+    # sync + screen a name against the bundle, no Postgres
+```
+
+`bundle` reads a JSONL of domain `Entity` records, embeds each name with the
+sentence-transformers encoder, builds the localvec index, and lets edge-proc chunk
++ sign + lay out the flat origin a device can sync.
 
 ### Quickstart (development)
 
@@ -109,21 +203,34 @@ cp backend/.env.example backend/.env
 cd backend && uv run uvicorn aml_filter.api.main:app --reload
 ```
 
-The admin/demo frontend (React + Vite, pnpm):
+The frontend is a **pnpm workspace** — the admin/demo SPA (`app/`) plus the
+in-browser screening engine (`packages/amlfilter-browser/`):
 
 ```bash
 cd frontend
-pnpm install
-pnpm dev        # http://localhost:5173
+pnpm install                          # resolves the whole workspace (app + package)
+pnpm --filter aml-filter-app dev      # http://localhost:5173 (admin + /screen)
+pnpm -r run test                      # vitest on both members (incl. browser/server parity)
 ```
 
 ### Configuration
 
 All runtime config is env-driven through Pydantic `BaseSettings`
-(`backend/aml_filter/config.py`) — no hardcoded knobs, and it **fails closed** if
-`DATABASE_URL` is missing. Scoring weights/thresholds and rate-limit tiers are
-overridable via env (`SCORING_*`, `RATE_LIMIT_*`). Copy `backend/.env.example` →
-`backend/.env` to start.
+(`backend/aml_filter/config.py`) — no hardcoded knobs. The DB path **fails closed**
+if `DATABASE_URL` is missing. Scoring weights/thresholds and rate-limit tiers are
+overridable via env (`SCORING_*`, `RATE_LIMIT_*`).
+
+The edge-proc paths add their own opt-in knobs:
+
+- `VECTOR_INDEX_DIR` — where the localvec FAISS index is persisted (defaults to a
+  local `.vector_index` dir, so a fresh checkout retrieves with zero config).
+- `BUNDLE_BASE_URL` + `VERIFY_KEY_PATH` — set **both** to activate bundle-backed,
+  Postgres-free screening (an `http(s)://` origin or local path, plus the pinned
+  ed25519 public key). `BUNDLE_CACHE_DIR` sets the local sync cache.
+- Frontend: `VITE_BUNDLE_BASE_URL` points the `/screen` page at the served bundle
+  origin (the public key is pinned in the app build, never fetched from the bundle).
+
+Copy `backend/.env.example` → `backend/.env` to start.
 
 ### The OFAC list (data)
 
@@ -145,13 +252,21 @@ in [`NOTICE`](NOTICE).
 
 ```
 aml-filter/
-├── backend/              # FastAPI service (Python 3.13, uv)
-│   ├── aml_filter/       #   api/ · search/ · scoring/ · embedding/ · ingest/ · db/ · …
-│   ├── scripts/          #   init_db.py · ingest_ofac.py
-│   └── tests/            #   unit/ + integration/
-├── frontend/             # React + Vite admin/demo UI (pnpm)
-├── docs/                 # ARCHITECTURE · QUICKSTART · DEPLOY · diagrams/
-├── docker-compose.yml    # Postgres (pgvector) + Valkey + api + worker
+├── backend/                  # FastAPI service + bundle CLI (Python 3.13, uv)
+│   ├── aml_filter/
+│   │   ├── api/              #   FastAPI app + /v1 routers (DB-backed front door)
+│   │   ├── search/           #   hybrid_search · pgvector_backend · localvec_backend (edge-proc FAISS)
+│   │   ├── bundle/           #   publish · sync · screening · runtime · meta (signed OFAC bundle)
+│   │   ├── scoring/ · embedding/ · ingest/ · db/ · domain/
+│   │   └── cli.py            #   `amlfilter` — keygen · bundle · sync · screen
+│   ├── scripts/              #   init_db.py · ingest_ofac.py
+│   └── tests/                #   unit/ + integration/
+├── frontend/                 # pnpm workspace
+│   ├── app/                  #   React + Vite admin UI + backend-free /screen page
+│   └── packages/
+│       └── amlfilter-browser/#   @amlfilter/browser — in-browser sync + screening engine
+├── docs/                     # ARCHITECTURE · QUICKSTART · DEPLOY · diagrams/
+├── docker-compose.yml        # Postgres (pgvector) + Valkey + api + worker
 ├── LICENSE  NOTICE  CHANGELOG.md  CONTRIBUTING.md
 ```
 

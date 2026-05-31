@@ -79,6 +79,61 @@ The response is a `SearchResponse` with scored `matches[]` — each carrying a
 `reasons[]` signal breakdown and a plain-language `explanation`. See
 [`ARCHITECTURE.md`](ARCHITECTURE.md) for the scoring contract.
 
+## The edge-proc path — backend-free screening
+
+aml-filter is built on the [edge-proc](https://github.com/hseshadr/edge-proc)
+substrate: the OFAC list can be published as a **signed, versioned bundle** and
+screened against **without Postgres** — from the terminal, or entirely in a browser
+tab. This path needs no Docker and no database.
+
+### 1. Mint a trust root and build a signed bundle
+
+You provide an `entities.jsonl` (one JSON domain `Entity` per line — e.g. produced
+from the OFAC SDN load above, or your own export):
+
+```bash
+cd backend
+uv sync
+
+uv run amlfilter keygen ./trust.key ./trust.pub
+uv run amlfilter bundle ./entities.jsonl ./origin ./trust.key --list-id OFAC_SDN
+```
+
+`bundle` embeds each name with the sentence-transformers encoder, builds the
+localvec FAISS index, and writes a **content-addressed origin** under `./origin`
+(`latest` pointer + `manifest/<hash>` + `chunk/<hash>`).
+
+### 2. Screen against the bundle (no Postgres)
+
+```bash
+# sync + verify + screen in one shot:
+uv run amlfilter screen "Jon Q. Fakename" ./origin ./trust.pub
+
+# or just sync + verify into a local cache and report the version:
+uv run amlfilter sync ./origin ./trust.pub --cache ./.ofac_bundle
+```
+
+Verification is **fail-closed** — a tampered or unsigned bundle aborts the load.
+
+### 3. Run the in-browser `/screen` demo
+
+Serve the origin as static files, point the frontend at it, and screen in the tab:
+
+```bash
+# serve the bundle origin at, say, http://localhost:8080 (any static server)
+#   e.g.  (cd backend/origin && python -m http.server 8080)
+# set VITE_BUNDLE_BASE_URL to that origin in frontend/.env
+
+cd frontend
+pnpm install
+pnpm --filter aml-filter-app dev      # open http://localhost:5173/screen
+```
+
+The `/screen` page syncs the signed bundle into the browser (ed25519 + sha256,
+fail-closed), loads the MiniLM matcher once (~25 MB), and screens names **in-tab** —
+no FastAPI on this path. The ed25519 public key is pinned in the app build, not
+fetched from the (untrusted) bundle origin.
+
 ## Troubleshooting
 
 - **`DATABASE_URL` error on startup** — aml-filter fails closed by design. For a
