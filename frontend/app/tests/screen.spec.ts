@@ -44,9 +44,12 @@ test.describe("In-browser OFAC screening page", () => {
 		page,
 	}) => {
 		await page.goto("http://localhost:5173/screen");
-		await expect(page.getByText("portfolio demo")).toBeVisible();
-		await expect(page.getByText("OFAC", { exact: false })).toBeVisible();
-		await expect(page.getByText("NOTICE", { exact: false })).toBeVisible();
+		// Scope to the footer: "OFAC" also appears in the page lede, so a bare
+		// getByText would be a strict-mode multi-match.
+		const footer = page.locator("footer.screen-footer");
+		await expect(footer).toContainText("portfolio demo");
+		await expect(footer).toContainText("OFAC");
+		await expect(footer).toContainText("NOTICE");
 	});
 
 	test("is linked from the global nav", async ({ page }) => {
