@@ -144,6 +144,41 @@ class TestLocalVecPersistence:
         empty = LocalVecBackend.load(tmp_path / "does-not-exist")
         assert await empty.vector_search(query_vector=_vec(1.0), k=5) == []
 
+    @pytest.fixture
+    def scoped_backend(self) -> LocalVecBackend:
+        backend = LocalVecBackend()
+        backend.build(
+            [
+                EntityVector("g1", _vec(1.0), "OFAC_SDN", "SANCTION", "PERSON", None),
+                EntityVector("t_acme", _vec(0.9), "CUSTOM", "CUSTOM", "PERSON", "acme"),
+            ]
+        )
+        return backend
+
+    async def test_save_then_load_preserves_tenant_scope(
+        self, scoped_backend: LocalVecBackend, tmp_path: Path
+    ) -> None:
+        """Reloaded backend keeps tenant-OR-global scope from aml's own side-map."""
+        scoped_backend.save(tmp_path)
+        loaded = LocalVecBackend.load(tmp_path)
+        results = await loaded.vector_search(query_vector=_vec(1.0), k=5, tenant_id="acme")
+        assert {eid for eid, _ in results} == {"g1", "t_acme"}
+
+    async def test_filtering_reads_aml_side_map_not_edgeproc_internals(
+        self, populated_backend: LocalVecBackend, tmp_path: Path
+    ) -> None:
+        """Filtering must depend on aml's own side-map, never edge-proc's private ``_meta``."""
+        populated_backend.save(tmp_path)
+        loaded = LocalVecBackend.load(tmp_path)
+        # Poison the dependency's private metadata with WRONG source lists (keys kept so
+        # edge-proc's own search still runs). If aml read these, the EU filter would break.
+        for entity_id in loaded._index._meta:
+            loaded._index._meta[entity_id] = {"source_list": "WRONG"}
+        results = await loaded.vector_search(
+            query_vector=_vec(1.0), k=3, filters=SearchFilters(source_lists=["EU"])
+        )
+        assert [eid for eid, _ in results] == ["e_eu"]
+
 
 @pytest.mark.unit
 class TestLocalVecInsertContract:

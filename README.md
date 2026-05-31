@@ -32,14 +32,15 @@ anywhere, nothing leaves the device.
 
 ## Try it
 
-There are two honest ways to run it. The sanctions data is **not** shipped — you
-build it from the official OFAC list yourself (it's public domain; see
-[the OFAC list](#the-ofac-list-data)).
+Two honest ways to run it. **Path B is one command** (it ships a fictional demo
+bundle, so it works on a cold clone). Path A is the real DB-backed API, which needs
+the official OFAC list — **not** shipped, you download it yourself (it's public
+domain; see [the OFAC list](#the-ofac-list-data)).
 
 ### Path A — the server demo (the default DB-backed API)
 
 You need this repo, Docker, and `curl`. The HTTP `/v1/screen` endpoint is backed by
-PostgreSQL.
+PostgreSQL and the official OFAC list you load into it.
 
 ```bash
 # 1. Start the stack (Postgres + Valkey + API + worker)
@@ -56,13 +57,32 @@ curl -s http://localhost:8000/v1/screen \
   -d '{"name": "Jon Q. Fakename", "threshold": 0.65}' | jq
 ```
 
-### Path B — backend-free, in-browser screening (the edge-proc tier)
+### Path B — backend-free, in-browser screening (the edge-proc tier) — **one command**
 
-No database, no API server. Publish the OFAC list as a signed edge-proc bundle,
-serve it as static files, then screen a name **in your browser tab** — the bundle
-syncs into the tab, gets ed25519-verified fail-closed, and a small matching model
-loads once. (The same bundle is also screenable from the terminal with
-`amlfilter screen`.)
+No database, no API server, no model download. One command serves a **signed demo
+bundle** and builds the SPA; then you screen a name **in your browser tab** — the
+bundle syncs into the tab, gets ed25519-verified fail-closed against a pinned key,
+and the matcher runs in-tab.
+
+```bash
+make demo-browser          # docker compose: serves the signed bundle + builds the SPA
+# then open http://localhost:5173/screen and type:  Ivan Fakovich
+```
+
+You'll get back a scored, explained match for `Ivan Fakovich` — an
+**obviously-fictional** demo sanctioned entity (a made-up name like
+`Jon Q. Fakename` returns nothing). The bundle here is built from
+[`backend/examples/demo_entities.jsonl`](backend/examples/demo_entities.jsonl) — a
+handful of fake entities, **not** the real OFAC list — so the demo is turnkey from a
+cold clone. (Want to screen the real list? Build a bundle from the official SDN
+data — see [the CLI](#the-signed-ofac-bundle-amlfilter-cli) and
+[the OFAC list](#the-ofac-list-data).)
+
+<details>
+<summary>Under the hood: the same loop by hand (and with the real OFAC list)</summary>
+
+`make demo-browser` is just the committed result of the `amlfilter` CLI delivery
+loop, served behind a Caddy edge. To run the loop yourself over any entities JSONL:
 
 ```bash
 cd backend
@@ -72,17 +92,22 @@ uv sync
 uv run amlfilter keygen ./trust.key ./trust.pub
 uv run amlfilter bundle ./entities.jsonl ./origin ./trust.key --list-id OFAC_SDN
 
-# 2. screen a name straight against that bundle (no Postgres)
-uv run amlfilter screen "Jon Q. Fakename" ./origin ./trust.pub
+# 2. screen a name straight against that bundle (no Postgres, terminal-only)
+uv run amlfilter screen "Ivan Fakovich" ./origin ./trust.pub
 
-# 3. …or run the in-browser /screen page over the served bundle
-#    (serve ./origin as static files at VITE_BUNDLE_BASE_URL, then:)
+# 3. …or serve ./origin as static files at VITE_BUNDLE_BASE_URL and run the SPA
 cd ../frontend && pnpm install && pnpm --filter aml-filter-app dev
 #    open http://localhost:5173/screen and type a name
 ```
 
-Either path, a made-up name like `Jon Q. Fakename` returns no matches. Swap in a
-name from the SDN list and you get back something like:
+To regenerate the committed demo bundle after editing the demo entities:
+`make demo-bundle` (slow once — it downloads the MiniLM embedder; the signed result
+is committed so `make demo-browser` never needs it).
+</details>
+
+Either path, a made-up name like `Jon Q. Fakename` returns no matches. A name on
+the list (the demo's `Ivan Fakovich`, or a real SDN name in a real bundle) returns
+something like:
 
 ```json
 {
@@ -199,7 +224,7 @@ uv run poe gate    # ruff + mypy --strict + xenon (Radon A) + pytest (≥90% cov
 Run the API locally against the Docker Postgres/Valkey:
 
 ```bash
-cp backend/.env.example backend/.env
+cp .env.example .env
 cd backend && uv run uvicorn aml_filter.api.main:app --reload
 ```
 
@@ -230,7 +255,7 @@ The edge-proc paths add their own opt-in knobs:
 - Frontend: `VITE_BUNDLE_BASE_URL` points the `/screen` page at the served bundle
   origin (the public key is pinned in the app build, never fetched from the bundle).
 
-Copy `backend/.env.example` → `backend/.env` to start.
+Copy `.env.example` → `.env` (repo root) to start.
 
 ### The OFAC list (data)
 
@@ -252,6 +277,7 @@ in [`NOTICE`](NOTICE).
 
 ```
 aml-filter/
+├── Makefile                  # `make demo-browser` (turnkey /screen) · demo-server · demo-bundle
 ├── backend/                  # FastAPI service + bundle CLI (Python 3.13, uv)
 │   ├── aml_filter/
 │   │   ├── api/              #   FastAPI app + /v1 routers (DB-backed front door)
@@ -259,10 +285,13 @@ aml-filter/
 │   │   ├── bundle/           #   publish · sync · screening · runtime · meta (signed OFAC bundle)
 │   │   ├── scoring/ · embedding/ · ingest/ · db/ · domain/
 │   │   └── cli.py            #   `amlfilter` — keygen · bundle · sync · screen
+│   ├── deploy/caddy/         #   Caddyfile — the bundle edge/CDN the browser syncs from
+│   ├── examples/             #   demo_entities.jsonl (FICTIONAL) + committed signed catalog/
 │   ├── scripts/              #   init_db.py · ingest_ofac.py
 │   └── tests/                #   unit/ + integration/
 ├── frontend/                 # pnpm workspace
-│   ├── app/                  #   React + Vite admin UI + backend-free /screen page
+│   ├── docker-compose.yml    #   the backend-free /screen demo (origin + Caddy edge + SPA)
+│   ├── app/                  #   React + Vite admin UI + backend-free /screen page (Dockerfile)
 │   └── packages/
 │       └── amlfilter-browser/#   @amlfilter/browser — in-browser sync + screening engine
 ├── docs/                     # ARCHITECTURE · QUICKSTART · DEPLOY · diagrams/

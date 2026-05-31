@@ -4,15 +4,33 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-AML-Filter v2 is an open-source AI-native Anti-Money Laundering (AML) and sanctions screening engine. It uses vector embeddings for semantic matching combined with lexical search for hybrid relevance scoring.
+AML-Filter v2.1 is an open-source AML and sanctions screening engine, **rebuilt to run
+on the [edge-proc](https://github.com/hseshadr/edge-proc) local-compute substrate**. It
+screens a query name against the OFAC SDN list and returns a **scored, explained**
+result. One scoring contract is served over **three paths**:
 
-**Tech Stack**: Python FastAPI backend, React TypeScript frontend, PostgreSQL with pgvector, Redis/Valkey for job queues.
+- **Server, DB-backed** — the FastAPI app over PostgreSQL; `POST /v1/screen` is the
+  front door. Candidates come from **hybrid search** (pgvector + pg_trgm). This is the
+  default HTTP path and the only path with an HTTP surface.
+- **Server, bundle-backed (no Postgres)** — `backend/aml_filter/bundle/` syncs a signed
+  edge-proc bundle and screens against its **localvec** FAISS index + in-memory
+  entities. Driven by the `amlfilter` CLI; gated on `BUNDLE_BASE_URL` + `VERIFY_KEY_PATH`.
+- **Browser, backend-free** — `frontend/packages/amlfilter-browser` (`@amlfilter/browser`)
+  syncs the same signed bundle into the tab and screens in-tab, no application backend.
+
+The HTTP `/v1/screen` endpoint stays **DB-backed**; the bundle + browser path is the new
+edge-proc capability layered on top.
+
+**Tech Stack**: Python 3.13+ FastAPI backend, React + TypeScript (Vite) frontend,
+PostgreSQL with pgvector, Redis/Valkey for job queues, edge-proc (localvec FAISS +
+signed content-addressed bundles), sentence-transformers (all-MiniLM-L6-v2, 384-dim).
 
 ## Common Commands
 
 ### Backend (from `backend/` directory)
 ```bash
 uv sync                                           # Install dependencies
+uv run poe gate                                   # Full gate: ruff + mypy --strict + xenon (Radon A) + pytest (≥90% cov)
 uv run pytest                                     # Run all tests
 uv run pytest tests/unit/                         # Run unit tests only
 uv run pytest tests/integration/ -m integration   # Run integration tests
@@ -22,64 +40,105 @@ uv run alembic upgrade head                       # Run database migrations
 uv run alembic revision --autogenerate -m "msg"   # Create new migration
 ```
 
-### Frontend (from `frontend/` directory)
+### `amlfilter` CLI — the edge-proc bundle path (from `backend/`)
 ```bash
-bun install        # Install dependencies
-bun run dev        # Start dev server (port 5173)
-bun run build      # Production build
-bun run lint       # ESLint check
-bun run format     # Prettier formatting
+uv run amlfilter keygen ./trust.key ./trust.pub                          # Mint an ed25519 trust root
+uv run amlfilter bundle ./entities.jsonl ./origin ./trust.key --list-id OFAC_SDN  # Build a signed, content-addressed bundle
+uv run amlfilter sync ./origin ./trust.pub --cache ./.ofac_bundle        # Sync + ed25519/sha256-verify (fail-closed)
+uv run amlfilter screen "Jon Q. Fakename" ./origin ./trust.pub           # Sync + verify + screen, no Postgres
 ```
 
-**Note**: Always use `bun` instead of `npm` for frontend package management.
+### Frontend (pnpm workspace, from `frontend/` directory)
+```bash
+pnpm install                          # Install workspace dependencies
+pnpm --filter aml-filter-app dev      # Start dev server (port 5173); the /screen page is backend-free
+pnpm -r run build                     # Production build across the workspace
+pnpm -r run lint                      # Biome check across the workspace
+pnpm -r run format                    # Biome formatting
+```
+
+**Note**: the frontend is a **pnpm workspace** (`pnpm` + **Biome**, not bun / ESLint /
+Prettier). Two packages: `frontend/app` (the React app) and
+`frontend/packages/amlfilter-browser` (`@amlfilter/browser`, the in-browser screening
+tier — a port of edge-proc's browser sync tier + the OFAC scoring contract). Always use
+`pnpm` for frontend package management.
 
 ### Infrastructure
 ```bash
-docker-compose up -d              # Start all services (postgres, redis)
-docker-compose up -d postgres     # Start just PostgreSQL
-uv run python scripts/init_db.py  # Create database extensions (run once)
+docker compose up -d              # Start all services (postgres, valkey, api, worker)
+docker compose up -d postgres     # Start just PostgreSQL
+docker compose exec api uv run python scripts/init_db.py  # Create schema / bring DB to head (run once)
 ```
 
 ## Code Quality Requirements
 
 **Backend (Python)**:
 - Ruff for linting and formatting (line length: 100)
-- MyPy in strict mode - all functions must have type annotations
+- MyPy in strict mode — all functions must have type annotations
+- xenon / Radon Grade A complexity; functions ≤15 lines
 - Test coverage minimum: 90%
-- Pre-commit hooks run automatically on commit
+- `uv run poe gate` is the single source of truth (it mirrors CI)
 
 **Frontend**:
-- ESLint + Prettier
-- TypeScript strict mode
+- Biome (lint + format)
+- TypeScript strict mode; no `any`, no default exports
 
 ## Architecture
 
+aml-filter is **two layers**: edge-proc (the generic local-compute substrate —
+localvec + signed bundles) at the bottom, and aml-filter (the OFAC domain model, the
+explainable weighted scorer, the screening pipeline) on top. The pipeline shape is the
+same on every path: normalize → embed → generate candidates by vector retrieval → score
+with a transparent weighted policy → threshold → return matches with per-signal reasons.
+
 ### Backend Structure (`backend/aml_filter/`)
 ```
-api/         # FastAPI routers and endpoints
+api/         # FastAPI routers + endpoints (the DB-backed HTTP tier)
+bundle/      # edge-proc bundle producer/consumer: publish.py (build+sign), sync.py
+             #   (sync+verify, fail-closed), runtime.py (server bundle read-path gate),
+             #   screening.py (BundleScreeningSource), meta.py (OfacBundleMeta)
 db/          # SQLAlchemy models and database session
-domain/      # Pydantic domain models
-embedding/   # Vector embedding service (sentence-transformers)
-ingest/      # Data ingestion (OFAC XML parser)
-scoring/     # Relevance scoring engine with multiple policies
-search/      # Hybrid search (vector + lexical backends)
+domain/      # Pydantic domain models + name normalization
+embedding/   # Local sentence-transformers embedding service (in-process cache)
+ingest/      # Data ingestion (OFAC SDN XML parser)
+scoring/     # DefaultScoringPolicy — weighted, explainable scoring + named presets
+search/      # Retrieval backends: hybrid_search, pgvector_backend (DB path),
+             #   localvec_backend (edge-proc FAISS, bundle/browser path), lexical_backend
 ```
 
-### Search Pipeline
-1. Query normalization and embedding generation
-2. Hybrid search: pgvector similarity + pg_trgm lexical matching
-3. Scoring engine combines signals with configurable weights
-4. Results include match explanations for auditability
+### Retrieval — DB path vs edge-proc path
+- **DB path — hybrid search** (`search/hybrid_search.py`): union of **vector**
+  (`pgvector_backend.py`, cosine over name embeddings) and **lexical**
+  (`lexical_backend.py`, `pg_trgm` trigram similarity).
+- **Bundle / browser path — localvec** (`search/localvec_backend.py`): in-process vector
+  retrieval against edge-proc's `FaissVectorIndex` (`IndexFlatIP`), a drop-in for the
+  pgvector ANN with the same `vector_search(query_vector, k, tenant_id, filters)`
+  contract. Lexical signal derived in Python (no Postgres).
+
+### Signed-bundle distribution (the edge-proc tier)
+The OFAC list is distributed as a signed, content-addressed bundle: `build_bundle`
+chunks (GearCDC) + signs (Ed25519) + lays out a flat origin (`latest` version pointer →
+immutable `manifest/<hash>` → `chunk/<hash>`). The consumer's `sync_index`
+(`Ed25519Verifier` over a pinned public key) is **fail-closed** — any signature or
+SHA-256 mismatch aborts the load. The same wire format + trust root serves the browser
+tier (`@amlfilter/browser`), which syncs into OPFS in a Web Worker.
 
 ### Key Patterns
-- **Async everywhere**: SQLAlchemy async with asyncpg driver
-- **Multi-tenancy**: Row Level Security (RLS) with tenant_id isolation
-- **Background jobs**: Redis Queue (RQ) for batch processing and ingestion
-- **Dependency injection**: FastAPI's Depends() for services
+- **One scoring contract, three paths**: DB, server-bundle, and browser all emit the
+  same `reasons[]` + plain-language `explanation`. The browser TS port is byte-compatible
+  with `DefaultScoringPolicy`.
+- **Async everywhere**: SQLAlchemy async with asyncpg driver.
+- **Multi-tenancy**: Row Level Security (RLS) with tenant_id isolation (DB path).
+- **Background jobs**: Redis Queue (RQ) for batch processing and ingestion.
+- **Dependency injection**: FastAPI's `Depends()` for services.
+- **Fail closed** on config (missing `DATABASE_URL` aborts the DB path) and on trust
+  (bundle mode needs both `BUNDLE_BASE_URL` + `VERIFY_KEY_PATH`; no silent empty index).
 
 ### Entry Points
 - Backend API: `backend/aml_filter/api/main.py`
-- Frontend: `frontend/src/main.tsx`
+- `amlfilter` CLI: `backend/aml_filter/bundle/` (behind the `amlfilter` console script)
+- Frontend app: `frontend/app/src/main.tsx`
+- In-browser screening tier: `frontend/packages/amlfilter-browser`
 - Database models: `backend/aml_filter/db/models.py`
 
 ## Testing
@@ -89,12 +148,15 @@ Test markers (use with `-m`):
 - `integration` - Requires PostgreSQL and Redis
 - `slow` - Long-running tests
 
-Tests use `pytest-asyncio` with `asyncio_mode = "auto"`.
+Tests use `pytest-asyncio` with `asyncio_mode = "auto"`. The browser top-k is
+parity-tested against the Python runtime over the same bundle.
 
 ## Documentation
 
-Detailed specs are in `/docs`:
-- `SPEC.md` - Complete technical specification
-- `API_SPEC.md` - REST API reference
-- `DATABASE_SCHEMA.md` - PostgreSQL schema and RLS policies
-- `QUICKSTART.md` - Setup guide
+Front-door docs live in `/docs` (the root `README.md` is the canonical index):
+- `ARCHITECTURE.md` - the pipeline, the three paths, the scoring contract, data model
+- `QUICKSTART.md` - clone → gate → load a list → screen a name (DB + edge-proc paths)
+- `DEPLOY.md` - docker-compose, env vars, refreshing the OFAC list
+- `API_SPEC.md` - REST reference for the **DB-backed** HTTP tier only
+- `DATABASE_SCHEMA.md` - PostgreSQL schema (DB path only; the bundle/browser paths use no Postgres)
+- `diagrams/` - d2 sources + rendered SVGs

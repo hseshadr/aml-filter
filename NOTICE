@@ -24,6 +24,20 @@ official OFAC source at runtime and ingests it locally
 the SDN list changes frequently, and a stale copy can miss or mis-match.
 
 ================================================================================
+Ported third-party code
+================================================================================
+
+The @amlfilter/browser package's `./engine` tier
+(frontend/packages/amlfilter-browser/src/engine) is a TypeScript port of
+edge-proc's browser bundle-sync engine — the signed, content-addressed
+sync state machine, OPFS store, fail-closed ed25519/sha256 crypto, and the
+canonical manifest/wire format.
+
+    edge-proc
+    Source:  https://github.com/hseshadr/edge-proc
+    License: MIT, Copyright (c) Harish Seshadri
+
+================================================================================
 Disclaimer
 ================================================================================
 

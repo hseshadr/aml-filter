@@ -1,0 +1,18 @@
+# Caddy edge for the signed OFAC bundle — mirrors edge-reco's bundle CDN policy.
+#
+# The browser /screen tab syncs the bundle from here. Content-addressed paths
+# (chunk/<hash>, manifest/<hash>) are immutable, so cache them hard; the `latest`
+# version pointer is the one mutable byte-range, so short-TTL + always revalidate.
+# CORS is permissive because the SPA (a different origin) fetches these.
+:8081 {
+    encode gzip zstd
+
+    @immutable path /chunk/* /chunks/* /manifest/* /manifests/*
+    header @immutable Cache-Control "public, max-age=31536000, immutable"
+
+    header Cache-Control "public, max-age=30, must-revalidate"
+
+    header Access-Control-Allow-Origin "*"
+
+    reverse_proxy origin:8080
+}
