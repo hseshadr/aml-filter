@@ -88,7 +88,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     def _endpoint_for(path: str) -> str:
         """Derive the rate-limit bucket key from the request path."""
         if path.startswith("/v1/"):
-            return path[4:].split("/")[0] or "default"
+            return path[4:].split("/", maxsplit=1)[0] or "default"
         return "default"
 
     @staticmethod

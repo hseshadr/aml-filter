@@ -36,7 +36,7 @@ class TestScreenWhitelistOnBlacklistUpdate:
 
         # Track added objects
         added_objects = []
-        mock_session.add = MagicMock(side_effect=lambda x: added_objects.append(x))
+        mock_session.add = MagicMock(side_effect=added_objects.append)
 
         mock_service = AsyncMock()
         mock_service_class.return_value = mock_service
@@ -118,7 +118,7 @@ class TestScreenWhitelistOnBlacklistUpdate:
         mock_session.execute.return_value = mock_result
 
         added_objects = []
-        mock_session.add = MagicMock(side_effect=lambda x: added_objects.append(x))
+        mock_session.add = MagicMock(side_effect=added_objects.append)
 
         mock_service = AsyncMock()
         mock_service_class.return_value = mock_service
@@ -341,7 +341,7 @@ class TestScreenBlacklistOnWhitelistUpdate:
         mock_session.execute.return_value = mock_result
 
         added_objects = []
-        mock_session.add = MagicMock(side_effect=lambda x: added_objects.append(x))
+        mock_session.add = MagicMock(side_effect=added_objects.append)
 
         mock_service = AsyncMock()
         mock_service_class.return_value = mock_service
@@ -524,7 +524,7 @@ class TestRunBidirectionalScreening:
         mock_session.execute.return_value = mock_result
 
         added_objects = []
-        mock_session.add = MagicMock(side_effect=lambda x: added_objects.append(x))
+        mock_session.add = MagicMock(side_effect=added_objects.append)
 
         mock_service = AsyncMock()
         mock_service_class.return_value = mock_service
@@ -555,7 +555,7 @@ class TestRunBidirectionalScreening:
         mock_session.execute.return_value = mock_result
 
         added_objects = []
-        mock_session.add = MagicMock(side_effect=lambda x: added_objects.append(x))
+        mock_session.add = MagicMock(side_effect=added_objects.append)
 
         mock_service = AsyncMock()
         mock_service_class.return_value = mock_service
@@ -601,7 +601,7 @@ class TestJobTimestamps:
         mock_session.execute.return_value = mock_result
 
         added_objects = []
-        mock_session.add = MagicMock(side_effect=lambda x: added_objects.append(x))
+        mock_session.add = MagicMock(side_effect=added_objects.append)
 
         mock_service = AsyncMock()
         mock_service_class.return_value = mock_service
@@ -634,7 +634,7 @@ class TestJobTimestamps:
         mock_session.execute.return_value = mock_result
 
         added_objects = []
-        mock_session.add = MagicMock(side_effect=lambda x: added_objects.append(x))
+        mock_session.add = MagicMock(side_effect=added_objects.append)
 
         mock_service = AsyncMock()
         mock_service_class.return_value = mock_service
@@ -664,7 +664,7 @@ class TestJobTimestamps:
         mock_session.execute.return_value = mock_result
 
         added_objects = []
-        mock_session.add = MagicMock(side_effect=lambda x: added_objects.append(x))
+        mock_session.add = MagicMock(side_effect=added_objects.append)
 
         mock_service = AsyncMock()
         mock_service_class.return_value = mock_service

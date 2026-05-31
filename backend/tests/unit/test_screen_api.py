@@ -27,7 +27,7 @@ def test_screen_endpoint_returns_500_on_internal_error() -> None:
 
     mock_session = AsyncMock()
     app.dependency_overrides[get_db_session] = lambda: mock_session
-    app.dependency_overrides[get_search_service] = lambda: _FailingSearchService()
+    app.dependency_overrides[get_search_service] = _FailingSearchService
     app.dependency_overrides[get_tenant_from_api_key] = lambda: None
 
     client = TestClient(app)

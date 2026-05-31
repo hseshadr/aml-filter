@@ -124,7 +124,7 @@ async def test_screen_whitelist_on_blacklist_update_failure(mock_service_class, 
     # We need to capture the job object added to session
     added_objects = []
     # AsyncSession.add() is synchronous; ensure our mock behaves synchronously too.
-    mock_session.add = MagicMock(side_effect=lambda x: added_objects.append(x))
+    mock_session.add = MagicMock(side_effect=added_objects.append)
 
     await screen_whitelist_on_blacklist_update("tenant_1")
 
