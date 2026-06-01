@@ -12,12 +12,48 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { Entity } from "./domain";
+import type { Preset, ScoringQuery } from "./scoring";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const BUNDLE = join(HERE, "__fixtures__", "bundle");
 const KEYS = join(BUNDLE, "keys");
 const ORIGIN = join(BUNDLE, "origin");
 const STAGING = join(BUNDLE, "staging");
+const SCORING = join(HERE, "__fixtures__", "scoring");
+
+/** One expected weighted reason in the Python-emitted scoring golden. */
+export interface GoldenReason {
+	readonly signal: string;
+	readonly value: number | string;
+	readonly weight: number;
+	readonly contribution: number;
+	readonly description: string;
+}
+
+/** One (entity, query) scoring case: TS-shaped input + canonical Python output. */
+export interface GoldenCase {
+	readonly name: string;
+	readonly preset: Preset;
+	readonly entity: Entity;
+	readonly query: ScoringQuery;
+	readonly expected: {
+		readonly score: number;
+		readonly summary: string;
+		readonly reasons: ReadonlyArray<GoldenReason>;
+	};
+}
+
+/**
+ * The cross-language scoring parity golden (produced by the Python source of
+ * truth via backend/scripts/gen_scoring_golden.py). The TS scorer must reproduce
+ * every case byte-for-byte; see scoring.parity.test.ts.
+ */
+export function scoringGolden(): ReadonlyArray<GoldenCase> {
+	return JSON.parse(
+		readFileSync(join(SCORING, "golden.json"), "utf-8"),
+	) as GoldenCase[];
+}
 
 export function pubkeyRaw(): Uint8Array {
 	return new Uint8Array(readFileSync(join(KEYS, "public.key")));

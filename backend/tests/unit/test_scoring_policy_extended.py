@@ -876,6 +876,37 @@ class TestCountryMatcher:
         assert score == 0.0
         assert "No country match" in desc
 
+    def test_compute_country_match_multiple_description_is_deterministic(
+        self, policy: ScoringPolicy
+    ):
+        """Multi-country description lists the sorted country set deterministically.
+
+        The country set must be rendered as a sorted, bracketed list (not a Python
+        `set` repr, whose order is process-randomized) so the browser TS scorer can
+        reproduce it byte-for-byte. See the cross-language scoring parity test.
+        """
+        entity = Entity(
+            entity_id="test",
+            entity_type="PERSON",
+            primary_name="Test",
+            name_canonical="test",
+            name_tokens=["test"],
+            name_trigram="test",
+            aliases=[],
+            dob=[],
+            countries=["US", "CA"],
+            risk_category="SANCTION",
+            source_list="OFAC",
+            list_version="v1",
+        )
+
+        scorer = DefaultScoringPolicy(policy)
+        _, match_desc = scorer._compute_country_match(entity, "CA")
+        _, nomatch_desc = scorer._compute_country_match(entity, "JP")
+
+        assert match_desc == "Country match: CA in [CA, US]"
+        assert nomatch_desc == "No country match: JP not in [CA, US]"
+
 
 class TestEntityTypeMatcher:
     """Test entity type matching helper method."""

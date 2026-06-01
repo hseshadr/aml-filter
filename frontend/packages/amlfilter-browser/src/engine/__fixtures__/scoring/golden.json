@@ -1,0 +1,603 @@
+[
+  {
+    "name": "single-country exact match",
+    "preset": "balanced",
+    "entity": {
+      "entity_id": "e_vladimir_ivanov",
+      "entity_type": "PERSON",
+      "primary_name": "Vladimir Ivanov",
+      "name_canonical": "vladimir ivanov",
+      "aliases": [],
+      "dob": [],
+      "countries": [
+        "RU"
+      ],
+      "risk_category": "SANCTION",
+      "source_list": "OFAC_SDN",
+      "list_version": "2026-05-30"
+    },
+    "query": {
+      "nameCanonical": "vladimir ivanov",
+      "dob": null,
+      "country": "RU",
+      "entityType": null,
+      "vectorSimilarity": 1.0,
+      "trigramSimilarity": 1.0
+    },
+    "expected": {
+      "score": 0.8,
+      "summary": "Match due to: strong vector similarity, strong name match, country match",
+      "reasons": [
+        {
+          "signal": "name_vector",
+          "value": 1.0,
+          "weight": 0.55,
+          "contribution": 0.55,
+          "description": "Vector similarity: 1.000"
+        },
+        {
+          "signal": "name_trigram",
+          "value": 1.0,
+          "weight": 0.2,
+          "contribution": 0.2,
+          "description": "Trigram similarity: 1.000"
+        },
+        {
+          "signal": "country_match",
+          "value": 1.0,
+          "weight": 0.05,
+          "contribution": 0.05,
+          "description": "Exact country match: RU"
+        },
+        {
+          "signal": "entity_type_match",
+          "value": 0.0,
+          "weight": 0.0,
+          "contribution": 0.0,
+          "description": "No entity type specified in query"
+        }
+      ]
+    }
+  },
+  {
+    "name": "multi-country match lists the sorted set",
+    "preset": "balanced",
+    "entity": {
+      "entity_id": "e_vladimir_ivanov",
+      "entity_type": "PERSON",
+      "primary_name": "Vladimir Ivanov",
+      "name_canonical": "vladimir ivanov",
+      "aliases": [],
+      "dob": [],
+      "countries": [
+        "US",
+        "CA"
+      ],
+      "risk_category": "SANCTION",
+      "source_list": "OFAC_SDN",
+      "list_version": "2026-05-30"
+    },
+    "query": {
+      "nameCanonical": "vladimir ivanov",
+      "dob": null,
+      "country": "CA",
+      "entityType": null,
+      "vectorSimilarity": 1.0,
+      "trigramSimilarity": 1.0
+    },
+    "expected": {
+      "score": 0.775,
+      "summary": "Match due to: strong vector similarity, strong name match, country match",
+      "reasons": [
+        {
+          "signal": "name_vector",
+          "value": 1.0,
+          "weight": 0.55,
+          "contribution": 0.55,
+          "description": "Vector similarity: 1.000"
+        },
+        {
+          "signal": "name_trigram",
+          "value": 1.0,
+          "weight": 0.2,
+          "contribution": 0.2,
+          "description": "Trigram similarity: 1.000"
+        },
+        {
+          "signal": "country_match",
+          "value": 0.5,
+          "weight": 0.05,
+          "contribution": 0.025,
+          "description": "Country match: CA in [CA, US]"
+        },
+        {
+          "signal": "entity_type_match",
+          "value": 0.0,
+          "weight": 0.0,
+          "contribution": 0.0,
+          "description": "No entity type specified in query"
+        }
+      ]
+    }
+  },
+  {
+    "name": "multi-country no-match lists the sorted set",
+    "preset": "balanced",
+    "entity": {
+      "entity_id": "e_vladimir_ivanov",
+      "entity_type": "PERSON",
+      "primary_name": "Vladimir Ivanov",
+      "name_canonical": "vladimir ivanov",
+      "aliases": [],
+      "dob": [],
+      "countries": [
+        "US",
+        "CA"
+      ],
+      "risk_category": "SANCTION",
+      "source_list": "OFAC_SDN",
+      "list_version": "2026-05-30"
+    },
+    "query": {
+      "nameCanonical": "vladimir ivanov",
+      "dob": null,
+      "country": "JP",
+      "entityType": null,
+      "vectorSimilarity": 1.0,
+      "trigramSimilarity": 1.0
+    },
+    "expected": {
+      "score": 0.75,
+      "summary": "Match due to: strong vector similarity, strong name match",
+      "reasons": [
+        {
+          "signal": "name_vector",
+          "value": 1.0,
+          "weight": 0.55,
+          "contribution": 0.55,
+          "description": "Vector similarity: 1.000"
+        },
+        {
+          "signal": "name_trigram",
+          "value": 1.0,
+          "weight": 0.2,
+          "contribution": 0.2,
+          "description": "Trigram similarity: 1.000"
+        },
+        {
+          "signal": "country_match",
+          "value": 0.0,
+          "weight": 0.05,
+          "contribution": 0.0,
+          "description": "No country match: JP not in [CA, US]"
+        },
+        {
+          "signal": "entity_type_match",
+          "value": 0.0,
+          "weight": 0.0,
+          "contribution": 0.0,
+          "description": "No entity type specified in query"
+        }
+      ]
+    }
+  },
+  {
+    "name": "alias match",
+    "preset": "balanced",
+    "entity": {
+      "entity_id": "e_vladimir_ivanov",
+      "entity_type": "PERSON",
+      "primary_name": "Vladimir Ivanov",
+      "name_canonical": "vladimir ivanov",
+      "aliases": [
+        {
+          "name": "V. Ivanov",
+          "name_canonical": "v ivanov",
+          "source": "OFAC"
+        }
+      ],
+      "dob": [],
+      "countries": [],
+      "risk_category": "SANCTION",
+      "source_list": "OFAC_SDN",
+      "list_version": "2026-05-30"
+    },
+    "query": {
+      "nameCanonical": "v ivanov",
+      "dob": null,
+      "country": null,
+      "entityType": null,
+      "vectorSimilarity": 0.7,
+      "trigramSimilarity": 0.5
+    },
+    "expected": {
+      "score": 0.585,
+      "summary": "Match due to: alias match",
+      "reasons": [
+        {
+          "signal": "name_vector",
+          "value": 0.7,
+          "weight": 0.55,
+          "contribution": 0.385,
+          "description": "Vector similarity: 0.700"
+        },
+        {
+          "signal": "name_trigram",
+          "value": 0.5,
+          "weight": 0.2,
+          "contribution": 0.1,
+          "description": "Trigram similarity: 0.500"
+        },
+        {
+          "signal": "alias_match",
+          "value": "V. Ivanov",
+          "weight": 0.1,
+          "contribution": 0.1,
+          "description": "Alias match: V. Ivanov"
+        },
+        {
+          "signal": "entity_type_match",
+          "value": 0.0,
+          "weight": 0.0,
+          "contribution": 0.0,
+          "description": "No entity type specified in query"
+        }
+      ]
+    }
+  },
+  {
+    "name": "year-only DOB match",
+    "preset": "balanced",
+    "entity": {
+      "entity_id": "e_vladimir_ivanov",
+      "entity_type": "PERSON",
+      "primary_name": "Vladimir Ivanov",
+      "name_canonical": "vladimir ivanov",
+      "aliases": [],
+      "dob": [
+        "1970-06-15"
+      ],
+      "countries": [],
+      "risk_category": "SANCTION",
+      "source_list": "OFAC_SDN",
+      "list_version": "2026-05-30"
+    },
+    "query": {
+      "nameCanonical": "vladimir ivanov",
+      "dob": "1970-01-01",
+      "country": null,
+      "entityType": null,
+      "vectorSimilarity": 1.0,
+      "trigramSimilarity": 1.0
+    },
+    "expected": {
+      "score": 0.8,
+      "summary": "Match due to: strong vector similarity, strong name match, DOB match",
+      "reasons": [
+        {
+          "signal": "name_vector",
+          "value": 1.0,
+          "weight": 0.55,
+          "contribution": 0.55,
+          "description": "Vector similarity: 1.000"
+        },
+        {
+          "signal": "name_trigram",
+          "value": 1.0,
+          "weight": 0.2,
+          "contribution": 0.2,
+          "description": "Trigram similarity: 1.000"
+        },
+        {
+          "signal": "dob_match",
+          "value": 0.5,
+          "weight": 0.1,
+          "contribution": 0.05,
+          "description": "Year match: 1970"
+        },
+        {
+          "signal": "entity_type_match",
+          "value": 0.0,
+          "weight": 0.0,
+          "contribution": 0.0,
+          "description": "No entity type specified in query"
+        }
+      ]
+    }
+  },
+  {
+    "name": "full match (name + dob + country)",
+    "preset": "lenient",
+    "entity": {
+      "entity_id": "e_vladimir_ivanov",
+      "entity_type": "PERSON",
+      "primary_name": "Vladimir Ivanov",
+      "name_canonical": "vladimir ivanov",
+      "aliases": [],
+      "dob": [
+        "1970-01-01"
+      ],
+      "countries": [
+        "RU"
+      ],
+      "risk_category": "SANCTION",
+      "source_list": "OFAC_SDN",
+      "list_version": "2026-05-30"
+    },
+    "query": {
+      "nameCanonical": "vladimir ivanov",
+      "dob": "1970-01-01",
+      "country": "RU",
+      "entityType": "PERSON",
+      "vectorSimilarity": 1.0,
+      "trigramSimilarity": 1.0
+    },
+    "expected": {
+      "score": 0.85,
+      "summary": "Match due to: strong vector similarity, strong name match, DOB match, country match",
+      "reasons": [
+        {
+          "signal": "name_vector",
+          "value": 1.0,
+          "weight": 0.5,
+          "contribution": 0.5,
+          "description": "Vector similarity: 1.000"
+        },
+        {
+          "signal": "name_trigram",
+          "value": 1.0,
+          "weight": 0.15,
+          "contribution": 0.15,
+          "description": "Trigram similarity: 1.000"
+        },
+        {
+          "signal": "dob_match",
+          "value": 1.0,
+          "weight": 0.1,
+          "contribution": 0.1,
+          "description": "Exact DOB match: 1970-01-01"
+        },
+        {
+          "signal": "country_match",
+          "value": 1.0,
+          "weight": 0.1,
+          "contribution": 0.1,
+          "description": "Exact country match: RU"
+        },
+        {
+          "signal": "entity_type_match",
+          "value": 1.0,
+          "weight": 0.0,
+          "contribution": 0.0,
+          "description": "Entity type match: PERSON"
+        }
+      ]
+    }
+  },
+  {
+    "name": "low-confidence miss",
+    "preset": "balanced",
+    "entity": {
+      "entity_id": "e_vladimir_ivanov",
+      "entity_type": "PERSON",
+      "primary_name": "Vladimir Ivanov",
+      "name_canonical": "vladimir ivanov",
+      "aliases": [],
+      "dob": [],
+      "countries": [],
+      "risk_category": "SANCTION",
+      "source_list": "OFAC_SDN",
+      "list_version": "2026-05-30"
+    },
+    "query": {
+      "nameCanonical": "vladimir ivanov",
+      "dob": null,
+      "country": null,
+      "entityType": null,
+      "vectorSimilarity": 0.1,
+      "trigramSimilarity": 0.1
+    },
+    "expected": {
+      "score": 0.07500000000000001,
+      "summary": "Low confidence match (score: 0.075)",
+      "reasons": [
+        {
+          "signal": "name_vector",
+          "value": 0.1,
+          "weight": 0.55,
+          "contribution": 0.05500000000000001,
+          "description": "Vector similarity: 0.100"
+        },
+        {
+          "signal": "name_trigram",
+          "value": 0.1,
+          "weight": 0.2,
+          "contribution": 0.020000000000000004,
+          "description": "Trigram similarity: 0.100"
+        },
+        {
+          "signal": "entity_type_match",
+          "value": 0.0,
+          "weight": 0.0,
+          "contribution": 0.0,
+          "description": "No entity type specified in query"
+        }
+      ]
+    }
+  },
+  {
+    "name": "entity-type mismatch",
+    "preset": "balanced",
+    "entity": {
+      "entity_id": "e_vladimir_ivanov",
+      "entity_type": "PERSON",
+      "primary_name": "Vladimir Ivanov",
+      "name_canonical": "vladimir ivanov",
+      "aliases": [],
+      "dob": [],
+      "countries": [],
+      "risk_category": "SANCTION",
+      "source_list": "OFAC_SDN",
+      "list_version": "2026-05-30"
+    },
+    "query": {
+      "nameCanonical": "vladimir ivanov",
+      "dob": null,
+      "country": null,
+      "entityType": "ORGANIZATION",
+      "vectorSimilarity": 1.0,
+      "trigramSimilarity": 1.0
+    },
+    "expected": {
+      "score": 0.75,
+      "summary": "Match due to: strong vector similarity, strong name match",
+      "reasons": [
+        {
+          "signal": "name_vector",
+          "value": 1.0,
+          "weight": 0.55,
+          "contribution": 0.55,
+          "description": "Vector similarity: 1.000"
+        },
+        {
+          "signal": "name_trigram",
+          "value": 1.0,
+          "weight": 0.2,
+          "contribution": 0.2,
+          "description": "Trigram similarity: 1.000"
+        },
+        {
+          "signal": "entity_type_match",
+          "value": 0.0,
+          "weight": 0.0,
+          "contribution": 0.0,
+          "description": "Entity type mismatch: PERSON != ORGANIZATION"
+        }
+      ]
+    }
+  },
+  {
+    "name": "substring alias match (half weight)",
+    "preset": "balanced",
+    "entity": {
+      "entity_id": "e_vladimir_ivanov",
+      "entity_type": "PERSON",
+      "primary_name": "Vladimir Ivanov",
+      "name_canonical": "vladimir ivanov",
+      "aliases": [
+        {
+          "name": "Vladimir Ivanov II",
+          "name_canonical": "vladimir ivanov ii",
+          "source": "OFAC"
+        }
+      ],
+      "dob": [],
+      "countries": [],
+      "risk_category": "SANCTION",
+      "source_list": "OFAC_SDN",
+      "list_version": "2026-05-30"
+    },
+    "query": {
+      "nameCanonical": "vladimir ivanov",
+      "dob": null,
+      "country": null,
+      "entityType": null,
+      "vectorSimilarity": 0.7,
+      "trigramSimilarity": 0.6
+    },
+    "expected": {
+      "score": 0.555,
+      "summary": "Match due to: alias match",
+      "reasons": [
+        {
+          "signal": "name_vector",
+          "value": 0.7,
+          "weight": 0.55,
+          "contribution": 0.385,
+          "description": "Vector similarity: 0.700"
+        },
+        {
+          "signal": "name_trigram",
+          "value": 0.6,
+          "weight": 0.2,
+          "contribution": 0.12,
+          "description": "Trigram similarity: 0.600"
+        },
+        {
+          "signal": "alias_match",
+          "value": "Vladimir Ivanov II",
+          "weight": 0.1,
+          "contribution": 0.05,
+          "description": "Alias match: Vladimir Ivanov II"
+        },
+        {
+          "signal": "entity_type_match",
+          "value": 0.0,
+          "weight": 0.0,
+          "contribution": 0.0,
+          "description": "No entity type specified in query"
+        }
+      ]
+    }
+  },
+  {
+    "name": "different-year DOB miss",
+    "preset": "balanced",
+    "entity": {
+      "entity_id": "e_vladimir_ivanov",
+      "entity_type": "PERSON",
+      "primary_name": "Vladimir Ivanov",
+      "name_canonical": "vladimir ivanov",
+      "aliases": [],
+      "dob": [
+        "1970-06-15"
+      ],
+      "countries": [],
+      "risk_category": "SANCTION",
+      "source_list": "OFAC_SDN",
+      "list_version": "2026-05-30"
+    },
+    "query": {
+      "nameCanonical": "vladimir ivanov",
+      "dob": "1985-01-01",
+      "country": null,
+      "entityType": null,
+      "vectorSimilarity": 1.0,
+      "trigramSimilarity": 1.0
+    },
+    "expected": {
+      "score": 0.75,
+      "summary": "Match due to: strong vector similarity, strong name match",
+      "reasons": [
+        {
+          "signal": "name_vector",
+          "value": 1.0,
+          "weight": 0.55,
+          "contribution": 0.55,
+          "description": "Vector similarity: 1.000"
+        },
+        {
+          "signal": "name_trigram",
+          "value": 1.0,
+          "weight": 0.2,
+          "contribution": 0.2,
+          "description": "Trigram similarity: 1.000"
+        },
+        {
+          "signal": "dob_match",
+          "value": 0.0,
+          "weight": 0.1,
+          "contribution": 0.0,
+          "description": "No DOB match"
+        },
+        {
+          "signal": "entity_type_match",
+          "value": 0.0,
+          "weight": 0.0,
+          "contribution": 0.0,
+          "description": "No entity type specified in query"
+        }
+      ]
+    }
+  }
+]

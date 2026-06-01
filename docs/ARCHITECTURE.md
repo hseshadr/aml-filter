@@ -175,7 +175,7 @@ Nimbus demo:
 - The package root layers OFAC screening on top: a TS port of the domain model, the
   normalizer, a localvec-equivalent `vectorIndex`, and the **same explainable
   scoring contract** (the `PRESETS` weights and `computeScore` are a faithful port of
-  `DefaultScoringPolicy`), so an in-browser match reproduces the server's score.
+  `DefaultScoringPolicy`), so an in-browser match reproduces the server's score and reasons.
 - `EngineRuntime.bootstrap()` drives the boot stages (syncing → synced →
   reassembling → loading the MiniLM embedder → ready); the `/screen` page
   (`frontend/app/src/pages/ScreenPage.tsx`) wires this to an input box and renders
@@ -184,8 +184,11 @@ Nimbus demo:
   never from the (untrusted) bundle origin.
 - What's cross-language **parity-tested**: the signed-bundle wire format (`crypto.test.ts`
   checks the TS reader against a real Python-signed fixture and fail-closes on tamper), the
-  MiniLM embedder (a node onnxruntime parity test), and the normalizer. The scorer itself is
-  a faithful port (identical weights/thresholds), not separately output-diffed against Python.
+  normalizer (`normalize.test.ts`), and the **scorer's full output** — score, reasons, and
+  each reason's plain-language description (`scoring.parity.test.ts` asserts the TS scorer
+  against a golden emitted by the Python source of truth via
+  `backend/scripts/gen_scoring_golden.py`). The MiniLM embedder is wired through a stubbable
+  `createEmbedderWith` seam for parity testing but has no committed parity test yet.
 
 ## Data model (high level)
 
@@ -245,8 +248,8 @@ deployment surface.
   out of the repo and out of any container image.
 - **Same embedder, query and corpus.** Query names and stored names must be
   embedded by the same model, or vector similarity is meaningless. This holds
-  across runtimes too — the browser MiniLM is the byte-for-byte equivalent of the
-  Python encoder, which is what makes browser/server parity possible.
+  across runtimes too — the browser runs the same MiniLM model as the Python
+  encoder (via transformers.js), which is what makes browser/server parity possible.
 - **Fail closed on config and on trust.** Missing `DATABASE_URL` aborts the DB path;
   bundle mode requires both `BUNDLE_BASE_URL` and `VERIFY_KEY_PATH` (no silent
   fallback to an empty index); and any Ed25519/SHA-256 mismatch aborts a bundle sync.

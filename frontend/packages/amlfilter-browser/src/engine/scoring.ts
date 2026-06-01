@@ -154,15 +154,25 @@ function countryMatch(
 	const queryUpper = queryCountry.toUpperCase();
 	const entityUpper = new Set(countries.map((c) => c.toUpperCase()));
 	if (!entityUpper.has(queryUpper)) {
-		return { score: 0.0, desc: `No country match: ${queryUpper}` };
+		return {
+			score: 0.0,
+			desc: `No country match: ${queryUpper} not in ${formatCountrySet(entityUpper)}`,
+		};
 	}
 	if (entityUpper.size === 1) {
 		return { score: 1.0, desc: `Exact country match: ${queryUpper}` };
 	}
 	return {
 		score: 1.0 / entityUpper.size,
-		desc: `Country match: ${queryUpper}`,
+		desc: `Country match: ${queryUpper} in ${formatCountrySet(entityUpper)}`,
 	};
+}
+
+// Render a country set as a sorted, bracketed list. Sorted (not insertion order)
+// so it is deterministic and byte-matches the Python source of truth, which
+// renders the same form via aml_filter.scoring.policy._format_country_set.
+function formatCountrySet(countries: ReadonlySet<string>): string {
+	return `[${[...countries].sort().join(", ")}]`;
 }
 
 function summarize(

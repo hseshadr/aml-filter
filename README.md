@@ -156,8 +156,9 @@ That dependency is real in both runtimes. The Python side pulls
 [`edge-proc[localvec,bundles]`](backend/pyproject.toml); the browser side runs
 [`@amlfilter/browser`](frontend/packages/amlfilter-browser/) — which vendors the
 edge-proc browser sync tier verbatim — over the *same* signed bundle and the *same*
-explainable scoring contract. The wire format, the MiniLM embedder, and the normalizer are
-parity-tested across the two tiers; the scorer is a faithful port (same score).
+explainable scoring contract. The wire format, the normalizer, and the **scorer's output**
+(score, reasons, and each reason's description) are parity-tested across the two tiers
+against a golden emitted by the Python source of truth.
 
 ### Architecture
 
@@ -243,7 +244,7 @@ in-browser screening engine (`packages/amlfilter-browser/`):
 cd frontend
 pnpm install                          # resolves the whole workspace (app + package)
 pnpm --filter aml-filter-app dev      # http://localhost:5173 (admin + /screen)
-pnpm -r run test                      # vitest on both members (incl. wire-format/embedder parity)
+pnpm -r run test                      # vitest on both members (incl. wire-format + scoring parity)
 ```
 
 ### Configuration

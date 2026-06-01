@@ -126,8 +126,9 @@ tier (`@amlfilter/browser`), which syncs into OPFS in a Web Worker.
 ### Key Patterns
 - **One scoring contract, three paths**: DB, server-bundle, and browser all emit the
   same `reasons[]` + plain-language `explanation`. The browser TS scorer is a faithful
-  port of `DefaultScoringPolicy` (identical weights, thresholds, and signal order — same
-  score); the wire format, embedder, and normalizer are parity-tested against Python.
+  port of `DefaultScoringPolicy` (identical weights, thresholds, and signal order); the
+  wire format, the normalizer, and the scorer's **full output** — score, reasons, and each
+  reason's plain-language description — are parity-tested against Python.
 - **Async everywhere**: SQLAlchemy async with asyncpg driver.
 - **Multi-tenancy**: Row Level Security (RLS) with tenant_id isolation (DB path).
 - **Background jobs**: Redis Queue (RQ) for batch processing and ingestion.
@@ -150,8 +151,11 @@ Test markers (use with `-m`):
 - `slow` - Long-running tests
 
 Tests use `pytest-asyncio` with `asyncio_mode = "auto"`. The browser tier's wire format,
-MiniLM embedder, and normalizer are parity-tested against the Python side (see
-`crypto.test.ts`, the node embedder parity test, and `normalize.test.ts`).
+normalizer, and **scoring output** are parity-tested against the Python side (see
+`crypto.test.ts`, `normalize.test.ts`, and `scoring.parity.test.ts` — the last asserts the
+TS scorer against a golden emitted by the Python source of truth via
+`backend/scripts/gen_scoring_golden.py`). The embedder is wired through a `createEmbedderWith`
+seam for parity testing but is not yet covered by a committed parity test.
 
 ## Documentation
 

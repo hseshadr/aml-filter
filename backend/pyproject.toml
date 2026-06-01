@@ -270,7 +270,9 @@ complexity  = "xenon --max-absolute A --max-modules A --max-average A aml_filter
 test        = "pytest -m 'not integration'"
 test-all    = "pytest"
 audit       = "pip-audit"
-gate        = { sequence = ["lint", "typecheck", "complexity", "test"], help = "Run the full python-quality gate" }
+scoring-golden = { shell = "uv run python scripts/gen_scoring_golden.py ../frontend/packages/amlfilter-browser/src/engine/__fixtures__/scoring/golden.json", help = "Regenerate the browser scoring parity golden from the Python source of truth" }
+scoring-golden-check = { shell = "uv run python scripts/gen_scoring_golden.py \"${TMPDIR:-/tmp}/aml_scoring_golden.json\" >/dev/null && diff -u ../frontend/packages/amlfilter-browser/src/engine/__fixtures__/scoring/golden.json \"${TMPDIR:-/tmp}/aml_scoring_golden.json\"", help = "Fail if the committed scoring golden is stale vs the Python source of truth (run `poe scoring-golden` to refresh)" }
+gate        = { sequence = ["lint", "typecheck", "complexity", "test", "scoring-golden-check"], help = "Run the full python-quality gate" }
 
 # `demo` is the fast, dev-mode, backend-free showcase (mirrors edge-reco's `poe demo`):
 # it brings up the Caddy edge (signed demo bundle on :8081) and runs the Vite dev server

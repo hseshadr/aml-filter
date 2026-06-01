@@ -39,6 +39,16 @@ def _is_strong(similarity: float | None) -> bool:
     return bool(similarity and similarity > STRONG_SIMILARITY_THRESHOLD)
 
 
+def _format_country_set(countries: set[str]) -> str:
+    """Render a country set as a sorted, bracketed list.
+
+    Sorted (not `set` repr) so the description is deterministic across processes
+    and the browser TS scorer can reproduce it byte-for-byte. See the
+    cross-language scoring parity test.
+    """
+    return f"[{', '.join(sorted(countries))}]"
+
+
 @runtime_checkable
 class ScoringPolicyProtocol(Protocol):
     """Protocol for scoring policy implementations."""
@@ -129,7 +139,10 @@ class DefaultScoringPolicy:
         query_upper = query_country.upper()
         entity_upper = {c.upper() for c in entity.countries}
         if query_upper not in entity_upper:
-            return (0.0, f"No country match: {query_upper} not in {entity_upper}")
+            return (
+                0.0,
+                f"No country match: {query_upper} not in {_format_country_set(entity_upper)}",
+            )
         return self._matched_country_score(query_upper, entity_upper)
 
     @staticmethod
@@ -137,7 +150,8 @@ class DefaultScoringPolicy:
         """Score a confirmed country hit: exact (1.0) when single, else 1/N proportional."""
         if len(entity_upper) == 1:
             return (1.0, f"Exact country match: {query_upper}")
-        return (1.0 / len(entity_upper), f"Country match: {query_upper} in {entity_upper}")
+        countries = _format_country_set(entity_upper)
+        return (1.0 / len(entity_upper), f"Country match: {query_upper} in {countries}")
 
     def _compute_entity_type_match(
         self, entity: Entity, query_entity_type: str | None

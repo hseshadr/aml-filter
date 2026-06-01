@@ -76,5 +76,7 @@ jobs:
         run: uv run poe complexity
       - name: Tests (pytest)
         run: uv run pytest -m 'not integration' --ignore=tests/integration
+      - name: Scoring parity golden is fresh (regenerate + diff)
+        run: uv run poe scoring-golden-check
       - name: Audit (pip-audit)
         run: uv run poe audit
