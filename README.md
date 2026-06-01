@@ -69,12 +69,13 @@ make demo-browser          # docker compose: serves the signed bundle + builds t
 # then open http://localhost:5173/screen and type:  Ivan Fakovich
 ```
 
-> **`make demo-browser` vs `poe demo`.** `make demo-browser` builds and serves the
+> **`make demo-browser` vs `make demo`.** `make demo-browser` builds and serves the
 > **minified production SPA** — the same artifact the C1 browser e2e
 > (`cd frontend/app && pnpm test:e2e:c1`) guards, so it's the canonical proof the
-> *shipped* thing works. For a faster local look there's also `cd backend && uv run poe
-> demo`, which runs the **unminified Vite dev** server instead. Reach for `poe demo` to
-> iterate; trust `make demo-browser` + C1 for shippability.
+> *shipped* thing works. For a faster local look there's also `make demo` (from the repo
+> root; it delegates to `cd backend && uv run poe demo`), which runs the **unminified
+> Vite dev** server instead. Reach for `make demo` to iterate; trust `make demo-browser`
+> + C1 for shippability.
 
 You'll get back a scored, explained match for `Ivan Fakovich` — an
 **obviously-fictional** demo sanctioned entity (a made-up name like
