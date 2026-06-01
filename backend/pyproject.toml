@@ -272,3 +272,26 @@ test-all    = "pytest"
 audit       = "pip-audit"
 gate        = { sequence = ["lint", "typecheck", "complexity", "test"], help = "Run the full python-quality gate" }
 
+# `demo` is the fast, dev-mode, backend-free showcase (mirrors edge-reco's `poe demo`):
+# it brings up the Caddy edge (signed demo bundle on :8081) and runs the Vite dev server
+# (:5173, opens /screen). The whole screen runs in-browser — no FastAPI here.
+#
+# NOTE: this is the DEV demo and serves the UNMINIFIED Vite build. The canonical proof
+# the *shipped* artifact works is `make demo-browser` (minified prod build) plus the C1
+# browser e2e (`frontend/app`: `pnpm test:e2e:c1`) — not this task. Use `poe demo` for a
+# quick local look; trust `make demo-browser` + C1 for shippability.
+[tool.poe.tasks.demo]
+help = "Fast dev-mode in-browser /screen demo — edge (:8081) + Vite SPA (:5173). For shippability use `make demo-browser` + C1 e2e."
+cwd = "../frontend"
+shell = """
+set -e
+docker info >/dev/null 2>&1 || { echo 'Docker is not running — start Docker Desktop first.'; exit 1; }
+[ -d node_modules ] || pnpm install
+echo '>> edge -> http://localhost:8081          (signed demo bundle the SPA syncs)'
+echo '>> app  -> http://localhost:5173/screen   <- opening this in your browser'
+docker compose up -d origin edge
+# stop (not down) the edge on Ctrl-C — keeps the caddy_data/_config volumes for fast restarts
+trap 'docker compose stop origin edge >/dev/null 2>&1' EXIT INT TERM
+cd app && VITE_BUNDLE_BASE_URL=http://localhost:8081 pnpm exec vite --open /screen
+"""
+

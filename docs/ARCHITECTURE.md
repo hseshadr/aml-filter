@@ -111,8 +111,9 @@ This is the load-bearing contract: **a reviewer can always see why a score is
 what it is.** If you change the signal set or the preset weights, the
 explanation shape changes with it — keep the scorer and its tests in lockstep.
 The same contract holds on all three paths — the bundle and browser tiers reuse
-`DefaultScoringPolicy` (or its byte-compatible TS port) unchanged, so an in-tab
-match carries the same `reasons[]` breakdown as a server one.
+`DefaultScoringPolicy` (or its faithful TS port — identical weights, thresholds, and
+signal order) unchanged, so an in-tab match carries the same per-signal reasons and the
+same score as a server one.
 
 ## Signed-bundle distribution (the edge-proc bundle tier)
 
@@ -173,15 +174,18 @@ Nimbus demo:
   Python producer.
 - The package root layers OFAC screening on top: a TS port of the domain model, the
   normalizer, a localvec-equivalent `vectorIndex`, and the **same explainable
-  scoring contract** (the `PRESETS` weights and `computeScore` mirror
-  `DefaultScoringPolicy`), so an in-browser match is byte-compatible with the server.
+  scoring contract** (the `PRESETS` weights and `computeScore` are a faithful port of
+  `DefaultScoringPolicy`), so an in-browser match reproduces the server's score.
 - `EngineRuntime.bootstrap()` drives the boot stages (syncing → synced →
   reassembling → loading the MiniLM embedder → ready); the `/screen` page
   (`frontend/app/src/pages/ScreenPage.tsx`) wires this to an input box and renders
   each match's score, plain-language explanation, and per-signal breakdown. The
   public key is pinned in the app build and served from the app's **own** origin,
   never from the (untrusted) bundle origin.
-- The top-k is **parity-tested** against the Python runtime over the same bundle.
+- What's cross-language **parity-tested**: the signed-bundle wire format (`crypto.test.ts`
+  checks the TS reader against a real Python-signed fixture and fail-closes on tamper), the
+  MiniLM embedder (a node onnxruntime parity test), and the normalizer. The scorer itself is
+  a faithful port (identical weights/thresholds), not separately output-diffed against Python.
 
 ## Data model (high level)
 

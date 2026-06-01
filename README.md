@@ -69,6 +69,13 @@ make demo-browser          # docker compose: serves the signed bundle + builds t
 # then open http://localhost:5173/screen and type:  Ivan Fakovich
 ```
 
+> **`make demo-browser` vs `poe demo`.** `make demo-browser` builds and serves the
+> **minified production SPA** — the same artifact the C1 browser e2e
+> (`cd frontend/app && pnpm test:e2e:c1`) guards, so it's the canonical proof the
+> *shipped* thing works. For a faster local look there's also `cd backend && uv run poe
+> demo`, which runs the **unminified Vite dev** server instead. Reach for `poe demo` to
+> iterate; trust `make demo-browser` + C1 for shippability.
+
 You'll get back a scored, explained match for `Ivan Fakovich` — an
 **obviously-fictional** demo sanctioned entity (a made-up name like
 `Jon Q. Fakename` returns nothing). The bundle here is built from
@@ -149,7 +156,8 @@ That dependency is real in both runtimes. The Python side pulls
 [`edge-proc[localvec,bundles]`](backend/pyproject.toml); the browser side runs
 [`@amlfilter/browser`](frontend/packages/amlfilter-browser/) — which vendors the
 edge-proc browser sync tier verbatim — over the *same* signed bundle and the *same*
-explainable scoring contract. The two tiers are parity-tested against each other.
+explainable scoring contract. The wire format, the MiniLM embedder, and the normalizer are
+parity-tested across the two tiers; the scorer is a faithful port (same score).
 
 ### Architecture
 
@@ -235,7 +243,7 @@ in-browser screening engine (`packages/amlfilter-browser/`):
 cd frontend
 pnpm install                          # resolves the whole workspace (app + package)
 pnpm --filter aml-filter-app dev      # http://localhost:5173 (admin + /screen)
-pnpm -r run test                      # vitest on both members (incl. browser/server parity)
+pnpm -r run test                      # vitest on both members (incl. wire-format/embedder parity)
 ```
 
 ### Configuration

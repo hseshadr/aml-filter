@@ -15,8 +15,11 @@ FRONTEND_DIR := $(ROOT_DIR)/frontend
 help: ## Show this help.
 	@echo "aml-filter demos:"
 	@echo "  make demo-browser   ONE command: in-browser /screen over a signed bundle (no backend)"
+	@echo "                      minified PROD build — the canonical demo (same artifact the C1 e2e guards)"
 	@echo "  make demo-server     the DB-backed API stack (Postgres + Valkey + api + worker)"
 	@echo "  make demo-bundle     regenerate the committed demo bundle + pinned key from the CLI"
+	@echo ""
+	@echo "  Faster dev-mode look: (cd backend && uv run poe demo) — unminified Vite dev, not for shippability."
 
 demo-browser: ## One command: serve the signed demo bundle + build the SPA, open http://localhost:5173/screen
 	@echo ">> edge     -> http://localhost:8081        (signed demo bundle the browser syncs)"

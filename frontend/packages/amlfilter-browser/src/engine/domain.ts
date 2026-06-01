@@ -1,6 +1,6 @@
 // TS mirror of the aml-filter backend domain contract — the SAME shapes the
 // native (Python) screening path produces, so the in-browser screen returns a
-// byte-compatible SearchResponse. Single source of truth for the browser tier.
+// structurally identical SearchResponse. Single source of truth for the browser tier.
 //
 // Backend originals:
 //   - Entity / Alias       -> aml_filter/domain/entity.py

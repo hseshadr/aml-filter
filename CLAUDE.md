@@ -125,8 +125,9 @@ tier (`@amlfilter/browser`), which syncs into OPFS in a Web Worker.
 
 ### Key Patterns
 - **One scoring contract, three paths**: DB, server-bundle, and browser all emit the
-  same `reasons[]` + plain-language `explanation`. The browser TS port is byte-compatible
-  with `DefaultScoringPolicy`.
+  same `reasons[]` + plain-language `explanation`. The browser TS scorer is a faithful
+  port of `DefaultScoringPolicy` (identical weights, thresholds, and signal order — same
+  score); the wire format, embedder, and normalizer are parity-tested against Python.
 - **Async everywhere**: SQLAlchemy async with asyncpg driver.
 - **Multi-tenancy**: Row Level Security (RLS) with tenant_id isolation (DB path).
 - **Background jobs**: Redis Queue (RQ) for batch processing and ingestion.
@@ -148,8 +149,9 @@ Test markers (use with `-m`):
 - `integration` - Requires PostgreSQL and Redis
 - `slow` - Long-running tests
 
-Tests use `pytest-asyncio` with `asyncio_mode = "auto"`. The browser top-k is
-parity-tested against the Python runtime over the same bundle.
+Tests use `pytest-asyncio` with `asyncio_mode = "auto"`. The browser tier's wire format,
+MiniLM embedder, and normalizer are parity-tested against the Python side (see
+`crypto.test.ts`, the node embedder parity test, and `normalize.test.ts`).
 
 ## Documentation
 

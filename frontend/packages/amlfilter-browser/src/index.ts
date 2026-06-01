@@ -4,7 +4,10 @@
 // fail-closed), reassemble its files, and screen a name entirely in the tab —
 // no backend. The native (Python) producer and this browser consumer share one
 // wire format and one explainable scoring contract (see ./engine/domain +
-// ./engine/scoring), so an in-browser match is byte-compatible with the server.
+// ./engine/scoring): the wire format, the MiniLM embedder, and the normalizer are
+// parity-tested against the Python side, and the scorer is a faithful port of
+// DefaultScoringPolicy (identical weights, thresholds, and signal order) — so an
+// in-browser match reproduces the server's score.
 //
 // Primary entry point: EngineRuntime.bootstrap() → ScreeningEngine.
 //
