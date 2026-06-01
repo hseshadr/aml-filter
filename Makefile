@@ -10,13 +10,23 @@ BACKEND_DIR := $(ROOT_DIR)/backend
 FRONTEND_DIR := $(ROOT_DIR)/frontend
 
 .DEFAULT_GOAL := help
-.PHONY: help demo-browser demo-server demo-bundle
+.PHONY: help demo demo-browser demo-server demo-bundle
 
 help: ## Show this help.
 	@echo "aml-filter demos:"
+	@echo "  make demo            Fast dev-mode in-browser /screen (Caddy edge + Vite dev SPA)"
+	@echo "                       unminified Vite dev — a quick local look, NOT the shippability proof"
 	@echo "  make demo-browser   ONE command: in-browser /screen over a signed bundle (no backend)"
+	@echo "                      minified PROD build — the canonical demo (same artifact the C1 e2e guards)"
 	@echo "  make demo-server     the DB-backed API stack (Postgres + Valkey + api + worker)"
 	@echo "  make demo-bundle     regenerate the committed demo bundle + pinned key from the CLI"
+
+# Fast dev-mode showcase, runnable from the repo root. Delegates to the backend
+# poe task (poe config lives in backend/pyproject.toml, not the root) so you do not
+# have to `cd backend` first. Serves the UNMINIFIED Vite dev SPA — for proof the
+# shipped artifact works, use `make demo-browser` (minified prod) + the C1 e2e.
+demo: ## Fast dev-mode in-browser /screen — edge (:8081) + Vite dev SPA (:5173). For shippability use `make demo-browser`.
+	cd $(BACKEND_DIR) && uv run poe demo
 
 demo-browser: ## One command: serve the signed demo bundle + build the SPA, open http://localhost:5173/screen
 	@echo ">> edge     -> http://localhost:8081        (signed demo bundle the browser syncs)"

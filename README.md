@@ -57,21 +57,29 @@ curl -s http://localhost:8000/v1/screen \
   -d '{"name": "Jon Q. Fakename", "threshold": 0.65}' | jq
 ```
 
-### Path B — backend-free, in-browser screening (the edge-proc tier) — **one command**
+### Path B — backend-free, in-browser search (the edge-proc tier) — **one command**
 
 No database, no API server, no model download. One command serves a **signed demo
-bundle** and builds the SPA; then you screen a name **in your browser tab** — the
+bundle** and builds the SPA; then you search the list **in your browser tab** — the
 bundle syncs into the tab, gets ed25519-verified fail-closed against a pinned key,
-and the matcher runs in-tab.
+and the matcher runs in-tab, ranking the list as you type.
 
 ```bash
 make demo-browser          # docker compose: serves the signed bundle + builds the SPA
-# then open http://localhost:5173/screen and type:  Ivan Fakovich
+# then open http://localhost:5173/screen and search:  Ivan Fakovich
 ```
 
-You'll get back a scored, explained match for `Ivan Fakovich` — an
-**obviously-fictional** demo sanctioned entity (a made-up name like
-`Jon Q. Fakename` returns nothing). The bundle here is built from
+> **`make demo-browser` vs `make demo`.** `make demo-browser` builds and serves the
+> **minified production SPA** — the same artifact the C1 browser e2e
+> (`cd frontend/app && pnpm test:e2e:c1`) guards, so it's the canonical proof the
+> *shipped* thing works. For a faster local look there's also `make demo` (from the repo
+> root; it delegates to `cd backend && uv run poe demo`), which runs the **unminified
+> Vite dev** server instead. Reach for `make demo` to iterate; trust `make demo-browser`
+> + C1 for shippability.
+
+Type `Ivan Fakovich` and watch it match as you type — a scored, explained match
+card for an **obviously-fictional** demo sanctioned entity (a made-up name like
+`Jon Q. Fakename` ranks nothing). The bundle here is built from
 [`backend/examples/demo_entities.jsonl`](backend/examples/demo_entities.jsonl) — a
 handful of fake entities, **not** the real OFAC list — so the demo is turnkey from a
 cold clone. (Want to screen the real list? Build a bundle from the official SDN
@@ -97,7 +105,7 @@ uv run amlfilter screen "Ivan Fakovich" ./origin ./trust.pub
 
 # 3. …or serve ./origin as static files at VITE_BUNDLE_BASE_URL and run the SPA
 cd ../frontend && pnpm install && pnpm --filter aml-filter-app dev
-#    open http://localhost:5173/screen and type a name
+#    open http://localhost:5173/screen and search the list as you type
 ```
 
 To regenerate the committed demo bundle after editing the demo entities:
@@ -149,7 +157,9 @@ That dependency is real in both runtimes. The Python side pulls
 [`edge-proc[localvec,bundles]`](backend/pyproject.toml); the browser side runs
 [`@amlfilter/browser`](frontend/packages/amlfilter-browser/) — which vendors the
 edge-proc browser sync tier verbatim — over the *same* signed bundle and the *same*
-explainable scoring contract. The two tiers are parity-tested against each other.
+explainable scoring contract. The wire format, the normalizer, and the **scorer's output**
+(score, reasons, and each reason's description) are parity-tested across the two tiers
+against a golden emitted by the Python source of truth.
 
 ### Architecture
 
@@ -235,7 +245,7 @@ in-browser screening engine (`packages/amlfilter-browser/`):
 cd frontend
 pnpm install                          # resolves the whole workspace (app + package)
 pnpm --filter aml-filter-app dev      # http://localhost:5173 (admin + /screen)
-pnpm -r run test                      # vitest on both members (incl. browser/server parity)
+pnpm -r run test                      # vitest on both members (incl. wire-format + scoring parity)
 ```
 
 ### Configuration

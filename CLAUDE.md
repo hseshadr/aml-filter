@@ -16,7 +16,8 @@ result. One scoring contract is served over **three paths**:
   edge-proc bundle and screens against its **localvec** FAISS index + in-memory
   entities. Driven by the `amlfilter` CLI; gated on `BUNDLE_BASE_URL` + `VERIFY_KEY_PATH`.
 - **Browser, backend-free** — `frontend/packages/amlfilter-browser` (`@amlfilter/browser`)
-  syncs the same signed bundle into the tab and screens in-tab, no application backend.
+  syncs the same signed bundle into the tab and searches/screens the list in-tab, no
+  application backend.
 
 The HTTP `/v1/screen` endpoint stays **DB-backed**; the bundle + browser path is the new
 edge-proc capability layered on top.
@@ -125,8 +126,10 @@ tier (`@amlfilter/browser`), which syncs into OPFS in a Web Worker.
 
 ### Key Patterns
 - **One scoring contract, three paths**: DB, server-bundle, and browser all emit the
-  same `reasons[]` + plain-language `explanation`. The browser TS port is byte-compatible
-  with `DefaultScoringPolicy`.
+  same `reasons[]` + plain-language `explanation`. The browser TS scorer is a faithful
+  port of `DefaultScoringPolicy` (identical weights, thresholds, and signal order); the
+  wire format, the normalizer, and the scorer's **full output** — score, reasons, and each
+  reason's plain-language description — are parity-tested against Python.
 - **Async everywhere**: SQLAlchemy async with asyncpg driver.
 - **Multi-tenancy**: Row Level Security (RLS) with tenant_id isolation (DB path).
 - **Background jobs**: Redis Queue (RQ) for batch processing and ingestion.
@@ -148,8 +151,12 @@ Test markers (use with `-m`):
 - `integration` - Requires PostgreSQL and Redis
 - `slow` - Long-running tests
 
-Tests use `pytest-asyncio` with `asyncio_mode = "auto"`. The browser top-k is
-parity-tested against the Python runtime over the same bundle.
+Tests use `pytest-asyncio` with `asyncio_mode = "auto"`. The browser tier's wire format,
+normalizer, and **scoring output** are parity-tested against the Python side (see
+`crypto.test.ts`, `normalize.test.ts`, and `scoring.parity.test.ts` — the last asserts the
+TS scorer against a golden emitted by the Python source of truth via
+`backend/scripts/gen_scoring_golden.py`). The embedder is wired through a `createEmbedderWith`
+seam for parity testing but is not yet covered by a committed parity test.
 
 ## Documentation
 

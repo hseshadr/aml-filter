@@ -13,12 +13,13 @@
 //
 // No FastAPI on this path — everything runs in the tab over the synced bundle.
 
-import type {
-	Entity,
-	Match,
-	OfacBundleMeta,
-	ScreenQuery,
-	ScreenResponse,
+import {
+	EMPTY_IDENTIFIERS,
+	type Entity,
+	type Match,
+	type OfacBundleMeta,
+	type ScreenQuery,
+	type ScreenResponse,
 } from "./domain";
 import type { Embedder } from "./embedder";
 import { parseEntities } from "./entities";
@@ -83,6 +84,11 @@ export class ScreeningEngine {
 
 	public get meta(): OfacBundleMeta {
 		return this.#meta;
+	}
+
+	/** Every entity in the synced bundle — backs the search UI's browse/empty state. */
+	public allEntities(): ReadonlyArray<Entity> {
+		return [...this.#entities.values()];
 	}
 
 	/** Screen a query name against the synced bundle, in-tab (no backend). */
@@ -165,13 +171,17 @@ export class ScreeningEngine {
 		const match: Match = {
 			entity_id: entity.entity_id,
 			score: result.score,
+			entity_type: entity.entity_type,
 			risk_category: entity.risk_category,
 			source_list: entity.source_list,
 			list_version: entity.list_version,
 			primary_name: entity.primary_name,
 			aliases: entity.aliases.map((a) => a.name),
 			countries: entity.countries,
+			nationalities: entity.nationalities ?? [],
 			dob: entity.dob,
+			addresses: entity.addresses ?? [],
+			identifiers: entity.identifiers ?? EMPTY_IDENTIFIERS,
 			reasons: result.reasons,
 			explanation: result.summary,
 		};

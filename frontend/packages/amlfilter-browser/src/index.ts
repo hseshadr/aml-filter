@@ -4,7 +4,11 @@
 // fail-closed), reassemble its files, and screen a name entirely in the tab —
 // no backend. The native (Python) producer and this browser consumer share one
 // wire format and one explainable scoring contract (see ./engine/domain +
-// ./engine/scoring), so an in-browser match is byte-compatible with the server.
+// ./engine/scoring): the wire format, the normalizer, and the scorer's full output
+// (score, reasons, and each reason's description) are parity-tested against the Python
+// side, and the scorer is a faithful port of DefaultScoringPolicy (identical weights,
+// thresholds, and signal order) — so an in-browser match reproduces the server's score
+// and explanation.
 //
 // Primary entry point: EngineRuntime.bootstrap() → ScreeningEngine.
 //
@@ -14,16 +18,18 @@
 // `@amlfilter/browser/engine`.
 
 // --- the domain contract (single source of truth, mirrors the backend) ---
-export type {
-	Alias,
-	Entity,
-	EntityType,
-	Match,
-	MatchReason,
-	OfacBundleMeta,
-	RiskCategory,
-	ScreenQuery,
-	ScreenResponse,
+export {
+	type Alias,
+	EMPTY_IDENTIFIERS,
+	type Entity,
+	type EntityType,
+	type Identifiers,
+	type Match,
+	type MatchReason,
+	type OfacBundleMeta,
+	type RiskCategory,
+	type ScreenQuery,
+	type ScreenResponse,
 } from "./engine/domain";
 // --- the embedder seam (transformers.js in production, stubbable in tests) ---
 export {
