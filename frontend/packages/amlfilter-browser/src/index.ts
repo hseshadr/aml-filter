@@ -18,16 +18,18 @@
 // `@amlfilter/browser/engine`.
 
 // --- the domain contract (single source of truth, mirrors the backend) ---
-export type {
-	Alias,
-	Entity,
-	EntityType,
-	Match,
-	MatchReason,
-	OfacBundleMeta,
-	RiskCategory,
-	ScreenQuery,
-	ScreenResponse,
+export {
+	type Alias,
+	EMPTY_IDENTIFIERS,
+	type Entity,
+	type EntityType,
+	type Identifiers,
+	type Match,
+	type MatchReason,
+	type OfacBundleMeta,
+	type RiskCategory,
+	type ScreenQuery,
+	type ScreenResponse,
 } from "./engine/domain";
 // --- the embedder seam (transformers.js in production, stubbable in tests) ---
 export {

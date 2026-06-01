@@ -57,16 +57,16 @@ curl -s http://localhost:8000/v1/screen \
   -d '{"name": "Jon Q. Fakename", "threshold": 0.65}' | jq
 ```
 
-### Path B — backend-free, in-browser screening (the edge-proc tier) — **one command**
+### Path B — backend-free, in-browser search (the edge-proc tier) — **one command**
 
 No database, no API server, no model download. One command serves a **signed demo
-bundle** and builds the SPA; then you screen a name **in your browser tab** — the
+bundle** and builds the SPA; then you search the list **in your browser tab** — the
 bundle syncs into the tab, gets ed25519-verified fail-closed against a pinned key,
-and the matcher runs in-tab.
+and the matcher runs in-tab, ranking the list as you type.
 
 ```bash
 make demo-browser          # docker compose: serves the signed bundle + builds the SPA
-# then open http://localhost:5173/screen and type:  Ivan Fakovich
+# then open http://localhost:5173/screen and search:  Ivan Fakovich
 ```
 
 > **`make demo-browser` vs `make demo`.** `make demo-browser` builds and serves the
@@ -77,9 +77,9 @@ make demo-browser          # docker compose: serves the signed bundle + builds t
 > Vite dev** server instead. Reach for `make demo` to iterate; trust `make demo-browser`
 > + C1 for shippability.
 
-You'll get back a scored, explained match for `Ivan Fakovich` — an
-**obviously-fictional** demo sanctioned entity (a made-up name like
-`Jon Q. Fakename` returns nothing). The bundle here is built from
+Type `Ivan Fakovich` and watch it match as you type — a scored, explained match
+card for an **obviously-fictional** demo sanctioned entity (a made-up name like
+`Jon Q. Fakename` ranks nothing). The bundle here is built from
 [`backend/examples/demo_entities.jsonl`](backend/examples/demo_entities.jsonl) — a
 handful of fake entities, **not** the real OFAC list — so the demo is turnkey from a
 cold clone. (Want to screen the real list? Build a bundle from the official SDN
@@ -105,7 +105,7 @@ uv run amlfilter screen "Ivan Fakovich" ./origin ./trust.pub
 
 # 3. …or serve ./origin as static files at VITE_BUNDLE_BASE_URL and run the SPA
 cd ../frontend && pnpm install && pnpm --filter aml-filter-app dev
-#    open http://localhost:5173/screen and type a name
+#    open http://localhost:5173/screen and search the list as you type
 ```
 
 To regenerate the committed demo bundle after editing the demo entities:

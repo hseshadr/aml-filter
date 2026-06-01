@@ -16,7 +16,8 @@ result. One scoring contract is served over **three paths**:
   edge-proc bundle and screens against its **localvec** FAISS index + in-memory
   entities. Driven by the `amlfilter` CLI; gated on `BUNDLE_BASE_URL` + `VERIFY_KEY_PATH`.
 - **Browser, backend-free** — `frontend/packages/amlfilter-browser` (`@amlfilter/browser`)
-  syncs the same signed bundle into the tab and screens in-tab, no application backend.
+  syncs the same signed bundle into the tab and searches/screens the list in-tab, no
+  application backend.
 
 The HTTP `/v1/screen` endpoint stays **DB-backed**; the bundle + browser path is the new
 edge-proc capability layered on top.

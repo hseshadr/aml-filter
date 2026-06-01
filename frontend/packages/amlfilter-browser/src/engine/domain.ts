@@ -22,10 +22,26 @@ export interface Alias {
 	readonly source: string;
 }
 
+/** Government / financial identifiers for an entity (mirrors backend identifiers). */
+export interface Identifiers {
+	readonly passport: ReadonlyArray<string>;
+	readonly national_id: ReadonlyArray<string>;
+	/** Other id kinds keyed by label, e.g. {"swift": ["FAKEXXXX"]}. */
+	readonly other: Readonly<Record<string, ReadonlyArray<string>>>;
+}
+
+/** Empty identifiers — the normalized default when a bundle line omits them. */
+export const EMPTY_IDENTIFIERS: Identifiers = {
+	passport: [],
+	national_id: [],
+	other: {},
+};
+
 /**
- * One screened entity, exactly as one line of `entities.jsonl`. Only the fields
- * the browser screen reads are typed here; unknown extras (raw_source, etc.)
- * are tolerated by structural typing.
+ * One screened entity, exactly as one line of `entities.jsonl`. The
+ * dossier fields (nationalities/addresses/identifiers) are optional because
+ * older or minimal bundles may omit them; the screen normalizes them onto the
+ * Match. Unknown extras (raw_source, etc.) are tolerated by structural typing.
  */
 export interface Entity {
 	readonly entity_id: string;
@@ -37,6 +53,10 @@ export interface Entity {
 	readonly dob: ReadonlyArray<string>;
 	/** ISO 3166-1 alpha-2 country codes. */
 	readonly countries: ReadonlyArray<string>;
+	/** ISO 3166-1 alpha-2 nationality codes. */
+	readonly nationalities?: ReadonlyArray<string>;
+	readonly addresses?: ReadonlyArray<string>;
+	readonly identifiers?: Identifiers;
 	readonly risk_category: RiskCategory;
 	readonly source_list: string;
 	readonly list_version: string;
@@ -74,17 +94,25 @@ export interface MatchReason {
 	readonly description: string | null;
 }
 
-/** A matched entity with score and explanation (mirrors backend Match). */
+/**
+ * A matched entity with score and explanation (mirrors backend Match), widened
+ * with the dossier fields the in-browser search surfaces. Dossier fields are
+ * always present (normalized to empty when the source entity omits them).
+ */
 export interface Match {
 	readonly entity_id: string;
 	readonly score: number;
+	readonly entity_type: EntityType;
 	readonly risk_category: RiskCategory;
 	readonly source_list: string;
 	readonly list_version: string;
 	readonly primary_name: string;
 	readonly aliases: ReadonlyArray<string>;
 	readonly countries: ReadonlyArray<string>;
+	readonly nationalities: ReadonlyArray<string>;
 	readonly dob: ReadonlyArray<string>;
+	readonly addresses: ReadonlyArray<string>;
+	readonly identifiers: Identifiers;
 	readonly reasons: ReadonlyArray<MatchReason>;
 	readonly explanation: string;
 }

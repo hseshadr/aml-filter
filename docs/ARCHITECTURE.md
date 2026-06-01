@@ -178,8 +178,9 @@ Nimbus demo:
   `DefaultScoringPolicy`), so an in-browser match reproduces the server's score and reasons.
 - `EngineRuntime.bootstrap()` drives the boot stages (syncing → synced →
   reassembling → loading the MiniLM embedder → ready); the `/screen` page
-  (`frontend/app/src/pages/ScreenPage.tsx`) wires this to an input box and renders
-  each match's score, plain-language explanation, and per-signal breakdown. The
+  (`frontend/app/src/pages/ScreenPage.tsx`) wires this to a live search box that
+  ranks the list as you type (and browses it when empty), rendering each match's
+  score, plain-language explanation, and per-signal breakdown. The
   public key is pinned in the app build and served from the app's **own** origin,
   never from the (untrusted) bundle origin.
 - What's cross-language **parity-tested**: the signed-bundle wire format (`crypto.test.ts`
