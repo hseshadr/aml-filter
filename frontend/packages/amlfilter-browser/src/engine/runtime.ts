@@ -31,6 +31,31 @@ const META_PATH = "ofac_meta.json";
 /** Any non-empty string warms the ONNX session; content is discarded. */
 const WARMUP_PROMPT = "warm up the model";
 
+/**
+ * Hard ceiling on the warmup embed — the ~25 MB model download + ONNX compile.
+ * A stalled HF CDN would otherwise leave bootstrap pending forever (the boot
+ * banner never resolves and never errors); this turns a stall into a reject so
+ * the caller's `.catch` runs and the UI can offer a retry.
+ */
+export const MODEL_LOAD_TIMEOUT_MS = 120_000;
+
+/**
+ * Race a promise against a deadline. Resolves with the promise's value if it
+ * settles first; otherwise rejects with `msg`. The timer is always cleared so a
+ * resolved promise leaves no pending reject behind.
+ */
+export function withTimeout<T>(
+	p: Promise<T>,
+	ms: number,
+	msg: string,
+): Promise<T> {
+	let timer: ReturnType<typeof setTimeout>;
+	const deadline = new Promise<never>((_resolve, reject) => {
+		timer = setTimeout(() => reject(new Error(msg)), ms);
+	});
+	return Promise.race([p, deadline]).finally(() => clearTimeout(timer));
+}
+
 /** A bootstrap stage, surfaced to the UI for a real progress story. */
 export type BootStage =
 	| { readonly kind: "syncing" }
@@ -149,8 +174,13 @@ export class EngineRuntime {
 		onStage({ kind: "loading-model" });
 		const embedder = this.#deps.makeEmbedder();
 		// Force the ~25 MB model download/compile now so "loading-model" reflects
-		// real work and the first user query is fast.
-		await embedder.embed(WARMUP_PROMPT);
+		// real work and the first user query is fast. Bounded: a stalled CDN must
+		// reject (bootstrap clears its memo + the UI errors) rather than hang.
+		await withTimeout(
+			embedder.embed(WARMUP_PROMPT),
+			MODEL_LOAD_TIMEOUT_MS,
+			`loading the name-matching model timed out after ${MODEL_LOAD_TIMEOUT_MS}ms`,
+		);
 
 		const engine = createScreeningEngine(files, embedder);
 		this.#ready = engine;

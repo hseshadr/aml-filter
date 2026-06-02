@@ -108,6 +108,9 @@ export function ScreenPage() {
 	const [query, setQuery] = useState("");
 	const [entities, setEntities] = useState<ReadonlyArray<Entity>>([]);
 	const [search, setSearch] = useState<SearchState | null>(null);
+	// Bumped by Retry: it resets the boot guard and re-fires the boot effect so a
+	// boot that timed out (stalled CDN) can be re-attempted from the error banner.
+	const [bootNonce, setBootNonce] = useState(0);
 	const seq = useRef(0);
 	const started = useRef(false);
 	const alive = useRef(true);
@@ -119,6 +122,10 @@ export function ScreenPage() {
 		[],
 	);
 
+	// bootNonce is not read in the body — it is the intentional re-fire trigger:
+	// Retry resets the `started` guard and bumps the nonce so this effect re-runs
+	// the boot. Listed as a dep so that re-fire actually happens.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: bootNonce is an intentional re-fire trigger, not read in the body
 	useEffect(() => {
 		if (started.current) {
 			return;
@@ -144,7 +151,16 @@ export function ScreenPage() {
 					message: error instanceof Error ? error.message : String(error),
 				});
 			});
-	}, [runtime]);
+	}, [runtime, bootNonce]);
+
+	const retryBoot = useCallback(() => {
+		// Reset the once-only boot guard and re-arm the booting banner; bumping the
+		// nonce re-runs the boot effect, which calls bootstrap again (the runtime
+		// cleared its memo when the prior attempt rejected).
+		started.current = false;
+		setPhase({ kind: "booting", stage: { kind: "syncing" } });
+		setBootNonce((n) => n + 1);
+	}, []);
 
 	const runSearch = useCallback(
 		async (text: string) => {
@@ -187,7 +203,7 @@ export function ScreenPage() {
 				here in your browser — nothing you type ever leaves your device.
 			</p>
 
-			<BootBanner phase={phase} />
+			<BootBanner phase={phase} onRetry={retryBoot} />
 
 			<input
 				className="screen-search"
@@ -222,14 +238,27 @@ export function ScreenPage() {
 	);
 }
 
-function BootBanner({ phase }: { readonly phase: Phase }) {
+function BootBanner({
+	phase,
+	onRetry,
+}: {
+	readonly phase: Phase;
+	readonly onRetry: () => void;
+}) {
 	if (phase.kind === "ready") {
 		return null;
 	}
 	if (phase.kind === "error") {
 		return (
 			<div className="screen-banner screen-banner--error" role="alert">
-				Could not load the screening bundle: {phase.message}
+				<span>Could not load the screening bundle: {phase.message}</span>
+				<button
+					type="button"
+					className="screen-banner__retry"
+					onClick={onRetry}
+				>
+					Retry
+				</button>
 			</div>
 		);
 	}
