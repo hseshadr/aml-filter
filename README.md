@@ -69,6 +69,9 @@ make demo-browser          # docker compose: serves the signed bundle + builds t
 # then open http://localhost:5173/screen and search:  Ivan Fakovich
 ```
 
+Host ports default to **8081** (edge) / **5173** (SPA); override either with
+`AML_EDGE_PORT` / `AML_SPA_PORT` (e.g. `AML_EDGE_PORT=8091 make demo`).
+
 > **`make demo-browser` vs `make demo`.** `make demo-browser` builds and serves the
 > **minified production SPA** — the same artifact the C1 browser e2e
 > (`cd frontend/app && pnpm test:e2e:c1`) guards, so it's the canonical proof the
