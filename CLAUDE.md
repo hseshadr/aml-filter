@@ -2,6 +2,16 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Execution Discipline (non-negotiable)
+
+**Dispatch superpowers Agents to do the work — do not solo-crawl, and do not just narrate.**
+Any task that is codebase exploration, multi-file research, implementation, validation, or
+gate-running MUST be executed by dispatching `Agent`(s) (via `superpowers:dispatching-parallel-agents`
+or `superpowers:subagent-driven-development`), not by the main thread doing it sequentially.
+Agents are an **execution substrate**, not just for exploration — orchestrate
+implementation/validation/gates across them too. The main thread coordinates and reviews;
+it does not hand-run the work. Treat "let me just do this one step myself first" as a red flag.
+
 ## Project Overview
 
 AML-Filter v2.1 is an open-source AML and sanctions screening engine, **rebuilt to run
