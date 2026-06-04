@@ -16,15 +16,35 @@ export class NetworkError extends Error {
 	}
 }
 
+/**
+ * Hard ceiling on a single transport fetch. A stalled origin (no FIN, no RST)
+ * would otherwise leave the await pending forever; the AbortController turns
+ * that into a NetworkError so `syncIndex` fails closed instead of hanging.
+ */
+export const FETCH_TIMEOUT_MS = 15_000;
+
 export const fetchBytes: FetchBytes = async (url) => {
+	const controller = new AbortController();
+	const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 	let response: Response;
 	try {
-		response = await fetch(url);
+		response = await fetch(url, { signal: controller.signal });
 	} catch (cause) {
+		if (controller.signal.aborted) {
+			// The abort fired: the request exceeded FETCH_TIMEOUT_MS. Surface it as
+			// the same recoverable NetworkError class so syncIndex's fail-closed
+			// fallback treats a stall like any other unreachable origin.
+			throw new NetworkError(
+				`fetch ${url} failed: timed out after ${FETCH_TIMEOUT_MS}ms`,
+				{ cause },
+			);
+		}
 		// `fetch` rejects on a network-level failure (offline, DNS, CORS).
 		throw new NetworkError(`fetch ${url} failed: network unreachable`, {
 			cause,
 		});
+	} finally {
+		clearTimeout(timer);
 	}
 	if (!response.ok) {
 		throw new NetworkError(

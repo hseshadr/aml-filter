@@ -1,9 +1,20 @@
 // Main-thread client that drives the embedder Worker. Presents the same Embedder
 // interface as the in-process embedder so the search engine is agnostic to where
 // the model runs; the Worker keeps model load + inference off the UI thread.
+//
+// Worker→client messages are a discriminated union tagged by an explicit `type`
+// field: `result` replies (correlated by id) and one-way `progress`
+// notifications. The client switches on `type` with an exhaustive default that
+// throws on an unknown tag, so a malformed or future message can never be
+// silently mis-routed — the two channels never cross-wire.
 
-import type { Embedder } from "./embedder";
-import type { EmbedRequest, EmbedResponse } from "./embedderWorker";
+import type { Embedder, OnEmbedProgress } from "./embedder";
+import type {
+	EmbedRequest,
+	EmbedResponse,
+	ProgressMessage,
+	WorkerMessage,
+} from "./embedderWorker";
 
 /** A minimal Worker surface — what this client needs, so it is easy to fake. */
 export interface WorkerLike {
@@ -13,7 +24,7 @@ export interface WorkerLike {
 	): void;
 	addEventListener(
 		type: "message",
-		listener: (event: MessageEvent<EmbedResponse>) => void,
+		listener: (event: MessageEvent<WorkerMessage>) => void,
 	): void;
 }
 
@@ -26,16 +37,46 @@ export function spawnEmbedderWorker(): Worker {
 
 class WorkerEmbedder implements Embedder {
 	readonly #worker: WorkerLike;
+	readonly #onProgress: OnEmbedProgress | undefined;
 	readonly #pending = new Map<
 		number,
 		{ resolve: (v: Float32Array) => void; reject: (e: Error) => void }
 	>();
 	#nextId = 0;
 
-	public constructor(worker: WorkerLike) {
+	public constructor(worker: WorkerLike, onProgress?: OnEmbedProgress) {
 		this.#worker = worker;
+		this.#onProgress = onProgress;
 		this.#worker.addEventListener("message", (event) => {
-			this.#settle(event.data);
+			this.#route(event.data);
+		});
+	}
+
+	#route(message: WorkerMessage): void {
+		// Switch on the explicit `type` tag. The default branch makes the union
+		// exhaustive: an unknown tag is a programming/protocol error, surfaced
+		// loudly rather than silently dropped.
+		switch (message.type) {
+			case "result":
+				this.#settle(message);
+				return;
+			case "progress":
+				this.#emitProgress(message);
+				return;
+			default:
+				throw new Error(
+					`embedder worker sent an unknown message type: ${
+						(message as { readonly type: string }).type
+					}`,
+				);
+		}
+	}
+
+	#emitProgress(message: ProgressMessage): void {
+		this.#onProgress?.({
+			loaded: message.loaded,
+			total: message.total,
+			pct: message.pct,
 		});
 	}
 
@@ -62,7 +103,11 @@ class WorkerEmbedder implements Embedder {
 	}
 }
 
-/** Wrap a Worker (or Worker-like) as an Embedder. */
-export function createWorkerEmbedder(worker: WorkerLike): Embedder {
-	return new WorkerEmbedder(worker);
+/** Wrap a Worker (or Worker-like) as an Embedder, forwarding model-download
+ * progress to an optional sink. */
+export function createWorkerEmbedder(
+	worker: WorkerLike,
+	onProgress?: OnEmbedProgress,
+): Embedder {
+	return new WorkerEmbedder(worker, onProgress);
 }

@@ -12,7 +12,7 @@ import { defineConfig, devices } from "@playwright/test";
  *   - a CORS static server for the committed signed OFAC bundle.
  *
  * The spec drives a real headless Chromium: it waits for the full
- * sync → verify → ~25 MB model download → screen pipeline, then asserts a real
+ * sync → verify → ~23 MB model download → screen pipeline, then asserts a real
  * explainable match for a sanctioned name and an empty result for a nonsense
  * name. `http://localhost` is a secure context, so OPFS works with no COOP/COEP.
  */
@@ -43,7 +43,14 @@ export default defineConfig({
 			url: `http://localhost:${SPA_PORT}/screen`,
 			reuseExistingServer: !process.env.CI,
 			timeout: 180_000,
-			env: { VITE_BUNDLE_BASE_URL: `http://localhost:${CATALOG_PORT}` },
+			// VITE_MODEL_LOAD_TIMEOUT_MS bounds the warmup so the cold/blocked spec's
+			// "everything blocked" case fails LOUDLY within seconds instead of the
+			// 120s production ceiling. A local (or self-hosted) model load finishes
+			// well under this bound, so the warm specs are unaffected.
+			env: {
+				VITE_BUNDLE_BASE_URL: `http://localhost:${CATALOG_PORT}`,
+				VITE_MODEL_LOAD_TIMEOUT_MS: "45000",
+			},
 		},
 		{
 			command: "node tests/e2e-c1/catalog-server.mjs",

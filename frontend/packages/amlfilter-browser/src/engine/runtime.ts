@@ -5,7 +5,7 @@
 //   - the sync Worker (worker.ts) owns OPFS + the ported sync_index; it pulls the
 //     signed, content-addressed bundle from the origin, verifies it ed25519 +
 //     sha256 fail-closed, and materializes the four bundle files;
-//   - the embedder Worker (embedderWorker.ts) owns transformers.js: the ~25 MB
+//   - the embedder Worker (embedderWorker.ts) owns transformers.js: the ~23 MB
 //     all-MiniLM-L6-v2 weights download + ONNX inference.
 //
 // bootstrap() drives both with a progress callback so the UI can show real
@@ -13,7 +13,12 @@
 // built once and cached; later calls return the same instance.
 
 import { EngineClient } from "./client";
-import { createEmbedder, type Embedder } from "./embedder";
+import {
+	createEmbedder,
+	type Embedder,
+	type EmbedProgress,
+	type OnEmbedProgress,
+} from "./embedder";
 import { createWorkerEmbedder, spawnEmbedderWorker } from "./embedderClient";
 import {
 	createScreeningEngine,
@@ -31,12 +36,89 @@ const META_PATH = "ofac_meta.json";
 /** Any non-empty string warms the ONNX session; content is discarded. */
 const WARMUP_PROMPT = "warm up the model";
 
-/** A bootstrap stage, surfaced to the UI for a real progress story. */
+/**
+ * Hard ceiling on the warmup embed — the ~23 MB model download + ONNX compile.
+ * A stalled HF CDN would otherwise leave bootstrap pending forever (the boot
+ * banner never resolves and never errors); this turns a stall into a reject so
+ * the caller's `.catch` runs and the UI can offer a retry. This is the
+ * PRODUCTION default; the cold-cache e2e overrides it via
+ * `VITE_MODEL_LOAD_TIMEOUT_MS` (see {@link modelLoadTimeoutMs}) to fail fast.
+ */
+export const MODEL_LOAD_TIMEOUT_MS = 120_000;
+
+/**
+ * Parse a model-load timeout override (ms) fail-closed: an absent, non-numeric,
+ * non-finite, or non-positive value falls back to {@link MODEL_LOAD_TIMEOUT_MS},
+ * so a malformed env var can never weaken the production ceiling to 0/NaN. Pure
+ * over its input — the caller supplies the raw env string (or undefined).
+ */
+export function parseTimeoutMs(raw: string | undefined): number {
+	if (raw === undefined) {
+		return MODEL_LOAD_TIMEOUT_MS;
+	}
+	const parsed = Number(raw);
+	if (!Number.isFinite(parsed) || parsed <= 0) {
+		return MODEL_LOAD_TIMEOUT_MS;
+	}
+	return parsed;
+}
+
+/**
+ * The effective model-load timeout: the `VITE_MODEL_LOAD_TIMEOUT_MS` override if
+ * present and valid, otherwise the production default. The override exists ONLY
+ * so the cold-cache e2e can bound the "everything blocked" case to seconds; in a
+ * normal build the env var is unset and the default stands.
+ */
+export function modelLoadTimeoutMs(
+	env: Readonly<Record<string, string | undefined>>,
+): number {
+	return parseTimeoutMs(env.VITE_MODEL_LOAD_TIMEOUT_MS);
+}
+
+/**
+ * Race a promise against a deadline. Resolves with the promise's value if it
+ * settles first; otherwise rejects with `msg`. The timer is always cleared so a
+ * resolved promise leaves no pending reject behind.
+ */
+export function withTimeout<T>(
+	p: Promise<T>,
+	ms: number,
+	msg: string,
+): Promise<T> {
+	let timer: ReturnType<typeof setTimeout>;
+	const deadline = new Promise<never>((_resolve, reject) => {
+		timer = setTimeout(() => reject(new Error(msg)), ms);
+	});
+	return Promise.race([p, deadline]).finally(() => clearTimeout(timer));
+}
+
+/**
+ * Wrap an {@link OnEmbedProgress} so it fires only when `Math.round(pct)`
+ * changes. transformers.js streams many sub-percent download ticks; passing each
+ * straight through would re-render the boot banner on every tick. The precise
+ * `pct` is forwarded unchanged (the banner rounds for display); only the rounded
+ * value gates the emit, so at most ~101 stage emissions occur over a full 0→100.
+ */
+export function throttleByRoundedPct(emit: OnEmbedProgress): OnEmbedProgress {
+	let lastRounded: number | undefined;
+	return (progress) => {
+		const rounded = Math.round(progress.pct);
+		if (rounded === lastRounded) {
+			return;
+		}
+		lastRounded = rounded;
+		emit(progress);
+	};
+}
+
+/** A bootstrap stage, surfaced to the UI for a real progress story. The
+ * `loading-model` stage may fire with no progress yet (the plain banner) and
+ * then re-fire carrying download progress as the ~23 MB model streams in. */
 export type BootStage =
 	| { readonly kind: "syncing" }
 	| { readonly kind: "synced"; readonly result: SyncResult }
 	| { readonly kind: "reassembling" }
-	| { readonly kind: "loading-model" }
+	| { readonly kind: "loading-model"; readonly progress?: EmbedProgress }
 	| { readonly kind: "ready" };
 
 /** Progress sink; called as bootstrap advances through its stages. */
@@ -56,15 +138,18 @@ export interface EnginePort {
 	readFile(path: string): Promise<Uint8Array>;
 }
 
-/** The seams bootstrap depends on; defaulted to the real Workers, faked in tests. */
+/** The seams bootstrap depends on; defaulted to the real Workers, faked in tests.
+ * `makeEmbedder` receives an `onProgress` sink the runtime wires to the boot
+ * banner so model-download progress reaches the UI. */
 export interface RuntimeDeps {
 	readonly spawnEngine: () => EnginePort;
-	readonly makeEmbedder: () => Embedder;
+	readonly makeEmbedder: (onProgress: OnEmbedProgress) => Embedder;
 }
 
 const defaultDeps: RuntimeDeps = {
 	spawnEngine: () => EngineClient.spawn(),
-	makeEmbedder: () => createWorkerEmbedder(spawnEmbedderWorker()),
+	makeEmbedder: (onProgress) =>
+		createWorkerEmbedder(spawnEmbedderWorker(), onProgress),
 };
 
 /** Build the production runtime deps (real sync Worker + real embedder Worker). */
@@ -147,10 +232,27 @@ export class EngineRuntime {
 		const files = await readBundleFiles(engineClient);
 
 		onStage({ kind: "loading-model" });
-		const embedder = this.#deps.makeEmbedder();
-		// Force the ~25 MB model download/compile now so "loading-model" reflects
-		// real work and the first user query is fast.
-		await embedder.embed(WARMUP_PROMPT);
+		// Re-fire the stage with each download tick so the banner shows a percent,
+		// but throttled to a CHANGED rounded percent. transformers.js fires many
+		// ticks for the ~23 MB download; without this every tick would re-render
+		// the banner. Deduping on Math.round(pct) caps emissions at ~100. The
+		// precise pct is preserved on the stage; only the rounded value gates the
+		// emit, matching the banner's own Math.round(pct) render.
+		const onModelProgress = throttleByRoundedPct((progress) =>
+			onStage({ kind: "loading-model", progress }),
+		);
+		const embedder = this.#deps.makeEmbedder(onModelProgress);
+		// Force the ~23 MB model download/compile now so "loading-model" reflects
+		// real work and the first user query is fast. Bounded: a stalled CDN must
+		// reject (bootstrap clears its memo + the UI errors) rather than hang. The
+		// ceiling is the production default unless the cold-cache e2e overrode it
+		// via VITE_MODEL_LOAD_TIMEOUT_MS, so that test can fail fast and loud.
+		const timeoutMs = modelLoadTimeoutMs(import.meta.env);
+		await withTimeout(
+			embedder.embed(WARMUP_PROMPT),
+			timeoutMs,
+			`loading the name-matching model timed out after ${timeoutMs}ms`,
+		);
 
 		const engine = createScreeningEngine(files, embedder);
 		this.#ready = engine;

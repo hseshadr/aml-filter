@@ -6,6 +6,8 @@
 	"private": true,
 	"scripts": {
 		"dev": "vite",
+		"download-model": "node scripts/download-model.mjs",
+		"prebuild": "node scripts/download-model.mjs",
 		"build": "tsc --noEmit && vite build",
 		"preview": "vite preview",
 		"lint": "biome check .",

@@ -5,25 +5,37 @@
 // `{ pooling: "mean", normalize: true }` is the byte-for-byte equivalent of that
 // recipe, so embed(text) here matches encode_query(text) on the server to ~1e-3.
 //
-// The model load is async and heavy (~25 MB of weights), so the real pipeline is
+// The model load is async and heavy (~23 MB of weights), so the real pipeline is
 // created once and cached. The Worker wrapper (createEmbedderWorkerHandler) keeps
 // the load + inference off the main thread; the pure Embedder below is what the
 // parity test exercises directly in Node.
 
-import { env, pipeline } from "@huggingface/transformers";
+import { env, type ProgressInfo, pipeline } from "@huggingface/transformers";
 
-// transformers.js browser env. The library's default `useBrowserCache = true`
-// routes model weights through the CacheStorage LRU (`caches.open` → an internal
-// get/put helper). Under a minified production build (Vite `serve`, NOT the dev
-// server) that helper is mangled and throws `Ke(...).call is not a function`
-// the moment the worker tries to load the model — the screening bundle never
-// boots. We don't need that cache: weights are already content-addressed and
-// served immutable by the edge CDN, and the browser's own HTTP cache covers
-// reloads. Disabling it takes the fragile path out entirely. `allowLocalModels`
-// is off so the worker always fetches the remote ONNX export instead of probing
-// a non-existent same-origin `/models/...` path (which 404s in this static SPA).
-env.useBrowserCache = false;
-env.allowLocalModels = false;
+// transformers.js browser env.
+//
+// Weights are self-hosted, not pulled from huggingface.co at runtime. The app's
+// `prebuild` hook (app/scripts/download-model.mjs) mirrors this model's files
+// into app/public/models/, so they ship inside the SPA's own origin. Setting
+// `allowLocalModels = true` + `localModelPath = "/models/"` makes transformers.js
+// resolve each file as `/models/<modelId>/<file>` — e.g.
+// `/models/Xenova/all-MiniLM-L6-v2/onnx/model_quantized.onnx` — served same-origin
+// instead of from the HF CDN. (In the browser the ONNX device is `wasm`, whose
+// default dtype is `q8`, so the runtime requests the `_quantized` ONNX export.)
+//
+// `useBrowserCache` is RE-ENABLED. The original `Ke(...).call is not a function`
+// crash that once motivated disabling it was NOT a CacheStorage bug: it was
+// esbuild downleveling native private fields (`#field`) to a WeakMap accessor
+// under the es2020 build target, which transformers.js's minified worker
+// mis-invoked — fixed by `target: "es2022"` in app/vite.config.ts. The
+// cold/blocked-CDN e2e (app/tests/e2e-c1/screen-cold-blocked.spec.ts) drives the
+// MINIFIED prod build in a real Chromium with the cache on and asserts ZERO
+// in-page console errors as the ~23 MB model loads, so a re-introduction of the
+// old downlevel crash re-trips that test. With the cache on, a returning visitor
+// reuses the cached weights instead of re-fetching them from /models/.
+env.useBrowserCache = true;
+env.allowLocalModels = true;
+env.localModelPath = "/models/";
 
 /** The sentence-transformers model id, mirrored as its Xenova ONNX export. */
 export const EMBEDDING_MODEL = "Xenova/all-MiniLM-L6-v2";
@@ -36,11 +48,50 @@ export interface Embedder {
 	embed(text: string): Promise<Float32Array>;
 }
 
+/** Model-download progress, surfaced once per transformers.js "progress" event. */
+export interface EmbedProgress {
+	/** Bytes loaded so far for the file currently downloading. */
+	readonly loaded: number;
+	/** Total bytes for that file. */
+	readonly total: number;
+	/** Percent loaded (0–100), derived from loaded/total. */
+	readonly pct: number;
+}
+
+/** A construction-time sink for model-load progress. Optional: progress is a
+ * boot-banner nicety, not part of the shared {@link Embedder.embed} contract. */
+export type OnEmbedProgress = (progress: EmbedProgress) => void;
+
+/**
+ * Map a transformers.js {@link ProgressInfo} to {@link EmbedProgress}, but only
+ * for the "progress" status (the per-file download tick that carries byte
+ * counts). Every other status — initiate / done / ready / progress_total —
+ * yields undefined, so the banner only ever moves on real download progress.
+ * `pct` is computed from loaded/total (total 0 ⇒ 0) rather than trusting the
+ * library's own field, keeping this the single source of truth, then clamped to
+ * [0, 100] — transformers.js can report `loaded > total` (compressed transfer
+ * sizes) or a transient negative, which would otherwise render as e.g. "108%".
+ */
+export function mapProgress(info: ProgressInfo): EmbedProgress | undefined {
+	if (info.status !== "progress") {
+		return undefined;
+	}
+	const raw = info.total > 0 ? (info.loaded / info.total) * 100 : 0;
+	const pct = Math.min(100, Math.max(0, raw));
+	return { loaded: info.loaded, total: info.total, pct };
+}
+
 /** A feature-extraction call producing a flat numeric data buffer. */
 type ExtractFn = (
 	text: string,
 	options: { readonly pooling: "mean"; readonly normalize: boolean },
 ) => Promise<{ readonly data: ArrayLike<number> }>;
+
+/** Pipeline options this module passes through: just the progress callback,
+ * which transformers.js invokes during model construction (weight download). */
+interface PipelineOptions {
+	readonly progress_callback?: (info: ProgressInfo) => void;
+}
 
 /** A narrowed view of transformers.js `pipeline`: building the feature-extraction
  * task yields a callable ExtractFn. The library's own overload union over every
@@ -49,6 +100,7 @@ type ExtractFn = (
 type LoadFeatureExtraction = (
 	task: "feature-extraction",
 	model: string,
+	options?: PipelineOptions,
 ) => Promise<ExtractFn>;
 
 class PipelineEmbedder implements Embedder {
@@ -77,18 +129,54 @@ class PipelineEmbedder implements Embedder {
 	}
 }
 
-async function defaultExtractFn(): Promise<ExtractFn> {
-	const load = pipeline as unknown as LoadFeatureExtraction;
-	return load("feature-extraction", EMBEDDING_MODEL);
+/** Build the progress_callback options for `pipeline`, or undefined when no sink
+ * is wired (so the un-instrumented path stays byte-identical to before). */
+function progressOptions(
+	onProgress: OnEmbedProgress | undefined,
+): PipelineOptions | undefined {
+	if (onProgress === undefined) {
+		return undefined;
+	}
+	return {
+		progress_callback: (info) => {
+			const mapped = mapProgress(info);
+			if (mapped !== undefined) {
+				onProgress(mapped);
+			}
+		},
+	};
+}
+
+/** Load the feature-extraction pipeline via an injected `pipeline`, threading
+ * the (optional) progress sink as `progress_callback`. */
+function loadWith(
+	load: LoadFeatureExtraction,
+	onProgress: OnEmbedProgress | undefined,
+): () => Promise<ExtractFn> {
+	return () =>
+		load("feature-extraction", EMBEDDING_MODEL, progressOptions(onProgress));
 }
 
 /**
  * The default embedder, backed by the transformers.js feature-extraction
  * pipeline. The model is fetched + compiled lazily on the first embed call and
- * cached for the lifetime of the embedder.
+ * cached for the lifetime of the embedder. An optional `onProgress` sink is
+ * called once per download tick so the boot banner can show a real percent.
  */
-export function createEmbedder(): Embedder {
-	return new PipelineEmbedder(defaultExtractFn);
+export function createEmbedder(onProgress?: OnEmbedProgress): Embedder {
+	const load = pipeline as unknown as LoadFeatureExtraction;
+	return new PipelineEmbedder(loadWith(load, onProgress));
+}
+
+/**
+ * An embedder over an injected `pipeline` — the seam tests use to exercise the
+ * progress_callback wiring without the real ~23 MB download.
+ */
+export function createEmbedderWithPipeline(
+	load: LoadFeatureExtraction,
+	onProgress?: OnEmbedProgress,
+): Embedder {
+	return new PipelineEmbedder(loadWith(load, onProgress));
 }
 
 /**

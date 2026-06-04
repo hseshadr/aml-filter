@@ -26,11 +26,16 @@ type Phase =
 	| { readonly kind: "ready" }
 	| { readonly kind: "error"; readonly message: string };
 
+// Single source of truth for the model-loading line, so the with-progress and
+// without-progress banners stay consistent (same wording, same accurate size).
+// The real quantized ONNX export is ~23 MB (22,972,370 bytes).
+const LOADING_MODEL_LABEL = "Loading the name-matching model (~23 MB, once)…";
+
 const STAGE_LABEL: Readonly<Record<BootStage["kind"], string>> = {
 	syncing: "Syncing the signed OFAC bundle…",
 	synced: "Bundle verified.",
 	reassembling: "Reassembling the index…",
-	"loading-model": "Loading the name-matching model (~25 MB, once)…",
+	"loading-model": LOADING_MODEL_LABEL,
 	ready: "Ready.",
 };
 
@@ -108,17 +113,28 @@ export function ScreenPage() {
 	const [query, setQuery] = useState("");
 	const [entities, setEntities] = useState<ReadonlyArray<Entity>>([]);
 	const [search, setSearch] = useState<SearchState | null>(null);
+	// Bumped by Retry: it resets the boot guard and re-fires the boot effect so a
+	// boot that timed out (stalled CDN) can be re-attempted from the error banner.
+	const [bootNonce, setBootNonce] = useState(0);
 	const seq = useRef(0);
 	const started = useRef(false);
 	const alive = useRef(true);
 
-	useEffect(
-		() => () => {
+	// Re-arm `alive` on mount and disarm on unmount. The mount re-arm matters
+	// under React 18 StrictMode, whose dev mount→unmount→remount would otherwise
+	// leave `alive.current` stuck `false` after the throwaway first pass — which
+	// would silently swallow the boot's resolve/reject on the real (second) mount.
+	useEffect(() => {
+		alive.current = true;
+		return () => {
 			alive.current = false;
-		},
-		[],
-	);
+		};
+	}, []);
 
+	// bootNonce is not read in the body — it is the intentional re-fire trigger:
+	// Retry resets the `started` guard and bumps the nonce so this effect re-runs
+	// the boot. Listed as a dep so that re-fire actually happens.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: bootNonce is an intentional re-fire trigger, not read in the body
 	useEffect(() => {
 		if (started.current) {
 			return;
@@ -144,7 +160,16 @@ export function ScreenPage() {
 					message: error instanceof Error ? error.message : String(error),
 				});
 			});
-	}, [runtime]);
+	}, [runtime, bootNonce]);
+
+	const retryBoot = useCallback(() => {
+		// Reset the once-only boot guard and re-arm the booting banner; bumping the
+		// nonce re-runs the boot effect, which calls bootstrap again (the runtime
+		// cleared its memo when the prior attempt rejected).
+		started.current = false;
+		setPhase({ kind: "booting", stage: { kind: "syncing" } });
+		setBootNonce((n) => n + 1);
+	}, []);
 
 	const runSearch = useCallback(
 		async (text: string) => {
@@ -187,7 +212,7 @@ export function ScreenPage() {
 				here in your browser — nothing you type ever leaves your device.
 			</p>
 
-			<BootBanner phase={phase} />
+			<BootBanner phase={phase} onRetry={retryBoot} />
 
 			<input
 				className="screen-search"
@@ -222,22 +247,46 @@ export function ScreenPage() {
 	);
 }
 
-function BootBanner({ phase }: { readonly phase: Phase }) {
+function BootBanner({
+	phase,
+	onRetry,
+}: {
+	readonly phase: Phase;
+	readonly onRetry: () => void;
+}) {
 	if (phase.kind === "ready") {
 		return null;
 	}
 	if (phase.kind === "error") {
 		return (
 			<div className="screen-banner screen-banner--error" role="alert">
-				Could not load the screening bundle: {phase.message}
+				<span>Could not load the screening bundle: {phase.message}</span>
+				<button
+					type="button"
+					className="screen-banner__retry"
+					onClick={onRetry}
+				>
+					Retry
+				</button>
 			</div>
 		);
 	}
 	return (
 		<div className="screen-banner" role="status">
-			{STAGE_LABEL[phase.stage.kind]}
+			{stageMessage(phase.stage)}
 		</div>
 	);
+}
+
+// The banner line for a stage. The loading-model stage shows a live percent once
+// download progress arrives — appended to the SAME single-sourced label (size
+// hint kept) so it reads "…(~23 MB, once)… 42%"; before that (and for every
+// other stage) it is the plain label.
+function stageMessage(stage: BootStage): string {
+	if (stage.kind === "loading-model" && stage.progress !== undefined) {
+		return `${LOADING_MODEL_LABEL} ${Math.round(stage.progress.pct)}%`;
+	}
+	return STAGE_LABEL[stage.kind];
 }
 
 function Results({

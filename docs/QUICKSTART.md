@@ -130,7 +130,7 @@ pnpm --filter aml-filter-app dev      # open http://localhost:5173/screen
 ```
 
 The `/screen` page syncs the signed bundle into the browser (ed25519 + sha256,
-fail-closed), loads the MiniLM matcher once (~25 MB), and screens names **in-tab** —
+fail-closed), loads the MiniLM matcher once (~23 MB), and screens names **in-tab** —
 no FastAPI on this path. The ed25519 public key is pinned in the app build, not
 fetched from the (untrusted) bundle origin.
 
