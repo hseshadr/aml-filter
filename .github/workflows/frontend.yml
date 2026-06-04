@@ -51,10 +51,20 @@ jobs:
       # script is sha256-verified + fail-closed, so a restored cache is trusted
       # only if its bytes still match the pins.
       - name: Cache self-hosted model weights
+        id: model-weights-cache
         uses: actions/cache@v4
         with:
           path: frontend/app/public/models
           key: model-weights-${{ runner.os }}-${{ hashFiles('frontend/app/scripts/download-model.mjs') }}
+
+      # On a cache miss the weights aren't present yet, so run the download
+      # script explicitly before the unit tests (which call loadRealBodies() and
+      # fail loudly if the files are absent). The Build step's `prebuild` hook
+      # would also do this, but it runs after the test step.
+      - name: Download model weights (cache miss)
+        if: steps.model-weights-cache.outputs.cache-hit != 'true'
+        working-directory: frontend/app
+        run: node scripts/download-model.mjs
 
       - name: Lint (biome, all workspace members)
         run: pnpm -r run lint
