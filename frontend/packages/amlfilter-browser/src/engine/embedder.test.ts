@@ -43,6 +43,32 @@ describe("mapProgress", () => {
 		expect(mapProgress(info)).toEqual({ loaded: 0, total: 0, pct: 0 });
 	});
 
+	it("clamps pct to 100 when loaded exceeds total (compressed transfer)", () => {
+		// transformers.js can report loaded > total for gzip/br transfers, which
+		// would otherwise render as "108%".
+		const info: ProgressInfo = {
+			status: "progress",
+			name: "m",
+			file: "f",
+			progress: 108,
+			loaded: 108,
+			total: 100,
+		};
+		expect(mapProgress(info)?.pct).toBe(100);
+	});
+
+	it("clamps pct to 0 for a negative loaded value", () => {
+		const info: ProgressInfo = {
+			status: "progress",
+			name: "m",
+			file: "f",
+			progress: 0,
+			loaded: -10,
+			total: 100,
+		};
+		expect(mapProgress(info)?.pct).toBe(0);
+	});
+
 	it.each([
 		{ status: "initiate" as const, name: "m", file: "f" },
 		{ status: "done" as const, name: "m", file: "f" },

@@ -33,7 +33,7 @@ describe("WorkerEmbedder message routing", () => {
 		}
 		const id = first.id;
 		const vector = new Float32Array([1, 2, 3]);
-		emit({ ok: true, id, vector });
+		emit({ type: "result", ok: true, id, vector });
 
 		await expect(pending).resolves.toBe(vector);
 	});
@@ -46,7 +46,7 @@ describe("WorkerEmbedder message routing", () => {
 		embedder.embed("ivan");
 		// A progress message must NOT settle the pending request — it has no id
 		// match in the pending map and is a one-way notification.
-		emit({ kind: "progress", id: 0, loaded: 10, total: 100, pct: 10 });
+		emit({ type: "progress", id: 0, loaded: 10, total: 100, pct: 10 });
 
 		expect(onProgress).toHaveBeenCalledTimes(1);
 		expect(onProgress).toHaveBeenCalledWith({
@@ -67,7 +67,7 @@ describe("WorkerEmbedder message routing", () => {
 			throw new Error("expected the embed request to be posted");
 		}
 		const id = first.id;
-		emit({ kind: "progress", id, loaded: 50, total: 100, pct: 50 });
+		emit({ type: "progress", id, loaded: 50, total: 100, pct: 50 });
 
 		const settled = await Promise.race([
 			pending.then(() => "settled"),
@@ -77,7 +77,7 @@ describe("WorkerEmbedder message routing", () => {
 
 		// The real result still resolves the request afterwards.
 		const vector = new Float32Array([9]);
-		emit({ ok: true, id, vector });
+		emit({ type: "result", ok: true, id, vector });
 		await expect(pending).resolves.toBe(vector);
 	});
 
@@ -91,7 +91,7 @@ describe("WorkerEmbedder message routing", () => {
 			throw new Error("expected the embed request to be posted");
 		}
 		const id = first.id;
-		emit({ ok: false, id, error: "kaboom" });
+		emit({ type: "result", ok: false, id, error: "kaboom" });
 
 		await expect(pending).rejects.toThrow("kaboom");
 	});
@@ -100,7 +100,16 @@ describe("WorkerEmbedder message routing", () => {
 		const { worker, emit } = fakeWorker();
 		createWorkerEmbedder(worker);
 		expect(() =>
-			emit({ kind: "progress", id: 0, loaded: 1, total: 2, pct: 50 }),
+			emit({ type: "progress", id: 0, loaded: 1, total: 2, pct: 50 }),
 		).not.toThrow();
+	});
+
+	it("throws on an unknown message type instead of silently dropping it", () => {
+		const { worker, emit } = fakeWorker();
+		createWorkerEmbedder(worker);
+		// A malformed / future message with an unrecognized tag must surface
+		// loudly — the exhaustive default is the protocol guard.
+		const bogus = { type: "bogus", id: 0 } as unknown as WorkerMessage;
+		expect(() => emit(bogus)).toThrow(/unknown message type: bogus/);
 	});
 });

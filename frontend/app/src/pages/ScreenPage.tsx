@@ -26,11 +26,16 @@ type Phase =
 	| { readonly kind: "ready" }
 	| { readonly kind: "error"; readonly message: string };
 
+// Single source of truth for the model-loading line, so the with-progress and
+// without-progress banners stay consistent (same wording, same accurate size).
+// The real quantized ONNX export is ~23 MB (22,972,370 bytes).
+const LOADING_MODEL_LABEL = "Loading the name-matching model (~23 MB, once)…";
+
 const STAGE_LABEL: Readonly<Record<BootStage["kind"], string>> = {
 	syncing: "Syncing the signed OFAC bundle…",
 	synced: "Bundle verified.",
 	reassembling: "Reassembling the index…",
-	"loading-model": "Loading the name-matching model (~25 MB, once)…",
+	"loading-model": LOADING_MODEL_LABEL,
 	ready: "Ready.",
 };
 
@@ -274,11 +279,12 @@ function BootBanner({
 }
 
 // The banner line for a stage. The loading-model stage shows a live percent once
-// download progress arrives; before that (and for every other stage) it is the
-// plain label.
+// download progress arrives — appended to the SAME single-sourced label (size
+// hint kept) so it reads "…(~23 MB, once)… 42%"; before that (and for every
+// other stage) it is the plain label.
 function stageMessage(stage: BootStage): string {
 	if (stage.kind === "loading-model" && stage.progress !== undefined) {
-		return `Loading the name-matching model… ${Math.round(stage.progress.pct)}%`;
+		return `${LOADING_MODEL_LABEL} ${Math.round(stage.progress.pct)}%`;
 	}
 	return STAGE_LABEL[stage.kind];
 }

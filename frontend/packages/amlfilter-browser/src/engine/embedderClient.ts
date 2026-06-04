@@ -2,15 +2,17 @@
 // interface as the in-process embedder so the search engine is agnostic to where
 // the model runs; the Worker keeps model load + inference off the UI thread.
 //
-// Worker→client messages are a discriminated union: request/response replies
-// (correlated by id) and one-way `progress` notifications. The client routes the
-// former through the pending-request map and forwards the latter to an optional
-// onProgress sink — the two never cross-wire.
+// Worker→client messages are a discriminated union tagged by an explicit `type`
+// field: `result` replies (correlated by id) and one-way `progress`
+// notifications. The client switches on `type` with an exhaustive default that
+// throws on an unknown tag, so a malformed or future message can never be
+// silently mis-routed — the two channels never cross-wire.
 
 import type { Embedder, OnEmbedProgress } from "./embedder";
 import type {
 	EmbedRequest,
 	EmbedResponse,
+	ProgressMessage,
 	WorkerMessage,
 } from "./embedderWorker";
 
@@ -51,18 +53,31 @@ class WorkerEmbedder implements Embedder {
 	}
 
 	#route(message: WorkerMessage): void {
-		// `kind` is present only on the one-way progress notification; its absence
-		// marks a request/response reply. This is the discriminant that keeps
-		// progress out of the pending-request correlation.
-		if ("kind" in message) {
-			this.#onProgress?.({
-				loaded: message.loaded,
-				total: message.total,
-				pct: message.pct,
-			});
-			return;
+		// Switch on the explicit `type` tag. The default branch makes the union
+		// exhaustive: an unknown tag is a programming/protocol error, surfaced
+		// loudly rather than silently dropped.
+		switch (message.type) {
+			case "result":
+				this.#settle(message);
+				return;
+			case "progress":
+				this.#emitProgress(message);
+				return;
+			default:
+				throw new Error(
+					`embedder worker sent an unknown message type: ${
+						(message as { readonly type: string }).type
+					}`,
+				);
 		}
-		this.#settle(message);
+	}
+
+	#emitProgress(message: ProgressMessage): void {
+		this.#onProgress?.({
+			loaded: message.loaded,
+			total: message.total,
+			pct: message.pct,
+		});
 	}
 
 	#settle(response: EmbedResponse): void {

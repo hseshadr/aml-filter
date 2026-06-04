@@ -5,7 +5,7 @@
 //   - the sync Worker (worker.ts) owns OPFS + the ported sync_index; it pulls the
 //     signed, content-addressed bundle from the origin, verifies it ed25519 +
 //     sha256 fail-closed, and materializes the four bundle files;
-//   - the embedder Worker (embedderWorker.ts) owns transformers.js: the ~25 MB
+//   - the embedder Worker (embedderWorker.ts) owns transformers.js: the ~23 MB
 //     all-MiniLM-L6-v2 weights download + ONNX inference.
 //
 // bootstrap() drives both with a progress callback so the UI can show real
@@ -37,7 +37,7 @@ const META_PATH = "ofac_meta.json";
 const WARMUP_PROMPT = "warm up the model";
 
 /**
- * Hard ceiling on the warmup embed — the ~25 MB model download + ONNX compile.
+ * Hard ceiling on the warmup embed — the ~23 MB model download + ONNX compile.
  * A stalled HF CDN would otherwise leave bootstrap pending forever (the boot
  * banner never resolves and never errors); this turns a stall into a reject so
  * the caller's `.catch` runs and the UI can offer a retry.
@@ -59,6 +59,25 @@ export function withTimeout<T>(
 		timer = setTimeout(() => reject(new Error(msg)), ms);
 	});
 	return Promise.race([p, deadline]).finally(() => clearTimeout(timer));
+}
+
+/**
+ * Wrap an {@link OnEmbedProgress} so it fires only when `Math.round(pct)`
+ * changes. transformers.js streams many sub-percent download ticks; passing each
+ * straight through would re-render the boot banner on every tick. The precise
+ * `pct` is forwarded unchanged (the banner rounds for display); only the rounded
+ * value gates the emit, so at most ~101 stage emissions occur over a full 0→100.
+ */
+export function throttleByRoundedPct(emit: OnEmbedProgress): OnEmbedProgress {
+	let lastRounded: number | undefined;
+	return (progress) => {
+		const rounded = Math.round(progress.pct);
+		if (rounded === lastRounded) {
+			return;
+		}
+		lastRounded = rounded;
+		emit(progress);
+	};
 }
 
 /** A bootstrap stage, surfaced to the UI for a real progress story. The
@@ -182,11 +201,17 @@ export class EngineRuntime {
 		const files = await readBundleFiles(engineClient);
 
 		onStage({ kind: "loading-model" });
-		// Re-fire the stage with each download tick so the banner shows a percent.
-		const embedder = this.#deps.makeEmbedder((progress) =>
+		// Re-fire the stage with each download tick so the banner shows a percent,
+		// but throttled to a CHANGED rounded percent. transformers.js fires many
+		// ticks for the ~23 MB download; without this every tick would re-render
+		// the banner. Deduping on Math.round(pct) caps emissions at ~100. The
+		// precise pct is preserved on the stage; only the rounded value gates the
+		// emit, matching the banner's own Math.round(pct) render.
+		const onModelProgress = throttleByRoundedPct((progress) =>
 			onStage({ kind: "loading-model", progress }),
 		);
-		// Force the ~25 MB model download/compile now so "loading-model" reflects
+		const embedder = this.#deps.makeEmbedder(onModelProgress);
+		// Force the ~23 MB model download/compile now so "loading-model" reflects
 		// real work and the first user query is fast. Bounded: a stalled CDN must
 		// reject (bootstrap clears its memo + the UI errors) rather than hang.
 		await withTimeout(

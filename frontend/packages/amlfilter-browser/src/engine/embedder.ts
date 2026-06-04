@@ -5,7 +5,7 @@
 // `{ pooling: "mean", normalize: true }` is the byte-for-byte equivalent of that
 // recipe, so embed(text) here matches encode_query(text) on the server to ~1e-3.
 //
-// The model load is async and heavy (~25 MB of weights), so the real pipeline is
+// The model load is async and heavy (~23 MB of weights), so the real pipeline is
 // created once and cached. The Worker wrapper (createEmbedderWorkerHandler) keeps
 // the load + inference off the main thread; the pure Embedder below is what the
 // parity test exercises directly in Node.
@@ -65,13 +65,16 @@ export type OnEmbedProgress = (progress: EmbedProgress) => void;
  * counts). Every other status — initiate / done / ready / progress_total —
  * yields undefined, so the banner only ever moves on real download progress.
  * `pct` is computed from loaded/total (total 0 ⇒ 0) rather than trusting the
- * library's own field, keeping this the single source of truth.
+ * library's own field, keeping this the single source of truth, then clamped to
+ * [0, 100] — transformers.js can report `loaded > total` (compressed transfer
+ * sizes) or a transient negative, which would otherwise render as e.g. "108%".
  */
 export function mapProgress(info: ProgressInfo): EmbedProgress | undefined {
 	if (info.status !== "progress") {
 		return undefined;
 	}
-	const pct = info.total > 0 ? (info.loaded / info.total) * 100 : 0;
+	const raw = info.total > 0 ? (info.loaded / info.total) * 100 : 0;
+	const pct = Math.min(100, Math.max(0, raw));
 	return { loaded: info.loaded, total: info.total, pct };
 }
 

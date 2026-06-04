@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { Embedder } from "./embedder";
+import type { Embedder, EmbedProgress } from "./embedder";
 import {
 	type BootStage,
 	EngineRuntime,
 	MODEL_LOAD_TIMEOUT_MS,
 	type RuntimeConfig,
 	type RuntimeDeps,
+	throttleByRoundedPct,
 	withTimeout,
 } from "./runtime";
 import type { SyncResult } from "./types";
@@ -111,6 +112,43 @@ describe("EngineRuntime bootstrap timeout", () => {
 		await secondAssert;
 		// A fresh #build ran (warmup re-attempted) — the rejected memo was cleared.
 		expect(embed).toHaveBeenCalledTimes(2);
+	});
+});
+
+describe("throttleByRoundedPct", () => {
+	function progress(pct: number): EmbedProgress {
+		return { loaded: pct, total: 100, pct };
+	}
+
+	it("emits once for repeated ticks at the same rounded percent", () => {
+		const emit = vi.fn();
+		const throttled = throttleByRoundedPct(emit);
+		// Four sub-percent ticks that all round to 42 → exactly one emit.
+		throttled(progress(42.0));
+		throttled(progress(42.1));
+		throttled(progress(42.4));
+		throttled(progress(41.7)); // still rounds to 42
+		expect(emit).toHaveBeenCalledTimes(1);
+	});
+
+	it("emits again when the rounded percent changes, forwarding precise pct", () => {
+		const emit = vi.fn();
+		const throttled = throttleByRoundedPct(emit);
+		throttled(progress(42.2));
+		throttled(progress(43.1)); // rounds to 43 → a new emit
+		expect(emit).toHaveBeenCalledTimes(2);
+		// The precise pct is forwarded unchanged (the banner rounds for display).
+		expect(emit).toHaveBeenNthCalledWith(2, progress(43.1));
+	});
+
+	it("caps emissions at ~101 over a full 0→100 sub-percent stream", () => {
+		const emit = vi.fn();
+		const throttled = throttleByRoundedPct(emit);
+		// 1000 ticks evenly from 0 to 100 → at most 101 distinct rounded values.
+		for (let i = 0; i <= 1000; i += 1) {
+			throttled(progress((i / 1000) * 100));
+		}
+		expect(emit.mock.calls.length).toBeLessThanOrEqual(101);
 	});
 });
 
