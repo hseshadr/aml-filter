@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Embedder } from "./embedder";
 import {
+	type BootStage,
 	EngineRuntime,
 	MODEL_LOAD_TIMEOUT_MS,
 	type RuntimeConfig,
@@ -110,5 +111,37 @@ describe("EngineRuntime bootstrap timeout", () => {
 		await secondAssert;
 		// A fresh #build ran (warmup re-attempted) — the rejected memo was cleared.
 		expect(embed).toHaveBeenCalledTimes(2);
+	});
+});
+
+describe("EngineRuntime model-load progress", () => {
+	it("threads an embedder progress event into a loading-model stage", async () => {
+		// The embedder factory receives an onProgress sink; this fake fires one
+		// progress event during warmup, which the runtime must surface as a
+		// loading-model BootStage carrying that progress.
+		const deps: RuntimeDeps = {
+			spawnEngine: () => fakeEngine(),
+			makeEmbedder: (onProgress) => ({
+				// Fire one progress tick, then reject — that halts #build before the
+				// (out-of-scope) screening-engine assembly while still proving the
+				// progress sink reached onStage. The rejection is asserted below.
+				embed: () => {
+					onProgress({ loaded: 12, total: 24, pct: 50 });
+					return Promise.reject(new Error("warmup halted after progress"));
+				},
+			}),
+		};
+		const runtime = new EngineRuntime(deps);
+		const stages: BootStage[] = [];
+		await expect(
+			runtime.bootstrap(CONFIG, (s) => stages.push(s)),
+		).rejects.toThrow("warmup halted after progress");
+
+		expect(stages).toContainEqual({
+			kind: "loading-model",
+			progress: { loaded: 12, total: 24, pct: 50 },
+		});
+		// The plain (progress-less) loading-model stage still fires first.
+		expect(stages).toContainEqual({ kind: "loading-model" });
 	});
 });

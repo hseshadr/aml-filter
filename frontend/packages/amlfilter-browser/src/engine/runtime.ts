@@ -13,7 +13,12 @@
 // built once and cached; later calls return the same instance.
 
 import { EngineClient } from "./client";
-import { createEmbedder, type Embedder } from "./embedder";
+import {
+	createEmbedder,
+	type Embedder,
+	type EmbedProgress,
+	type OnEmbedProgress,
+} from "./embedder";
 import { createWorkerEmbedder, spawnEmbedderWorker } from "./embedderClient";
 import {
 	createScreeningEngine,
@@ -56,12 +61,14 @@ export function withTimeout<T>(
 	return Promise.race([p, deadline]).finally(() => clearTimeout(timer));
 }
 
-/** A bootstrap stage, surfaced to the UI for a real progress story. */
+/** A bootstrap stage, surfaced to the UI for a real progress story. The
+ * `loading-model` stage may fire with no progress yet (the plain banner) and
+ * then re-fire carrying download progress as the ~23 MB model streams in. */
 export type BootStage =
 	| { readonly kind: "syncing" }
 	| { readonly kind: "synced"; readonly result: SyncResult }
 	| { readonly kind: "reassembling" }
-	| { readonly kind: "loading-model" }
+	| { readonly kind: "loading-model"; readonly progress?: EmbedProgress }
 	| { readonly kind: "ready" };
 
 /** Progress sink; called as bootstrap advances through its stages. */
@@ -81,15 +88,18 @@ export interface EnginePort {
 	readFile(path: string): Promise<Uint8Array>;
 }
 
-/** The seams bootstrap depends on; defaulted to the real Workers, faked in tests. */
+/** The seams bootstrap depends on; defaulted to the real Workers, faked in tests.
+ * `makeEmbedder` receives an `onProgress` sink the runtime wires to the boot
+ * banner so model-download progress reaches the UI. */
 export interface RuntimeDeps {
 	readonly spawnEngine: () => EnginePort;
-	readonly makeEmbedder: () => Embedder;
+	readonly makeEmbedder: (onProgress: OnEmbedProgress) => Embedder;
 }
 
 const defaultDeps: RuntimeDeps = {
 	spawnEngine: () => EngineClient.spawn(),
-	makeEmbedder: () => createWorkerEmbedder(spawnEmbedderWorker()),
+	makeEmbedder: (onProgress) =>
+		createWorkerEmbedder(spawnEmbedderWorker(), onProgress),
 };
 
 /** Build the production runtime deps (real sync Worker + real embedder Worker). */
@@ -172,7 +182,10 @@ export class EngineRuntime {
 		const files = await readBundleFiles(engineClient);
 
 		onStage({ kind: "loading-model" });
-		const embedder = this.#deps.makeEmbedder();
+		// Re-fire the stage with each download tick so the banner shows a percent.
+		const embedder = this.#deps.makeEmbedder((progress) =>
+			onStage({ kind: "loading-model", progress }),
+		);
 		// Force the ~25 MB model download/compile now so "loading-model" reflects
 		// real work and the first user query is fast. Bounded: a stalled CDN must
 		// reject (bootstrap clears its memo + the UI errors) rather than hang.

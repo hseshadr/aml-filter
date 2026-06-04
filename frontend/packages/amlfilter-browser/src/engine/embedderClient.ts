@@ -1,9 +1,18 @@
 // Main-thread client that drives the embedder Worker. Presents the same Embedder
 // interface as the in-process embedder so the search engine is agnostic to where
 // the model runs; the Worker keeps model load + inference off the UI thread.
+//
+// Worker→client messages are a discriminated union: request/response replies
+// (correlated by id) and one-way `progress` notifications. The client routes the
+// former through the pending-request map and forwards the latter to an optional
+// onProgress sink — the two never cross-wire.
 
-import type { Embedder } from "./embedder";
-import type { EmbedRequest, EmbedResponse } from "./embedderWorker";
+import type { Embedder, OnEmbedProgress } from "./embedder";
+import type {
+	EmbedRequest,
+	EmbedResponse,
+	WorkerMessage,
+} from "./embedderWorker";
 
 /** A minimal Worker surface — what this client needs, so it is easy to fake. */
 export interface WorkerLike {
@@ -13,7 +22,7 @@ export interface WorkerLike {
 	): void;
 	addEventListener(
 		type: "message",
-		listener: (event: MessageEvent<EmbedResponse>) => void,
+		listener: (event: MessageEvent<WorkerMessage>) => void,
 	): void;
 }
 
@@ -26,17 +35,34 @@ export function spawnEmbedderWorker(): Worker {
 
 class WorkerEmbedder implements Embedder {
 	readonly #worker: WorkerLike;
+	readonly #onProgress: OnEmbedProgress | undefined;
 	readonly #pending = new Map<
 		number,
 		{ resolve: (v: Float32Array) => void; reject: (e: Error) => void }
 	>();
 	#nextId = 0;
 
-	public constructor(worker: WorkerLike) {
+	public constructor(worker: WorkerLike, onProgress?: OnEmbedProgress) {
 		this.#worker = worker;
+		this.#onProgress = onProgress;
 		this.#worker.addEventListener("message", (event) => {
-			this.#settle(event.data);
+			this.#route(event.data);
 		});
+	}
+
+	#route(message: WorkerMessage): void {
+		// `kind` is present only on the one-way progress notification; its absence
+		// marks a request/response reply. This is the discriminant that keeps
+		// progress out of the pending-request correlation.
+		if ("kind" in message) {
+			this.#onProgress?.({
+				loaded: message.loaded,
+				total: message.total,
+				pct: message.pct,
+			});
+			return;
+		}
+		this.#settle(message);
 	}
 
 	#settle(response: EmbedResponse): void {
@@ -62,7 +88,11 @@ class WorkerEmbedder implements Embedder {
 	}
 }
 
-/** Wrap a Worker (or Worker-like) as an Embedder. */
-export function createWorkerEmbedder(worker: WorkerLike): Embedder {
-	return new WorkerEmbedder(worker);
+/** Wrap a Worker (or Worker-like) as an Embedder, forwarding model-download
+ * progress to an optional sink. */
+export function createWorkerEmbedder(
+	worker: WorkerLike,
+	onProgress?: OnEmbedProgress,
+): Embedder {
+	return new WorkerEmbedder(worker, onProgress);
 }

@@ -268,9 +268,19 @@ function BootBanner({
 	}
 	return (
 		<div className="screen-banner" role="status">
-			{STAGE_LABEL[phase.stage.kind]}
+			{stageMessage(phase.stage)}
 		</div>
 	);
+}
+
+// The banner line for a stage. The loading-model stage shows a live percent once
+// download progress arrives; before that (and for every other stage) it is the
+// plain label.
+function stageMessage(stage: BootStage): string {
+	if (stage.kind === "loading-model" && stage.progress !== undefined) {
+		return `Loading the name-matching model… ${Math.round(stage.progress.pct)}%`;
+	}
+	return STAGE_LABEL[stage.kind];
 }
 
 function Results({

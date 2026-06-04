@@ -10,7 +10,7 @@
 // the load + inference off the main thread; the pure Embedder below is what the
 // parity test exercises directly in Node.
 
-import { env, pipeline } from "@huggingface/transformers";
+import { env, type ProgressInfo, pipeline } from "@huggingface/transformers";
 
 // transformers.js browser env.
 //
@@ -45,11 +45,47 @@ export interface Embedder {
 	embed(text: string): Promise<Float32Array>;
 }
 
+/** Model-download progress, surfaced once per transformers.js "progress" event. */
+export interface EmbedProgress {
+	/** Bytes loaded so far for the file currently downloading. */
+	readonly loaded: number;
+	/** Total bytes for that file. */
+	readonly total: number;
+	/** Percent loaded (0–100), derived from loaded/total. */
+	readonly pct: number;
+}
+
+/** A construction-time sink for model-load progress. Optional: progress is a
+ * boot-banner nicety, not part of the shared {@link Embedder.embed} contract. */
+export type OnEmbedProgress = (progress: EmbedProgress) => void;
+
+/**
+ * Map a transformers.js {@link ProgressInfo} to {@link EmbedProgress}, but only
+ * for the "progress" status (the per-file download tick that carries byte
+ * counts). Every other status — initiate / done / ready / progress_total —
+ * yields undefined, so the banner only ever moves on real download progress.
+ * `pct` is computed from loaded/total (total 0 ⇒ 0) rather than trusting the
+ * library's own field, keeping this the single source of truth.
+ */
+export function mapProgress(info: ProgressInfo): EmbedProgress | undefined {
+	if (info.status !== "progress") {
+		return undefined;
+	}
+	const pct = info.total > 0 ? (info.loaded / info.total) * 100 : 0;
+	return { loaded: info.loaded, total: info.total, pct };
+}
+
 /** A feature-extraction call producing a flat numeric data buffer. */
 type ExtractFn = (
 	text: string,
 	options: { readonly pooling: "mean"; readonly normalize: boolean },
 ) => Promise<{ readonly data: ArrayLike<number> }>;
+
+/** Pipeline options this module passes through: just the progress callback,
+ * which transformers.js invokes during model construction (weight download). */
+interface PipelineOptions {
+	readonly progress_callback?: (info: ProgressInfo) => void;
+}
 
 /** A narrowed view of transformers.js `pipeline`: building the feature-extraction
  * task yields a callable ExtractFn. The library's own overload union over every
@@ -58,6 +94,7 @@ type ExtractFn = (
 type LoadFeatureExtraction = (
 	task: "feature-extraction",
 	model: string,
+	options?: PipelineOptions,
 ) => Promise<ExtractFn>;
 
 class PipelineEmbedder implements Embedder {
@@ -86,18 +123,54 @@ class PipelineEmbedder implements Embedder {
 	}
 }
 
-async function defaultExtractFn(): Promise<ExtractFn> {
-	const load = pipeline as unknown as LoadFeatureExtraction;
-	return load("feature-extraction", EMBEDDING_MODEL);
+/** Build the progress_callback options for `pipeline`, or undefined when no sink
+ * is wired (so the un-instrumented path stays byte-identical to before). */
+function progressOptions(
+	onProgress: OnEmbedProgress | undefined,
+): PipelineOptions | undefined {
+	if (onProgress === undefined) {
+		return undefined;
+	}
+	return {
+		progress_callback: (info) => {
+			const mapped = mapProgress(info);
+			if (mapped !== undefined) {
+				onProgress(mapped);
+			}
+		},
+	};
+}
+
+/** Load the feature-extraction pipeline via an injected `pipeline`, threading
+ * the (optional) progress sink as `progress_callback`. */
+function loadWith(
+	load: LoadFeatureExtraction,
+	onProgress: OnEmbedProgress | undefined,
+): () => Promise<ExtractFn> {
+	return () =>
+		load("feature-extraction", EMBEDDING_MODEL, progressOptions(onProgress));
 }
 
 /**
  * The default embedder, backed by the transformers.js feature-extraction
  * pipeline. The model is fetched + compiled lazily on the first embed call and
- * cached for the lifetime of the embedder.
+ * cached for the lifetime of the embedder. An optional `onProgress` sink is
+ * called once per download tick so the boot banner can show a real percent.
  */
-export function createEmbedder(): Embedder {
-	return new PipelineEmbedder(defaultExtractFn);
+export function createEmbedder(onProgress?: OnEmbedProgress): Embedder {
+	const load = pipeline as unknown as LoadFeatureExtraction;
+	return new PipelineEmbedder(loadWith(load, onProgress));
+}
+
+/**
+ * An embedder over an injected `pipeline` — the seam tests use to exercise the
+ * progress_callback wiring without the real ~23 MB download.
+ */
+export function createEmbedderWithPipeline(
+	load: LoadFeatureExtraction,
+	onProgress?: OnEmbedProgress,
+): Embedder {
+	return new PipelineEmbedder(loadWith(load, onProgress));
 }
 
 /**
