@@ -115,12 +115,16 @@ export function ScreenPage() {
 	const started = useRef(false);
 	const alive = useRef(true);
 
-	useEffect(
-		() => () => {
+	// Re-arm `alive` on mount and disarm on unmount. The mount re-arm matters
+	// under React 18 StrictMode, whose dev mount→unmount→remount would otherwise
+	// leave `alive.current` stuck `false` after the throwaway first pass — which
+	// would silently swallow the boot's resolve/reject on the real (second) mount.
+	useEffect(() => {
+		alive.current = true;
+		return () => {
 			alive.current = false;
-		},
-		[],
-	);
+		};
+	}, []);
 
 	// bootNonce is not read in the body — it is the intentional re-fire trigger:
 	// Retry resets the `started` guard and bumps the nonce so this effect re-runs
