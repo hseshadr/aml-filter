@@ -12,18 +12,27 @@
 
 import { env, pipeline } from "@huggingface/transformers";
 
-// transformers.js browser env. The library's default `useBrowserCache = true`
-// routes model weights through the CacheStorage LRU (`caches.open` → an internal
-// get/put helper). Under a minified production build (Vite `serve`, NOT the dev
-// server) that helper is mangled and throws `Ke(...).call is not a function`
-// the moment the worker tries to load the model — the screening bundle never
-// boots. We don't need that cache: weights are already content-addressed and
-// served immutable by the edge CDN, and the browser's own HTTP cache covers
-// reloads. Disabling it takes the fragile path out entirely. `allowLocalModels`
-// is off so the worker always fetches the remote ONNX export instead of probing
-// a non-existent same-origin `/models/...` path (which 404s in this static SPA).
+// transformers.js browser env.
+//
+// Weights are self-hosted, not pulled from huggingface.co at runtime. The app's
+// `prebuild` hook (app/scripts/download-model.mjs) mirrors this model's files
+// into app/public/models/, so they ship inside the SPA's own origin. Setting
+// `allowLocalModels = true` + `localModelPath = "/models/"` makes transformers.js
+// resolve each file as `/models/<modelId>/<file>` — e.g.
+// `/models/Xenova/all-MiniLM-L6-v2/onnx/model_quantized.onnx` — served same-origin
+// instead of from the HF CDN. (In the browser the ONNX device is `wasm`, whose
+// default dtype is `q8`, so the runtime requests the `_quantized` ONNX export.)
+//
+// `useBrowserCache` stays OFF for now. The original `Ke(...).call is not a
+// function` crash that once motivated disabling it was NOT a CacheStorage bug:
+// it was esbuild downleveling native private fields (`#field`) to a WeakMap
+// accessor under the es2020 build target, which transformers.js's minified worker
+// mis-invoked — fixed by `target: "es2022"` in app/vite.config.ts. Re-enabling the
+// CacheStorage cache is deliberately deferred until a cold-cache e2e on the
+// minified build proves that crash stays dead; until then we leave it off.
 env.useBrowserCache = false;
-env.allowLocalModels = false;
+env.allowLocalModels = true;
+env.localModelPath = "/models/";
 
 /** The sentence-transformers model id, mirrored as its Xenova ONNX export. */
 export const EMBEDDING_MODEL = "Xenova/all-MiniLM-L6-v2";

@@ -1,6 +1,11 @@
 node_modules
 dist
 coverage
+
+# Self-hosted MiniLM embedder weights (~23 MB), materialized by the `prebuild`
+# hook (scripts/download-model.mjs) before every `pnpm build`. Kept out of git so
+# the repo stays lean; `pnpm build` repopulates them locally.
+public/models/
 playwright-report
 test-results
 *.log

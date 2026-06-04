@@ -38,7 +38,11 @@ COPY . .
 ARG VITE_BUNDLE_BASE_URL=http://localhost:8081
 ENV VITE_BUNDLE_BASE_URL=${VITE_BUNDLE_BASE_URL}
 
-# Build only the SPA workspace; it resolves @amlfilter/browser via the workspace link.
+# Build only the SPA workspace; it resolves @amlfilter/browser via the workspace
+# link. The app's `prebuild` hook (scripts/download-model.mjs) runs first and
+# mirrors the MiniLM embedder weights into public/models/, so the shipped dist/
+# serves them same-origin and /screen never depends on huggingface.co at runtime.
+# (Requires network during build, same as the `pnpm install` above.)
 RUN pnpm -F aml-filter-app run build
 
 # ---- stage 2: serve the static dist/ ----
