@@ -12,7 +12,7 @@ import { defineConfig, devices } from "@playwright/test";
  *   - a CORS static server for the committed signed OFAC bundle.
  *
  * The spec drives a real headless Chromium: it waits for the full
- * sync → verify → ~25 MB model download → screen pipeline, then asserts a real
+ * sync → verify → ~23 MB model download → screen pipeline, then asserts a real
  * explainable match for a sanctioned name and an empty result for a nonsense
  * name. `http://localhost` is a secure context, so OPFS works with no COOP/COEP.
  */

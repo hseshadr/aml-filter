@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 
 // The in-browser OFAC screening page is a PUBLIC route (no auth) that boots the
 // signed-bundle sync + MiniLM embedder in Web Workers on mount. A full sync +
-// model download needs a served bundle origin and ~25 MB of weights, which is a
+// model download needs a served bundle origin and ~23 MB of weights, which is a
 // heavier integration lane (covered by the C1 spec); this spec validates the
 // page's static shell, its public-route reachability, and the attribution
 // footer — all of which render immediately, before the async bootstrap resolves.

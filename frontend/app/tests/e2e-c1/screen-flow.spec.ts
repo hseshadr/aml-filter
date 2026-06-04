@@ -11,7 +11,7 @@ import { expect, test } from "@playwright/test";
  * a real visitor hits:
  *
  *   sync the signed bundle → verify ed25519+sha256 → download + compile the
- *   ~25 MB MiniLM model in the Worker → search the list in-tab as you type.
+ *   ~23 MB MiniLM model in the Worker → search the list in-tab as you type.
  *
  * It asserts: the empty box browses the whole list; an exact name and a TYPO
  * both surface a real, explainable, full-dossier match; nonsense returns no
@@ -39,7 +39,7 @@ test("searches the sanctions list in-browser over the minified build, with full 
 	const search = page.getByPlaceholder("Search a name, e.g. Ivan Fakovich");
 	await expect(search).toBeVisible();
 
-	// Bootstrap = sync + verify + ~25 MB model download + compile. The box is
+	// Bootstrap = sync + verify + ~23 MB model download + compile. The box is
 	// disabled until the runtime is "ready"; that it ENABLES proves the model
 	// loaded without the production crash.
 	await expect(search).toBeEnabled({ timeout: MODEL_LOAD_TIMEOUT_MS });
