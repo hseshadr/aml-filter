@@ -283,17 +283,19 @@ gate        = { sequence = ["lint", "typecheck", "complexity", "test", "scoring-
 # browser e2e (`frontend/app`: `pnpm test:e2e:c1`) — not this task. Use `poe demo` for a
 # quick local look; trust `make demo-browser` + C1 for shippability.
 [tool.poe.tasks.demo]
-help = "Fast dev-mode in-browser /screen demo — edge (:8081) + Vite SPA (:5173). For shippability use `make demo-browser` + C1 e2e."
+help = "Fast dev-mode in-browser /screen demo — edge (:8081) + Vite SPA (:5173); override via AML_EDGE_PORT / AML_SPA_PORT. For shippability use `make demo-browser` + C1 e2e."
 cwd = "../frontend"
 shell = """
 set -e
 docker info >/dev/null 2>&1 || { echo 'Docker is not running — start Docker Desktop first.'; exit 1; }
 [ -d node_modules ] || pnpm install
-echo '>> edge -> http://localhost:8081          (signed demo bundle the SPA syncs)'
-echo '>> app  -> http://localhost:5173/screen   <- opening this in your browser'
-docker compose up -d origin edge
+EDGE_PORT="${AML_EDGE_PORT:-8081}"
+SPA_PORT="${AML_SPA_PORT:-5173}"
+echo ">> edge -> http://localhost:${EDGE_PORT}          (signed demo bundle the SPA syncs)"
+echo ">> app  -> http://localhost:${SPA_PORT}/screen   <- opening this in your browser"
+AML_EDGE_PORT="${EDGE_PORT}" docker compose up -d origin edge
 # stop (not down) the edge on Ctrl-C — keeps the caddy_data/_config volumes for fast restarts
 trap 'docker compose stop origin edge >/dev/null 2>&1' EXIT INT TERM
-cd app && VITE_BUNDLE_BASE_URL=http://localhost:8081 pnpm exec vite --open /screen
+cd app && VITE_BUNDLE_BASE_URL="http://localhost:${EDGE_PORT}" pnpm exec vite --open /screen --port "${SPA_PORT}" --strictPort
 """
 

@@ -129,6 +129,10 @@ pnpm install
 pnpm --filter aml-filter-app dev      # open http://localhost:5173/screen
 ```
 
+The one-command `make demo` / `make demo-browser` path serves the edge + SPA on host
+ports **8081 / 5173** by default; override either with `AML_EDGE_PORT` / `AML_SPA_PORT`
+(e.g. `AML_EDGE_PORT=8091 make demo`).
+
 The `/screen` page syncs the signed bundle into the browser (ed25519 + sha256,
 fail-closed), loads the MiniLM matcher once (~23 MB), and screens names **in-tab** —
 no FastAPI on this path. The ed25519 public key is pinned in the app build, not
