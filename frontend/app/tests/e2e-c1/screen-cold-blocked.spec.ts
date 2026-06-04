@@ -31,8 +31,30 @@ import { expect, type Page, test } from "@playwright/test";
  *       ("threads an embedder progress event into a loading-model stage").
  */
 
-const MODEL_LOAD_TIMEOUT_MS = 160_000;
-const FAILURE_TIMEOUT_MS = 90_000;
+/**
+ * Both bounds below are derived from the warmup ceiling the c1 config pins via
+ * `VITE_MODEL_LOAD_TIMEOUT_MS=45000` (see playwright.c1.config.ts). Keeping them
+ * tethered to that one number means a model-load regression fails FAST and the
+ * two values can't silently drift from the config.
+ */
+const MODEL_LOAD_TIMEOUT_MS = 45_000;
+
+/**
+ * Scenario (a) ready bound: the warmup is capped at MODEL_LOAD_TIMEOUT_MS, so a
+ * healthy self-host load must enable the box within that ceiling plus modest
+ * sync/headroom. Set to 60s (45s + 15s) so a self-host load regression fails in
+ * ~1min, not the old loose ~160s.
+ */
+const READY_TIMEOUT_MS = MODEL_LOAD_TIMEOUT_MS + 15_000;
+
+/**
+ * Scenario (b) failure bound: with all weight sources blocked the warmup must
+ * REJECT at the same MODEL_LOAD_TIMEOUT_MS ceiling. Allow the same sync headroom
+ * for the alert to render — this proves "fails fast" (~1min), not merely "doesn't
+ * hang forever", and tracks the config value if it changes.
+ */
+const FAILURE_TIMEOUT_MS = MODEL_LOAD_TIMEOUT_MS + 15_000;
+
 const RESULT_TIMEOUT_MS = 30_000;
 
 const SEARCH_PLACEHOLDER = "Search a name, e.g. Ivan Fakovich";
@@ -75,7 +97,7 @@ test("self-host serves the model when the HF CDN is blocked — no huggingface.c
 
 	// The box ENABLES only once bootstrap reaches "ready" — i.e. the ~23 MB model
 	// loaded. With the CDN blocked, that can only have come from /models/.
-	await expect(search).toBeEnabled({ timeout: MODEL_LOAD_TIMEOUT_MS });
+	await expect(search).toBeEnabled({ timeout: READY_TIMEOUT_MS });
 
 	// No error banner: the blocked CDN did not break the boot.
 	await expect(page.locator('[role="alert"]')).toHaveCount(0);
@@ -106,6 +128,19 @@ test("self-host serves the model when the HF CDN is blocked — no huggingface.c
 		cachedModelFiles,
 		"transformers-cache was not populated",
 	).toBeGreaterThan(0);
+
+	// Warm-cache HIT: reload the SAME page (HF routes are still aborted, /models/
+	// still reachable, but the weights are now in transformers-cache). The box must
+	// re-enable and the console must stay error-free — proving the warm-cache code
+	// path also stays crash-free on the minified build, not just the cold load.
+	await page.reload({ waitUntil: "domcontentloaded" });
+	const warmSearch = page.getByPlaceholder(SEARCH_PLACEHOLDER);
+	await expect(warmSearch).toBeEnabled({ timeout: READY_TIMEOUT_MS });
+	await expect(page.locator('[role="alert"]')).toHaveCount(0);
+	expect(
+		errors,
+		`in-browser errors after warm-cache reload:\n${errors.join("\n")}`,
+	).toEqual([]);
 });
 
 test("everything blocked → the boot fails loudly with a working Retry, not a silent hang", async ({
