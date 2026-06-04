@@ -40,9 +40,40 @@ const WARMUP_PROMPT = "warm up the model";
  * Hard ceiling on the warmup embed — the ~23 MB model download + ONNX compile.
  * A stalled HF CDN would otherwise leave bootstrap pending forever (the boot
  * banner never resolves and never errors); this turns a stall into a reject so
- * the caller's `.catch` runs and the UI can offer a retry.
+ * the caller's `.catch` runs and the UI can offer a retry. This is the
+ * PRODUCTION default; the cold-cache e2e overrides it via
+ * `VITE_MODEL_LOAD_TIMEOUT_MS` (see {@link modelLoadTimeoutMs}) to fail fast.
  */
 export const MODEL_LOAD_TIMEOUT_MS = 120_000;
+
+/**
+ * Parse a model-load timeout override (ms) fail-closed: an absent, non-numeric,
+ * non-finite, or non-positive value falls back to {@link MODEL_LOAD_TIMEOUT_MS},
+ * so a malformed env var can never weaken the production ceiling to 0/NaN. Pure
+ * over its input — the caller supplies the raw env string (or undefined).
+ */
+export function parseTimeoutMs(raw: string | undefined): number {
+	if (raw === undefined) {
+		return MODEL_LOAD_TIMEOUT_MS;
+	}
+	const parsed = Number(raw);
+	if (!Number.isFinite(parsed) || parsed <= 0) {
+		return MODEL_LOAD_TIMEOUT_MS;
+	}
+	return parsed;
+}
+
+/**
+ * The effective model-load timeout: the `VITE_MODEL_LOAD_TIMEOUT_MS` override if
+ * present and valid, otherwise the production default. The override exists ONLY
+ * so the cold-cache e2e can bound the "everything blocked" case to seconds; in a
+ * normal build the env var is unset and the default stands.
+ */
+export function modelLoadTimeoutMs(
+	env: Readonly<Record<string, string | undefined>>,
+): number {
+	return parseTimeoutMs(env.VITE_MODEL_LOAD_TIMEOUT_MS);
+}
 
 /**
  * Race a promise against a deadline. Resolves with the promise's value if it
@@ -213,11 +244,14 @@ export class EngineRuntime {
 		const embedder = this.#deps.makeEmbedder(onModelProgress);
 		// Force the ~23 MB model download/compile now so "loading-model" reflects
 		// real work and the first user query is fast. Bounded: a stalled CDN must
-		// reject (bootstrap clears its memo + the UI errors) rather than hang.
+		// reject (bootstrap clears its memo + the UI errors) rather than hang. The
+		// ceiling is the production default unless the cold-cache e2e overrode it
+		// via VITE_MODEL_LOAD_TIMEOUT_MS, so that test can fail fast and loud.
+		const timeoutMs = modelLoadTimeoutMs(import.meta.env);
 		await withTimeout(
 			embedder.embed(WARMUP_PROMPT),
-			MODEL_LOAD_TIMEOUT_MS,
-			`loading the name-matching model timed out after ${MODEL_LOAD_TIMEOUT_MS}ms`,
+			timeoutMs,
+			`loading the name-matching model timed out after ${timeoutMs}ms`,
 		);
 
 		const engine = createScreeningEngine(files, embedder);

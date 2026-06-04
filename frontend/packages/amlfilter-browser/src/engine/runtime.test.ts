@@ -4,6 +4,8 @@ import {
 	type BootStage,
 	EngineRuntime,
 	MODEL_LOAD_TIMEOUT_MS,
+	modelLoadTimeoutMs,
+	parseTimeoutMs,
 	type RuntimeConfig,
 	type RuntimeDeps,
 	throttleByRoundedPct,
@@ -41,6 +43,37 @@ function fakeEngine() {
 function neverEmbedder(): Embedder {
 	return { embed: () => new Promise<Float32Array>(() => {}) };
 }
+
+describe("parseTimeoutMs (model-load timeout override, fail-closed)", () => {
+	it("returns the production default when the override is absent", () => {
+		expect(parseTimeoutMs(undefined)).toBe(MODEL_LOAD_TIMEOUT_MS);
+	});
+
+	it("uses a valid positive numeric override", () => {
+		expect(parseTimeoutMs("2500")).toBe(2500);
+	});
+
+	it.each([
+		"",
+		"abc",
+		"0",
+		"-1",
+		"NaN",
+		"Infinity",
+	])("falls back to the default for the invalid override %p", (raw) => {
+		expect(parseTimeoutMs(raw)).toBe(MODEL_LOAD_TIMEOUT_MS);
+	});
+
+	it("reads VITE_MODEL_LOAD_TIMEOUT_MS from the env record", () => {
+		expect(modelLoadTimeoutMs({ VITE_MODEL_LOAD_TIMEOUT_MS: "1234" })).toBe(
+			1234,
+		);
+	});
+
+	it("falls back to the default when the env var is unset", () => {
+		expect(modelLoadTimeoutMs({})).toBe(MODEL_LOAD_TIMEOUT_MS);
+	});
+});
 
 describe("withTimeout", () => {
 	it("passes through the value of a promise that settles before the deadline", async () => {

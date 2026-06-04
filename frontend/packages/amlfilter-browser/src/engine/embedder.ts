@@ -23,14 +23,17 @@ import { env, type ProgressInfo, pipeline } from "@huggingface/transformers";
 // instead of from the HF CDN. (In the browser the ONNX device is `wasm`, whose
 // default dtype is `q8`, so the runtime requests the `_quantized` ONNX export.)
 //
-// `useBrowserCache` stays OFF for now. The original `Ke(...).call is not a
-// function` crash that once motivated disabling it was NOT a CacheStorage bug:
-// it was esbuild downleveling native private fields (`#field`) to a WeakMap
-// accessor under the es2020 build target, which transformers.js's minified worker
-// mis-invoked — fixed by `target: "es2022"` in app/vite.config.ts. Re-enabling the
-// CacheStorage cache is deliberately deferred until a cold-cache e2e on the
-// minified build proves that crash stays dead; until then we leave it off.
-env.useBrowserCache = false;
+// `useBrowserCache` is RE-ENABLED. The original `Ke(...).call is not a function`
+// crash that once motivated disabling it was NOT a CacheStorage bug: it was
+// esbuild downleveling native private fields (`#field`) to a WeakMap accessor
+// under the es2020 build target, which transformers.js's minified worker
+// mis-invoked — fixed by `target: "es2022"` in app/vite.config.ts. The
+// cold/blocked-CDN e2e (app/tests/e2e-c1/screen-cold-blocked.spec.ts) drives the
+// MINIFIED prod build in a real Chromium with the cache on and asserts ZERO
+// in-page console errors as the ~23 MB model loads, so a re-introduction of the
+// old downlevel crash re-trips that test. With the cache on, a returning visitor
+// reuses the cached weights instead of re-fetching them from /models/.
+env.useBrowserCache = true;
 env.allowLocalModels = true;
 env.localModelPath = "/models/";
 
