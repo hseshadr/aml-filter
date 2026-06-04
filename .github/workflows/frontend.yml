@@ -43,6 +43,19 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # The app's `prebuild` hook self-hosts the ~23 MB MiniLM weights into
+      # app/public/models/ (git-ignored) before Vite builds. Without a cache,
+      # every build re-pulls them from huggingface.co — a single point of failure
+      # and wasted bandwidth. Keyed on the model manifest (download-model.mjs), so
+      # the cache is invalidated only when the pinned files/digests change. The
+      # script is sha256-verified + fail-closed, so a restored cache is trusted
+      # only if its bytes still match the pins.
+      - name: Cache self-hosted model weights
+        uses: actions/cache@v4
+        with:
+          path: frontend/app/public/models
+          key: model-weights-${{ runner.os }}-${{ hashFiles('frontend/app/scripts/download-model.mjs') }}
+
       - name: Lint (biome, all workspace members)
         run: pnpm -r run lint
 
