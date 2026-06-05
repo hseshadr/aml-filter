@@ -26,7 +26,8 @@
 // eliminating, so a half-populated or wrong local mirror must never pass quietly.
 //
 // Bounded: every fetch is wrapped in a 60s AbortSignal.timeout plus a bounded
-// retry (5 attempts) that rides out rate-limiting and transient server faults —
+// retry (10 attempts, ~120s budget) that rides out rate-limiting and transient
+// server faults —
 // a 429 or 5xx (and a network error) is retried, honoring the server's
 // `Retry-After` header (capped at 30s) when present, otherwise exponential
 // backoff with jitter. A non-retryable status (e.g. 403/404) and an exhausted
@@ -46,7 +47,10 @@ export const HF_BASE = "https://huggingface.co";
 
 /** Per-fetch timeout (ms) and bounded-retry policy for a rate-limited/transient HF. */
 export const FETCH_TIMEOUT_MS = 60_000;
-export const MAX_ATTEMPTS = 5;
+// 10 attempts with the backoff below spans ~120s total (0.5+1+2+4+8+16+30+30+30s),
+// enough to ride out a transient HF 429 burst on a cold-cache CI runner; a genuine
+// outage still fails loudly after the budget rather than hanging.
+export const MAX_ATTEMPTS = 10;
 export const RETRY_BACKOFF_MS = 500;
 /** Cap on any single retry wait (Retry-After or backoff) so we can't hang. */
 export const RETRY_AFTER_CAP_MS = 30_000;
