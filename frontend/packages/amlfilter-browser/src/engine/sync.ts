@@ -29,14 +29,20 @@ function parseJson<T>(bytes: Uint8Array): T {
 	return JSON.parse(DECODER.decode(bytes)) as T;
 }
 
-/** Fetch `/latest` and verify its detached signature (fail-closed). */
+/** Fetch `/latest` and verify its detached signature (fail-closed). The `/latest`
+ * version pointer is MUTABLE, so it is fetched with `cache: "no-store"`: a stale
+ * (or cross-project) pointer left in the browser HTTP cache would otherwise be
+ * re-read and fail signature verification against the pinned key — a failure even
+ * Retry cannot clear, since Retry re-reads the same cached bytes. The immutable
+ * `manifest/<hash>` + `chunk/<hash>` fetches are content-addressed (hash in the
+ * URL) and stay cacheable; OPFS dedupes them anyway. */
 async function fetchPointer(
 	baseUrl: string,
 	fetchBytes: FetchBytes,
 	verify: Verify,
 ): Promise<VersionPointer> {
 	const pointer = parseJson<VersionPointer>(
-		await fetchBytes(`${baseUrl}/latest`),
+		await fetchBytes(`${baseUrl}/latest`, { cache: "no-store" }),
 	);
 	const message = canonicalBytes(pointer as unknown as JsonValue, {
 		exclude: { signature: true },

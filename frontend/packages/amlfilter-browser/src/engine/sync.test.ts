@@ -94,6 +94,29 @@ describe("syncIndex against the real OFAC bundle fixture", () => {
 	});
 });
 
+describe("syncIndex pointer cache control", () => {
+	it("fetches the mutable /latest pointer with cache: 'no-store', but not the immutable manifest/chunk fetches", async () => {
+		const store = new MemoryCacheStore();
+		const origin = originFetch();
+		const recorded: { url: string; cache?: RequestCache }[] = [];
+		const fetchBytes: FetchBytes = (url, options) => {
+			recorded.push({ url, cache: options?.cache });
+			return origin.fetchBytes(url);
+		};
+
+		await syncIndex({ baseUrl: "/o", store, fetchBytes, verify: realVerify });
+
+		const latest = recorded.find((c) => c.url.endsWith("/latest"));
+		expect(latest?.cache).toBe("no-store");
+
+		const others = recorded.filter((c) => !c.url.endsWith("/latest"));
+		expect(others.length).toBeGreaterThan(0);
+		for (const c of others) {
+			expect(c.cache).toBeUndefined();
+		}
+	});
+});
+
 describe("syncIndex fail-closed behavior", () => {
 	it("rejects a tampered pointer signature and promotes nothing", async () => {
 		const store = new MemoryCacheStore();

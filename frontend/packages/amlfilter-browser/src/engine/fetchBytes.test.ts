@@ -61,3 +61,29 @@ describe("fetchBytes timeout", () => {
 		expect(Array.from(bytes)).toEqual([1, 2, 3]);
 	});
 });
+
+describe("fetchBytes cache mode", () => {
+	it("does NOT set a cache mode by default (immutable, hash-addressed URLs)", async () => {
+		const ok = new Response(new Uint8Array([1]), { status: 200 });
+		const fetchMock = vi.fn((_url: string, _init?: RequestInit) =>
+			Promise.resolve(ok),
+		);
+		vi.stubGlobal("fetch", fetchMock);
+
+		await fetchBytes("https://cdn.example/chunk/abc");
+
+		expect(fetchMock.mock.calls[0]?.[1]?.cache).toBeUndefined();
+	});
+
+	it("forwards cache: 'no-store' to fetch when requested (mutable pointer)", async () => {
+		const ok = new Response(new Uint8Array([1]), { status: 200 });
+		const fetchMock = vi.fn((_url: string, _init?: RequestInit) =>
+			Promise.resolve(ok),
+		);
+		vi.stubGlobal("fetch", fetchMock);
+
+		await fetchBytes("https://cdn.example/latest", { cache: "no-store" });
+
+		expect(fetchMock.mock.calls[0]?.[1]?.cache).toBe("no-store");
+	});
+});
