@@ -37,6 +37,8 @@ export {
 	EMBEDDING_MODEL,
 	type Embedder,
 } from "./engine/embedder";
+// --- the canonical-name pipeline (shared by the engine and the UI's gates) ---
+export { canonicalize } from "./engine/normalize";
 // --- runtime: bootstrap the engine over the synced bundle ---
 export {
 	type BootStage,

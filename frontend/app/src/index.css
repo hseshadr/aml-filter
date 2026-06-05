@@ -82,6 +82,60 @@ code {
 	opacity: 0.5;
 	cursor: default;
 }
+/* --- match-strictness control: a 3-stop segmented "slider" --- */
+.screen-strictness {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 0.5rem;
+	margin: 0.75rem 0 0.25rem;
+}
+.screen-strictness__caption {
+	color: #334155;
+	font-size: 0.85rem;
+	font-weight: 600;
+}
+.screen-strictness__track {
+	display: inline-flex;
+	padding: 3px;
+	background: #f1f5f9;
+	border: 1px solid #cbd5e1;
+	border-radius: 999px;
+}
+.screen-strictness__stop {
+	border: none;
+	background: transparent;
+	color: #475569;
+	border-radius: 999px;
+	padding: 0.28rem 0.85rem;
+	font-size: 0.82rem;
+	font-weight: 500;
+	cursor: pointer;
+	transition:
+		background 0.15s ease,
+		color 0.15s ease,
+		box-shadow 0.15s ease;
+}
+.screen-strictness__stop:hover:not(:disabled):not([aria-checked="true"]) {
+	color: #1e293b;
+}
+.screen-strictness__stop[aria-checked="true"] {
+	background: #ffffff;
+	color: #1d4ed8;
+	box-shadow: 0 1px 2px rgba(15, 23, 42, 0.12);
+}
+.screen-strictness__stop:focus-visible {
+	outline: none;
+	box-shadow: 0 0 0 3px #bfdbfe;
+}
+.screen-strictness__stop:disabled {
+	opacity: 0.5;
+	cursor: default;
+}
+.screen-strictness__hint {
+	color: #64748b;
+	font-size: 0.8rem;
+}
 .screen-results__count {
 	font-weight: 600;
 	margin-bottom: 0.75rem;

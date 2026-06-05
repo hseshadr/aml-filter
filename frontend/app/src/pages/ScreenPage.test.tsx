@@ -55,6 +55,56 @@ const ivanMatch = {
 	explanation: "Match due to: strong vector similarity",
 };
 
+// Build a Match-like double carrying a name_trigram reason of the given value,
+// so the strictness gate (which reads that reason) can be driven deterministically.
+function matchWithTrigram(
+	over: { entity_id: string; primary_name: string },
+	trigram: number,
+): typeof ivanMatch {
+	return {
+		...ivanMatch,
+		entity_id: over.entity_id,
+		primary_name: over.primary_name,
+		score: 0.301,
+		reasons: [
+			{
+				signal: "name_vector",
+				value: 0.45,
+				weight: 0.55,
+				contribution: 0.2475,
+				description: "Vector similarity: 0.450",
+			},
+			{
+				signal: "name_trigram",
+				value: trigram,
+				weight: 0.2,
+				contribution: trigram * 0.2,
+				description: `Trigram similarity: ${trigram.toFixed(3)}`,
+			},
+		],
+	};
+}
+
+// The strictness scenario: a real query ("ivan fal") that the engine returns
+// BOTH an intended close hit (Ivan, high trigram ~0.667) AND irrelevant vector
+// noise (Hassan-like, low trigram ~0.261) for. The combined-score floor lets the
+// noise through; the lexical gate is what hides it at Balanced/Strict.
+const ivanCloseMatch = matchWithTrigram(
+	{ entity_id: "DEMO:IVAN", primary_name: "Ivan Fakovich" },
+	0.667,
+);
+const hassanNoiseMatch = matchWithTrigram(
+	{ entity_id: "DEMO:HASSAN", primary_name: "Hassan Pretendi" },
+	0.261,
+);
+// The token-containment case: a short query ("bank") against a long org name has
+// a tiny trigram (~0.267 < 0.35) yet must be KEPT because the query token "bank"
+// is one of the entity's canonical name tokens.
+const bankMatch = matchWithTrigram(
+	{ entity_id: "DEMO:BANK", primary_name: "Madeupistan Imaginary Bank" },
+	0.267,
+);
+
 // Two distinguishable matches for the stale-cancellation test. The "slow"
 // query resolves LATER (longer delay) than the "fast" one, so if cancellation
 // is broken the slow result would clobber the fast one.
@@ -69,9 +119,16 @@ const fastMatch = {
 	primary_name: "Ivan Fastman",
 };
 
+// Thresholds the page passed to engine.screen, in call order — lets a test
+// assert the strictness level maps to the documented floor.
+const observedThresholds: Array<number | undefined> = [];
+
 // The page builds its own EngineRuntime; mock the module so the test drives a
 // deterministic engine with no Worker/bundle/model.
-vi.mock("@amlfilter/browser", () => {
+vi.mock("@amlfilter/browser", async (importActual) => {
+	// Keep the REAL canonicalize so the page's token-containment tokenizes names
+	// exactly as the engine's trigram does — only the runtime/engine is faked.
+	const actual = await importActual<typeof import("@amlfilter/browser")>();
 	class EngineRuntime {
 		bootstrap(): Promise<void> {
 			return Promise.resolve();
@@ -79,8 +136,30 @@ vi.mock("@amlfilter/browser", () => {
 		engine() {
 			return {
 				allEntities: () => [ivanEntity, olgaEntity],
-				screen: ({ name }: { name: string }) => {
+				screen: ({ name, threshold }: { name: string; threshold?: number }) => {
 					const lower = name.toLowerCase();
+					// Record the floor the page passed per call so a test can assert
+					// the strictness level actually changes the engine threshold.
+					observedThresholds.push(threshold);
+					// "ivan fal": the engine returns the close hit AND the vector
+					// noise; the page's lexical gate decides which survive.
+					if (lower.includes("ivan fal")) {
+						return Promise.resolve({
+							request_id: "ivanfal",
+							list_versions_used: {},
+							execution_time_ms: 3,
+							matches: [ivanCloseMatch, hassanNoiseMatch],
+						});
+					}
+					// "bank": low-trigram org kept only via token-containment.
+					if (lower === "bank") {
+						return Promise.resolve({
+							request_id: "bank",
+							list_versions_used: {},
+							execution_time_ms: 3,
+							matches: [bankMatch],
+						});
+					}
 					// Delay-aware branches drive the stale-result test: "slow"
 					// resolves LATER than "fast" despite being issued FIRST.
 					if (lower.includes("slow")) {
@@ -121,12 +200,28 @@ vi.mock("@amlfilter/browser", () => {
 			};
 		}
 	}
-	return { EngineRuntime, configFromEnv: () => ({}) };
+	return {
+		...actual,
+		EngineRuntime,
+		configFromEnv: () => ({}),
+	};
 });
 
 import { ScreenPage } from "./ScreenPage";
 
-afterEach(cleanup);
+afterEach(() => {
+	cleanup();
+	observedThresholds.length = 0;
+});
+
+// Wait until the search box is enabled (boot resolved) and return it.
+async function readyBox(): Promise<HTMLInputElement> {
+	return (await waitFor(() => {
+		const el = screen.getByPlaceholderText(/Search a name/);
+		expect((el as HTMLInputElement).disabled).toBe(false);
+		return el;
+	})) as HTMLInputElement;
+}
 
 describe("ScreenPage — in-browser search", () => {
 	it("browses the whole list when the box is empty", async () => {
@@ -199,5 +294,93 @@ describe("ScreenPage — in-browser search", () => {
 			screen.getByText("Ivan Fastman", { selector: ".match-card__name" }),
 		).toBeTruthy();
 		expect(screen.queryByText("Ivan Slowman")).toBeNull();
+	});
+
+	it("exposes a labeled, keyboard-operable strictness radiogroup defaulting to Balanced", async () => {
+		render(<ScreenPage />);
+		await readyBox();
+		const group = screen.getByRole("radiogroup", { name: /match strictness/i });
+		expect(group).toBeTruthy();
+		const balanced = screen.getByRole("radio", { name: /balanced/i });
+		expect(balanced.getAttribute("aria-checked")).toBe("true");
+		// ArrowRight from Balanced selects Strict.
+		balanced.focus();
+		fireEvent.keyDown(balanced, { key: "ArrowRight" });
+		await waitFor(() =>
+			expect(
+				screen
+					.getByRole("radio", { name: /strict/i })
+					.getAttribute("aria-checked"),
+			).toBe("true"),
+		);
+	});
+
+	it("hides low-trigram vector noise at the default Balanced strictness", async () => {
+		render(<ScreenPage />);
+		const box = await readyBox();
+		fireEvent.change(box, { target: { value: "ivan fal" } });
+		await waitFor(() =>
+			expect(
+				screen.getByText("Ivan Fakovich", { selector: ".match-card__name" }),
+			).toBeTruthy(),
+		);
+		// Hassan is vector noise (trigram 0.261 < 0.35, no token overlap) → dropped.
+		expect(screen.queryByText("Hassan Pretendi")).toBeNull();
+	});
+
+	it("shows the noise again when switched to Lenient and re-runs the search", async () => {
+		render(<ScreenPage />);
+		const box = await readyBox();
+		fireEvent.change(box, { target: { value: "ivan fal" } });
+		await waitFor(() =>
+			expect(
+				screen.getByText("Ivan Fakovich", { selector: ".match-card__name" }),
+			).toBeTruthy(),
+		);
+		fireEvent.click(screen.getByRole("radio", { name: /lenient/i }));
+		// Changing strictness re-runs search live; the noise now reappears.
+		await waitFor(() =>
+			expect(
+				screen.getByText("Hassan Pretendi", { selector: ".match-card__name" }),
+			).toBeTruthy(),
+		);
+		expect(
+			screen.getByText("Ivan Fakovich", { selector: ".match-card__name" }),
+		).toBeTruthy();
+		// Lenient passes the lower floor (0.30); Strict would pass 0.40.
+		expect(observedThresholds).toContain(0.3);
+	});
+
+	it("keeps only the closest match under Strict", async () => {
+		render(<ScreenPage />);
+		const box = await readyBox();
+		fireEvent.change(box, { target: { value: "ivan fal" } });
+		await waitFor(() =>
+			expect(
+				screen.getByText("Ivan Fakovich", { selector: ".match-card__name" }),
+			).toBeTruthy(),
+		);
+		fireEvent.click(screen.getByRole("radio", { name: /strict/i }));
+		// Ivan's trigram (0.667) clears Strict's 0.50; Hassan's (0.261) never does.
+		await waitFor(() => expect(observedThresholds).toContain(0.4));
+		expect(screen.queryByText("Hassan Pretendi")).toBeNull();
+		expect(
+			screen.getByText("Ivan Fakovich", { selector: ".match-card__name" }),
+		).toBeTruthy();
+	});
+
+	it("keeps a short keyword match via token-containment even below minLexical (the 'bank' case)", async () => {
+		render(<ScreenPage />);
+		const box = await readyBox();
+		// "bank" vs "Madeupistan Imaginary Bank": trigram 0.267 < 0.35, but the
+		// query token "bank" equals an entity name token → KEPT at Balanced.
+		fireEvent.change(box, { target: { value: "bank" } });
+		await waitFor(() =>
+			expect(
+				screen.getByText("Madeupistan Imaginary Bank", {
+					selector: ".match-card__name",
+				}),
+			).toBeTruthy(),
+		);
 	});
 });

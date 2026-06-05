@@ -1,5 +1,6 @@
 import {
 	type BootStage,
+	canonicalize,
 	configFromEnv,
 	EMPTY_IDENTIFIERS,
 	EngineRuntime,
@@ -10,7 +11,14 @@ import {
 	type MatchReason,
 	type RiskCategory,
 } from "@amlfilter/browser";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+	type KeyboardEvent as ReactKeyboardEvent,
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import { Footer } from "../components/Footer";
 
 // The backend-free OFAC screening page. On mount it syncs the signed bundle
@@ -39,15 +47,77 @@ const STAGE_LABEL: Readonly<Record<BootStage["kind"], string>> = {
 	ready: "Ready.",
 };
 
-// Score floor for SEARCH results: low enough that a typo ("fakovic") still
-// surfaces its target, high enough that unrelated gibberish returns nothing —
-// preserving the "no match = clear" sanctions semantic. Distinct from the
-// screening presets (which gate a yes/no decision, not a search ranking).
-const SEARCH_FLOOR = 0.3;
 const SEARCH_K = 25;
 const DEBOUNCE_MS = 180;
 
 const EXAMPLE_QUERIES = ["Ivan Fakovich", "fakovic", "Olga", "bank"] as const;
+
+// How closely a name must match to surface as a search hit. The embedder gives
+// any two short names a ~0.45 baseline cosine, so the combined-score `floor`
+// alone lets vector noise through; the `minLexical` gate (on the discriminating
+// name_trigram signal) is what actually hides it. This is a SEARCH-LAYER control
+// only — it never touches the parity-locked scoring contract. Defaults to
+// Balanced. Floors/minLexicals were tuned against the real trigram data.
+type Strictness = "lenient" | "balanced" | "strict";
+
+interface StrictnessLevel {
+	readonly level: Strictness;
+	readonly label: string;
+	/** Passed to engine.screen as the combined-score `threshold`. */
+	readonly floor: number;
+	/** Minimum name_trigram a match must clear (unless a token matches). */
+	readonly minLexical: number;
+}
+
+const STRICTNESS_LEVELS: ReadonlyArray<StrictnessLevel> = [
+	{ level: "lenient", label: "Lenient", floor: 0.3, minLexical: 0.0 },
+	{ level: "balanced", label: "Balanced", floor: 0.3, minLexical: 0.35 },
+	{ level: "strict", label: "Strict", floor: 0.4, minLexical: 0.5 },
+];
+
+const LEVEL: Readonly<Record<Strictness, StrictnessLevel>> = {
+	lenient: STRICTNESS_LEVELS[0],
+	balanced: STRICTNESS_LEVELS[1],
+	strict: STRICTNESS_LEVELS[2],
+};
+
+/** The match's name_trigram signal value (the discriminating lexical signal), or 0. */
+function trigramScore(match: Match): number {
+	const reason = match.reasons.find((r) => r.signal === "name_trigram");
+	return typeof reason?.value === "number" ? reason.value : 0;
+}
+
+/** Canonical whitespace tokens of a name, mirroring the engine's trigram canonicalization. */
+function nameTokens(name: string): ReadonlySet<string> {
+	const canonical = canonicalize(name);
+	return new Set(canonical.length === 0 ? [] : canonical.split(" "));
+}
+
+/** True when any canonical query token exactly equals a canonical entity-name token. */
+function hasTokenContainment(match: Match, query: string): boolean {
+	const entityTokens = nameTokens(match.primary_name);
+	for (const token of nameTokens(query)) {
+		if (entityTokens.has(token)) {
+			return true;
+		}
+	}
+	return false;
+}
+
+/**
+ * The search-layer gate: keep a match when its trigram clears the level's
+ * minLexical, OR a query token exactly matches an entity name token (the
+ * short-keyword escape hatch, e.g. "bank" vs a long org name).
+ */
+function passesStrictness(
+	match: Match,
+	query: string,
+	level: StrictnessLevel,
+): boolean {
+	return (
+		trigramScore(match) >= level.minLexical || hasTokenContainment(match, query)
+	);
+}
 
 /** The unified view-model a card renders — from a browsed Entity or a scored Match. */
 interface Dossier {
@@ -111,6 +181,7 @@ export function ScreenPage() {
 		stage: { kind: "syncing" },
 	});
 	const [query, setQuery] = useState("");
+	const [strictness, setStrictness] = useState<Strictness>("balanced");
 	const [entities, setEntities] = useState<ReadonlyArray<Entity>>([]);
 	const [search, setSearch] = useState<SearchState | null>(null);
 	// Bumped by Retry: it resets the boot guard and re-fires the boot effect so a
@@ -177,17 +248,21 @@ export function ScreenPage() {
 			if (engine === null) {
 				return;
 			}
+			const level = LEVEL[strictness];
 			const mine = ++seq.current;
 			const result = await engine.screen({
 				name: text,
-				threshold: SEARCH_FLOOR,
+				threshold: level.floor,
 				k: SEARCH_K,
 			});
 			if (mine === seq.current && alive.current) {
-				setSearch({ matches: result.matches, ms: result.execution_time_ms });
+				const matches = result.matches.filter((m) =>
+					passesStrictness(m, text, level),
+				);
+				setSearch({ matches, ms: result.execution_time_ms });
 			}
 		},
-		[runtime],
+		[runtime, strictness],
 	);
 
 	useEffect(() => {
@@ -224,6 +299,12 @@ export function ScreenPage() {
 				disabled={phase.kind !== "ready"}
 			/>
 
+			<StrictnessControl
+				value={strictness}
+				onChange={setStrictness}
+				disabled={phase.kind !== "ready"}
+			/>
+
 			<div className="screen-examples">
 				<span className="screen-examples__label">Try:</span>
 				{EXAMPLE_QUERIES.map((example) => (
@@ -243,6 +324,71 @@ export function ScreenPage() {
 				<Results query={query.trim()} entities={entities} search={search} />
 			)}
 			<Footer />
+		</div>
+	);
+}
+
+// The level reached by an arrow key from the current one (Left/Up ←, Right/Down →),
+// clamped at the ends. Returns null for any other key (no selection change).
+function arrowTarget(current: Strictness, key: string): Strictness | null {
+	const i = STRICTNESS_LEVELS.findIndex((l) => l.level === current);
+	if (key === "ArrowRight" || key === "ArrowDown") {
+		return STRICTNESS_LEVELS[Math.min(i + 1, STRICTNESS_LEVELS.length - 1)]
+			.level;
+	}
+	if (key === "ArrowLeft" || key === "ArrowUp") {
+		return STRICTNESS_LEVELS[Math.max(i - 1, 0)].level;
+	}
+	return null;
+}
+
+// An accessible segmented control that reads like a 3-stop "match strictness"
+// slider. radiogroup + role="radio" stops, arrow-key navigation, disabled while
+// the bundle/model is still booting. Selecting a stop re-runs search live.
+function StrictnessControl({
+	value,
+	onChange,
+	disabled,
+}: {
+	readonly value: Strictness;
+	readonly onChange: (next: Strictness) => void;
+	readonly disabled: boolean;
+}) {
+	const onKeyDown = (event: ReactKeyboardEvent) => {
+		const next = arrowTarget(value, event.key);
+		if (next !== null) {
+			event.preventDefault();
+			onChange(next);
+		}
+	};
+	return (
+		<div className="screen-strictness">
+			<span className="screen-strictness__caption">Strictness</span>
+			<div
+				className="screen-strictness__track"
+				role="radiogroup"
+				aria-label="Match strictness"
+			>
+				{STRICTNESS_LEVELS.map((level) => (
+					// biome-ignore lint/a11y/useSemanticElements: this is a custom segmented "slider" — a native radio can't carry the active-segment styling or the single-tabstop arrow-key roving used here; the ARIA radiogroup/radio pattern is the correct equivalent
+					<button
+						key={level.level}
+						type="button"
+						role="radio"
+						aria-checked={value === level.level}
+						tabIndex={value === level.level ? 0 : -1}
+						className="screen-strictness__stop"
+						disabled={disabled}
+						onClick={() => onChange(level.level)}
+						onKeyDown={onKeyDown}
+					>
+						{level.label}
+					</button>
+				))}
+			</div>
+			<span className="screen-strictness__hint">
+				how closely a name must match
+			</span>
 		</div>
 	);
 }

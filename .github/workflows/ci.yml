@@ -7,9 +7,18 @@ on:
 jobs:
   quality:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: backend
+
+    # Unit tests are fully offline: the embedding model is stubbed in
+    # tests/unit/conftest.py, so no HuggingFace download happens. HF_HUB_OFFLINE
+    # + TRANSFORMERS_OFFLINE are set as a safety net on the pytest step so any
+    # future test that reaches the CDN fails FAST instead of hanging on a 429.
+    env:
+      TEST_DATABASE_URL: postgresql+asyncpg://amlfilter:amlfilter_dev_password@127.0.0.1:5435/amlfilter
+      TEST_REDIS_URL: redis://127.0.0.1:6380/0
 
     services:
       postgres:
@@ -35,10 +44,6 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-
-    env:
-      TEST_DATABASE_URL: postgresql+asyncpg://amlfilter:amlfilter_dev_password@127.0.0.1:5435/amlfilter
-      TEST_REDIS_URL: redis://127.0.0.1:6380/0
 
     steps:
       - uses: actions/checkout@v5
@@ -75,6 +80,12 @@ jobs:
       - name: Complexity (xenon)
         run: uv run poe complexity
       - name: Tests (pytest)
+        # Unit tests stub the embedding model (tests/unit/conftest.py), so no
+        # download happens. These offline flags are a safety net: if a test ever
+        # reaches the HuggingFace CDN it fails fast instead of hanging on a 429.
+        env:
+          HF_HUB_OFFLINE: "1"
+          TRANSFORMERS_OFFLINE: "1"
         run: uv run pytest -m 'not integration' --ignore=tests/integration
       - name: Scoring parity golden is fresh (regenerate + diff)
         run: uv run poe scoring-golden-check
