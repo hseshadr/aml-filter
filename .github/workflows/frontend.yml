@@ -45,8 +45,9 @@ jobs:
 
       # The app's `prebuild` hook self-hosts the ~23 MB MiniLM weights into
       # app/public/models/ (git-ignored) before Vite builds. Without a cache,
-      # every build re-pulls them from huggingface.co — a single point of failure
-      # and wasted bandwidth. Keyed on the model manifest (download-model.mjs), so
+      # every build re-fetches them (from the `model-weights-v1` release; see the
+      # fetch step below) — cached here to avoid the repeated ~23 MB download.
+      # Keyed on the model manifest (download-model.mjs), so
       # the cache is invalidated only when the pinned files/digests change. The
       # script is sha256-verified + fail-closed, so a restored cache is trusted
       # only if its bytes still match the pins.
@@ -55,16 +56,30 @@ jobs:
         uses: actions/cache@v4
         with:
           path: frontend/app/public/models
-          key: model-weights-${{ runner.os }}-${{ hashFiles('frontend/app/scripts/download-model.mjs') }}
+          key: model-weights-${{ runner.os }}-rel1-${{ hashFiles('frontend/app/scripts/download-model.mjs') }}
 
-      # On a cache miss the weights aren't present yet, so run the download
-      # script explicitly before the unit tests (which call loadRealBodies() and
-      # fail loudly if the files are absent). The Build step's `prebuild` hook
-      # would also do this, but it runs after the test step.
-      - name: Download model weights (cache miss)
+      # On a cache miss, mirror the sha256-pinned MiniLM weights from this repo's
+      # `model-weights-v1` release (GitHub's asset CDN, authenticated via the
+      # workflow token) into app/public/models/. huggingface.co sustained-429s GH
+      # runner IPs, so it is OFF the CI hot path; download-model.mjs then
+      # re-verifies every file's sha256 (skipping the already-correct release
+      # bytes) and falls back to HF only for a file the release is missing — the
+      # fail-closed integrity guarantee is unchanged. Runs before the unit tests
+      # (which loadRealBodies() and fail loudly if the files are absent).
+      - name: Fetch self-hosted model weights (cache miss)
         if: steps.model-weights-cache.outputs.cache-hit != 'true'
         working-directory: frontend/app
-        run: node scripts/download-model.mjs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          dir=public/models/Xenova/all-MiniLM-L6-v2
+          mkdir -p "$dir/onnx"
+          gh release download model-weights-v1 --repo "$GITHUB_REPOSITORY" --dir "$dir" --clobber \
+            --pattern config.json --pattern tokenizer.json \
+            --pattern tokenizer_config.json --pattern special_tokens_map.json
+          gh release download model-weights-v1 --repo "$GITHUB_REPOSITORY" --dir "$dir/onnx" --clobber \
+            --pattern model_quantized.onnx
+          node scripts/download-model.mjs
 
       - name: Lint (biome, all workspace members)
         run: pnpm -r run lint
@@ -123,16 +138,29 @@ jobs:
         uses: actions/cache@v4
         with:
           path: frontend/app/public/models
-          key: model-weights-${{ runner.os }}-${{ hashFiles('frontend/app/scripts/download-model.mjs') }}
+          key: model-weights-${{ runner.os }}-rel1-${{ hashFiles('frontend/app/scripts/download-model.mjs') }}
 
-      # On a cache miss the weights aren't present yet, so populate (and so cache)
-      # them before the e2e suites run — the C1 build's `prebuild` would also do
-      # this, but doing it here makes the cache entry and gives the cold run the
-      # 429-resilient retry path explicitly.
-      - name: Download model weights (cache miss)
+      # On a cache miss, mirror the sha256-pinned MiniLM weights from this repo's
+      # `model-weights-v1` release (authenticated, GitHub's asset CDN) before the
+      # e2e suites run, so the cache entry is made and neither suite touches
+      # huggingface.co (which sustained-429s GH runner IPs). download-model.mjs
+      # re-verifies every file's sha256 and falls back to HF only for a missing
+      # file — fail-closed integrity is unchanged. The C1 build's `prebuild` then
+      # finds the verified files already present and skips the fetch entirely.
+      - name: Fetch self-hosted model weights (cache miss)
         if: steps.model-weights-cache.outputs.cache-hit != 'true'
         working-directory: frontend/app
-        run: node scripts/download-model.mjs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          dir=public/models/Xenova/all-MiniLM-L6-v2
+          mkdir -p "$dir/onnx"
+          gh release download model-weights-v1 --repo "$GITHUB_REPOSITORY" --dir "$dir" --clobber \
+            --pattern config.json --pattern tokenizer.json \
+            --pattern tokenizer_config.json --pattern special_tokens_map.json
+          gh release download model-weights-v1 --repo "$GITHUB_REPOSITORY" --dir "$dir/onnx" --clobber \
+            --pattern model_quantized.onnx
+          node scripts/download-model.mjs
 
       - name: Cache Playwright browsers
         uses: actions/cache@v4
