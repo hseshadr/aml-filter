@@ -1,24 +1,30 @@
-"""Unit tests for embedding service."""
+"""Unit tests for the embedding provider wrapper and service.
+
+These run fully offline: the autouse `_offline_embedder` fixture (see
+`tests/unit/conftest.py`) patches the heavy `SentenceTransformer` class with a
+deterministic stub, so `SentenceTransformersProvider`'s wrapper code is exercised
+without downloading a model. Service-logic tests inject a typed `FakeEmbeddingProvider`
+so they assert caching/batching behavior, not the model.
+"""
 
 import pytest
 
 from aml_filter.embedding.providers.sentence_transformers import SentenceTransformersProvider
 from aml_filter.embedding.service import EmbeddingService
+from tests.unit.conftest import EMBEDDING_DIM, FakeEmbeddingProvider
 
 
 class TestSentenceTransformersProvider:
-    """Test SentenceTransformersProvider."""
+    """The provider wrapper around the (stubbed) SentenceTransformer model."""
 
     @pytest.mark.asyncio
-    async def test_provider_initialization(self):
-        """Test provider initialization."""
+    async def test_provider_initialization(self) -> None:
         provider = SentenceTransformersProvider(model_name="sentence-transformers/all-MiniLM-L6-v2")
         assert provider.model_name == "sentence-transformers/all-MiniLM-L6-v2"
-        assert provider.dimension > 0  # Will load model to get dimension
+        assert provider.dimension == EMBEDDING_DIM
 
     @pytest.mark.asyncio
-    async def test_embed_single_text(self):
-        """Test embedding a single text."""
+    async def test_embed_single_text(self) -> None:
         provider = SentenceTransformersProvider(model_name="sentence-transformers/all-MiniLM-L6-v2")
         embedding = await provider.embed("test text")
         assert isinstance(embedding, list)
@@ -26,114 +32,85 @@ class TestSentenceTransformersProvider:
         assert all(isinstance(x, float) for x in embedding)
 
     @pytest.mark.asyncio
-    async def test_embed_batch(self):
-        """Test batch embedding."""
+    async def test_embed_batch(self) -> None:
         provider = SentenceTransformersProvider(model_name="sentence-transformers/all-MiniLM-L6-v2")
         texts = ["first text", "second text", "third text"]
         embeddings = await provider.embed_batch(texts, batch_size=2)
         assert len(embeddings) == len(texts)
         assert all(len(emb) == provider.dimension for emb in embeddings)
 
-    def test_get_model_info(self):
-        """Test getting model info."""
+    def test_get_model_info(self) -> None:
         provider = SentenceTransformersProvider(model_name="sentence-transformers/all-MiniLM-L6-v2")
         info = provider.get_model_info()
-        assert "model_name" in info
-        assert "dimension" in info
         assert info["model_name"] == "sentence-transformers/all-MiniLM-L6-v2"
+        assert info["dimension"] == EMBEDDING_DIM
 
 
 class TestEmbeddingService:
-    """Test EmbeddingService."""
+    """Service caching/batching logic over a deterministic fake provider."""
 
     @pytest.mark.asyncio
-    async def test_service_initialization(self):
-        """Test service initialization."""
-        service = EmbeddingService()
+    async def test_service_initialization(self) -> None:
+        service = EmbeddingService(provider=FakeEmbeddingProvider())
         assert service.provider is not None
         assert service.enable_cache is True
 
     @pytest.mark.asyncio
-    async def test_embed_with_cache(self):
-        """Test embedding with caching."""
-        service = EmbeddingService(cache_size=10)
+    async def test_embed_with_cache(self) -> None:
+        service = EmbeddingService(provider=FakeEmbeddingProvider(), cache_size=10)
         text = "test text for caching"
 
-        # First call - should compute
         embedding1 = await service.embed(text)
-        assert isinstance(embedding1, list)
-
-        # Second call - should use cache
         embedding2 = await service.embed(text)
+
+        assert isinstance(embedding1, list)
         assert embedding1 == embedding2
-
-        # Verify cache stats
-        stats = service.get_cache_stats()
-        assert stats["cache_size"] == 1
+        assert service.get_cache_stats()["cache_size"] == 1
 
     @pytest.mark.asyncio
-    async def test_embed_without_cache(self):
-        """Test embedding without caching."""
-        service = EmbeddingService(enable_cache=False)
-        text = "test text"
+    async def test_embed_without_cache(self) -> None:
+        service = EmbeddingService(provider=FakeEmbeddingProvider(), enable_cache=False)
 
-        embedding = await service.embed(text, use_cache=False)
+        embedding = await service.embed("test text", use_cache=False)
+
         assert isinstance(embedding, list)
-
-        stats = service.get_cache_stats()
-        assert stats["cache_size"] == 0
+        assert service.get_cache_stats()["cache_size"] == 0
 
     @pytest.mark.asyncio
-    async def test_embed_batch_with_cache(self):
-        """Test batch embedding with caching."""
-        service = EmbeddingService(cache_size=10)
+    async def test_embed_batch_with_cache(self) -> None:
+        service = EmbeddingService(provider=FakeEmbeddingProvider(), cache_size=10)
         texts = ["text 1", "text 2", "text 3"]
 
-        # First call
         embeddings1 = await service.embed_batch(texts)
-        assert len(embeddings1) == len(texts)
-
-        # Second call - should use cache
         embeddings2 = await service.embed_batch(texts)
-        assert embeddings1 == embeddings2
 
-        stats = service.get_cache_stats()
-        assert stats["cache_size"] == len(texts)
+        assert len(embeddings1) == len(texts)
+        assert embeddings1 == embeddings2
+        assert service.get_cache_stats()["cache_size"] == len(texts)
 
     @pytest.mark.asyncio
-    async def test_cache_lru_eviction(self):
-        """Test LRU cache eviction."""
-        service = EmbeddingService(cache_size=2)
+    async def test_cache_lru_eviction(self) -> None:
+        service = EmbeddingService(provider=FakeEmbeddingProvider(), cache_size=2)
 
-        # Fill cache
         await service.embed("text1")
         await service.embed("text2")
+        assert service.get_cache_stats()["cache_size"] == 2
 
-        stats = service.get_cache_stats()
-        assert stats["cache_size"] == 2
-
-        # Add one more - should evict oldest
         await service.embed("text3")
-        stats = service.get_cache_stats()
-        assert stats["cache_size"] == 2  # Still at max size
+        assert service.get_cache_stats()["cache_size"] == 2  # still at max size
 
     @pytest.mark.asyncio
-    async def test_clear_cache(self):
-        """Test clearing cache."""
-        service = EmbeddingService()
+    async def test_clear_cache(self) -> None:
+        service = EmbeddingService(provider=FakeEmbeddingProvider())
         await service.embed("test text")
-
-        stats = service.get_cache_stats()
-        assert stats["cache_size"] > 0
+        assert service.get_cache_stats()["cache_size"] > 0
 
         service.clear_cache()
-        stats = service.get_cache_stats()
-        assert stats["cache_size"] == 0
+        assert service.get_cache_stats()["cache_size"] == 0
 
     @pytest.mark.asyncio
-    async def test_get_model_info(self):
-        """Test getting model info from service."""
-        service = EmbeddingService()
+    async def test_get_model_info(self) -> None:
+        service = EmbeddingService(provider=FakeEmbeddingProvider())
         info = service.get_model_info()
-        assert "model_name" in info
-        assert "dimension" in info
+        assert info["model_name"] == "fake-provider"
+        assert info["dimension"] == EMBEDDING_DIM
