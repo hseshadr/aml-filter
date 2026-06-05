@@ -7,9 +7,18 @@ on:
 jobs:
   quality:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: backend
+
+    # Pin the HF cache dir consistently across the cache, pre-fetch, and pytest
+    # steps so the model is written and read from the same location.
+    env:
+      HF_HOME: ${{ github.workspace }}/.cache/huggingface
+      TRANSFORMERS_CACHE: ${{ github.workspace }}/.cache/huggingface
+      TEST_DATABASE_URL: postgresql+asyncpg://amlfilter:amlfilter_dev_password@127.0.0.1:5435/amlfilter
+      TEST_REDIS_URL: redis://127.0.0.1:6380/0
 
     services:
       postgres:
@@ -35,10 +44,6 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-
-    env:
-      TEST_DATABASE_URL: postgresql+asyncpg://amlfilter:amlfilter_dev_password@127.0.0.1:5435/amlfilter
-      TEST_REDIS_URL: redis://127.0.0.1:6380/0
 
     steps:
       - uses: actions/checkout@v5
@@ -68,6 +73,39 @@ jobs:
         run: uv python install 3.13
       - name: Sync
         run: uv sync --extra dev
+      # Cache the HF model dir so sentence-transformers/all-MiniLM-L6-v2 is
+      # fetched once and reused across runs. Keyed on the model name + OS so a
+      # model version bump or runner OS change invalidates the cache cleanly.
+      - name: Cache HuggingFace model weights
+        id: hf-model-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.cache/huggingface
+          key: hf-model-${{ runner.os }}-sentence-transformers-all-MiniLM-L6-v2
+
+      # On a cache miss, pre-fetch the model BEFORE pytest so the tests never
+      # need to reach out to huggingface.co. Retried up to 5 times with
+      # increasing backoff to survive transient 429s without failing the build.
+      - name: Pre-fetch embedding model (cache miss)
+        if: steps.hf-model-cache.outputs.cache-hit != 'true'
+        run: |
+          for attempt in 1 2 3 4 5; do
+            echo "Pre-fetch attempt ${attempt}/5..."
+            uv run python -c "
+          from sentence_transformers import SentenceTransformer
+          SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
+          print('Model downloaded successfully.')
+          " && break
+            if [ "$attempt" -lt 5 ]; then
+              sleep_sec=$(( attempt * 30 ))
+              echo "Download failed; retrying in ${sleep_sec}s..."
+              sleep "${sleep_sec}"
+            else
+              echo "All pre-fetch attempts failed."
+              exit 1
+            fi
+          done
+
       - name: Lint (ruff check + format check)
         run: uv run poe lint
       - name: Typecheck (mypy --strict)
@@ -75,6 +113,12 @@ jobs:
       - name: Complexity (xenon)
         run: uv run poe complexity
       - name: Tests (pytest)
+        # HF_HUB_OFFLINE=1 + TRANSFORMERS_OFFLINE=1 are set here (NOT on the
+        # pre-fetch step above) so tests read the cached model locally and fail
+        # fast instead of retrying the CDN for minutes on a network problem.
+        env:
+          HF_HUB_OFFLINE: "1"
+          TRANSFORMERS_OFFLINE: "1"
         run: uv run pytest -m 'not integration' --ignore=tests/integration
       - name: Scoring parity golden is fresh (regenerate + diff)
         run: uv run poe scoring-golden-check
