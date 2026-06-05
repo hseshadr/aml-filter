@@ -660,3 +660,13 @@
 	font-size: 2rem;
 	font-weight: bold;
 }
+
+/* ==========================================================================
+   Route Suspense Fallback
+   ========================================================================== */
+
+.page-loading {
+	padding: var(--spacing-xl);
+	text-align: center;
+	color: var(--color-text-muted);
+}
