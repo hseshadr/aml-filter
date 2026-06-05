@@ -63,8 +63,18 @@ export interface CacheStore {
 	promote(pointer: VersionPointer): Promise<void>;
 }
 
+/** Per-fetch transport options. `cache` mirrors `RequestInit.cache`; the sync
+ * engine passes `"no-store"` for the mutable `/latest` pointer so a stale or
+ * cross-project entry in the browser HTTP cache can never poison the verify. */
+export interface FetchBytesOptions {
+	readonly cache?: RequestCache;
+}
+
 /** Transport seam: fetch raw bytes for a URL (injectable for tests). */
-export type FetchBytes = (url: string) => Promise<Uint8Array>;
+export type FetchBytes = (
+	url: string,
+	options?: FetchBytesOptions,
+) => Promise<Uint8Array>;
 
 /** Fail-closed ed25519 verifier: resolves on a valid signature, else throws. */
 export type Verify = (

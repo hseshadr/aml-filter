@@ -1,7 +1,7 @@
 // The transport seam: fetch raw bytes for a URL. Injectable so tests back the
 // sync engine with the real examples/catalog files instead of the network.
 
-import type { FetchBytes } from "./types";
+import type { FetchBytes, FetchBytesOptions } from "./types";
 
 /**
  * The transport could not reach the origin: offline, DNS failure, or a server
@@ -23,12 +23,24 @@ export class NetworkError extends Error {
  */
 export const FETCH_TIMEOUT_MS = 15_000;
 
-export const fetchBytes: FetchBytes = async (url) => {
+/** Build the `RequestInit`, threading the abort signal and any cache mode. The
+ * `cache` key is set ONLY when requested so a default fetch leaves it absent. */
+function fetchInit(
+	signal: AbortSignal,
+	options?: FetchBytesOptions,
+): RequestInit {
+	if (options?.cache === undefined) {
+		return { signal };
+	}
+	return { signal, cache: options.cache };
+}
+
+export const fetchBytes: FetchBytes = async (url, options) => {
 	const controller = new AbortController();
 	const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 	let response: Response;
 	try {
-		response = await fetch(url, { signal: controller.signal });
+		response = await fetch(url, fetchInit(controller.signal, options));
 	} catch (cause) {
 		if (controller.signal.aborted) {
 			// The abort fired: the request exceeded FETCH_TIMEOUT_MS. Surface it as

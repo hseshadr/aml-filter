@@ -29,7 +29,10 @@ function store(): Promise<OpfsCacheStore> {
 }
 
 async function loadPubkey(pubkeyUrl: string): Promise<Uint8Array> {
-	return fetchBytes(pubkeyUrl);
+	// The pinned trust root is the one input the whole fail-closed verify hangs
+	// on; fetch it fresh (no-store) so a stale cached key can never be the thing
+	// that's verified against. Same-origin, so the cost is negligible.
+	return fetchBytes(pubkeyUrl, { cache: "no-store" });
 }
 
 async function handleSync(req: SyncRequest): Promise<EngineResponse> {
