@@ -13,6 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+	backoffDelay,
 	downloadModel,
 	fetchBytes,
 	HF_BASE,
@@ -20,6 +21,8 @@ import {
 	MODEL_FILES,
 	MODEL_ID,
 	needsDownload,
+	parseRetryAfter,
+	RETRY_AFTER_CAP_MS,
 	sha256Hex,
 	sourceUrl,
 	verifyDigest,
@@ -28,11 +31,30 @@ import {
 const sha = (bytes: Uint8Array): string =>
 	createHash("sha256").update(bytes).digest("hex");
 
+/** A no-op sleeper so retry tests assert the budget without real waits. */
+const noSleep = async (): Promise<void> => {};
+
 /** A stub fetch that serves a fixed body per URL, or an HTTP error / throw. */
 interface StubRoute {
 	readonly body?: Uint8Array;
 	readonly status?: number;
 	readonly throws?: Error;
+	readonly retryAfter?: string;
+}
+
+function stubResponse(route: StubRoute): Response {
+	const status = route.status ?? 200;
+	const ok = status >= 200 && status < 300;
+	const headers = new Headers(
+		route.retryAfter === undefined ? {} : { "retry-after": route.retryAfter },
+	);
+	return {
+		ok,
+		status,
+		statusText: ok ? "OK" : "Error",
+		headers,
+		arrayBuffer: async () => (route.body ?? new Uint8Array()).buffer,
+	} as unknown as Response;
 }
 
 function makeFetch(
@@ -49,14 +71,7 @@ function makeFetch(
 		if (route.throws !== undefined) {
 			throw route.throws;
 		}
-		const status = route.status ?? 200;
-		const ok = status >= 200 && status < 300;
-		return {
-			ok,
-			status,
-			statusText: ok ? "OK" : "Error",
-			arrayBuffer: async () => (route.body ?? new Uint8Array()).buffer,
-		} as unknown as Response;
+		return stubResponse(route);
 	};
 	return impl as unknown as typeof fetch;
 }
@@ -158,14 +173,9 @@ describe("fetchBytes (timeout + bounded retry)", () => {
 			if (n < 2) {
 				throw new Error("transient");
 			}
-			return {
-				ok: true,
-				status: 200,
-				statusText: "OK",
-				arrayBuffer: async () => body.buffer,
-			} as unknown as Response;
+			return stubResponse({ body });
 		}) as unknown as typeof fetch;
-		const got = await fetchBytes("u", flaky);
+		const got = await fetchBytes("u", flaky, noSleep);
 		expect(Array.from(got)).toEqual(Array.from(body));
 		expect(n).toBe(2);
 	});
@@ -176,16 +186,111 @@ describe("fetchBytes (timeout + bounded retry)", () => {
 			n += 1;
 			throw new Error("stalled");
 		}) as unknown as typeof fetch;
-		await expect(fetchBytes("u", dead)).rejects.toThrow(
+		await expect(fetchBytes("u", dead, noSleep)).rejects.toThrow(
 			new RegExp(`failed after ${MAX_ATTEMPTS} attempts`),
 		);
 		expect(n).toBe(MAX_ATTEMPTS);
 	});
 
-	it("throws on an HTTP error status", async () => {
+	it("throws immediately on a non-retryable 4xx (no wasted attempts)", async () => {
 		const calls: string[] = [];
 		const stub = makeFetch(new Map([["u", { status: 404 }]]), calls);
-		await expect(fetchBytes("u", stub)).rejects.toThrow(/HTTP 404/);
+		await expect(fetchBytes("u", stub, noSleep)).rejects.toThrow(/HTTP 404/);
+		expect(calls).toHaveLength(1); // a 404 is a hard error, not retried
+	});
+
+	it("retries a 429 honoring Retry-After, then succeeds", async () => {
+		const body = new TextEncoder().encode("ok");
+		const calls: string[] = [];
+		let served = 0;
+		const flaky = (async (input: string | URL) => {
+			calls.push(typeof input === "string" ? input : input.toString());
+			served += 1;
+			return served < 2
+				? stubResponse({ status: 429, retryAfter: "1" })
+				: stubResponse({ body });
+		}) as unknown as typeof fetch;
+		const slept: number[] = [];
+		const got = await fetchBytes("u", flaky, async (ms) => {
+			slept.push(ms);
+		});
+		expect(Array.from(got)).toEqual(Array.from(body));
+		expect(calls).toHaveLength(2);
+		expect(slept).toEqual([1000]); // Retry-After: 1 second was honored verbatim
+	});
+
+	it("retries a transient 5xx then succeeds", async () => {
+		const body = new TextEncoder().encode("ok");
+		const calls: string[] = [];
+		let served = 0;
+		const flaky = (async (input: string | URL) => {
+			calls.push(typeof input === "string" ? input : input.toString());
+			served += 1;
+			return served < 2
+				? stubResponse({ status: 503 })
+				: stubResponse({ body });
+		}) as unknown as typeof fetch;
+		const got = await fetchBytes("u", flaky, noSleep);
+		expect(Array.from(got)).toEqual(Array.from(body));
+		expect(calls).toHaveLength(2);
+	});
+
+	it("throws loudly after exhausting attempts on a persistent 429", async () => {
+		const calls: string[] = [];
+		const stub = makeFetch(
+			new Map([["u", { status: 429, retryAfter: "1" }]]),
+			calls,
+		);
+		await expect(fetchBytes("u", stub, noSleep)).rejects.toThrow(
+			new RegExp(`failed after ${MAX_ATTEMPTS} attempts`),
+		);
+		expect(calls).toHaveLength(MAX_ATTEMPTS);
+	});
+});
+
+describe("parseRetryAfter", () => {
+	it("parses a delay given as whole seconds", () => {
+		expect(parseRetryAfter("1")).toBe(1000);
+		expect(parseRetryAfter("7")).toBe(7000);
+	});
+
+	it("parses an HTTP-date into the ms until that instant", () => {
+		const at = new Date(Date.now() + 3000);
+		const ms = parseRetryAfter(at.toUTCString());
+		expect(ms).toBeGreaterThan(1500);
+		expect(ms).toBeLessThanOrEqual(3000);
+	});
+
+	it("caps an over-long delay at RETRY_AFTER_CAP_MS", () => {
+		expect(parseRetryAfter("99999")).toBe(RETRY_AFTER_CAP_MS);
+		const farFuture = new Date(Date.now() + 60 * 60 * 1000).toUTCString();
+		expect(parseRetryAfter(farFuture)).toBe(RETRY_AFTER_CAP_MS);
+	});
+
+	it("returns undefined for an absent or garbage header", () => {
+		expect(parseRetryAfter(null)).toBeUndefined();
+		expect(parseRetryAfter("")).toBeUndefined();
+		expect(parseRetryAfter("soon")).toBeUndefined();
+		expect(parseRetryAfter("-5")).toBeUndefined();
+	});
+});
+
+describe("backoffDelay", () => {
+	it("prefers an explicit Retry-After over computed backoff", () => {
+		expect(backoffDelay(1, 1234)).toBe(1234);
+	});
+
+	it("grows exponentially with attempt and stays within a jittered band", () => {
+		for (const attempt of [1, 2, 3, 4]) {
+			const base = 2 ** (attempt - 1) * 500;
+			const d = backoffDelay(attempt, undefined);
+			expect(d).toBeGreaterThanOrEqual(base);
+			expect(d).toBeLessThanOrEqual(base + 500); // base + full-jitter window
+		}
+	});
+
+	it("never exceeds the Retry-After cap", () => {
+		expect(backoffDelay(20, undefined)).toBeLessThanOrEqual(RETRY_AFTER_CAP_MS);
 	});
 });
 
@@ -280,13 +385,16 @@ describe("downloadModel (I/O + failure paths over a temp dir)", () => {
 		await expect(readFile(join(dir, MODEL_FILES[0].path))).rejects.toThrow();
 	});
 
-	it("aborts on an HTTP error from the hub", async () => {
+	it("aborts on a non-retryable HTTP error from the hub", async () => {
 		const calls: string[] = [];
+		// 403 is a hard client error (not 429/5xx), so it fails fast with no retry
+		// loop — keeps this I/O test free of real backoff waits.
 		const stub = makeFetch(
-			routesFor(() => ({ status: 503 })),
+			routesFor(() => ({ status: 403 })),
 			calls,
 		);
-		await expect(downloadModel(dir, stub)).rejects.toThrow(/HTTP 503/);
+		await expect(downloadModel(dir, stub)).rejects.toThrow(/HTTP 403/);
+		expect(calls).toHaveLength(1);
 	});
 });
 
