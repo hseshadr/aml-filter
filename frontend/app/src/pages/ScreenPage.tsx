@@ -20,6 +20,7 @@ import {
 	useState,
 } from "react";
 import { Footer } from "../components/Footer";
+import { bootErrorMessage } from "./bootErrorMessage";
 
 // The backend-free OFAC screening page. On mount it syncs the signed bundle
 // (ed25519 + sha256, fail-closed) and warms the MiniLM embedder, both in Web
@@ -211,10 +212,9 @@ export function ScreenPage() {
 			return;
 		}
 		started.current = true;
+		const config = configFromEnv(import.meta.env);
 		runtime
-			.bootstrap(configFromEnv(import.meta.env), (stage) =>
-				setPhase({ kind: "booting", stage }),
-			)
+			.bootstrap(config, (stage) => setPhase({ kind: "booting", stage }))
 			.then(() => {
 				if (!alive.current) {
 					return;
@@ -226,9 +226,12 @@ export function ScreenPage() {
 				if (!alive.current) {
 					return;
 				}
+				// Surface the bundle origin so a misconfigured / colliding
+				// VITE_BUNDLE_BASE_URL (e.g. a foreign edge on the same port whose
+				// bundle fails verification) is diagnosable from the banner alone.
 				setPhase({
 					kind: "error",
-					message: error instanceof Error ? error.message : String(error),
+					message: bootErrorMessage(config.bundleBaseUrl, error),
 				});
 			});
 	}, [runtime, bootNonce]);
@@ -406,7 +409,7 @@ function BootBanner({
 	if (phase.kind === "error") {
 		return (
 			<div className="screen-banner screen-banner--error" role="alert">
-				<span>Could not load the screening bundle: {phase.message}</span>
+				<span>{phase.message}</span>
 				<button
 					type="button"
 					className="screen-banner__retry"

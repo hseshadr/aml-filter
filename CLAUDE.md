@@ -12,6 +12,32 @@ Agents are an **execution substrate**, not just for exploration — orchestrate
 implementation/validation/gates across them too. The main thread coordinates and reviews;
 it does not hand-run the work. Treat "let me just do this one step myself first" as a red flag.
 
+## Browser validation (non-negotiable for any `/screen`, demo, or frontend change)
+
+**A UI/demo change is NOT done until a real browser has driven it like a human and the
+on-screen result was observed.** Green unit tests, a green build, and green CI are NOT
+sufficient — they have repeatedly passed while the actual `/screen` demo was broken
+(es2020 model-load crash; a silent boot hang; and the demo bundle failing in-tab signature
+verification — none caught by units/CI because the C1 e2e exercises a *different* test
+bundle than the real demo catalog+key).
+
+Required before claiming any such change works:
+- **Drive the real app in a real browser on `http://localhost:<port>`** (localhost is a
+  secure context — required for WebCrypto `crypto.subtle` signature verification and OPFS;
+  a LAN IP or `host.docker.internal` is **not** a secure context and will fail differently,
+  so it does NOT count as validation). Navigate to `/screen`, watch it boot, type a query,
+  read the rendered result, and confirm a clean console.
+- **Use host Playwright** (the same runner as the C1 e2e, `frontend/app` → `pnpm test:e2e:c1`)
+  — NOT the Docker browser-MCP, which cannot reach the host's secure-context localhost and
+  will report misleading failures (OPFS `persist`, host-not-allowed). Prefer encoding the
+  check as a Playwright spec so it becomes a permanent regression guard.
+- **Cover the REAL artifacts, not stand-ins.** The C1 e2e must (also) verify the actual
+  committed demo bundle (`backend/examples/catalog`) against the actual pinned key
+  (`frontend/app/public/public.key`) in-tab — not only a synthetic test catalog — so a
+  bundle/key/verification regression is caught.
+- If a browser pass genuinely cannot be run in the harness, **say so explicitly and state
+  what remains unverified** — never imply a screen works that you did not watch work.
+
 ## Project Overview
 
 AML-Filter v2.1 is an open-source AML and sanctions screening engine, **rebuilt to run
