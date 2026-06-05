@@ -25,9 +25,13 @@
 // with a non-zero exit — a silent CDN fallback at runtime is exactly what we are
 // eliminating, so a half-populated or wrong local mirror must never pass quietly.
 //
-// Bounded: every fetch is wrapped in a 60s AbortSignal.timeout plus a small
-// bounded retry (3 attempts, short backoff) so a transient HF blip doesn't fail
-// the build and a genuine stall fails loudly instead of hanging forever.
+// Bounded: every fetch is wrapped in a 60s AbortSignal.timeout plus a bounded
+// retry (5 attempts) that rides out rate-limiting and transient server faults —
+// a 429 or 5xx (and a network error) is retried, honoring the server's
+// `Retry-After` header (capped at 30s) when present, otherwise exponential
+// backoff with jitter. A non-retryable status (e.g. 403/404) and an exhausted
+// budget both fail loudly with a non-zero exit; a genuine stall fails loudly
+// instead of hanging forever. The CDN is only ever touched at build time.
 
 import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -40,10 +44,12 @@ export const MODEL_ID = "Xenova/all-MiniLM-L6-v2";
 /** The HF hub origin the prebuild (NOT the runtime) downloads weights from. */
 export const HF_BASE = "https://huggingface.co";
 
-/** Per-fetch timeout (ms) and bounded-retry policy for a transient HF blip. */
+/** Per-fetch timeout (ms) and bounded-retry policy for a rate-limited/transient HF. */
 export const FETCH_TIMEOUT_MS = 60_000;
-export const MAX_ATTEMPTS = 3;
+export const MAX_ATTEMPTS = 5;
 export const RETRY_BACKOFF_MS = 500;
+/** Cap on any single retry wait (Retry-After or backoff) so we can't hang. */
+export const RETRY_AFTER_CAP_MS = 30_000;
 
 /**
  * The exact files transformers.js requests for a feature-extraction pipeline on
@@ -123,35 +129,104 @@ async function diskSha256(absPath) {
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/** A 429 (rate limit) or any 5xx is transient and worth retrying; a 4xx is not. */
+export function isRetryableStatus(status) {
+	return status === 429 || status >= 500;
+}
+
 /**
- * Fetch a URL's body as bytes with a bounded timeout and bounded retry. A genuine
- * stall trips the 60s AbortSignal.timeout; a transient blip is retried up to
- * MAX_ATTEMPTS with linear backoff; an exhausted budget throws loudly.
+ * Parse a `Retry-After` header into a wait in ms, capped at RETRY_AFTER_CAP_MS.
+ * Accepts whole seconds or an HTTP-date; returns undefined for an absent,
+ * negative, or unparseable value (so the caller falls back to computed backoff).
  */
-export async function fetchBytes(url, fetchImpl = fetch) {
+export function parseRetryAfter(header) {
+	if (!header) {
+		return undefined;
+	}
+	const seconds = Number(header);
+	if (Number.isInteger(seconds)) {
+		return seconds >= 0
+			? Math.min(seconds * 1000, RETRY_AFTER_CAP_MS)
+			: undefined;
+	}
+	const at = Date.parse(header);
+	if (Number.isNaN(at)) {
+		return undefined;
+	}
+	return Math.min(Math.max(at - Date.now(), 0), RETRY_AFTER_CAP_MS);
+}
+
+/**
+ * Wait before the next attempt: honor a server `Retry-After` (already parsed to
+ * ms) when given, else exponential backoff (500ms · 2^(attempt-1)) plus full
+ * jitter, all capped at RETRY_AFTER_CAP_MS so a retry can never hang forever.
+ */
+export function backoffDelay(attempt, retryAfterMs) {
+	if (retryAfterMs !== undefined) {
+		return Math.min(retryAfterMs, RETRY_AFTER_CAP_MS);
+	}
+	const base = RETRY_BACKOFF_MS * 2 ** (attempt - 1);
+	return Math.min(base + Math.random() * RETRY_BACKOFF_MS, RETRY_AFTER_CAP_MS);
+}
+
+/** One attempt: throw on a non-OK status, returning bytes on success. */
+async function fetchOnce(url, fetchImpl) {
+	const res = await fetchImpl(url, {
+		signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+	});
+	if (!res.ok) {
+		const err = new Error(`GET ${url} -> HTTP ${res.status} ${res.statusText}`);
+		err.status = res.status;
+		err.retryAfter = parseRetryAfter(res.headers?.get?.("retry-after"));
+		throw err;
+	}
+	return new Uint8Array(await res.arrayBuffer());
+}
+
+/** A thrown error is retryable if it carries no status (network) or a retryable one. */
+function isRetryableError(err) {
+	return err.status === undefined || isRetryableStatus(err.status);
+}
+
+/** Wait out a retryable failure, logging the backoff window chosen for it. */
+async function waitBeforeRetry(url, attempt, err, sleepImpl) {
+	const wait = backoffDelay(attempt, err.retryAfter);
+	console.log(
+		`  retry  ${url} (attempt ${attempt}: ${err.message}; ${wait}ms)`,
+	);
+	await sleepImpl(wait);
+}
+
+/** Re-raise a hard error verbatim, else throw a loud budget-exhausted error. */
+function throwExhausted(url, err) {
+	if (err.status !== undefined && !isRetryableStatus(err.status)) {
+		throw err;
+	}
+	throw new Error(
+		`GET ${url} failed after ${MAX_ATTEMPTS} attempts: ${err?.message}`,
+	);
+}
+
+/**
+ * Fetch a URL's body as bytes with a bounded timeout and bounded retry. A 429 or
+ * 5xx (and a network error / stall) is retried up to MAX_ATTEMPTS, honoring
+ * `Retry-After` when present else jittered exponential backoff; a non-retryable
+ * status fails fast; an exhausted budget throws loudly.
+ */
+export async function fetchBytes(url, fetchImpl = fetch, sleepImpl = sleep) {
 	let lastErr;
 	for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
 		try {
-			const res = await fetchImpl(url, {
-				signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-			});
-			if (!res.ok) {
-				throw new Error(`GET ${url} -> HTTP ${res.status} ${res.statusText}`);
-			}
-			return new Uint8Array(await res.arrayBuffer());
+			return await fetchOnce(url, fetchImpl);
 		} catch (err) {
 			lastErr = err;
-			if (attempt < MAX_ATTEMPTS) {
-				console.log(
-					`  retry  ${url} (attempt ${attempt} failed: ${err.message})`,
-				);
-				await sleep(RETRY_BACKOFF_MS * attempt);
+			if (attempt >= MAX_ATTEMPTS || !isRetryableError(err)) {
+				break;
 			}
+			await waitBeforeRetry(url, attempt, err, sleepImpl);
 		}
 	}
-	throw new Error(
-		`GET ${url} failed after ${MAX_ATTEMPTS} attempts: ${lastErr?.message}`,
-	);
+	return throwExhausted(url, lastErr);
 }
 
 /**

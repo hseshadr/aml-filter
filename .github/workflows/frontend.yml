@@ -85,12 +85,12 @@ jobs:
         working-directory: frontend
     # The C1 suite loads the real ~25 MB Xenova/all-MiniLM-L6-v2 weights in a
     # real browser over the MINIFIED production build (the lane the default
-    # `vite dev` suite can't catch the production model-load crash on). HF_HOME
-    # and TRANSFORMERS_CACHE are pinned to a cached dir so the weights download
-    # once and are restored on later runs instead of being re-fetched.
-    env:
-      HF_HOME: ${{ github.workspace }}/.cache/huggingface
-      TRANSFORMERS_CACHE: ${{ github.workspace }}/.cache/huggingface
+    # `vite dev` suite can't catch the production model-load crash on). The
+    # weights are served same-origin from app/public/models/, populated-and-cached
+    # by the self-hosted-weights step below — so neither suite touches
+    # huggingface.co at test time. (The old HF_HOME / TRANSFORMERS_CACHE env +
+    # cache step are gone: download-model.mjs writes public/models/ and never used
+    # HF_HOME, so that cache was dead for this job.)
     steps:
       - uses: actions/checkout@v5
 
@@ -109,6 +109,31 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # Same self-hosted-weights cache as the `frontend` build job, with the SAME
+      # key, so the two jobs SHARE one cache entry. Both e2e suites resolve the
+      # MiniLM weights from same-origin app/public/models/ (the runtime never
+      # touches huggingface.co): the C1 suite builds the production bundle, whose
+      # `prebuild` hook (download-model.mjs) finds the sha256-verified files
+      # already present on a cache hit and skips HF entirely — removing the live
+      # huggingface.co dependency that was 429-ing this job under runner load. The
+      # bytes are still sha256-verified + fail-closed, so a restored cache is
+      # trusted only if it matches the pins.
+      - name: Cache self-hosted model weights
+        id: model-weights-cache
+        uses: actions/cache@v4
+        with:
+          path: frontend/app/public/models
+          key: model-weights-${{ runner.os }}-${{ hashFiles('frontend/app/scripts/download-model.mjs') }}
+
+      # On a cache miss the weights aren't present yet, so populate (and so cache)
+      # them before the e2e suites run — the C1 build's `prebuild` would also do
+      # this, but doing it here makes the cache entry and gives the cold run the
+      # 429-resilient retry path explicitly.
+      - name: Download model weights (cache miss)
+        if: steps.model-weights-cache.outputs.cache-hit != 'true'
+        working-directory: frontend/app
+        run: node scripts/download-model.mjs
+
       - name: Cache Playwright browsers
         uses: actions/cache@v4
         with:
@@ -119,14 +144,6 @@ jobs:
       - name: Install Playwright Chromium + system deps
         working-directory: frontend/app
         run: pnpm exec playwright install --with-deps chromium
-
-      - name: Cache HuggingFace model weights
-        uses: actions/cache@v4
-        with:
-          path: ${{ github.workspace }}/.cache/huggingface
-          # Keyed on the model id so the ~25 MB MiniLM weights survive across runs
-          # and are only re-downloaded if the pinned model changes.
-          key: hf-model-${{ runner.os }}-Xenova-all-MiniLM-L6-v2
 
       - name: E2E — admin + screening shell suite (default config, vite dev)
         working-directory: frontend/app
