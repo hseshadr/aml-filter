@@ -79,6 +79,7 @@ amlfilter = "aml_filter.cli:app"
 # Pin transitive deps up to their security-patched releases so `pip-audit` stays
 # clean. Constraints (not direct deps) — they only raise the floor when present.
 constraint-dependencies = [
+    "pip>=26.1.2",
     "requests>=2.33.0",
     "urllib3>=2.7.0",
     "virtualenv>=20.36.1",
