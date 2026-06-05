@@ -167,7 +167,14 @@ tier (`@amlfilter/browser`), which syncs into OPFS in a Web Worker.
   wire format, the normalizer, and the scorer's **full output** — score, reasons, and each
   reason's plain-language description — are parity-tested against Python.
 - **Async everywhere**: SQLAlchemy async with asyncpg driver.
-- **Multi-tenancy**: Row Level Security (RLS) with tenant_id isolation (DB path).
+- **Multi-tenancy (DB path)**: tenant isolation is enforced **at the application
+  layer** — the search backends and queries filter by `tenant_id` (e.g.
+  `search/localvec_backend.py`'s `_matches_tenant`, `pgvector_backend.py`'s tenant
+  partition key). The Postgres RLS policies in
+  `backend/alembic/versions/add_rls_policies.py` are **scaffolding for SaaS deployments
+  and are not yet wired**: the `app.current_tenant_id` GUC they gate on is never set,
+  and the app connects as the table owner (which bypasses RLS unless
+  `FORCE ROW LEVEL SECURITY` is set), so the policies are currently inert.
 - **Background jobs**: Redis Queue (RQ) for batch processing and ingestion.
 - **Dependency injection**: FastAPI's `Depends()` for services.
 - **Fail closed** on config (missing `DATABASE_URL` aborts the DB path) and on trust

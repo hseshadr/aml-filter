@@ -423,7 +423,22 @@ CREATE INDEX idx_api_keys_tenant ON api_keys(tenant_id, revoked_at);
 
 ## Row Level Security (RLS)
 
-For SaaS deployments, enable RLS for tenant isolation:
+> **Status — NOT active in the reference app (this is the target state, not current
+> behavior).** Today, tenant isolation on the DB path is enforced at the **application
+> layer** (the search backends and queries filter by `tenant_id`), not by Postgres RLS.
+> The policies below ship as a migration (`backend/alembic/versions/add_rls_policies.py`)
+> but are **inert** as configured: the app connects as the table **owner** (owners bypass
+> RLS unless `FORCE ROW LEVEL SECURITY` is set), and the `app.current_tenant_id` GUC the
+> policies gate on is **never set** by the backend. To turn on real, DB-enforced RLS you
+> need **both**:
+> 1. a dedicated **non-owner** application role (`NOSUPERUSER`, not the table owner) **OR**
+>    `ALTER TABLE … FORCE ROW LEVEL SECURITY` on each table, so the connecting role is
+>    actually subject to the policies; and
+> 2. the per-request/per-transaction GUC set right after authentication — e.g.
+>    `SET LOCAL app.current_tenant_id = '<tenant>'` (see "Setting Tenant Context" below) —
+>    so the policy predicate resolves to the authenticated tenant.
+
+For SaaS deployments, enable RLS for tenant isolation (target state):
 
 ```sql
 -- Enable RLS
@@ -439,41 +454,43 @@ CREATE POLICY tenant_entities_isolation ON entities
     FOR ALL
     USING (
         tenant_id IS NULL OR  -- Global entities visible to all
-        tenant_id = current_setting('app.tenant_id', TRUE)::VARCHAR
+        tenant_id = current_setting('app.current_tenant_id', TRUE)::VARCHAR
     );
 
 -- Policy: Tenant List Configs
 CREATE POLICY tenant_configs_isolation ON tenant_list_configs
     FOR ALL
-    USING (tenant_id = current_setting('app.tenant_id', TRUE)::VARCHAR);
+    USING (tenant_id = current_setting('app.current_tenant_id', TRUE)::VARCHAR);
 
 -- Policy: Scoring Policies
 CREATE POLICY tenant_policies_isolation ON scoring_policies
     FOR ALL
-    USING (tenant_id = current_setting('app.tenant_id', TRUE)::VARCHAR);
+    USING (tenant_id = current_setting('app.current_tenant_id', TRUE)::VARCHAR);
 
 -- Policy: Search Requests
 CREATE POLICY tenant_requests_isolation ON search_requests
     FOR ALL
-    USING (tenant_id = current_setting('app.tenant_id', TRUE)::VARCHAR);
+    USING (tenant_id = current_setting('app.current_tenant_id', TRUE)::VARCHAR);
 
 -- Policy: Usage Meters
 CREATE POLICY tenant_usage_isolation ON usage_meters
     FOR ALL
-    USING (tenant_id = current_setting('app.tenant_id', TRUE)::VARCHAR);
+    USING (tenant_id = current_setting('app.current_tenant_id', TRUE)::VARCHAR);
 
 -- Policy: API Keys
 CREATE POLICY tenant_api_keys_isolation ON api_keys
     FOR ALL
-    USING (tenant_id = current_setting('app.tenant_id', TRUE)::VARCHAR);
+    USING (tenant_id = current_setting('app.current_tenant_id', TRUE)::VARCHAR);
 ```
 
 **Setting Tenant Context:**
 ```sql
-SET LOCAL app.tenant_id = 'acme';
+SET LOCAL app.current_tenant_id = 'acme';
 ```
 
-This is set automatically by the application middleware after authentication.
+This would be run per request/transaction right after authentication — but the reference
+app does **not** do this today (see the Status note above), which is why the policies are
+currently inert. Wiring it up is the second half of turning on real DB-enforced RLS.
 
 ---
 

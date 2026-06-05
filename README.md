@@ -180,6 +180,11 @@ Three ways to screen, one scoring contract:
    names in-tab. No application backend in the request path. This mirrors
    edge-reco's Nimbus demo.
 
+> **On API keys:** only path 1 — the hosted, DB-backed `POST /v1/screen` HTTP tier —
+> uses `X-API-Key` (it selects the tenant and drives rate-limiting/usage metering). The
+> `/screen` browser demo (path 3, `make demo`) and the `amlfilter` CLI (path 2) run
+> locally and are **keyless** — no API key needed or accepted.
+
 Full write-up and diagrams: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ### How matching & scoring works

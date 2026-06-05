@@ -17,6 +17,11 @@
 
 ## Authentication
 
+> **Scope:** authentication applies **only** to this DB-backed HTTP tier. `X-API-Key`
+> selects the tenant for `POST /v1/screen` and the tenant-scoped admin endpoints. The
+> backend-free `/screen` browser demo and the `amlfilter` CLI screen locally and are
+> **keyless** — they have no HTTP surface and use no API key.
+
 ### API Key Authentication
 ```http
 X-API-Key: ak_live_abc123xyz789
