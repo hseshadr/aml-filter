@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime, timedelta
+from unittest.mock import MagicMock
 
 import pytest
 from edgeproc.bundles.signing import Ed25519Signer, generate_keypair
@@ -20,6 +21,24 @@ from aml_filter.security.middleware import require_api_key
 
 _TENANT = "tenant-123"
 _NOW = datetime(2026, 6, 6, 12, 0, 0, tzinfo=UTC)
+
+
+@pytest.fixture(autouse=True)
+def _stub_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Prevent get_settings() from reading DATABASE_URL — not needed for router unit tests.
+
+    The attestations router calls get_settings() inside _service() and _load_public_key()
+    to read ATTESTATION_SIGNING_KEY_PATH and VERIFY_KEY_PATH. Neither requires a real DB
+    URL. Monkeypatching the module-level reference keeps these tests fully offline and
+    independent of any DATABASE_URL environment variable (which is absent in the CI
+    unit-test step where only TEST_DATABASE_URL is set).
+    """
+    stub = MagicMock()
+    stub.attestation_signing_key_path = None
+    stub.attestation_signing_key_id = "default"
+    stub.attestation_validity_days = 90
+    stub.verify_key_path = None
+    monkeypatch.setattr("aml_filter.api.v1.attestations.get_settings", lambda: stub)
 
 
 def _app() -> FastAPI:
