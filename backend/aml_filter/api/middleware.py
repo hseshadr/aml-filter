@@ -65,7 +65,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     async def _enforce_rate_limit(self, request: Request, tenant_id: str) -> Response | None:
         """Check the limit; return a 429 Response if exceeded, else None (fail-open on error)."""
         endpoint = self._endpoint_for(request.url.path)
-        limits = get_rate_limit_for_plan("starter")  # TODO: fetch plan from database
+        # Defaults to the "starter" tier; per-tenant plan lookup tracked in #16
+        limits = get_rate_limit_for_plan("starter")
         limit = limits.get(endpoint, limits.get("screen", 100))
         try:
             allowed, remaining, reset_after = await check_rate_limit(
