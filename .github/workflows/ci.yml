@@ -150,11 +150,38 @@ jobs:
         run: uv python install 3.13
       - name: Sync
         run: uv sync --extra dev
+
+      # Integration tests call EmbeddingService() directly (unlike unit tests,
+      # which stub it). Cache the HuggingFace hub so the ~90 MB all-MiniLM-L6-v2
+      # weights are not re-fetched on every run. The cache key is pinned to the
+      # model revision so it is invalidated if the model changes.
+      - name: Cache HuggingFace model weights
+        id: hf-model-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface/hub
+          key: hf-miniLM-L6-v2-${{ runner.os }}-v1
+
+      - name: Pre-warm sentence-transformers model (cache miss only)
+        if: steps.hf-model-cache.outputs.cache-hit != 'true'
+        # Download without offline flag so the weights land in ~/.cache/huggingface/hub.
+        # Retried once on failure to handle transient HF CDN rate-limits.
+        run: |
+          uv run python -c "
+          from sentence_transformers import SentenceTransformer
+          SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
+          print('model loaded OK')
+          " || uv run python -c "
+          from sentence_transformers import SentenceTransformer
+          SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
+          print('model loaded OK (retry)')
+          "
+
       - name: Integration tests (pytest -m integration)
         # Coverage is already enforced in the quality job. Skip it here so the
         # --cov-fail-under=90 in addopts doesn't double-count or create a
         # misleading partial-run failure.
-        env:
-          HF_HUB_OFFLINE: "1"
-          TRANSFORMERS_OFFLINE: "1"
+        # HF_HUB_OFFLINE is intentionally NOT set here: integration tests load
+        # the real sentence-transformers model (unit tests stub it). The weights
+        # are pre-downloaded and cached in the step above.
         run: uv run pytest -m integration --no-cov -v
