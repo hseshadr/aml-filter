@@ -415,3 +415,44 @@ class BatchJob(Base):
         Index("idx_batch_jobs_tenant", "tenant_id", "status"),
         Index("idx_batch_jobs_status", "status", "created_at"),
     )
+
+
+class Customer(Base):
+    """KYC customer onboarded on top of the screening engine.
+
+    A customer's screened identity lives in an ``Entity`` row (risk_category
+    ``WHITELIST``); this table carries the onboarding lifecycle, KYC risk band,
+    and identity documents, linked 1:1 to that entity via ``screening_entity_id``.
+    """
+
+    __tablename__ = "customers"
+
+    customer_id: Mapped[str] = mapped_column(String(36), primary_key=True)  # UUID as string
+    tenant_id: Mapped[str] = mapped_column(
+        String(100), ForeignKey("tenants.tenant_id", ondelete="CASCADE"), nullable=False
+    )
+    customer_reference: Mapped[str] = mapped_column(String(200), nullable=False)
+    onboarding_status: Mapped[str] = mapped_column(
+        String(20), default="DRAFT", nullable=False
+    )  # DRAFT, PENDING_REVIEW, ACTIVE, REJECTED
+    kyc_risk_rating: Mapped[str | None] = mapped_column(
+        String(10), nullable=True
+    )  # LOW, MEDIUM, HIGH (null until assessed)
+    id_documents: Mapped[JsonArray] = mapped_column(JSONB, default=list, nullable=False)
+    onboarded_by: Mapped[str] = mapped_column(String(200), nullable=False)
+    screening_entity_id: Mapped[str | None] = mapped_column(
+        String(500), ForeignKey("entities.entity_id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "customer_reference", name="uq_customers_tenant_reference"),
+        Index("idx_customers_tenant", "tenant_id"),
+        Index("idx_customers_status", "onboarding_status"),
+        Index("idx_customers_screening_entity", "screening_entity_id"),
+    )

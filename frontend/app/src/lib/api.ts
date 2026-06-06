@@ -167,6 +167,51 @@ export class ApiClient {
 		);
 		return response.data;
 	}
+
+	// KYC customer onboarding (the /v1/customers tier)
+	async onboardCustomer(
+		payload: CustomerOnboardRequest,
+	): Promise<CustomerOnboardResponse> {
+		const response = await this.client.post<CustomerOnboardResponse>(
+			"/v1/customers",
+			payload,
+		);
+		return response.data;
+	}
+
+	async listCustomers(
+		params?: CustomerListParams,
+	): Promise<CustomerResponse[]> {
+		const response = await this.client.get<CustomerResponse[]>(
+			"/v1/customers",
+			{
+				params,
+			},
+		);
+		return response.data;
+	}
+
+	async getCustomer(customerId: string): Promise<CustomerResponse> {
+		const response = await this.client.get<CustomerResponse>(
+			`/v1/customers/${customerId}`,
+		);
+		return response.data;
+	}
+
+	async updateCustomer(
+		customerId: string,
+		payload: CustomerUpdateRequest,
+	): Promise<CustomerResponse> {
+		const response = await this.client.put<CustomerResponse>(
+			`/v1/customers/${customerId}`,
+			payload,
+		);
+		return response.data;
+	}
+
+	async deleteCustomer(customerId: string): Promise<void> {
+		await this.client.delete(`/v1/customers/${customerId}`);
+	}
 }
 
 // Type definitions
@@ -316,6 +361,63 @@ export type MatchResolutionStatus =
 	| "FALSE_POSITIVE"
 	| "TRUE_POSITIVE"
 	| "RESOLVED";
+
+// ---------------------------------------------------------------------------
+// KYC customer onboarding (the /v1/customers tier)
+// ---------------------------------------------------------------------------
+
+export type OnboardingStatus =
+	| "DRAFT"
+	| "PENDING_REVIEW"
+	| "ACTIVE"
+	| "REJECTED";
+
+export type KycRiskRating = "LOW" | "MEDIUM" | "HIGH";
+
+/** A single identity document supplied during onboarding. */
+export interface IdDocument {
+	doc_type: string;
+	number: string;
+	issuing_country: string; // ISO2
+	expiry?: string | null; // YYYY-MM-DD
+}
+
+export interface CustomerOnboardRequest {
+	customer_reference: string;
+	name: string;
+	onboarded_by?: string;
+	country?: string; // ISO2
+	id_documents?: IdDocument[];
+}
+
+export interface CustomerUpdateRequest {
+	onboarding_status?: OnboardingStatus;
+	kyc_risk_rating?: KycRiskRating;
+	customer_reference?: string;
+}
+
+export interface CustomerResponse {
+	customer_id: string;
+	tenant_id: string;
+	customer_reference: string;
+	onboarding_status: string;
+	kyc_risk_rating: string | null;
+	id_documents: IdDocument[];
+	onboarded_by: string;
+	screening_entity_id: string | null;
+	created_at: string;
+	updated_at: string;
+}
+
+/** Onboarding response: the customer plus any sanctions matches found. */
+export interface CustomerOnboardResponse extends CustomerResponse {
+	match_entity_ids: string[];
+}
+
+export interface CustomerListParams {
+	limit?: number;
+	offset?: number;
+}
 
 // Create singleton instance
 export const apiClient = new ApiClient();

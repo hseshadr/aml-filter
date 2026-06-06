@@ -5,6 +5,7 @@ from fastapi import APIRouter
 from aml_filter.api.v1.api_keys import router as api_keys_router
 from aml_filter.api.v1.audit import router as audit_router
 from aml_filter.api.v1.batch import router as batch_router
+from aml_filter.api.v1.customers import router as customers_router
 from aml_filter.api.v1.lists import router as lists_router
 from aml_filter.api.v1.screen import router as screen_router
 from aml_filter.api.v1.tenants import router as tenants_router
@@ -22,5 +23,6 @@ router.include_router(weights_router)
 router.include_router(whitelist_router)
 router.include_router(batch_router)
 router.include_router(audit_router)
+router.include_router(customers_router)
 
 __all__ = ["router"]

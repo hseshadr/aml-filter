@@ -37,6 +37,9 @@ export default function Layout({ children }: LayoutProps) {
 								<Link to="/search" className="nav-link">
 									Search
 								</Link>
+								<Link to="/customers" className="nav-link">
+									Customers
+								</Link>
 								<Link to="/whitelist" className="nav-link">
 									Whitelist
 								</Link>
