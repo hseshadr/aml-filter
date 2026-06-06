@@ -152,36 +152,44 @@ jobs:
         run: uv sync --extra dev
 
       # Integration tests call EmbeddingService() directly (unlike unit tests,
-      # which stub it). Cache the HuggingFace hub so the ~90 MB all-MiniLM-L6-v2
-      # weights are not re-fetched on every run. The cache key is pinned to the
-      # model revision so it is invalidated if the model changes.
-      - name: Cache HuggingFace model weights
-        id: hf-model-cache
+      # which stub it). HuggingFace CDN hard-429s GitHub Actions runner IPs, so
+      # we mirror the all-MiniLM-L6-v2 PyTorch weights from this repo's
+      # backend-model-weights-v1 release asset (GitHub CDN, authenticated via
+      # GITHUB_TOKEN). Cache the extracted directory so only the first run pays
+      # the ~80 MB download cost.
+      - name: Cache backend model weights
+        id: backend-model-cache
         uses: actions/cache@v4
         with:
-          path: ~/.cache/huggingface/hub
-          key: hf-miniLM-L6-v2-${{ runner.os }}-v1
+          path: /tmp/miniLM-L6-v2
+          key: backend-model-miniLM-L6-v2-${{ runner.os }}-rel1
 
-      - name: Pre-warm sentence-transformers model (cache miss only)
-        if: steps.hf-model-cache.outputs.cache-hit != 'true'
-        # Download without offline flag so the weights land in ~/.cache/huggingface/hub.
-        # Retried once on failure to handle transient HF CDN rate-limits.
+      - name: Fetch backend model weights (cache miss only)
+        if: steps.backend-model-cache.outputs.cache-hit != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          uv run python -c "
-          from sentence_transformers import SentenceTransformer
-          SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
-          print('model loaded OK')
-          " || uv run python -c "
-          from sentence_transformers import SentenceTransformer
-          SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
-          print('model loaded OK (retry)')
-          "
+          mkdir -p /tmp/miniLM-L6-v2
+          gh release download backend-model-weights-v1 \
+            --repo hseshadr/aml-filter \
+            --pattern "miniLM-L6-v2-pt.tar.gz" \
+            --output /tmp/miniLM-L6-v2-pt.tar.gz
+          tar -xzf /tmp/miniLM-L6-v2-pt.tar.gz -C /tmp/miniLM-L6-v2
+          rm /tmp/miniLM-L6-v2-pt.tar.gz
+          echo "Model files:"
+          ls /tmp/miniLM-L6-v2/
 
       - name: Integration tests (pytest -m integration)
         # Coverage is already enforced in the quality job. Skip it here so the
         # --cov-fail-under=90 in addopts doesn't double-count or create a
         # misleading partial-run failure.
-        # HF_HUB_OFFLINE is intentionally NOT set here: integration tests load
-        # the real sentence-transformers model (unit tests stub it). The weights
-        # are pre-downloaded and cached in the step above.
+        # EMBEDDING_MODEL_PATH overrides the HF model name in
+        # SentenceTransformersProvider so the pre-fetched local directory is used
+        # instead of hitting the HF CDN (which hard-429s GitHub runner IPs).
+        # HF_HUB_OFFLINE + TRANSFORMERS_OFFLINE are set so any stray download
+        # attempt fails fast rather than hanging on a 429.
+        env:
+          EMBEDDING_MODEL_PATH: /tmp/miniLM-L6-v2
+          HF_HUB_OFFLINE: "1"
+          TRANSFORMERS_OFFLINE: "1"
         run: uv run pytest -m integration --no-cov -v
