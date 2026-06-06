@@ -22,6 +22,7 @@ const CustomersPage = lazy(() => import("./pages/CustomersPage"));
 const ReviewBoardPage = lazy(() => import("./pages/ReviewBoardPage"));
 const SarsPage = lazy(() => import("./pages/SarsPage"));
 const SarFormPage = lazy(() => import("./pages/SarFormPage"));
+const AttestationsPage = lazy(() => import("./pages/AttestationsPage"));
 
 function RouteFallback() {
 	return (
@@ -119,6 +120,14 @@ function App() {
 									element={
 										<ProtectedRoute>
 											<SarFormPage />
+										</ProtectedRoute>
+									}
+								/>
+								<Route
+									path="/attestations"
+									element={
+										<ProtectedRoute>
+											<AttestationsPage />
 										</ProtectedRoute>
 									}
 								/>

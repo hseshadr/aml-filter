@@ -277,6 +277,57 @@ export class ApiClient {
 		});
 		triggerBlobDownload(response.data, `sar-${sarId}.${format}`);
 	}
+
+	// Attestations API (the /v1/attestations review-badge tier)
+	async generateAttestation(
+		body: AttestationCreateBody,
+	): Promise<AttestationRecord> {
+		const response = await this.client.post<AttestationRecord>(
+			"/v1/attestations",
+			body,
+		);
+		return response.data;
+	}
+
+	async listAttestations(
+		params: AttestationListParams = {},
+	): Promise<AttestationRecord[]> {
+		const response = await this.client.get<AttestationRecord[]>(
+			"/v1/attestations",
+			{ params },
+		);
+		return response.data;
+	}
+
+	async getAttestation(attestationId: string): Promise<AttestationRecord> {
+		const response = await this.client.get<AttestationRecord>(
+			`/v1/attestations/${attestationId}`,
+		);
+		return response.data;
+	}
+
+	async verifyAttestation(
+		attestationId: string,
+	): Promise<AttestationVerification> {
+		const response = await this.client.get<AttestationVerification>(
+			`/v1/attestations/${attestationId}/verify`,
+		);
+		return response.data;
+	}
+
+	async exportAttestation(
+		attestationId: string,
+		format: AttestationExportFormat,
+	): Promise<void> {
+		const response = await this.client.get<Blob>(
+			`/v1/attestations/${attestationId}/export`,
+			{ params: { format }, responseType: "blob" },
+		);
+		triggerBlobDownload(
+			response.data,
+			`attestation-${attestationId}.${format}`,
+		);
+	}
 }
 
 /** Trigger a browser file download for a fetched blob (export artifacts). */
@@ -609,6 +660,67 @@ export interface SarUpdateBody {
 	narrative?: string | null;
 	filer?: SarFiler;
 	status?: SarStatus;
+}
+
+// ---------------------------------------------------------------------------
+// Attestations / review badge (the /v1/attestations tier)
+// ---------------------------------------------------------------------------
+
+/** Result classification of a customer's screening attestation. */
+export type AttestationStatus =
+	| "CLEAR"
+	| "MATCHES_PENDING"
+	| "MATCHES_DISPOSITIONED";
+
+export type AttestationExportFormat = "pdf" | "json";
+
+/** One enabled list and the version it was screened against. */
+export interface ListVersionEntry {
+	list_id: string;
+	version: string;
+}
+
+/** The screening outcome captured at attestation time. */
+export interface AttestationResult {
+	status: AttestationStatus;
+	match_count: number;
+	pending_count: number;
+}
+
+/** A persisted, optionally-signed screening attestation (review badge). */
+export interface AttestationRecord {
+	attestation_id: string;
+	tenant_id: string;
+	customer_id: string;
+	customer_reference: string;
+	screened_at: string;
+	valid_until: string;
+	lists_and_versions: ListVersionEntry[];
+	result: AttestationResult;
+	signature: string | null;
+	signing_key_id: string | null;
+	algo: string | null;
+	created_at: string;
+}
+
+/** Request body for generating/refreshing a customer's attestation. */
+export interface AttestationCreateBody {
+	customer_id: string;
+	require_signature?: boolean;
+}
+
+/** Query params for listing the latest attestation per customer. */
+export interface AttestationListParams {
+	customer_id?: string;
+	stale?: boolean;
+	limit?: number;
+	offset?: number;
+}
+
+/** Outcome of verifying an attestation's ed25519 signature. */
+export interface AttestationVerification {
+	valid: boolean;
+	reason: string;
 }
 
 export interface SarListParams {

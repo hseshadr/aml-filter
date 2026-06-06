@@ -58,6 +58,17 @@ class Settings(BaseSettings):
     #: Local cache root for synced bundle objects (``BUNDLE_CACHE_DIR``).
     bundle_cache_dir: Path = Path(".ofac_bundle")
 
+    #: Path to the raw ed25519 *private* key (``ATTESTATION_SIGNING_KEY_PATH``) used to
+    #: sign screening attestations. When unset, attestations are persisted unsigned.
+    #: The matching public half is the pinned trust root (``verify_key_path``), so a
+    #: signed badge is verifiable with the same key that authenticates OFAC bundles.
+    attestation_signing_key_path: Path | None = None
+    #: Identifier recorded alongside a signed attestation (``ATTESTATION_SIGNING_KEY_ID``).
+    attestation_signing_key_id: str = "default"
+    #: How many days an attestation stays valid before a customer is "due for re-review"
+    #: (``ATTESTATION_VALIDITY_DAYS``).
+    attestation_validity_days: int = 90
+
     def bundle_mode_active(self) -> bool:
         """True when both bundle base-url and verify-key are set (bundle read-path)."""
         return self.bundle_base_url is not None and self.verify_key_path is not None

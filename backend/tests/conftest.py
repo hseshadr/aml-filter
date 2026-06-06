@@ -69,6 +69,7 @@ async def session(engine) -> AsyncGenerator[AsyncSession]:
         await conn.execute(text("TRUNCATE TABLE whitelist_blacklist_matches CASCADE"))
         await conn.execute(text("TRUNCATE TABLE screening_jobs CASCADE"))
         await conn.execute(text("TRUNCATE TABLE sars CASCADE"))
+        await conn.execute(text("TRUNCATE TABLE attestations CASCADE"))
         await conn.execute(text("TRUNCATE TABLE customers CASCADE"))
 
     async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)

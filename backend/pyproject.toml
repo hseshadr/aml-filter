@@ -182,6 +182,7 @@ max-complexity = 5  # Radon Grade A
     "SIM117",   # nested with statements allowed in tests for clarity
     "B905",     # zip without strict tolerated in tests
     "RUF043",   # ambiguous pytest.raises pattern tolerated
+    "PLW0108",  # lambdas are the idiom for FastAPI dependency_overrides
 ]
 "alembic/**/*.py" = [
     "ALL",  # generated migrations exempt

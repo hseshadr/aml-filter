@@ -509,3 +509,46 @@ class Sar(Base):
         Index("idx_sars_customer", "customer_id"),
         Index("idx_sars_status", "tenant_id", "status"),
     )
+
+
+class Attestation(Base):
+    """A periodic screening attestation (review badge) for a customer.
+
+    A verifiable record that a customer was screened against the enabled lists at
+    ``lists_and_versions`` on ``screened_at`` with ``status`` (CLEAR, or matches
+    pending/dispositioned). ``valid_until`` drives the "due for re-review" staleness
+    query. ``signature`` is an optional detached ed25519 signature (base64) over the
+    canonical attestation payload — when present, the badge is independently
+    verifiable against the pinned bundle trust-root key.
+    """
+
+    __tablename__ = "attestations"
+
+    attestation_id: Mapped[str] = mapped_column(String(36), primary_key=True)  # UUID as string
+    tenant_id: Mapped[str] = mapped_column(
+        String(100), ForeignKey("tenants.tenant_id", ondelete="CASCADE"), nullable=False
+    )
+    customer_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("customers.customer_id", ondelete="CASCADE"), nullable=False
+    )
+    customer_reference: Mapped[str] = mapped_column(String(200), nullable=False)
+    screened_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
+    valid_until: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
+    lists_and_versions: Mapped[JsonArray] = mapped_column(JSONB, default=list, nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(30), nullable=False
+    )  # CLEAR, MATCHES_PENDING, MATCHES_DISPOSITIONED
+    match_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    pending_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    signature: Mapped[str | None] = mapped_column(Text, nullable=True)
+    signing_key_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    algo: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        Index("idx_attestations_tenant", "tenant_id"),
+        Index("idx_attestations_customer", "tenant_id", "customer_id"),
+        Index("idx_attestations_valid_until", "tenant_id", "valid_until"),
+    )

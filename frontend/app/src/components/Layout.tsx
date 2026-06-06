@@ -46,6 +46,9 @@ export default function Layout({ children }: LayoutProps) {
 								<Link to="/sars" className="nav-link">
 									SARs
 								</Link>
+								<Link to="/attestations" className="nav-link">
+									Attestations
+								</Link>
 								<Link to="/whitelist" className="nav-link">
 									Whitelist
 								</Link>
