@@ -8,6 +8,35 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **KYC / AML compliance workstation (DB path).** A full case-management lifecycle on
+  top of the screening engine — reference implementation, not a compliance product (see
+  [`NOTICE`](NOTICE)). It is DB-path only (needs Postgres) and tenant-scoped via
+  `X-API-Key`. The frontend SPA mounts a page for each step
+  (`/customers`, `/review`, `/sars`, `/attestations`, `/lists`).
+  - **Customer onboarding** — a `Customer` model 1:1-linked to a screened WHITELIST
+    `Entity`; an `OnboardingService` that screens on onboarding by reusing the existing
+    bidirectional screening path; `POST/GET/PUT/DELETE /v1/customers`
+    (`aml_filter/customers/`, `api/v1/customers.py`).
+  - **Match tiering + review board** — a `MatchTier` (STRONG / POSSIBLE / WEAK)
+    classification layered over the parity-locked score without altering it
+    (`scoring/tiers.py`); `GET /v1/review/matches` + `PUT .../resolve`
+    (`api/v1/review.py`).
+  - **Multi-list ingest** — a generic `SanctionsListParser` registry
+    (`ingest/parsers/base.py`) with OFAC, EU consolidated, UK OFSI, and UN consolidated
+    parsers; `ingest_list`; a downloader/scheduler (`ingest/downloader.py`,
+    `worker/ingest_jobs.py`); `GET /v1/lists/available`; per-tenant enable/disable.
+  - **SAR filing** — a `Sar` model and a jurisdiction-agnostic engine (`sar/`) with a
+    FinCEN renderer (JSON + reportlab PDF), STRONG-gated; `POST/GET/PUT /v1/sars` +
+    `/export`. Export produces a fileable artifact; it does **not** submit to FinCEN or
+    any government system.
+  - **Screening attestations** — an `Attestation` model with canonical-payload ed25519
+    sign/verify reusing the bundle trust root, a staleness window, and a periodic RQ
+    refresh job; `POST/GET /v1/attestations` + `/verify` + `/export`
+    (`attestation/`).
+  - **Delta-driven rescan (backend-only)** — re-screens only the customers near changed
+    sanctions entries (full rescan as a fallback when no prior `ListVersion` exists),
+    via a list diff + a customer-side FAISS index
+    (`screening/delta_rescan.py`, `search/customer_index.py`).
 - **Live match-strictness slider on `/screen`** (Lenient / Balanced / Strict) — gates
   candidate generation on lexical (trigram) relevance to the query, cutting
   embedding-baseline false positives. Search-layer only; the scoring contract and
@@ -39,6 +68,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **`whitelist_blacklist_matches.match_id` schema drift.** The column was created as a
+  native `uuid` by the original migration but the ORM declares `String(36)`, which made
+  `GET /v1/review/matches` 500 and broke inserts on a migrated database. Migration
+  `6d4e7a1b` converts it `uuid → varchar(36)` to match the model.
 - **`/screen` in-browser boot hang.** Added boot-path timeouts and a StrictMode-safe
   Retry, self-hosted SHA-256-pinned MiniLM weights (no runtime HF CDN dependency), and
   model-load progress. (#6)

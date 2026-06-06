@@ -90,7 +90,7 @@ CREATE TABLE entities (
     nationalities VARCHAR(2)[],
     addresses TEXT[],
     identifiers JSONB DEFAULT '{}'::jsonb,
-    risk_category VARCHAR(20) NOT NULL CHECK (risk_category IN ('SANCTION', 'PEP', 'CUSTOM')),
+    risk_category VARCHAR(20) NOT NULL,  -- SANCTION, PEP, CUSTOM, WHITELIST (WHITELIST = a KYC customer's screened entity)
     source_list VARCHAR(100) NOT NULL,
     list_version VARCHAR(50) NOT NULL,
     custom_list_id VARCHAR(200),  -- NULL for global lists
@@ -124,7 +124,8 @@ CREATE INDEX idx_entities_entity_type ON entities(entity_type);
 - `nationalities`: Array of country codes
 - `addresses`: Array of address strings
 - `identifiers`: JSON object `{passport: [...], national_id: [...]}`
-- `risk_category`: SANCTION, PEP, or CUSTOM
+- `risk_category`: SANCTION, PEP, CUSTOM, or WHITELIST (WHITELIST entities are the
+  screened entities created for KYC customers — see `customers`)
 - `source_list`: List identifier (e.g., "ofac_sdn")
 - `list_version`: Version identifier (date or semantic version)
 - `custom_list_id`: Identifier for tenant custom list (NULL for global)
@@ -418,6 +419,176 @@ CREATE INDEX idx_api_keys_tenant ON api_keys(tenant_id, revoked_at);
 - `expires_at`: Expiration timestamp (NULL = no expiration)
 - `revoked_at`: Revocation timestamp (NULL = active)
 - `last_used_at`: Last usage timestamp
+
+---
+
+## KYC / AML compliance workstation tables
+
+> **DB-path only.** These tables back the customer case-management workflow on the
+> server, DB-backed tier. The bundle and browser paths use none of them. This is a
+> **reference implementation, not a compliance product** (see [`../NOTICE`](../NOTICE)).
+
+### whitelist_blacklist_matches
+
+A match between a KYC customer's screened WHITELIST entity and a blacklist (sanctions)
+entity. Originally created by the whitelist-screening migration (`2ee008d0`); the
+review-board work added the tiering / review columns.
+
+```sql
+CREATE TABLE whitelist_blacklist_matches (
+    match_id VARCHAR(36) PRIMARY KEY,  -- UUID stored as text (see note below)
+    tenant_id VARCHAR(100) NOT NULL,
+    whitelist_entity_id VARCHAR(500) NOT NULL,
+    blacklist_entity_id VARCHAR(500) NOT NULL,
+    match_score NUMERIC(5,4) NOT NULL,
+    match_type VARCHAR(50) NOT NULL,        -- WHITELIST_VS_BLACKLIST, BLACKLIST_VS_WHITELIST
+    match_tier VARCHAR(20),                 -- STRONG, POSSIBLE, WEAK (added by review work)
+    list_version VARCHAR(50),
+    detected_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    notified_at TIMESTAMPTZ,
+    resolved_at TIMESTAMPTZ,
+    resolution_status VARCHAR(20),          -- PENDING, FALSE_POSITIVE, TRUE_POSITIVE, RESOLVED
+    reviewer_id VARCHAR(200),               -- added by review work
+    review_notes TEXT,                      -- added by review work
+    metadata JSONB DEFAULT '{}'::jsonb,
+
+    FOREIGN KEY (tenant_id) REFERENCES tenants(tenant_id) ON DELETE CASCADE,
+    FOREIGN KEY (whitelist_entity_id) REFERENCES entities(entity_id) ON DELETE CASCADE,
+    FOREIGN KEY (blacklist_entity_id) REFERENCES entities(entity_id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_wb_matches_tenant ON whitelist_blacklist_matches(tenant_id);
+CREATE INDEX idx_wb_matches_detected ON whitelist_blacklist_matches(detected_at);
+CREATE INDEX idx_wb_matches_tier ON whitelist_blacklist_matches(match_tier);
+```
+
+**New columns (review-board work):**
+- `match_tier`: STRONG / POSSIBLE / WEAK — a server-side classification over the final
+  score (does not alter the score/reasons; see `aml_filter/scoring/tiers.py`). Indexed.
+- `reviewer_id`, `review_notes`: recorded when a reviewer resolves the match.
+
+**`match_id` type correction.** The ORM declares `match_id` as `String(36)` (UUID as
+text), but the original `2ee008d0` migration created it as a native `uuid`. On a migrated
+database that drift made `GET /v1/review/matches` 500 (asyncpg returns `uuid.UUID`, the
+API model expects `str`) and broke inserts. Migration `6d4e7a1b` converts the column
+`uuid → varchar(36)` (`USING match_id::text`) to match the model; scoped strictly to
+`match_id`.
+
+---
+
+### customers
+
+A KYC customer, 1:1-linked to its screened WHITELIST entity.
+
+```sql
+CREATE TABLE customers (
+    customer_id VARCHAR(36) PRIMARY KEY,    -- UUID as string
+    tenant_id VARCHAR(100) NOT NULL,
+    customer_reference VARCHAR(200) NOT NULL,
+    onboarding_status VARCHAR(20) NOT NULL DEFAULT 'DRAFT',  -- DRAFT, PENDING_REVIEW, ACTIVE, REJECTED
+    kyc_risk_rating VARCHAR(10),            -- LOW, MEDIUM, HIGH (null until assessed)
+    id_documents JSONB NOT NULL DEFAULT '[]'::jsonb,         -- [{doc_type, number, issuing_country, expiry?}]
+    onboarded_by VARCHAR(200) NOT NULL,
+    screening_entity_id VARCHAR(500),       -- FK to the linked WHITELIST entity (ON DELETE SET NULL)
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    FOREIGN KEY (tenant_id) REFERENCES tenants(tenant_id) ON DELETE CASCADE,
+    FOREIGN KEY (screening_entity_id) REFERENCES entities(entity_id) ON DELETE SET NULL,
+    CONSTRAINT uq_customers_tenant_reference UNIQUE (tenant_id, customer_reference)
+);
+
+CREATE INDEX idx_customers_tenant ON customers(tenant_id);
+CREATE INDEX idx_customers_status ON customers(onboarding_status);
+CREATE INDEX idx_customers_screening_entity ON customers(screening_entity_id);
+```
+
+**Columns:**
+- `customer_reference`: your stable customer key (unique per tenant).
+- `onboarding_status`: lifecycle state.
+- `kyc_risk_rating`: assessed risk band (NULL until assessed).
+- `id_documents`: array of identity-document objects.
+- `screening_entity_id`: the WHITELIST `Entity` this customer was screened as.
+
+---
+
+### sars
+
+A Suspicious Activity Report generated for a STRONG sanctions match.
+
+```sql
+CREATE TABLE sars (
+    sar_id VARCHAR(36) PRIMARY KEY,         -- UUID as string
+    tenant_id VARCHAR(100) NOT NULL,
+    customer_id VARCHAR(36) NOT NULL,
+    match_id VARCHAR(36) NOT NULL,
+    jurisdiction VARCHAR(10) NOT NULL,      -- US, UK, AU
+    template VARCHAR(20) NOT NULL,          -- FINCEN
+    subject JSONB NOT NULL,                 -- immutable SubjectSnapshot at filing time
+    suspicious_activity_narrative TEXT,
+    filer JSONB NOT NULL,                   -- {name, institution, contact}
+    status VARCHAR(20) NOT NULL DEFAULT 'DRAFT',  -- DRAFT, COMPLETED, EXPORTED
+    created_by VARCHAR(200) NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    filed_at TIMESTAMPTZ,
+
+    FOREIGN KEY (tenant_id) REFERENCES tenants(tenant_id) ON DELETE CASCADE,
+    FOREIGN KEY (customer_id) REFERENCES customers(customer_id) ON DELETE CASCADE,
+    FOREIGN KEY (match_id) REFERENCES whitelist_blacklist_matches(match_id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_sars_tenant ON sars(tenant_id);
+CREATE INDEX idx_sars_customer ON sars(customer_id);
+CREATE INDEX idx_sars_status ON sars(tenant_id, status);
+```
+
+**Columns:**
+- `subject`: an immutable, denormalized snapshot of the customer + matched-entity fields
+  at filing time (so the report stays accurate even if the customer record later
+  changes).
+- `jurisdiction` + `template`: select the renderer that produces the fileable JSON/PDF
+  artifact (a FinCEN renderer ships).
+- **Export renders a fileable report; it does not submit to FinCEN.**
+
+---
+
+### attestations
+
+A periodic screening attestation (review badge) for a customer.
+
+```sql
+CREATE TABLE attestations (
+    attestation_id VARCHAR(36) PRIMARY KEY, -- UUID as string
+    tenant_id VARCHAR(100) NOT NULL,
+    customer_id VARCHAR(36) NOT NULL,
+    customer_reference VARCHAR(200) NOT NULL,
+    screened_at TIMESTAMPTZ NOT NULL,
+    valid_until TIMESTAMPTZ NOT NULL,       -- drives the "due for re-review" staleness query
+    lists_and_versions JSONB NOT NULL DEFAULT '[]'::jsonb,  -- [{list_id, version}]
+    status VARCHAR(30) NOT NULL,            -- CLEAR, MATCHES_PENDING, MATCHES_DISPOSITIONED
+    match_count INTEGER NOT NULL DEFAULT 0,
+    pending_count INTEGER NOT NULL DEFAULT 0,
+    signature TEXT,                         -- optional detached ed25519 signature (base64) over the canonical payload
+    signing_key_id VARCHAR(200),
+    algo VARCHAR(20),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    FOREIGN KEY (tenant_id) REFERENCES tenants(tenant_id) ON DELETE CASCADE,
+    FOREIGN KEY (customer_id) REFERENCES customers(customer_id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_attestations_tenant ON attestations(tenant_id);
+CREATE INDEX idx_attestations_customer ON attestations(tenant_id, customer_id);
+CREATE INDEX idx_attestations_valid_until ON attestations(tenant_id, valid_until);
+```
+
+**Columns:**
+- `signature`: when present, a detached ed25519 signature over the canonical attestation
+  payload — verifiable against the pinned bundle trust-root key (`VERIFY_KEY_PATH`).
+  When no signing key is configured, the badge is persisted unsigned (`signature` NULL).
+- `valid_until`: drives the staleness / due-for-re-review query (default 90 days via
+  `ATTESTATION_VALIDITY_DAYS`).
 
 ---
 

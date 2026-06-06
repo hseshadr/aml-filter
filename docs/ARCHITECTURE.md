@@ -191,6 +191,74 @@ Nimbus demo:
   `backend/scripts/gen_scoring_golden.py`). The MiniLM embedder is wired through a stubbable
   `createEmbedderWith` seam for parity testing but has no committed parity test yet.
 
+## KYC / AML compliance workstation (DB path)
+
+> **Reference implementation, not a compliance product.** This layer is illustrative.
+> The operator owns their own regulatory obligations and any actual filings; "export"
+> never submits to a government system. See [`../NOTICE`](../NOTICE).
+
+On top of the screening engine, the DB-backed tier adds the case-management lifecycle a
+compliance team works. Every stage **reuses the existing pipeline** — none of it
+re-implements normalize → embed → retrieve → score → explain; it layers workflow and
+state around that one contract. This is a server, DB-backed capability only (it needs
+Postgres); the bundle and browser paths do not have it.
+
+The lifecycle, end to end:
+
+1. **Onboard** (`aml_filter/customers/service.py`, `OnboardingService`) — creating a
+   `Customer` creates and links a **WHITELIST `Entity`** (which embeds the customer
+   name through the same encoder), then reuses `BidirectionalScreeningService.
+   screen_entity_against_list` to screen that entity against the active sanctions
+   lists. Any matches are persisted by the match tracker. The customer is 1:1-linked to
+   its screened entity via `screening_entity_id`.
+2. **Tier** (`aml_filter/scoring/tiers.py`, `MatchTier`) — a server-side classification
+   **on top of** the parity-locked score: it never alters a match's score, reasons, or
+   explanation, it just buckets the already-computed final score into STRONG / POSSIBLE
+   / WEAK (STRONG at/above `0.80`, POSSIBLE at/above the policy threshold, else WEAK;
+   bands env-overridable via `TIER_*`). The tier is stored on the match row.
+3. **Review** (`api/v1/review.py`) — the review board joins each tiered match to its
+   customer and the matched sanctions entity and lets a reviewer resolve it
+   (FALSE_POSITIVE / TRUE_POSITIVE / RESOLVED) with a reviewer id and notes.
+4. **File a SAR** (`aml_filter/sar/`) — for a **STRONG** match, generate a Suspicious
+   Activity Report. The engine is jurisdiction-agnostic: `SarJurisdiction` +
+   `SarTemplate` select a pluggable renderer (a FinCEN renderer ships, emitting JSON +
+   a reportlab PDF). SAR creation is **STRONG-gated** — it fails closed (`422`) on a
+   non-STRONG match. The SAR captures an immutable `SubjectSnapshot` of the customer +
+   match basis at filing time, so the report stays accurate even if the customer record
+   later changes. **Export produces a fileable artifact; it does not submit to FinCEN.**
+5. **Attest** (`aml_filter/attestation/`) — generate a screening attestation (review
+   badge): a verifiable record that a customer was screened against the enabled lists at
+   known versions, on a date, with a result (CLEAR / MATCHES_PENDING /
+   MATCHES_DISPOSITIONED). The canonical payload is **ed25519-signed reusing the bundle
+   trust root** (the signing private key's public half is the pinned `VERIFY_KEY_PATH`),
+   so a badge is independently verifiable via `/verify`. `valid_until` (default 90 days,
+   `ATTESTATION_VALIDITY_DAYS`) drives a staleness / due-for-re-review query; a periodic
+   RQ job refreshes badges. When no signing key is configured, badges persist unsigned.
+
+**Delta-driven rescan** (`aml_filter/screening/delta_rescan.py`, wired into the rescan
+worker `aml_filter/worker/screening_jobs.py`). A naive rescan re-screens every customer
+when a list updates — cost grows with the customer count. The delta path inverts this:
+it embeds only the **changed** sanctions entries and vector-searches them against an
+index built over **customers** (`search/customer_index.py`), so work scales with the
+size of the list change, not the book. Equivalence with the full rescan is preserved by
+running the affected customers through the *same* `screen_entity_against_list` scoring +
+recording path; removed entries auto-close their open matches (RESOLVED, annotated). The
+worker uses the delta path when a **prior `ListVersion` exists** and falls back to a full
+rescan otherwise.
+
+## Multi-list ingestion (the parser registry)
+
+Ingestion is no longer OFAC-only. `aml_filter/ingest/parsers/base.py` is a generic
+`SanctionsListParser` registry: each parser self-registers against its `list_id` via the
+`@parser_for` decorator, and `registered_list_ids()` enumerates them (this backs
+`GET /v1/lists/available`). Four parsers ship: `OFAC_SDN`, `EU_CONSOLIDATED`, `UK_OFSI`,
+and `UN_CONSOLIDATED`. `ingest_list` ingests a given list through its registered parser;
+`aml_filter/ingest/downloader.py` (`ListSyncDownloader.refresh`) fetches + re-ingests the
+**enabled** lists for a tenant, and `aml_filter/worker/ingest_jobs.py`
+(`refresh_all_enabled_lists`) is the schedulable refresh job (cron/queue are
+config-driven — nothing hard-codes a schedule). Tenants enable/disable lists with
+`PUT /v1/lists/{list_id}` (the `/lists` page in the SPA).
+
 ## Data model (high level)
 
 Stored in PostgreSQL (`aml_filter/db/models.py`), populated by ingestion:
@@ -205,22 +273,41 @@ Stored in PostgreSQL (`aml_filter/db/models.py`), populated by ingestion:
   space).
 - **SearchRequest** — an audit row per screening call.
 
+The compliance workstation adds (all DB-path only):
+
+- **Customer** — a KYC customer, 1:1-linked to its screened WHITELIST `Entity` via
+  `screening_entity_id`; carries `onboarding_status`, `kyc_risk_rating`, `id_documents`.
+- **WhitelistBlacklistMatch** — a match between a customer's whitelist entity and a
+  blacklist (sanctions) entity, now carrying `match_tier`, `reviewer_id`, and
+  `review_notes` for the review board.
+- **Sar** — a Suspicious Activity Report for a STRONG match, with an immutable `subject`
+  snapshot and a `filer`.
+- **Attestation** — a screening review badge with an optional detached ed25519
+  `signature` over its canonical payload.
+
 The query/response shapes (`SearchQuery`, `Match`, `MatchReason`,
 `MatchSignal`, `MatchExplanation`, `SearchResponse`) are Pydantic models in
-`aml_filter/domain/search.py` — the typed contract at the API boundary.
+`aml_filter/domain/search.py` — the typed contract at the API boundary. The
+compliance-layer contracts live in `aml_filter/domain/{customer,sar,attestation}.py`.
+See [`DATABASE_SCHEMA.md`](DATABASE_SCHEMA.md) for the full table definitions.
 
-## Ingestion (loading the OFAC list)
+## Ingestion (loading the sanctions lists)
 
-aml-filter does not ship the SDN list. The operator downloads it from the
-official OFAC source and ingests it:
+aml-filter does not ship any sanctions list. The operator downloads each list from its
+official source and ingests it through the parser registry (see
+[Multi-list ingestion](#multi-list-ingestion-the-parser-registry) above):
 
-- `aml_filter/ingest/parsers/ofac.py` parses the OFAC SDN XML.
-- `aml_filter/ingest/service.py` (`IngestionService.ingest_ofac_sdn`) upserts
-  entities + aliases, builds embeddings, and stamps a `list_version`.
-- `scripts/ingest_ofac.py <sdn.xml> [list_id] [version]` is the CLI wrapper.
+- `aml_filter/ingest/parsers/{ofac,eu,uk,un}.py` parse the OFAC SDN, EU consolidated,
+  UK OFSI, and UN consolidated XML formats; each registers via `@parser_for`.
+- `aml_filter/ingest/service.py` (`IngestionService`) upserts entities + aliases, builds
+  embeddings, and stamps a `list_version` — `ingest_ofac_sdn` for OFAC, the generic
+  `ingest_list` path for any registered list.
+- `scripts/ingest_ofac.py <sdn.xml> [list_id] [version]` is the OFAC CLI wrapper; the
+  downloader/scheduler (`ingest/downloader.py`, `worker/ingest_jobs.py`) refreshes the
+  tenant's **enabled** lists on a config-driven schedule.
 
 See [`QUICKSTART.md`](QUICKSTART.md) for the end-to-end load and
-[`../NOTICE`](../NOTICE) for the source and public-domain status of the list.
+[`../NOTICE`](../NOTICE) for the source and public-domain status of the OFAC list.
 
 ## Where config lives
 
@@ -237,6 +324,12 @@ All runtime configuration is env-driven through Pydantic `BaseSettings` in
 - `BUNDLE_BASE_URL` + `VERIFY_KEY_PATH` — set **both** to activate the bundle-backed
   read-path (`Settings.bundle_mode_active()`). `BUNDLE_CACHE_DIR` (default
   `.ofac_bundle`) is the local sync cache.
+- `ATTESTATION_SIGNING_KEY_PATH` — raw ed25519 private key used to sign attestation
+  badges; when unset, badges are persisted **unsigned**. Its public half is the pinned
+  trust root (`VERIFY_KEY_PATH`), so `/v1/attestations/{id}/verify` validates against it.
+  `ATTESTATION_SIGNING_KEY_ID` (default `default`) is recorded alongside a signed badge;
+  `ATTESTATION_VALIDITY_DAYS` (default `90`) sets the staleness window.
+- `TIER_STRONG` (default `0.80`) — override the STRONG match-tier floor.
 
 Copy `.env.example` → `.env` to set them. See [`DEPLOY.md`](DEPLOY.md) for the
 deployment surface.

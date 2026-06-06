@@ -79,6 +79,79 @@ The response is a `SearchResponse` with scored `matches[]` — each carrying a
 `reasons[]` signal breakdown and a plain-language `explanation`. See
 [`ARCHITECTURE.md`](ARCHITECTURE.md) for the scoring contract.
 
+## A full KYC walkthrough (onboard → review → SAR → badge)
+
+The DB-backed tier adds a compliance workflow on top of screening: onboard a customer,
+work its matches on a tiered review board, file a SAR on a STRONG match, and generate a
+verifiable review badge. These endpoints are **tenant-scoped** — they need an
+`X-API-Key`. (Create one with `POST /v1/api-keys`; see [`API_SPEC.md`](API_SPEC.md).)
+
+> Reference implementation, **not** a compliance product. The SAR export below produces
+> a *fileable* FinCEN report — it does **NOT** submit anything to FinCEN or any
+> government system. See [`../NOTICE`](../NOTICE).
+
+Set your key once:
+
+```bash
+export AK='X-API-Key: ak_live_…'      # your tenant's API key
+```
+
+**1. Onboard a customer.** This creates a screened entity, screens it on the spot, and
+persists any matches.
+
+```bash
+curl -s http://localhost:8000/v1/customers \
+  -H "$AK" -H 'Content-Type: application/json' \
+  -d '{"customer_reference": "CUST-001", "name": "Jon Q. Fakename", "country": "US"}' | jq
+# → returns customer_id + match_entity_ids[] (the sanctions hits found on onboarding)
+```
+
+**2. Work the review board.** Matches are tiered STRONG / POSSIBLE / WEAK. List the
+STRONG ones, then resolve one with a reviewer note.
+
+```bash
+curl -s "http://localhost:8000/v1/review/matches?tier=STRONG" -H "$AK" | jq
+# grab a match_id, then resolve it:
+curl -s -X PUT \
+  "http://localhost:8000/v1/review/matches/<MATCH_ID>/resolve?resolution_status=TRUE_POSITIVE" \
+  -H "$AK" -H 'Content-Type: application/json' \
+  -d '{"reviewer_id": "analyst@acme.com", "review_notes": "Confirmed — sanctioned individual."}' | jq
+```
+
+**3. File a SAR on a STRONG match.** SAR creation is STRONG-gated (a non-STRONG match
+returns `422`).
+
+```bash
+curl -s http://localhost:8000/v1/sars \
+  -H "$AK" -H 'Content-Type: application/json' \
+  -d '{
+        "customer_id": "<CUSTOMER_ID>",
+        "match_id": "<MATCH_ID>",
+        "narrative": "Customer matched a sanctioned individual on the OFAC SDN list.",
+        "filer": {"name": "Jane Compliance", "institution": "Acme Bank", "contact": "compliance@acme.com"}
+      }' | jq
+# export the fileable FinCEN report (PDF or JSON) — you file it; it is NOT submitted:
+curl -s "http://localhost:8000/v1/sars/<SAR_ID>/export?format=pdf" -H "$AK" -o sar.pdf
+```
+
+**4. Generate a screening review badge.** A verifiable record of what the customer was
+screened against, when, and the result. With a signing key configured
+(`ATTESTATION_SIGNING_KEY_PATH`) it is ed25519-signed and verifiable.
+
+```bash
+curl -s http://localhost:8000/v1/attestations \
+  -H "$AK" -H 'Content-Type: application/json' \
+  -d '{"customer_id": "<CUSTOMER_ID>"}' | jq
+# verify its signature against the pinned trust-root key:
+curl -s "http://localhost:8000/v1/attestations/<ATTESTATION_ID>/verify" -H "$AK" | jq
+# → {"valid": true, "reason": "..."}
+```
+
+See [`API_SPEC.md`](API_SPEC.md) for the full request/response shapes, including the
+multi-list endpoints (`GET /v1/lists/available`, `PUT /v1/lists/{id}`). The frontend SPA
+mounts a page for each step (`/customers`, `/review`, `/sars`, `/attestations`,
+`/lists`).
+
 ## The edge-proc path — backend-free screening
 
 aml-filter is built on the [edge-proc](https://github.com/hseshadr/edge-proc)

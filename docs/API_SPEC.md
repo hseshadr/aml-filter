@@ -5,6 +5,13 @@
 > **edge-proc** paths (the `amlfilter` CLI screening a signed bundle, and the
 > in-browser `@amlfilter/browser` tier) have **no HTTP surface** and are not
 > described here — see [`ARCHITECTURE.md`](ARCHITECTURE.md) for those.
+>
+> **Envelope note:** the original endpoints below (`/screen`, `/batch`, `/lists`,
+> `/weights`, `/audit`, `/usage`, `/api-keys`) document a `{success, data, meta}`
+> envelope. The **KYC / AML compliance workstation** endpoints (customers, review,
+> `/lists/available`, SARs, attestations) added later return their typed Pydantic model
+> **directly** (no envelope) and authenticate with `X-API-Key` (tenant-scoped). Each is
+> documented with its real shape below.
 
 ## Base Information
 
@@ -714,6 +721,256 @@ Create a new API key.
 
 #### DELETE /v1/api-keys/{key_id}
 Revoke an API key.
+
+---
+
+## KYC / AML Compliance Workstation
+
+> These endpoints layer customer case-management on top of the screening engine. They
+> are **DB-path only**, authenticate with `X-API-Key` (tenant-scoped), and return their
+> typed model **directly** (no `{success, data, meta}` envelope). This is a **reference
+> implementation, not a compliance product** — see [`../NOTICE`](../NOTICE). SAR
+> "export" produces a fileable artifact and does **NOT** submit to FinCEN or any
+> government system.
+
+### Customers (onboarding)
+
+#### POST /v1/customers
+Onboard a customer. Creates and links a screened WHITELIST entity, screens it against
+the enabled sanctions lists, and persists any matches.
+
+**Request:**
+```json
+{
+  "customer_reference": "CUST-001",
+  "name": "Jon Q. Fakename",
+  "onboarded_by": "analyst@acme.com",
+  "country": "US",
+  "id_documents": [
+    { "doc_type": "passport", "number": "X1234567", "issuing_country": "US", "expiry": "2030-01-01" }
+  ]
+}
+```
+- `customer_reference` (string, required, 1–200): your stable customer key (unique per tenant).
+- `name` (string, required, 1–500): the customer name to screen.
+- `onboarded_by` (string, default `"api"`).
+- `country` (string, optional, ISO-3166 alpha-2).
+- `id_documents` (array, optional): `{doc_type, number, issuing_country, expiry?}`.
+
+**Response `201`** (`OnboardResponse` = the customer plus `match_entity_ids`):
+```json
+{
+  "customer_id": "f47ac10b-...-uuid",
+  "tenant_id": "acme",
+  "customer_reference": "CUST-001",
+  "onboarding_status": "DRAFT",
+  "kyc_risk_rating": null,
+  "id_documents": [ { "doc_type": "passport", "number": "X1234567", "issuing_country": "US", "expiry": "2030-01-01" } ],
+  "onboarded_by": "analyst@acme.com",
+  "screening_entity_id": "wl:acme:CUST-001",
+  "created_at": "2026-06-06T10:00:00Z",
+  "updated_at": "2026-06-06T10:00:00Z",
+  "match_entity_ids": ["ofac:sdn:12345"]
+}
+```
+`onboarding_status` ∈ `DRAFT | PENDING_REVIEW | ACTIVE | REJECTED`;
+`kyc_risk_rating` ∈ `LOW | MEDIUM | HIGH | null`.
+
+#### GET /v1/customers
+List the tenant's customers, newest first. Query: `limit` (1–1000, default 100),
+`offset` (≥0). Returns an array of `CustomerResponse` (the object above without
+`match_entity_ids`).
+
+#### GET /v1/customers/{customer_id}
+Get one customer (`CustomerResponse`). `404` if not found/owned.
+
+#### PUT /v1/customers/{customer_id}
+Update lifecycle fields. Body (all optional): `onboarding_status`, `kyc_risk_rating`,
+`customer_reference`. Returns the updated `CustomerResponse`.
+
+#### DELETE /v1/customers/{customer_id}
+Delete a customer. `204 No Content`.
+
+---
+
+### Review Board (tiered matches)
+
+#### GET /v1/review/matches
+List tiered matches for review, highest score first. Each row joins the match to its
+customer and the matched sanctions entity.
+
+**Query Parameters:**
+- `tier` (optional): `STRONG | POSSIBLE | WEAK`
+- `resolution_status` (optional): e.g. `PENDING | FALSE_POSITIVE | TRUE_POSITIVE | RESOLVED`
+- `limit` (1–1000, default 100), `offset` (≥0)
+
+**Response** (array of `ReviewMatchRow`):
+```json
+[
+  {
+    "match_id": "9b1deb4d-...-uuid",
+    "tier": "STRONG",
+    "match_score": 0.91,
+    "match_type": "WHITELIST_VS_BLACKLIST",
+    "resolution_status": null,
+    "reviewer_id": null,
+    "review_notes": null,
+    "detected_at": "2026-06-06T10:00:00Z",
+    "customer_id": "f47ac10b-...-uuid",
+    "customer_reference": "CUST-001",
+    "customer_name": "Jon Q. Fakename",
+    "sanctioned_name": "JON FAKENAME",
+    "source_list": "OFAC_SDN"
+  }
+]
+```
+
+#### PUT /v1/review/matches/{match_id}/resolve
+Resolve a match, recording the reviewer and notes.
+
+**Query Parameter (required):** `resolution_status` ∈ `FALSE_POSITIVE | TRUE_POSITIVE | RESOLVED`
+
+**Request body:**
+```json
+{ "reviewer_id": "analyst@acme.com", "review_notes": "Confirmed false positive — different DOB." }
+```
+Both fields optional. **Response:** the updated `ReviewMatchRow`. `404` if not found.
+
+---
+
+### Available Lists
+
+#### GET /v1/lists/available
+List every sanctions list with a registered parser (enable one via `PUT /v1/lists/{id}`).
+
+**Response** (array of `AvailableListResponse`):
+```json
+[
+  { "list_id": "OFAC_SDN" },
+  { "list_id": "EU_CONSOLIDATED" },
+  { "list_id": "UK_OFSI" },
+  { "list_id": "UN_CONSOLIDATED" }
+]
+```
+
+---
+
+### SARs (Suspicious Activity Reports)
+
+> A SAR can only be created for a **STRONG** match — a non-STRONG match fails closed
+> with `422`. **Export produces a fileable artifact only; it does not submit to FinCEN.**
+
+#### POST /v1/sars
+Create a SAR for a customer's STRONG match.
+
+**Request:**
+```json
+{
+  "customer_id": "f47ac10b-...-uuid",
+  "match_id": "9b1deb4d-...-uuid",
+  "jurisdiction": "US",
+  "template": "FINCEN",
+  "narrative": "Customer matched a sanctioned individual; ...",
+  "filer": { "name": "Jane Compliance", "institution": "Acme Bank", "contact": "compliance@acme.com" },
+  "created_by": "analyst@acme.com"
+}
+```
+- `customer_id`, `match_id` (required, ≤36).
+- `jurisdiction` ∈ `US | UK | AU` (default `US`); `template` ∈ `FINCEN` (default).
+- `narrative` (optional, ≤20000) — a SAR with a narrative is `COMPLETED` on create,
+  otherwise `DRAFT`.
+- `filer` (required): `{name, institution, contact}`.
+- `created_by` (default `"api"`).
+
+**Response `201`** (`SarRecord`):
+```json
+{
+  "sar_id": "uuid", "tenant_id": "acme",
+  "customer_id": "...", "match_id": "...",
+  "jurisdiction": "US", "template": "FINCEN",
+  "subject": {
+    "customer_reference": "CUST-001", "customer_name": "Jon Q. Fakename",
+    "customer_dob": [], "customer_identifiers": [],
+    "matched_sanctioned_name": "JON FAKENAME", "matched_source_list": "OFAC_SDN",
+    "match_score": 0.91, "match_tier": "STRONG"
+  },
+  "suspicious_activity_narrative": "Customer matched ...",
+  "filer": { "name": "Jane Compliance", "institution": "Acme Bank", "contact": "compliance@acme.com" },
+  "status": "COMPLETED", "created_by": "analyst@acme.com",
+  "created_at": "...", "updated_at": "...", "filed_at": null
+}
+```
+`status` ∈ `DRAFT | COMPLETED | EXPORTED`. The `subject` is an immutable snapshot at
+filing time.
+
+#### GET /v1/sars
+List the tenant's SARs, newest first. Query: `status` (`DRAFT|COMPLETED|EXPORTED`),
+`customer_id`, plus pagination. Array of `SarRecord`.
+
+#### GET /v1/sars/{sar_id}
+Get one SAR (`SarRecord`). `404` if not found.
+
+#### PUT /v1/sars/{sar_id}
+Edit `narrative` / `filer` / `status` while the SAR is `DRAFT`/`COMPLETED`. Returns the
+updated `SarRecord` (`422` on a disallowed transition).
+
+#### GET /v1/sars/{sar_id}/export
+Render the SAR and mark it `EXPORTED`, streaming the artifact.
+**Query:** `format` ∈ `pdf` (default) `| json`. Returns the rendered FinCEN report
+(`application/pdf` or JSON). **This is a fileable report; it is not submitted anywhere.**
+
+---
+
+### Attestations (screening review badges)
+
+> An attestation is a verifiable record that a customer was screened against the enabled
+> lists at known versions on a date, with a result. When a signing key is configured it
+> is ed25519-signed against the **pinned bundle trust root**, so it is independently
+> verifiable.
+
+#### POST /v1/attestations
+Generate / refresh a customer's attestation.
+
+**Request:**
+```json
+{ "customer_id": "f47ac10b-...-uuid", "require_signature": false }
+```
+`require_signature: true` fails closed (`422`) if no signing key is configured.
+
+**Response `201`** (`AttestationRecord`):
+```json
+{
+  "attestation_id": "uuid", "tenant_id": "acme",
+  "customer_id": "...", "customer_reference": "CUST-001",
+  "screened_at": "2026-06-06T10:00:00Z",
+  "valid_until": "2026-09-04T10:00:00Z",
+  "lists_and_versions": [ { "list_id": "OFAC_SDN", "version": "2026-06-01" } ],
+  "result": { "status": "CLEAR", "match_count": 0, "pending_count": 0 },
+  "signature": "base64-ed25519-or-null",
+  "signing_key_id": "default", "algo": "ed25519",
+  "created_at": "..."
+}
+```
+`result.status` ∈ `CLEAR | MATCHES_PENDING | MATCHES_DISPOSITIONED`.
+
+#### GET /v1/attestations
+List the latest attestation per customer. Query: `customer_id`, `stale` (bool — filter
+to due-for-re-review), plus pagination. Array of `AttestationRecord`.
+
+#### GET /v1/attestations/{attestation_id}
+Get one attestation (`AttestationRecord`). `404` if not found.
+
+#### GET /v1/attestations/{attestation_id}/verify
+Verify the attestation's signature against the pinned trust-root public key.
+
+**Response** (`VerificationResult` — never raises):
+```json
+{ "valid": true, "reason": "signature valid" }
+```
+
+#### GET /v1/attestations/{attestation_id}/export
+Render the attestation badge. **Query:** `format` ∈ `pdf` (default) `| json`. Streams
+`application/pdf` or JSON.
 
 ---
 
