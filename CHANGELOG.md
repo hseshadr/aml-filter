@@ -6,6 +6,53 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Live match-strictness slider on `/screen`** (Lenient / Balanced / Strict) — gates
+  candidate generation on lexical (trigram) relevance to the query, cutting
+  embedding-baseline false positives. Search-layer only; the scoring contract and
+  cross-path parity are untouched. (#8)
+- **Cross-language scoring parity test + drift-guard** — the TS scorer is now asserted
+  against a golden emitted by the Python source of truth (`scripts/gen_scoring_golden.py`),
+  with a `poe scoring-golden-check` guard so the two sides cannot silently diverge. (#5)
+- **Bundle↔key drift-guard test** — fails closed if the committed demo bundle
+  (`backend/examples/catalog`) stops verifying against the pinned key
+  (`frontend/app/public/public.key`), and boot errors now name the bundle origin. (#9)
+- **Overridable demo ports** — `AML_EDGE_PORT` / `AML_SPA_PORT` let the `/screen` demo
+  run when the default ports are taken. (#7)
+
+### Changed
+
+- **Honest claims pass.** Corrected the overstated "byte-compatible scoring" claim by
+  fixing a multi-country description divergence on both sides (deterministic sorted
+  output) and dropping the unsupported embedder-parity claim. (#5)
+- **Honest security docs.** Documented Row Level Security as currently inert scaffolding
+  — the app layer is the real tenant-isolation control — and clarified that the
+  `X-API-Key` scope applies only to the DB-backed `POST /v1/screen` HTTP tier; also
+  fixed a GUC-name / "set by middleware" doc bug. (#12)
+- **Smaller `/screen` payload.** Code-split the admin routes out of the `/screen`
+  bundle. (#11)
+- **More reliable e2e CI.** The Playwright e2e job now fetches the MiniLM model weights
+  from the `model-weights-v1` GitHub Release asset instead of live Hugging Face (which
+  429s GitHub runners); `download-model.mjs` honors `Retry-After` and backs off on
+  429/5xx. (#15)
+
+### Fixed
+
+- **`/screen` in-browser boot hang.** Added boot-path timeouts and a StrictMode-safe
+  Retry, self-hosted SHA-256-pinned MiniLM weights (no runtime HF CDN dependency), and
+  model-load progress. (#6)
+- **Unrecoverable signature failure from HTTP cache.** The mutable `/latest` bundle
+  pointer is now fetched with `cache: "no-store"`, so a stale cached pointer can no
+  longer poison signature verification. (#10)
+- **Confusing port-collision failures.** A foreign bundle served on a colliding port no
+  longer looks like a crypto failure — the demo diagnoses the collision (no crypto
+  change). (#9)
+
+### Security
+
+- Constrained `pip >= 26.1.2` to clear PYSEC-2026-196. (#10)
+
 ## [2.1.0] — 2026-05-31
 
 Built on the [edge-proc](https://github.com/hseshadr/edge-proc) substrate:
