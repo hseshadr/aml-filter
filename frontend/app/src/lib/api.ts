@@ -243,6 +243,52 @@ export class ApiClient {
 		);
 		return response.data;
 	}
+
+	// SAR (Suspicious Activity Report) filing (the /v1/sars tier)
+	async createSar(payload: SarCreateBody): Promise<SarRecord> {
+		const response = await this.client.post<SarRecord>("/v1/sars", payload);
+		return response.data;
+	}
+
+	async listSars(params?: SarListParams): Promise<SarRecord[]> {
+		const response = await this.client.get<SarRecord[]>("/v1/sars", {
+			params,
+		});
+		return response.data;
+	}
+
+	async getSar(sarId: string): Promise<SarRecord> {
+		const response = await this.client.get<SarRecord>(`/v1/sars/${sarId}`);
+		return response.data;
+	}
+
+	async updateSar(sarId: string, payload: SarUpdateBody): Promise<SarRecord> {
+		const response = await this.client.put<SarRecord>(
+			`/v1/sars/${sarId}`,
+			payload,
+		);
+		return response.data;
+	}
+
+	async exportSar(sarId: string, format: SarExportFormat): Promise<void> {
+		const response = await this.client.get<Blob>(`/v1/sars/${sarId}/export`, {
+			params: { format },
+			responseType: "blob",
+		});
+		triggerBlobDownload(response.data, `sar-${sarId}.${format}`);
+	}
+}
+
+/** Trigger a browser file download for a fetched blob (export artifacts). */
+function triggerBlobDownload(blob: Blob, filename: string): void {
+	const url = URL.createObjectURL(blob);
+	const anchor = document.createElement("a");
+	anchor.href = url;
+	anchor.download = filename;
+	document.body.appendChild(anchor);
+	anchor.click();
+	anchor.remove();
+	URL.revokeObjectURL(url);
 }
 
 // Type definitions
@@ -482,8 +528,9 @@ export interface ReviewMatch {
 	reviewer_id: string | null;
 	review_notes: string | null;
 	detected_at: string;
-	customer_reference: string;
-	customer_name: string;
+	customer_id: string | null;
+	customer_reference: string | null;
+	customer_name: string | null;
 	sanctioned_name: string;
 	source_list: string;
 }
@@ -498,6 +545,94 @@ export interface ReviewMatchListParams {
 export interface ReviewResolveBody {
 	reviewer_id?: string;
 	review_notes?: string;
+}
+
+// ---------------------------------------------------------------------------
+// SAR (Suspicious Activity Report) filing (the /v1/sars tier)
+// ---------------------------------------------------------------------------
+
+export type SarStatus = "DRAFT" | "COMPLETED" | "EXPORTED";
+
+export type SarJurisdiction = "US" | "UK" | "AU";
+
+export type SarTemplate = "FINCEN";
+
+export type SarExportFormat = "pdf" | "json";
+
+/** Immutable capture of the SAR subject + match basis at filing time. */
+export interface SarSubject {
+	customer_reference: string;
+	customer_name: string;
+	customer_dob: string[];
+	customer_identifiers: string[];
+	matched_sanctioned_name: string;
+	matched_source_list: string;
+	match_score: number;
+	match_tier: string;
+}
+
+/** The institution / person filing the SAR. */
+export interface SarFiler {
+	name: string;
+	institution: string;
+	contact: string;
+}
+
+export interface SarRecord {
+	sar_id: string;
+	tenant_id: string;
+	customer_id: string;
+	match_id: string;
+	jurisdiction: SarJurisdiction;
+	template: SarTemplate;
+	subject: SarSubject;
+	suspicious_activity_narrative: string | null;
+	filer: SarFiler;
+	status: SarStatus;
+	created_by: string;
+	created_at: string;
+	updated_at: string;
+	filed_at: string | null;
+}
+
+export interface SarCreateBody {
+	customer_id: string;
+	match_id: string;
+	jurisdiction?: SarJurisdiction;
+	template?: SarTemplate;
+	narrative?: string | null;
+	filer: SarFiler;
+	created_by?: string;
+}
+
+export interface SarUpdateBody {
+	narrative?: string | null;
+	filer?: SarFiler;
+	status?: SarStatus;
+}
+
+export interface SarListParams {
+	status?: SarStatus;
+	customer_id?: string;
+	limit?: number;
+	offset?: number;
+}
+
+/**
+ * Match context handed from the review board to the SAR form via route state.
+ * Mirrors the fields a review row exposes. `customer_id` comes straight from the
+ * review row; when it is null the match has no onboarded customer and a SAR
+ * cannot be filed (see SarFormPage).
+ */
+export interface SarMatchContext {
+	match_id: string;
+	customer_id: string | null;
+	customer_reference: string | null;
+	customer_name: string | null;
+	sanctioned_name: string;
+	source_list: string;
+	match_score: number;
+	tier: string;
 }
 
 // Create singleton instance

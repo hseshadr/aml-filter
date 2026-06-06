@@ -48,6 +48,8 @@ dependencies = [
     "shared-libs-python",
     # Local-first vector retrieval substrate: FAISS index + sentence-transformers encoder.
     "edge-proc[localvec,bundles]",
+    # PDF generation for the FinCEN-shaped SAR renderer (sar/renderers/fincen.py).
+    "reportlab>=4.5.1",
 ]
 
 [project.optional-dependencies]
@@ -299,4 +301,10 @@ AML_EDGE_PORT="${EDGE_PORT}" docker compose up -d origin edge
 trap 'docker compose stop origin edge >/dev/null 2>&1' EXIT INT TERM
 cd app && VITE_BUNDLE_BASE_URL="http://localhost:${EDGE_PORT}" pnpm exec vite --open /screen --port "${SPA_PORT}" --strictPort
 """
+
+[dependency-groups]
+dev = [
+    "pypdf>=6.13.0",
+    "types-reportlab>=4.5.1.20260521",
+]
 

@@ -20,6 +20,8 @@ const UsagePage = lazy(() => import("./pages/UsagePage"));
 const WhitelistPage = lazy(() => import("./pages/WhitelistPage"));
 const CustomersPage = lazy(() => import("./pages/CustomersPage"));
 const ReviewBoardPage = lazy(() => import("./pages/ReviewBoardPage"));
+const SarsPage = lazy(() => import("./pages/SarsPage"));
+const SarFormPage = lazy(() => import("./pages/SarFormPage"));
 
 function RouteFallback() {
 	return (
@@ -101,6 +103,22 @@ function App() {
 									element={
 										<ProtectedRoute>
 											<ReviewBoardPage />
+										</ProtectedRoute>
+									}
+								/>
+								<Route
+									path="/sars"
+									element={
+										<ProtectedRoute>
+											<SarsPage />
+										</ProtectedRoute>
+									}
+								/>
+								<Route
+									path="/sars/new"
+									element={
+										<ProtectedRoute>
+											<SarFormPage />
 										</ProtectedRoute>
 									}
 								/>

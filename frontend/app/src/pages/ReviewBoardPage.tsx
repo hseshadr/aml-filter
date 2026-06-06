@@ -1,6 +1,7 @@
 /** Review / case board — analyst triage of sanctions matches (the /v1/review tier). */
 
 import { useCallback, useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
 	apiClient,
 	type MatchTier,
@@ -8,6 +9,7 @@ import {
 	type ReviewMatch,
 	type ReviewMatchListParams,
 	type ReviewResolutionStatus,
+	type SarMatchContext,
 } from "../lib/api";
 
 const TIER_FILTERS: MatchTier[] = ["STRONG", "POSSIBLE", "WEAK"];
@@ -54,7 +56,21 @@ const EMPTY_DRAFT: ResolveDraft = {
 	review_notes: "",
 };
 
+function toSarContext(match: ReviewMatch): SarMatchContext {
+	return {
+		match_id: match.match_id,
+		customer_id: match.customer_id,
+		customer_reference: match.customer_reference,
+		customer_name: match.customer_name,
+		sanctioned_name: match.sanctioned_name,
+		source_list: match.source_list,
+		match_score: match.match_score,
+		tier: match.tier,
+	};
+}
+
 export default function ReviewBoardPage() {
+	const navigate = useNavigate();
 	const [matches, setMatches] = useState<ReviewMatch[]>([]);
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
@@ -113,6 +129,10 @@ export default function ReviewBoardPage() {
 		} catch (err) {
 			setError(errorMessage(err, "Failed to resolve match"));
 		}
+	};
+
+	const handleFileSar = (match: ReviewMatch) => {
+		navigate("/sars/new", { state: toSarContext(match) });
 	};
 
 	const pendingCount = matches.filter(
@@ -188,6 +208,7 @@ export default function ReviewBoardPage() {
 							<th>Status</th>
 							<th>Reviewer / Notes</th>
 							<th className="table-cell-right">Resolve</th>
+							<th className="table-cell-right">SAR</th>
 						</tr>
 					</thead>
 					<tbody>
@@ -236,6 +257,19 @@ export default function ReviewBoardPage() {
 										<span className="text-muted text-sm">Resolved</span>
 									)}
 								</td>
+								<td className="table-cell-right">
+									{match.tier === "STRONG" ? (
+										<button
+											type="button"
+											onClick={() => handleFileSar(match)}
+											className="btn btn-danger btn-sm"
+										>
+											File SAR
+										</button>
+									) : (
+										<span className="text-muted text-sm">-</span>
+									)}
+								</td>
 							</tr>
 						))}
 					</tbody>
@@ -258,7 +292,7 @@ function ResolveControls({
 	onChange,
 	onResolve,
 }: ResolveControlsProps) {
-	const ref = match.customer_reference;
+	const ref = match.customer_reference ?? match.match_id;
 	return (
 		<div className="flex-gap-sm">
 			<select

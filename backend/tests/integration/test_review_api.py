@@ -17,8 +17,14 @@ async def _seed_match(
     tier: str,
     status: str | None = "PENDING",
     customer_reference: str = "CUST-001",
-) -> str:
-    """Create a customer entity, a sanctions entity, and a match linking them."""
+    with_customer: bool = True,
+) -> tuple[str, str | None]:
+    """Create a customer entity, a sanctions entity, and a match linking them.
+
+    Returns ``(match_id, customer_id)``. When ``with_customer`` is False, the
+    whitelist entity has no onboarded ``Customer`` row, mimicking a bare
+    whitelist entity; in that case ``customer_id`` is None.
+    """
     wl_id = f"wl-{uuid.uuid4()}"
     bl_id = f"bl-{uuid.uuid4()}"
     session.add_all(
@@ -48,16 +54,19 @@ async def _seed_match(
         ]
     )
     await session.flush()
-    session.add(
-        Customer(
-            customer_id=str(uuid.uuid4()),
-            tenant_id=tenant_id,
-            customer_reference=customer_reference,
-            onboarding_status="ACTIVE",
-            onboarded_by="tester",
-            screening_entity_id=wl_id,
+    customer_id: str | None = None
+    if with_customer:
+        customer_id = str(uuid.uuid4())
+        session.add(
+            Customer(
+                customer_id=customer_id,
+                tenant_id=tenant_id,
+                customer_reference=customer_reference,
+                onboarding_status="ACTIVE",
+                onboarded_by="tester",
+                screening_entity_id=wl_id,
+            )
         )
-    )
     match = WhitelistBlacklistMatch(
         match_id=str(uuid.uuid4()),
         tenant_id=tenant_id,
@@ -70,7 +79,7 @@ async def _seed_match(
     )
     session.add(match)
     await session.commit()
-    return match.match_id
+    return match.match_id, customer_id
 
 
 @pytest.mark.integration
@@ -92,7 +101,7 @@ class TestReviewMatchesAPI:
     async def test_returns_joined_customer_and_entity_fields(
         self, client, auth_headers, db_session, test_tenant
     ):
-        await _seed_match(
+        _, customer_id = await _seed_match(
             db_session, test_tenant.tenant_id, score=0.92, tier=MatchTier.STRONG.value
         )
         resp = await client.get("/v1/review/matches", headers=auth_headers)
@@ -102,11 +111,34 @@ class TestReviewMatchesAPI:
         row = rows[0]
         assert row["tier"] == "STRONG"
         assert row["customer_reference"] == "CUST-001"
+        assert row["customer_id"] == customer_id
         assert row["customer_name"] == "Jon Q Customer"
         assert row["sanctioned_name"] == "John Quincy Sanctioned"
         assert row["source_list"] == "OFAC_SDN"
         assert row["match_score"] == pytest.approx(0.92, abs=1e-3)
         assert row["resolution_status"] == "PENDING"
+
+    @pytest.mark.asyncio
+    async def test_bare_whitelist_entity_has_null_customer_id(
+        self, client, auth_headers, db_session, test_tenant
+    ):
+        # A match against a whitelist entity not created via onboarding has no
+        # linked Customer row, so customer_id (and customer_reference) is null.
+        await _seed_match(
+            db_session,
+            test_tenant.tenant_id,
+            score=0.88,
+            tier=MatchTier.STRONG.value,
+            with_customer=False,
+        )
+        resp = await client.get("/v1/review/matches", headers=auth_headers)
+        assert resp.status_code == 200
+        rows = resp.json()
+        assert len(rows) == 1
+        assert rows[0]["customer_id"] is None
+        assert rows[0]["customer_reference"] is None
+        # The whitelist entity's own name still resolves.
+        assert rows[0]["customer_name"] == "Jon Q Customer"
 
     @pytest.mark.asyncio
     async def test_filter_by_tier(self, client, auth_headers, db_session, test_tenant):
@@ -191,7 +223,7 @@ class TestReviewResolveAPI:
     async def test_resolve_persists_reviewer_and_notes(
         self, client, auth_headers, db_session, test_tenant
     ):
-        match_id = await _seed_match(
+        match_id, customer_id = await _seed_match(
             db_session, test_tenant.tenant_id, score=0.92, tier=MatchTier.STRONG.value
         )
         resp = await client.put(
@@ -205,6 +237,7 @@ class TestReviewResolveAPI:
         assert body["resolution_status"] == "TRUE_POSITIVE"
         assert body["reviewer_id"] == "analyst-7"
         assert body["review_notes"] == "Confirmed."
+        assert body["customer_id"] == customer_id
 
     @pytest.mark.asyncio
     async def test_resolve_missing_match_404(self, client, auth_headers):

@@ -8,6 +8,7 @@ from aml_filter.api.v1.batch import router as batch_router
 from aml_filter.api.v1.customers import router as customers_router
 from aml_filter.api.v1.lists import router as lists_router
 from aml_filter.api.v1.review import router as review_router
+from aml_filter.api.v1.sars import router as sars_router
 from aml_filter.api.v1.screen import router as screen_router
 from aml_filter.api.v1.tenants import router as tenants_router
 from aml_filter.api.v1.usage import router as usage_router
@@ -26,5 +27,6 @@ router.include_router(batch_router)
 router.include_router(audit_router)
 router.include_router(customers_router)
 router.include_router(review_router)
+router.include_router(sars_router)
 
 __all__ = ["router"]

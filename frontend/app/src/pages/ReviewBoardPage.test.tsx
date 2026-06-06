@@ -5,6 +5,7 @@ import {
 	waitFor,
 	within,
 } from "@testing-library/react";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReviewMatch } from "../lib/api";
 import { apiClient } from "../lib/api";
@@ -21,6 +22,24 @@ vi.mock("../lib/api", () => ({
 
 const mockClient = vi.mocked(apiClient);
 
+// Probe that renders the location state the review board navigates with, so the
+// "File SAR" test can assert the match context handed to the SAR form route.
+function NavProbe() {
+	const location = useLocation();
+	return <pre>{JSON.stringify(location.state)}</pre>;
+}
+
+function renderBoard() {
+	return render(
+		<MemoryRouter initialEntries={["/review"]}>
+			<Routes>
+				<Route path="/review" element={<ReviewBoardPage />} />
+				<Route path="/sars/new" element={<NavProbe />} />
+			</Routes>
+		</MemoryRouter>,
+	);
+}
+
 function makeMatch(overrides: Partial<ReviewMatch> = {}): ReviewMatch {
 	return {
 		match_id: "match-1",
@@ -31,6 +50,7 @@ function makeMatch(overrides: Partial<ReviewMatch> = {}): ReviewMatch {
 		reviewer_id: null,
 		review_notes: null,
 		detected_at: "2026-06-06T10:00:00Z",
+		customer_id: "cust-1",
 		customer_reference: "REF-001",
 		customer_name: "Jon Q. Fakename",
 		sanctioned_name: "John Fakename",
@@ -68,7 +88,7 @@ describe("ReviewBoardPage", () => {
 			}),
 		]);
 
-		render(<ReviewBoardPage />);
+		renderBoard();
 
 		await waitFor(() =>
 			expect(screen.getByText("R-STRONG")).toBeInTheDocument(),
@@ -94,7 +114,7 @@ describe("ReviewBoardPage", () => {
 	it("renders the empty state when there are no matches", async () => {
 		mockClient.listReviewMatches.mockResolvedValue([]);
 
-		render(<ReviewBoardPage />);
+		renderBoard();
 
 		await waitFor(() =>
 			expect(screen.getByText(/no matches/i)).toBeInTheDocument(),
@@ -102,7 +122,7 @@ describe("ReviewBoardPage", () => {
 	});
 
 	it("changing the tier filter calls the client with that tier", async () => {
-		render(<ReviewBoardPage />);
+		renderBoard();
 		await waitFor(() =>
 			expect(mockClient.listReviewMatches).toHaveBeenCalled(),
 		);
@@ -119,7 +139,7 @@ describe("ReviewBoardPage", () => {
 	});
 
 	it("changing the status filter calls the client with that status", async () => {
-		render(<ReviewBoardPage />);
+		renderBoard();
 		await waitFor(() =>
 			expect(mockClient.listReviewMatches).toHaveBeenCalled(),
 		);
@@ -149,7 +169,7 @@ describe("ReviewBoardPage", () => {
 			}),
 		);
 
-		render(<ReviewBoardPage />);
+		renderBoard();
 		await waitFor(() =>
 			expect(screen.getByText("REF-RES")).toBeInTheDocument(),
 		);
@@ -189,8 +209,81 @@ describe("ReviewBoardPage", () => {
 	it("renders an error alert when loading fails", async () => {
 		mockClient.listReviewMatches.mockRejectedValue(new Error("boom"));
 
-		render(<ReviewBoardPage />);
+		renderBoard();
 
 		await waitFor(() => expect(screen.getByText(/boom/i)).toBeInTheDocument());
+	});
+
+	it("shows a File SAR action only on STRONG rows", async () => {
+		mockClient.listReviewMatches.mockResolvedValue([
+			makeMatch({
+				match_id: "m-strong",
+				tier: "STRONG",
+				customer_reference: "R-STRONG",
+			}),
+			makeMatch({
+				match_id: "m-possible",
+				tier: "POSSIBLE",
+				customer_reference: "R-POSSIBLE",
+			}),
+		]);
+
+		renderBoard();
+		await waitFor(() =>
+			expect(screen.getByText("R-STRONG")).toBeInTheDocument(),
+		);
+
+		const strongRow = screen.getByText("R-STRONG").closest("tr");
+		const possibleRow = screen.getByText("R-POSSIBLE").closest("tr");
+		if (!strongRow || !possibleRow) throw new Error("rows not found");
+
+		expect(
+			within(strongRow).getByRole("button", { name: /file sar/i }),
+		).toBeInTheDocument();
+		expect(
+			within(possibleRow).queryByRole("button", { name: /file sar/i }),
+		).toBeNull();
+	});
+
+	it("File SAR navigates to the SAR form with the match context", async () => {
+		mockClient.listReviewMatches.mockResolvedValue([
+			makeMatch({
+				match_id: "m-strong",
+				tier: "STRONG",
+				customer_id: "cust-strong",
+				customer_reference: "R-STRONG",
+				customer_name: "Strong Customer",
+				sanctioned_name: "BAD ACTOR",
+				source_list: "OFAC_SDN",
+				match_score: 0.97,
+			}),
+		]);
+
+		renderBoard();
+		await waitFor(() =>
+			expect(screen.getByText("R-STRONG")).toBeInTheDocument(),
+		);
+
+		const strongRow = screen.getByText("R-STRONG").closest("tr");
+		if (!strongRow) throw new Error("row not found");
+		fireEvent.click(
+			within(strongRow).getByRole("button", { name: /file sar/i }),
+		);
+
+		await waitFor(() => {
+			const state = JSON.parse(
+				screen.getByText(/match_id/).textContent ?? "{}",
+			);
+			expect(state).toMatchObject({
+				match_id: "m-strong",
+				customer_id: "cust-strong",
+				customer_reference: "R-STRONG",
+				customer_name: "Strong Customer",
+				sanctioned_name: "BAD ACTOR",
+				source_list: "OFAC_SDN",
+				match_score: 0.97,
+				tier: "STRONG",
+			});
+		});
 	});
 });

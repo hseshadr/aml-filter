@@ -462,3 +462,50 @@ class Customer(Base):
         Index("idx_customers_status", "onboarding_status"),
         Index("idx_customers_screening_entity", "screening_entity_id"),
     )
+
+
+class Sar(Base):
+    """A Suspicious Activity Report generated for a STRONG sanctions match.
+
+    The ``subject`` JSONB column is an immutable, denormalized snapshot of the
+    customer and matched-entity fields *at filing time*, so the report stays
+    accurate even if the customer record later changes. ``jurisdiction`` +
+    ``template`` select the renderer that produces the fileable JSON/PDF artifact.
+    """
+
+    __tablename__ = "sars"
+
+    sar_id: Mapped[str] = mapped_column(String(36), primary_key=True)  # UUID as string
+    tenant_id: Mapped[str] = mapped_column(
+        String(100), ForeignKey("tenants.tenant_id", ondelete="CASCADE"), nullable=False
+    )
+    customer_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("customers.customer_id", ondelete="CASCADE"), nullable=False
+    )
+    match_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("whitelist_blacklist_matches.match_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    jurisdiction: Mapped[str] = mapped_column(String(10), nullable=False)  # US, UK, AU
+    template: Mapped[str] = mapped_column(String(20), nullable=False)  # FINCEN
+    subject: Mapped[JsonObject] = mapped_column(JSONB, nullable=False)
+    suspicious_activity_narrative: Mapped[str | None] = mapped_column(Text, nullable=True)
+    filer: Mapped[JsonObject] = mapped_column(JSONB, nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(20), default="DRAFT", nullable=False
+    )  # DRAFT, COMPLETED, EXPORTED
+    created_by: Mapped[str] = mapped_column(String(200), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+    filed_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+
+    __table_args__ = (
+        Index("idx_sars_tenant", "tenant_id"),
+        Index("idx_sars_customer", "customer_id"),
+        Index("idx_sars_status", "tenant_id", "status"),
+    )

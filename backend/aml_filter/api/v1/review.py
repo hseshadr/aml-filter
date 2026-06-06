@@ -36,6 +36,7 @@ class ReviewMatchRow(BaseModel):
     reviewer_id: str | None
     review_notes: str | None
     detected_at: str
+    customer_id: str | None
     customer_reference: str | None
     customer_name: str | None
     sanctioned_name: str
@@ -74,6 +75,7 @@ def _build_row(row: Row[_ReviewRowT]) -> ReviewMatchRow:
         reviewer_id=match.reviewer_id,
         review_notes=match.review_notes,
         detected_at=match.detected_at.isoformat(),
+        customer_id=customer.customer_id if customer else None,
         customer_reference=customer.customer_reference if customer else None,
         customer_name=wl_entity.primary_name,
         sanctioned_name=bl_entity.primary_name,
