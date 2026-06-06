@@ -324,6 +324,9 @@ class WhitelistBlacklistMatch(Base):
     match_type: Mapped[str] = mapped_column(
         String(50), nullable=False
     )  # WHITELIST_VS_BLACKLIST, BLACKLIST_VS_WHITELIST
+    match_tier: Mapped[str | None] = mapped_column(
+        String(20), nullable=True
+    )  # STRONG, POSSIBLE, WEAK
     list_version: Mapped[str | None] = mapped_column(String(50), nullable=True)
     detected_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
@@ -333,6 +336,8 @@ class WhitelistBlacklistMatch(Base):
     resolution_status: Mapped[str | None] = mapped_column(
         String(20), nullable=True
     )  # PENDING, FALSE_POSITIVE, TRUE_POSITIVE, RESOLVED
+    reviewer_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    review_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     metadata_json: Mapped[JsonObject] = mapped_column(
         "metadata", JSONB, default=dict, nullable=False
     )
@@ -341,6 +346,7 @@ class WhitelistBlacklistMatch(Base):
         Index("idx_wb_matches_tenant", "tenant_id"),
         Index("idx_wb_matches_detected", "detected_at"),
         Index("idx_wb_matches_status", "resolution_status"),
+        Index("idx_wb_matches_tier", "match_tier"),
         Index("idx_wb_matches_whitelist", "whitelist_entity_id"),
         Index("idx_wb_matches_blacklist", "blacklist_entity_id"),
     )

@@ -227,7 +227,14 @@ class BidirectionalScreeningService:
         )
         scored = await self._score_candidates_against(domain_entity, candidates, threshold)
         return await self._record_qualifying_matches(
-            scored, entity, target_risk_category, list_id, list_version, match_type, tenant_id
+            scored,
+            entity,
+            target_risk_category,
+            list_id,
+            list_version,
+            match_type,
+            tenant_id,
+            threshold,
         )
 
     @staticmethod
@@ -331,6 +338,7 @@ class BidirectionalScreeningService:
         list_version: str | None,
         match_type: str,
         tenant_id: str | None,
+        threshold: float,
     ) -> list[str]:
         """Filter scored matches by category/list/version, persist each, return their IDs."""
         matched_ids: list[str] = []
@@ -346,6 +354,7 @@ class BidirectionalScreeningService:
                 match_type,
                 list_version,
                 tenant_id,
+                threshold,
             )
             matched_ids.append(entity_id)
         return matched_ids
@@ -373,6 +382,7 @@ class BidirectionalScreeningService:
         match_type: str,
         list_version: str | None,
         tenant_id: str | None,
+        threshold: float,
     ) -> None:
         """Persist a single match via the match tracker (orientation depends on target side)."""
         if target_risk_category == "WHITELIST":
@@ -386,6 +396,7 @@ class BidirectionalScreeningService:
             match_score=score,
             match_type=match_type,
             list_version=list_version or match_db_entity.list_version,
+            possible_threshold=threshold,
         )
 
     def _db_to_domain_entity(self, db_entity: DBEntity) -> Entity:

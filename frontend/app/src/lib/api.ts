@@ -212,6 +212,30 @@ export class ApiClient {
 	async deleteCustomer(customerId: string): Promise<void> {
 		await this.client.delete(`/v1/customers/${customerId}`);
 	}
+
+	// Review / case board (the /v1/review tier)
+	async listReviewMatches(
+		params?: ReviewMatchListParams,
+	): Promise<ReviewMatch[]> {
+		const response = await this.client.get<ReviewMatch[]>(
+			"/v1/review/matches",
+			{ params },
+		);
+		return response.data;
+	}
+
+	async resolveReviewMatch(
+		matchId: string,
+		resolution_status: ReviewResolutionStatus,
+		body?: ReviewResolveBody,
+	): Promise<ReviewMatch> {
+		const response = await this.client.put<ReviewMatch>(
+			`/v1/review/matches/${matchId}/resolve`,
+			body ?? {},
+			{ params: { resolution_status } },
+		);
+		return response.data;
+	}
 }
 
 // Type definitions
@@ -417,6 +441,51 @@ export interface CustomerOnboardResponse extends CustomerResponse {
 export interface CustomerListParams {
 	limit?: number;
 	offset?: number;
+}
+
+// ---------------------------------------------------------------------------
+// Review / case board (the /v1/review tier)
+// ---------------------------------------------------------------------------
+
+/** Match-strength tier — STRONG is the highest-confidence sanctions hit. */
+export type MatchTier = "STRONG" | "POSSIBLE" | "WEAK";
+
+/** Disposition lifecycle for a review-board match. */
+export type ReviewResolutionStatus =
+	| "PENDING"
+	| "TRUE_POSITIVE"
+	| "FALSE_POSITIVE"
+	| "RESOLVED";
+
+/** A disposition a reviewer can apply (every status except PENDING). */
+export type ReviewDisposition = Exclude<ReviewResolutionStatus, "PENDING">;
+
+/** An enriched sanctions match awaiting / under analyst review. */
+export interface ReviewMatch {
+	match_id: string;
+	tier: MatchTier;
+	match_score: number;
+	match_type: string;
+	resolution_status: ReviewResolutionStatus;
+	reviewer_id: string | null;
+	review_notes: string | null;
+	detected_at: string;
+	customer_reference: string;
+	customer_name: string;
+	sanctioned_name: string;
+	source_list: string;
+}
+
+export interface ReviewMatchListParams {
+	tier?: MatchTier;
+	resolution_status?: ReviewResolutionStatus;
+	limit?: number;
+	offset?: number;
+}
+
+export interface ReviewResolveBody {
+	reviewer_id?: string;
+	review_notes?: string;
 }
 
 // Create singleton instance

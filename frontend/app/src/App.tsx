@@ -19,6 +19,7 @@ const ListsPage = lazy(() => import("./pages/ListsPage"));
 const UsagePage = lazy(() => import("./pages/UsagePage"));
 const WhitelistPage = lazy(() => import("./pages/WhitelistPage"));
 const CustomersPage = lazy(() => import("./pages/CustomersPage"));
+const ReviewBoardPage = lazy(() => import("./pages/ReviewBoardPage"));
 
 function RouteFallback() {
 	return (
@@ -92,6 +93,14 @@ function App() {
 									element={
 										<ProtectedRoute>
 											<CustomersPage />
+										</ProtectedRoute>
+									}
+								/>
+								<Route
+									path="/review"
+									element={
+										<ProtectedRoute>
+											<ReviewBoardPage />
 										</ProtectedRoute>
 									}
 								/>

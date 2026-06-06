@@ -40,6 +40,9 @@ export default function Layout({ children }: LayoutProps) {
 								<Link to="/customers" className="nav-link">
 									Customers
 								</Link>
+								<Link to="/review" className="nav-link">
+									Review
+								</Link>
 								<Link to="/whitelist" className="nav-link">
 									Whitelist
 								</Link>
