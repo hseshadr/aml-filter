@@ -1,9 +1,11 @@
 """Screening API endpoints."""
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aml_filter.api.dependencies import get_db_session
+from aml_filter.db.models import TenantListConfig
 from aml_filter.domain.search import SearchQuery, SearchResponse
 from aml_filter.scoring.service import get_active_policy
 from aml_filter.search.service import SearchService
@@ -18,6 +20,29 @@ async def get_search_service(
 ) -> SearchService:
     """Dependency to get search service."""
     return SearchService(session=session)
+
+
+async def _resolve_enabled_lists(
+    session: AsyncSession, tenant_id: str | None, query: SearchQuery
+) -> list[str] | None:
+    """Resolve which lists to screen against.
+
+    Honors caller-specified ``query.lists``; otherwise, for an authenticated tenant,
+    defaults to that tenant's enabled lists. Returns ``None`` (no list filter) for an
+    anonymous caller or when the tenant has no list configuration.
+    """
+    if query.lists:
+        return query.lists
+    if tenant_id is None:
+        return None
+    result = await session.execute(
+        select(TenantListConfig.list_id).where(
+            TenantListConfig.tenant_id == tenant_id,
+            TenantListConfig.enabled.is_(True),
+        )
+    )
+    enabled = list(result.scalars().all())
+    return enabled or None
 
 
 @router.post("", response_model=SearchResponse, status_code=status.HTTP_200_OK)
@@ -70,6 +95,9 @@ async def screen_entity(
         scoring_policy = None
         if tenant_id:
             scoring_policy = await get_active_policy(session, tenant_id)
+
+        # Scope screening to the tenant's enabled lists unless the caller named some.
+        query.lists = await _resolve_enabled_lists(session, tenant_id, query)
 
         response = await search_service.search(
             query=query, tenant_id=tenant_id, scoring_policy=scoring_policy

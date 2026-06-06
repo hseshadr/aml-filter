@@ -11,6 +11,7 @@ from aml_filter.db.models import EntityEmbedding, ListVersion, Tenant
 from aml_filter.domain.entity import Entity
 from aml_filter.domain.normalization import prepare_embedding_text
 from aml_filter.embedding.service import EmbeddingService
+from aml_filter.ingest.parsers.base import get_parser
 from aml_filter.ingest.parsers.ofac import OFACParser
 from aml_filter.queue import enqueue_screening
 from aml_filter.search.localvec_backend import (
@@ -77,12 +78,29 @@ class IngestionService:
         Returns:
             Dictionary with ingestion statistics
         """
+        return await self.ingest_list(
+            list_id=list_id,
+            raw=xml_content,
+            version=version,
+            batch_size=batch_size,
+        )
+
+    async def ingest_list(
+        self,
+        list_id: str,
+        raw: str | bytes,
+        version: str | None = None,
+        batch_size: int = 100,
+    ) -> dict[str, str | int]:
+        """Ingest any registered sanctions list by id: resolve parser, parse, persist.
+
+        Fail-closed: an unknown ``list_id`` raises ``ParserNotRegisteredError`` rather
+        than silently ingesting an empty list. Reuses the same persist + ListVersion +
+        auto-rescan-enqueue path as the OFAC ingest.
+        """
         if version is None:
             version = datetime.now().strftime("%Y-%m-%d")
-
-        # Parse XML
-        entities = self.ofac_parser.parse(xml_content)
-
+        entities = get_parser(list_id).parse(raw)
         return await self.ingest_entities(
             entities=entities,
             source_list=list_id,

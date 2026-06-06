@@ -9,14 +9,18 @@ from defusedxml.ElementTree import fromstring as defused_fromstring
 
 from aml_filter.domain.entity import Alias, Entity, EntityIdentifier
 from aml_filter.domain.normalization import normalize_name
+from aml_filter.ingest.parsers.base import parser_for
 
 logger = logging.getLogger(__name__)
 
 ISO_COUNTRY_CODE_LENGTH: Final[int] = 2
 
 
+@parser_for("OFAC_SDN")
 class OFACParser:
     """Parser for OFAC SDN (Specially Designated Nationals) XML files."""
+
+    list_id = "OFAC_SDN"
 
     def __init__(self) -> None:
         """Initialize OFAC parser."""

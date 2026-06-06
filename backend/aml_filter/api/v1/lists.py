@@ -15,6 +15,7 @@ from aml_filter.api.dependencies import get_db_session
 from aml_filter.db.models import Entity, EntityEmbedding, ListVersion, TenantListConfig
 from aml_filter.domain.normalization import normalize_name, prepare_embedding_text
 from aml_filter.embedding.service import EmbeddingService
+from aml_filter.ingest.parsers.base import registered_list_ids
 from aml_filter.security.middleware import require_api_key
 from aml_filter.types import JsonObject, JsonValue
 
@@ -31,6 +32,12 @@ class ListConfigResponse(BaseModel):
     version_override: str | None
     current_version: str | None
     updated_at: str
+
+
+class AvailableListResponse(BaseModel):
+    """A sanctions list a tenant can enable (one per registered parser)."""
+
+    list_id: str
 
 
 class ListConfigUpdate(BaseModel):
@@ -232,6 +239,14 @@ async def list_tenant_lists(
         )
         for config in configs
     ]
+
+
+@router.get("/available", response_model=list[AvailableListResponse])
+async def list_available_lists(
+    _tenant_id: str = Depends(require_api_key),
+) -> list[AvailableListResponse]:
+    """List every sanctions list with a registered parser (enable via PUT /lists/{id})."""
+    return [AvailableListResponse(list_id=list_id) for list_id in registered_list_ids()]
 
 
 @router.get("/{list_id}", response_model=ListConfigResponse)

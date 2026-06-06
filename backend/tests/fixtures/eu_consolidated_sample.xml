@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<export xmlns="http://eu.europa.ec/fpi/fsd/export" generationDate="2025-01-15T00:00:00">
+  <sanctionEntity logicalId="13" euReferenceNumber="EU.27.28">
+    <subjectType code="person" classificationCode="P"/>
+    <nameAlias firstName="Ivan" lastName="Petrov" wholeName="Ivan Petrov" strong="true"/>
+    <nameAlias firstName="Vanya" lastName="Petrov" wholeName="Vanya Petrov" strong="false"/>
+    <birthdate birthdate="1971-03-09" year="1971"/>
+    <citizenship countryIso2Code="RU" countryDescription="RUSSIAN FEDERATION"/>
+    <address countryIso2Code="RU" city="Moscow" street="Tverskaya 1"/>
+    <identification identificationTypeCode="passport" number="71 1234567" countryIso2Code="RU"/>
+    <identification identificationTypeCode="national_id" number="RU-99887766"/>
+  </sanctionEntity>
+  <sanctionEntity logicalId="42" euReferenceNumber="EU.99.1">
+    <subjectType code="enterprise" classificationCode="E"/>
+    <nameAlias wholeName="Volga Trading LLC" strong="true"/>
+    <nameAlias wholeName="Volga Trade Company" strong="false"/>
+    <address countryIso2Code="BY" city="Minsk"/>
+    <identification identificationTypeCode="other" number="REG-555"/>
+  </sanctionEntity>
+</export>

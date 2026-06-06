@@ -90,6 +90,13 @@ export class ApiClient {
 		return response.data;
 	}
 
+	async getAvailableLists(): Promise<AvailableList[]> {
+		const response = await this.client.get<AvailableList[]>(
+			"/v1/lists/available",
+		);
+		return response.data;
+	}
+
 	async updateListConfig(
 		listId: string,
 		config: ListConfigUpdate,
@@ -321,6 +328,11 @@ export interface ListConfigResponse {
 	version_override?: string | null;
 	current_version?: string | null;
 	updated_at?: string;
+}
+
+/** A sanctions list a tenant can enable (one per registered parser). */
+export interface AvailableList {
+	list_id: string;
 }
 
 export interface ListConfigUpdate {
