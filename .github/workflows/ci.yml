@@ -91,3 +91,70 @@ jobs:
         run: uv run poe scoring-golden-check
       - name: Audit (pip-audit)
         run: uv run poe audit
+
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: backend
+
+    # Integration tests require a live PostgreSQL (pgvector/pg_trgm) and tolerate
+    # a missing Redis (queue helper is fail-soft). Valkey is included so
+    # app.state.redis_client can be seeded in tests that exercise endpoints
+    # that touch the queue path (e.g. test_review_migration_schema sets it to None
+    # explicitly, but having the service avoids any connection-refused noise from
+    # middleware startup).
+    env:
+      TEST_DATABASE_URL: postgresql+asyncpg://amlfilter:amlfilter_dev_password@127.0.0.1:5435/amlfilter
+      TEST_REDIS_URL: redis://127.0.0.1:6380/0
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg15
+        env:
+          POSTGRES_USER: amlfilter
+          POSTGRES_PASSWORD: amlfilter_dev_password
+          POSTGRES_DB: amlfilter
+        ports:
+          - 5435:5432
+        options: >-
+          --health-cmd "pg_isready -U amlfilter"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      valkey:
+        image: valkey/valkey:7.2-alpine
+        ports:
+          - 6380:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Authenticate git for private GitHub dependency
+        env:
+          PORTFOLIO_PAT: ${{ secrets.PORTFOLIO_PAT }}
+        run: |
+          git config --global url."https://x-access-token:${PORTFOLIO_PAT}@github.com/".insteadOf "https://github.com/"
+
+      - uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: true
+      - name: Pin Python
+        run: uv python install 3.13
+      - name: Sync
+        run: uv sync --extra dev
+      - name: Integration tests (pytest -m integration)
+        # Coverage is already enforced in the quality job. Skip it here so the
+        # --cov-fail-under=90 in addopts doesn't double-count or create a
+        # misleading partial-run failure.
+        env:
+          HF_HUB_OFFLINE: "1"
+          TRANSFORMERS_OFFLINE: "1"
+        run: uv run pytest -m integration --no-cov -v

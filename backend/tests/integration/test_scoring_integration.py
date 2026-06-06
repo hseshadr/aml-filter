@@ -83,10 +83,10 @@ class TestScoringIntegration:
         assert 0.0 <= score <= 1.0
         assert score >= 0.5  # Should be high with good matches
 
-        # Verify explanation
-        assert "signals" in explanation
-        assert "total_score" in explanation
-        assert "summary" in explanation
+        # Verify explanation — MatchExplanation is a Pydantic model; use attribute access.
+        assert isinstance(explanation.signals, list)
+        assert explanation.total_score >= 0.0
+        assert isinstance(explanation.summary, str) and explanation.summary
 
         # Check that DOB match contributed
         dob_signal = next((s for s in explanation.signals if s.name == "dob_match"), None)
