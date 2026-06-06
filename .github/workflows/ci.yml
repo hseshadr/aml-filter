@@ -108,6 +108,11 @@ jobs:
     env:
       TEST_DATABASE_URL: postgresql+asyncpg://amlfilter:amlfilter_dev_password@127.0.0.1:5435/amlfilter
       TEST_REDIS_URL: redis://127.0.0.1:6380/0
+      # Some endpoints call get_settings() directly (e.g. the whitelist screening
+      # endpoint which enqueues a background job). Settings.database_url is required;
+      # set DATABASE_URL + REDIS_URL so Settings validation does not fail.
+      DATABASE_URL: postgresql+asyncpg://amlfilter:amlfilter_dev_password@127.0.0.1:5435/amlfilter
+      REDIS_URL: redis://127.0.0.1:6380/0
 
     services:
       postgres:
