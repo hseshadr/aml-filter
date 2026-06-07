@@ -198,3 +198,177 @@ jobs:
           HF_HUB_OFFLINE: "1"
           TRANSFORMERS_OFFLINE: "1"
         run: uv run pytest -m integration --no-cov -v
+
+  # ---------------------------------------------------------------------------
+  # e2e-kyc — the FULL DB-backed KYC / AML compliance journey driven in a real
+  # headless Chromium against a LIVE FastAPI + PostgreSQL backend. The C1 e2e
+  # (frontend.yml) only covers the backend-free in-browser /screen tier; this
+  # job is the permanent regression guard for the auth-gated /customers, /review,
+  # /sars, /attestations and /lists pages that hit the real backend.
+  #
+  # It combines the integration job's backend setup (private-dep auth +
+  # pgvector/valkey services + the MiniLM weights from the backend-model-weights-v1
+  # release for the API's screening pipeline) with the frontend.yml e2e job's
+  # setup (pnpm/node + Playwright + the self-hosted SPA model weights). The
+  # Playwright kyc config (playwright.kyc.config.ts) starts the API itself via
+  # tests/e2e-kyc/start-api.sh (keygen + schema + seed + uvicorn on :8010) and
+  # serves the minified SPA via vite preview on :4178 with VITE_API_URL baked in.
+  # All run: steps use static commands only — no untrusted input is interpolated.
+  # ---------------------------------------------------------------------------
+  e2e-kyc:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      # The host-run API connects to the pgvector/valkey service containers. A
+      # dedicated database keeps the seed isolated; the seed builds the schema
+      # (Base.metadata.create_all, mirroring the integration test setup) so no
+      # alembic step is needed. EMBEDDING_MODEL_PATH + offline flags are read by
+      # start-api.sh's uvicorn (forwarded by playwright.kyc.config.ts) so the
+      # API's screening uses the pre-fetched weights instead of the 429-ing HF CDN.
+      E2E_KYC_DATABASE_URL: postgresql+asyncpg://amlfilter:amlfilter_dev_password@127.0.0.1:5435/amlfilter_e2e_kyc
+      E2E_KYC_REDIS_URL: redis://127.0.0.1:6380/0
+      EMBEDDING_MODEL_PATH: /tmp/miniLM-L6-v2
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg15
+        env:
+          POSTGRES_USER: amlfilter
+          POSTGRES_PASSWORD: amlfilter_dev_password
+          POSTGRES_DB: amlfilter
+        ports:
+          - 5435:5432
+        options: >-
+          --health-cmd "pg_isready -U amlfilter"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      valkey:
+        image: valkey/valkey:7.2-alpine
+        ports:
+          - 6380:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v5
+
+      # --- Backend toolchain (uv + Python) for the live API. -----------------
+      - name: Authenticate git for private GitHub dependency
+        env:
+          PORTFOLIO_PAT: ${{ secrets.PORTFOLIO_PAT }}
+        run: |
+          git config --global url."https://x-access-token:${PORTFOLIO_PAT}@github.com/".insteadOf "https://github.com/"
+
+      - uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: true
+      - name: Pin Python
+        run: uv python install 3.13
+      - name: Sync backend deps
+        working-directory: backend
+        run: uv sync --extra dev
+
+      # Create the dedicated e2e database in the postgres service container.
+      - name: Create e2e-kyc database
+        env:
+          PGPASSWORD: amlfilter_dev_password
+        run: |
+          psql -h 127.0.0.1 -p 5435 -U amlfilter -d amlfilter \
+            -c "CREATE DATABASE amlfilter_e2e_kyc" || true
+
+      # --- Backend MiniLM weights (same release + cache key as the integration
+      # job) so the API's screening pipeline never touches the 429-ing HF CDN. ---
+      - name: Cache backend model weights
+        id: backend-model-cache
+        uses: actions/cache@v4
+        with:
+          path: /tmp/miniLM-L6-v2
+          key: backend-model-miniLM-L6-v2-${{ runner.os }}-rel1
+
+      - name: Fetch backend model weights (cache miss only)
+        if: steps.backend-model-cache.outputs.cache-hit != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p /tmp/miniLM-L6-v2
+          gh release download backend-model-weights-v1 \
+            --repo hseshadr/aml-filter \
+            --pattern "miniLM-L6-v2-pt.tar.gz" \
+            --output /tmp/miniLM-L6-v2-pt.tar.gz
+          tar -xzf /tmp/miniLM-L6-v2-pt.tar.gz -C /tmp/miniLM-L6-v2
+          rm /tmp/miniLM-L6-v2-pt.tar.gz
+
+      # --- Frontend toolchain (pnpm + node + Playwright) for the SPA + browser. --
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: frontend/package.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: frontend/.nvmrc
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - name: Install frontend deps
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      # Self-hosted SPA model weights (SAME cache key as frontend.yml so the entry
+      # is shared): the SPA build's `prebuild` hook resolves them from
+      # app/public/models/ instead of huggingface.co.
+      - name: Cache self-hosted model weights
+        id: model-weights-cache
+        uses: actions/cache@v4
+        with:
+          path: frontend/app/public/models
+          key: model-weights-${{ runner.os }}-rel1-${{ hashFiles('frontend/app/scripts/download-model.mjs') }}
+
+      - name: Fetch self-hosted model weights (cache miss)
+        if: steps.model-weights-cache.outputs.cache-hit != 'true'
+        working-directory: frontend/app
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          dir=public/models/Xenova/all-MiniLM-L6-v2
+          mkdir -p "$dir/onnx"
+          gh release download model-weights-v1 --repo "$GITHUB_REPOSITORY" --dir "$dir" --clobber \
+            --pattern config.json --pattern tokenizer.json \
+            --pattern tokenizer_config.json --pattern special_tokens_map.json
+          gh release download model-weights-v1 --repo "$GITHUB_REPOSITORY" --dir "$dir/onnx" --clobber \
+            --pattern model_quantized.onnx
+          node scripts/download-model.mjs
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('frontend/pnpm-lock.yaml') }}
+      - name: Install Playwright Chromium + system deps
+        working-directory: frontend/app
+        run: pnpm exec playwright install --with-deps chromium
+
+      # The kyc config boots the API (via uv from backend/) and the minified SPA
+      # itself, then drives the full journey in real Chromium and asserts real
+      # outcomes (sanctions warning, STRONG tier, persisted disposition, SAR PDF
+      # magic bytes + EXPORTED, signed attestation verify=valid, list-toggle
+      # persistence, clean console, STRONG-gate negative).
+      - name: E2E — full KYC compliance journey (DB-backed, production build)
+        working-directory: frontend/app
+        run: pnpm test:e2e:kyc
+
+      - name: Upload Playwright report on failure
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-kyc
+          path: |
+            frontend/app/playwright-report
+            frontend/app/test-results
+          if-no-files-found: ignore
+          retention-days: 7
