@@ -7,7 +7,24 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aml_filter.db.models import WhitelistBlacklistMatch
+from aml_filter.scoring.config import get_scoring_defaults
+from aml_filter.scoring.tiers import get_tier_bands
 from aml_filter.types import JsonObject
+
+
+def _classify(match_score: float, possible_threshold: float | None) -> str:
+    """Classify a final score into its review tier value (STRONG/POSSIBLE/WEAK).
+
+    Note: ``match_tier`` is point-in-time — it is classified once at record time and
+    persisted on the row. Later changes to the tier bands (e.g. a new ``TIER_STRONG``)
+    do NOT re-tier existing match rows; only a re-score of the pair updates the tier.
+    """
+    threshold = (
+        possible_threshold
+        if possible_threshold is not None
+        else get_scoring_defaults().default_threshold
+    )
+    return get_tier_bands().classify(match_score, possible_threshold=threshold).value
 
 
 class MatchTracker:
@@ -31,6 +48,7 @@ class MatchTracker:
         match_type: str,
         list_version: str | None = None,
         metadata: JsonObject | None = None,
+        possible_threshold: float | None = None,
     ) -> WhitelistBlacklistMatch:
         """
         Record a match between whitelist and blacklist entities.
@@ -43,29 +61,60 @@ class MatchTracker:
             match_type: 'WHITELIST_VS_BLACKLIST' or 'BLACKLIST_VS_WHITELIST'
             list_version: Optional list version
             metadata: Optional metadata dictionary
+            possible_threshold: Policy threshold for the POSSIBLE tier band
 
         Returns:
             Created match record
         """
-        # Check if match already exists
+        tier = _classify(match_score, possible_threshold)
         existing = await self.get_match(
             tenant_id=tenant_id,
             whitelist_entity_id=whitelist_entity_id,
             blacklist_entity_id=blacklist_entity_id,
         )
-
         if existing:
-            # Update existing match
-            existing.match_score = match_score
-            existing.detected_at = datetime.now(UTC)
-            existing.resolution_status = "PENDING"  # Reset if previously resolved
-            if metadata:
-                existing.metadata_json.update(metadata)
-            await self.session.commit()
-            await self.session.refresh(existing)
-            return existing
+            return await self._update_match(existing, match_score, tier, metadata)
+        return await self._create_match(
+            tenant_id,
+            whitelist_entity_id,
+            blacklist_entity_id,
+            match_score,
+            match_type,
+            list_version,
+            metadata,
+            tier,
+        )
 
-        # Create new match
+    async def _update_match(
+        self,
+        existing: WhitelistBlacklistMatch,
+        match_score: float,
+        tier: str,
+        metadata: JsonObject | None,
+    ) -> WhitelistBlacklistMatch:
+        """Refresh an existing match's score, tier, and status (resets resolution)."""
+        existing.match_score = match_score
+        existing.match_tier = tier
+        existing.detected_at = datetime.now(UTC)
+        existing.resolution_status = "PENDING"  # Reset if previously resolved
+        if metadata:
+            existing.metadata_json.update(metadata)
+        await self.session.commit()
+        await self.session.refresh(existing)
+        return existing
+
+    async def _create_match(
+        self,
+        tenant_id: str,
+        whitelist_entity_id: str,
+        blacklist_entity_id: str,
+        match_score: float,
+        match_type: str,
+        list_version: str | None,
+        metadata: JsonObject | None,
+        tier: str,
+    ) -> WhitelistBlacklistMatch:
+        """Persist a brand-new match row."""
         match = WhitelistBlacklistMatch(
             match_id=str(uuid.uuid4()),
             tenant_id=tenant_id,
@@ -73,6 +122,7 @@ class MatchTracker:
             blacklist_entity_id=blacklist_entity_id,
             match_score=match_score,
             match_type=match_type,
+            match_tier=tier,
             list_version=list_version,
             resolution_status="PENDING",
             metadata_json=metadata or {},
@@ -173,30 +223,44 @@ class MatchTracker:
         match_id: str,
         resolution_status: str,
         tenant_id: str | None = None,
+        reviewer_id: str | None = None,
+        review_notes: str | None = None,
     ) -> WhitelistBlacklistMatch | None:
         """
-        Resolve a match.
+        Resolve a match, recording who reviewed it and any notes.
 
         Args:
             match_id: Match ID
             resolution_status: Resolution status ('FALSE_POSITIVE', 'TRUE_POSITIVE', 'RESOLVED')
             tenant_id: Optional tenant ID for authorization check
+            reviewer_id: Optional identifier of the reviewing analyst
+            review_notes: Optional free-text review notes
 
         Returns:
             Updated match record if found, None otherwise
         """
         query = select(WhitelistBlacklistMatch).where(WhitelistBlacklistMatch.match_id == match_id)
-
         if tenant_id:
             query = query.where(WhitelistBlacklistMatch.tenant_id == tenant_id)
-
         result = await self.session.execute(query)
         match = result.scalar_one_or_none()
-
         if match:
-            match.resolution_status = resolution_status
-            match.resolved_at = datetime.now(UTC)
-            await self.session.commit()
-            await self.session.refresh(match)
-
+            await self._apply_resolution(match, resolution_status, reviewer_id, review_notes)
         return match
+
+    async def _apply_resolution(
+        self,
+        match: WhitelistBlacklistMatch,
+        resolution_status: str,
+        reviewer_id: str | None,
+        review_notes: str | None,
+    ) -> None:
+        """Set resolution fields + review metadata and persist."""
+        match.resolution_status = resolution_status
+        match.resolved_at = datetime.now(UTC)
+        if reviewer_id is not None:
+            match.reviewer_id = reviewer_id
+        if review_notes is not None:
+            match.review_notes = review_notes
+        await self.session.commit()
+        await self.session.refresh(match)

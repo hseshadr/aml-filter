@@ -1,10 +1,13 @@
 """SentenceTransformers embedding provider."""
 
 import asyncio
+import os
 
 import numpy as np
 import numpy.typing as npt
 from sentence_transformers import SentenceTransformer
+
+_DEFAULT_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 
 
 class SentenceTransformersProvider:
@@ -12,17 +15,20 @@ class SentenceTransformersProvider:
 
     def __init__(
         self,
-        model_name: str = "sentence-transformers/all-MiniLM-L6-v2",
+        model_name: str = _DEFAULT_MODEL,
         device: str | None = None,
     ) -> None:
         """
         Initialize SentenceTransformers provider.
 
         Args:
-            model_name: HuggingFace model name or path
+            model_name: HuggingFace model name or local path.  The
+                ``EMBEDDING_MODEL_PATH`` environment variable overrides the
+                default when set (useful for CI where the HF CDN is rate-limited
+                and the model is pre-fetched to a local directory).
             device: Device to run on ('cpu', 'cuda', etc.). Auto-detected if None.
         """
-        self.model_name = model_name
+        self.model_name = os.environ.get("EMBEDDING_MODEL_PATH", model_name)
         self._model: SentenceTransformer | None = None
         self._device = device
         self._dimension: int | None = None

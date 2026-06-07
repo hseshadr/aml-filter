@@ -33,8 +33,8 @@ async def test_screen_whitelist_on_blacklist_update(mock_service_class, mock_cre
         "matches_found": 0,
     }
 
-    # Run job
-    await screen_whitelist_on_blacklist_update("tenant_1", "OFAC_SDN", "v1")
+    # Run job (full-rescan path: delta is disabled so the mocked service is exercised)
+    await screen_whitelist_on_blacklist_update("tenant_1", "OFAC_SDN", "v1", use_delta=False)
 
     # Verify service was called
     mock_service.screen_whitelist_against_blacklist.assert_called_once()

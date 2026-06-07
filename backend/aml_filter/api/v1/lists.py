@@ -15,10 +15,16 @@ from aml_filter.api.dependencies import get_db_session
 from aml_filter.db.models import Entity, EntityEmbedding, ListVersion, TenantListConfig
 from aml_filter.domain.normalization import normalize_name, prepare_embedding_text
 from aml_filter.embedding.service import EmbeddingService
+from aml_filter.ingest.parsers.base import registered_list_ids
 from aml_filter.security.middleware import require_api_key
 from aml_filter.types import JsonObject, JsonValue
 
 router = APIRouter(prefix="/lists", tags=["lists"])
+
+#: Reject custom-list uploads whose raw body exceeds this many bytes (~10 MiB).
+_MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+#: Reject custom-list uploads with more than this many parsed rows.
+_MAX_ROWS = 100_000
 
 
 class ListConfigResponse(BaseModel):
@@ -31,6 +37,12 @@ class ListConfigResponse(BaseModel):
     version_override: str | None
     current_version: str | None
     updated_at: str
+
+
+class AvailableListResponse(BaseModel):
+    """A sanctions list a tenant can enable (one per registered parser)."""
+
+    list_id: str
 
 
 class ListConfigUpdate(BaseModel):
@@ -147,6 +159,26 @@ async def _persist_custom_entity(
     )
 
 
+async def _read_bounded_upload(file: UploadFile) -> str:
+    """Read the upload, rejecting (413) any body larger than the byte cap."""
+    raw = await file.read(_MAX_UPLOAD_BYTES + 1)
+    if len(raw) > _MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            detail=f"Upload exceeds the {_MAX_UPLOAD_BYTES}-byte limit",
+        )
+    return raw.decode("utf-8")
+
+
+def _guard_row_count(entities: list[JsonObject], errors: list[JsonObject]) -> None:
+    """Reject (422) an upload whose total parsed row count exceeds the row cap."""
+    if len(entities) + len(errors) > _MAX_ROWS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"Upload exceeds the {_MAX_ROWS}-row limit",
+        )
+
+
 @router.post(
     "/custom/upload", response_model=CustomListUploadResponse, status_code=status.HTTP_201_CREATED
 )
@@ -157,8 +189,9 @@ async def upload_custom_list(
     tenant_id: str = Depends(require_api_key),
 ) -> CustomListUploadResponse:
     """Upload a custom list (CSV or JSON) — persists entities + embeddings + list activation."""
-    content_str = (await file.read()).decode("utf-8")
+    content_str = await _read_bounded_upload(file)
     entities_to_create, errors = _parse_uploaded_list(content_str, file.filename or "")
+    _guard_row_count(entities_to_create, errors)
     if not entities_to_create:
         raise HTTPException(status_code=400, detail="No valid entities found in file")
 
@@ -232,6 +265,14 @@ async def list_tenant_lists(
         )
         for config in configs
     ]
+
+
+@router.get("/available", response_model=list[AvailableListResponse])
+async def list_available_lists(
+    _tenant_id: str = Depends(require_api_key),
+) -> list[AvailableListResponse]:
+    """List every sanctions list with a registered parser (enable via PUT /lists/{id})."""
+    return [AvailableListResponse(list_id=list_id) for list_id in registered_list_ids()]
 
 
 @router.get("/{list_id}", response_model=ListConfigResponse)

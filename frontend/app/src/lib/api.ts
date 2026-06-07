@@ -90,6 +90,13 @@ export class ApiClient {
 		return response.data;
 	}
 
+	async getAvailableLists(): Promise<AvailableList[]> {
+		const response = await this.client.get<AvailableList[]>(
+			"/v1/lists/available",
+		);
+		return response.data;
+	}
+
 	async updateListConfig(
 		listId: string,
 		config: ListConfigUpdate,
@@ -167,6 +174,172 @@ export class ApiClient {
 		);
 		return response.data;
 	}
+
+	// KYC customer onboarding (the /v1/customers tier)
+	async onboardCustomer(
+		payload: CustomerOnboardRequest,
+	): Promise<CustomerOnboardResponse> {
+		const response = await this.client.post<CustomerOnboardResponse>(
+			"/v1/customers",
+			payload,
+		);
+		return response.data;
+	}
+
+	async listCustomers(
+		params?: CustomerListParams,
+	): Promise<CustomerResponse[]> {
+		const response = await this.client.get<CustomerResponse[]>(
+			"/v1/customers",
+			{
+				params,
+			},
+		);
+		return response.data;
+	}
+
+	async getCustomer(customerId: string): Promise<CustomerResponse> {
+		const response = await this.client.get<CustomerResponse>(
+			`/v1/customers/${customerId}`,
+		);
+		return response.data;
+	}
+
+	async updateCustomer(
+		customerId: string,
+		payload: CustomerUpdateRequest,
+	): Promise<CustomerResponse> {
+		const response = await this.client.put<CustomerResponse>(
+			`/v1/customers/${customerId}`,
+			payload,
+		);
+		return response.data;
+	}
+
+	async deleteCustomer(customerId: string): Promise<void> {
+		await this.client.delete(`/v1/customers/${customerId}`);
+	}
+
+	// Review / case board (the /v1/review tier)
+	async listReviewMatches(
+		params?: ReviewMatchListParams,
+	): Promise<ReviewMatch[]> {
+		const response = await this.client.get<ReviewMatch[]>(
+			"/v1/review/matches",
+			{ params },
+		);
+		return response.data;
+	}
+
+	async resolveReviewMatch(
+		matchId: string,
+		resolution_status: ReviewResolutionStatus,
+		body?: ReviewResolveBody,
+	): Promise<ReviewMatch> {
+		const response = await this.client.put<ReviewMatch>(
+			`/v1/review/matches/${matchId}/resolve`,
+			body ?? {},
+			{ params: { resolution_status } },
+		);
+		return response.data;
+	}
+
+	// SAR (Suspicious Activity Report) filing (the /v1/sars tier)
+	async createSar(payload: SarCreateBody): Promise<SarRecord> {
+		const response = await this.client.post<SarRecord>("/v1/sars", payload);
+		return response.data;
+	}
+
+	async listSars(params?: SarListParams): Promise<SarRecord[]> {
+		const response = await this.client.get<SarRecord[]>("/v1/sars", {
+			params,
+		});
+		return response.data;
+	}
+
+	async getSar(sarId: string): Promise<SarRecord> {
+		const response = await this.client.get<SarRecord>(`/v1/sars/${sarId}`);
+		return response.data;
+	}
+
+	async updateSar(sarId: string, payload: SarUpdateBody): Promise<SarRecord> {
+		const response = await this.client.put<SarRecord>(
+			`/v1/sars/${sarId}`,
+			payload,
+		);
+		return response.data;
+	}
+
+	async exportSar(sarId: string, format: SarExportFormat): Promise<void> {
+		const response = await this.client.get<Blob>(`/v1/sars/${sarId}/export`, {
+			params: { format },
+			responseType: "blob",
+		});
+		triggerBlobDownload(response.data, `sar-${sarId}.${format}`);
+	}
+
+	// Attestations API (the /v1/attestations review-badge tier)
+	async generateAttestation(
+		body: AttestationCreateBody,
+	): Promise<AttestationRecord> {
+		const response = await this.client.post<AttestationRecord>(
+			"/v1/attestations",
+			body,
+		);
+		return response.data;
+	}
+
+	async listAttestations(
+		params: AttestationListParams = {},
+	): Promise<AttestationRecord[]> {
+		const response = await this.client.get<AttestationRecord[]>(
+			"/v1/attestations",
+			{ params },
+		);
+		return response.data;
+	}
+
+	async getAttestation(attestationId: string): Promise<AttestationRecord> {
+		const response = await this.client.get<AttestationRecord>(
+			`/v1/attestations/${attestationId}`,
+		);
+		return response.data;
+	}
+
+	async verifyAttestation(
+		attestationId: string,
+	): Promise<AttestationVerification> {
+		const response = await this.client.get<AttestationVerification>(
+			`/v1/attestations/${attestationId}/verify`,
+		);
+		return response.data;
+	}
+
+	async exportAttestation(
+		attestationId: string,
+		format: AttestationExportFormat,
+	): Promise<void> {
+		const response = await this.client.get<Blob>(
+			`/v1/attestations/${attestationId}/export`,
+			{ params: { format }, responseType: "blob" },
+		);
+		triggerBlobDownload(
+			response.data,
+			`attestation-${attestationId}.${format}`,
+		);
+	}
+}
+
+/** Trigger a browser file download for a fetched blob (export artifacts). */
+function triggerBlobDownload(blob: Blob, filename: string): void {
+	const url = URL.createObjectURL(blob);
+	const anchor = document.createElement("a");
+	anchor.href = url;
+	anchor.download = filename;
+	document.body.appendChild(anchor);
+	anchor.click();
+	anchor.remove();
+	URL.revokeObjectURL(url);
 }
 
 // Type definitions
@@ -254,6 +427,11 @@ export interface ListConfigResponse {
 	updated_at?: string;
 }
 
+/** A sanctions list a tenant can enable (one per registered parser). */
+export interface AvailableList {
+	list_id: string;
+}
+
 export interface ListConfigUpdate {
 	enabled?: boolean;
 	version_override?: string;
@@ -316,6 +494,258 @@ export type MatchResolutionStatus =
 	| "FALSE_POSITIVE"
 	| "TRUE_POSITIVE"
 	| "RESOLVED";
+
+// ---------------------------------------------------------------------------
+// KYC customer onboarding (the /v1/customers tier)
+// ---------------------------------------------------------------------------
+
+export type OnboardingStatus =
+	| "DRAFT"
+	| "PENDING_REVIEW"
+	| "ACTIVE"
+	| "REJECTED";
+
+export type KycRiskRating = "LOW" | "MEDIUM" | "HIGH";
+
+/** A single identity document supplied during onboarding. */
+export interface IdDocument {
+	doc_type: string;
+	number: string;
+	issuing_country: string; // ISO2
+	expiry?: string | null; // YYYY-MM-DD
+}
+
+export interface CustomerOnboardRequest {
+	customer_reference: string;
+	name: string;
+	onboarded_by?: string;
+	country?: string; // ISO2
+	id_documents?: IdDocument[];
+}
+
+export interface CustomerUpdateRequest {
+	onboarding_status?: OnboardingStatus;
+	kyc_risk_rating?: KycRiskRating;
+	customer_reference?: string;
+}
+
+export interface CustomerResponse {
+	customer_id: string;
+	tenant_id: string;
+	customer_reference: string;
+	onboarding_status: string;
+	kyc_risk_rating: string | null;
+	id_documents: IdDocument[];
+	onboarded_by: string;
+	screening_entity_id: string | null;
+	created_at: string;
+	updated_at: string;
+}
+
+/** Onboarding response: the customer plus any sanctions matches found. */
+export interface CustomerOnboardResponse extends CustomerResponse {
+	match_entity_ids: string[];
+}
+
+export interface CustomerListParams {
+	limit?: number;
+	offset?: number;
+}
+
+// ---------------------------------------------------------------------------
+// Review / case board (the /v1/review tier)
+// ---------------------------------------------------------------------------
+
+/** Match-strength tier — STRONG is the highest-confidence sanctions hit. */
+export type MatchTier = "STRONG" | "POSSIBLE" | "WEAK";
+
+/** Disposition lifecycle for a review-board match. */
+export type ReviewResolutionStatus =
+	| "PENDING"
+	| "TRUE_POSITIVE"
+	| "FALSE_POSITIVE"
+	| "RESOLVED";
+
+/** A disposition a reviewer can apply (every status except PENDING). */
+export type ReviewDisposition = Exclude<ReviewResolutionStatus, "PENDING">;
+
+/** An enriched sanctions match awaiting / under analyst review. */
+export interface ReviewMatch {
+	match_id: string;
+	tier: MatchTier;
+	match_score: number;
+	match_type: string;
+	resolution_status: ReviewResolutionStatus;
+	reviewer_id: string | null;
+	review_notes: string | null;
+	detected_at: string;
+	customer_id: string | null;
+	customer_reference: string | null;
+	customer_name: string | null;
+	sanctioned_name: string;
+	source_list: string;
+}
+
+export interface ReviewMatchListParams {
+	tier?: MatchTier;
+	resolution_status?: ReviewResolutionStatus;
+	limit?: number;
+	offset?: number;
+}
+
+export interface ReviewResolveBody {
+	reviewer_id?: string;
+	review_notes?: string;
+}
+
+// ---------------------------------------------------------------------------
+// SAR (Suspicious Activity Report) filing (the /v1/sars tier)
+// ---------------------------------------------------------------------------
+
+export type SarStatus = "DRAFT" | "COMPLETED" | "EXPORTED";
+
+export type SarJurisdiction = "US" | "UK" | "AU";
+
+export type SarTemplate = "FINCEN";
+
+export type SarExportFormat = "pdf" | "json";
+
+/** Immutable capture of the SAR subject + match basis at filing time. */
+export interface SarSubject {
+	customer_reference: string;
+	customer_name: string;
+	customer_dob: string[];
+	customer_identifiers: string[];
+	matched_sanctioned_name: string;
+	matched_source_list: string;
+	match_score: number;
+	match_tier: string;
+}
+
+/** The institution / person filing the SAR. */
+export interface SarFiler {
+	name: string;
+	institution: string;
+	contact: string;
+}
+
+export interface SarRecord {
+	sar_id: string;
+	tenant_id: string;
+	customer_id: string;
+	match_id: string;
+	jurisdiction: SarJurisdiction;
+	template: SarTemplate;
+	subject: SarSubject;
+	suspicious_activity_narrative: string | null;
+	filer: SarFiler;
+	status: SarStatus;
+	created_by: string;
+	created_at: string;
+	updated_at: string;
+	filed_at: string | null;
+}
+
+export interface SarCreateBody {
+	customer_id: string;
+	match_id: string;
+	jurisdiction?: SarJurisdiction;
+	template?: SarTemplate;
+	narrative?: string | null;
+	filer: SarFiler;
+	created_by?: string;
+}
+
+export interface SarUpdateBody {
+	narrative?: string | null;
+	filer?: SarFiler;
+	status?: SarStatus;
+}
+
+// ---------------------------------------------------------------------------
+// Attestations / review badge (the /v1/attestations tier)
+// ---------------------------------------------------------------------------
+
+/** Result classification of a customer's screening attestation. */
+export type AttestationStatus =
+	| "CLEAR"
+	| "MATCHES_PENDING"
+	| "MATCHES_DISPOSITIONED";
+
+export type AttestationExportFormat = "pdf" | "json";
+
+/** One enabled list and the version it was screened against. */
+export interface ListVersionEntry {
+	list_id: string;
+	version: string;
+}
+
+/** The screening outcome captured at attestation time. */
+export interface AttestationResult {
+	status: AttestationStatus;
+	match_count: number;
+	pending_count: number;
+}
+
+/** A persisted, optionally-signed screening attestation (review badge). */
+export interface AttestationRecord {
+	attestation_id: string;
+	tenant_id: string;
+	customer_id: string;
+	customer_reference: string;
+	screened_at: string;
+	valid_until: string;
+	lists_and_versions: ListVersionEntry[];
+	result: AttestationResult;
+	signature: string | null;
+	signing_key_id: string | null;
+	algo: string | null;
+	created_at: string;
+}
+
+/** Request body for generating/refreshing a customer's attestation. */
+export interface AttestationCreateBody {
+	customer_id: string;
+	require_signature?: boolean;
+}
+
+/** Query params for listing the latest attestation per customer. */
+export interface AttestationListParams {
+	customer_id?: string;
+	stale?: boolean;
+	limit?: number;
+	offset?: number;
+}
+
+/** Outcome of verifying an attestation's ed25519 signature. */
+export interface AttestationVerification {
+	valid: boolean;
+	reason: string;
+}
+
+export interface SarListParams {
+	status?: SarStatus;
+	customer_id?: string;
+	limit?: number;
+	offset?: number;
+}
+
+/**
+ * Match context handed from the review board to the SAR form via route state.
+ * Mirrors the fields a review row exposes. `customer_id` comes straight from the
+ * review row; when it is null the match has no onboarded customer and a SAR
+ * cannot be filed (see SarFormPage).
+ */
+export interface SarMatchContext {
+	match_id: string;
+	customer_id: string | null;
+	customer_reference: string | null;
+	customer_name: string | null;
+	sanctioned_name: string;
+	source_list: string;
+	match_score: number;
+	tier: string;
+}
 
 // Create singleton instance
 export const apiClient = new ApiClient();

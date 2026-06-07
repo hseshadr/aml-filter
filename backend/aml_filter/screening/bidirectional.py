@@ -1,5 +1,6 @@
 """Bidirectional screening service for whitelist vs blacklist matching."""
 
+import logging
 from typing import Literal
 
 from shared_libs_python import VectorEmbedding
@@ -23,13 +24,16 @@ from aml_filter.search.localvec_backend import (
 )
 from aml_filter.search.service import SearchService
 
+logger = logging.getLogger(__name__)
+
 RiskCategory = Literal["SANCTION", "PEP", "CUSTOM", "WHITELIST"]
 
 
 def _safe_risk_category(val: str | None) -> RiskCategory:
-    """Convert string to RiskCategory Literal, defaulting to SANCTION."""
+    """Convert string to RiskCategory Literal, defaulting to SANCTION (conservative)."""
     if val and val.upper() in ("SANCTION", "PEP", "CUSTOM", "WHITELIST"):
         return val.upper()  # type: ignore[return-value]
+    logger.warning("Unexpected risk_category %r; defaulting to SANCTION", val)
     return "SANCTION"
 
 
@@ -227,7 +231,14 @@ class BidirectionalScreeningService:
         )
         scored = await self._score_candidates_against(domain_entity, candidates, threshold)
         return await self._record_qualifying_matches(
-            scored, entity, target_risk_category, list_id, list_version, match_type, tenant_id
+            scored,
+            entity,
+            target_risk_category,
+            list_id,
+            list_version,
+            match_type,
+            tenant_id,
+            threshold,
         )
 
     @staticmethod
@@ -331,6 +342,7 @@ class BidirectionalScreeningService:
         list_version: str | None,
         match_type: str,
         tenant_id: str | None,
+        threshold: float,
     ) -> list[str]:
         """Filter scored matches by category/list/version, persist each, return their IDs."""
         matched_ids: list[str] = []
@@ -346,6 +358,7 @@ class BidirectionalScreeningService:
                 match_type,
                 list_version,
                 tenant_id,
+                threshold,
             )
             matched_ids.append(entity_id)
         return matched_ids
@@ -373,6 +386,7 @@ class BidirectionalScreeningService:
         match_type: str,
         list_version: str | None,
         tenant_id: str | None,
+        threshold: float,
     ) -> None:
         """Persist a single match via the match tracker (orientation depends on target side)."""
         if target_risk_category == "WHITELIST":
@@ -386,6 +400,7 @@ class BidirectionalScreeningService:
             match_score=score,
             match_type=match_type,
             list_version=list_version or match_db_entity.list_version,
+            possible_threshold=threshold,
         )
 
     def _db_to_domain_entity(self, db_entity: DBEntity) -> Entity:

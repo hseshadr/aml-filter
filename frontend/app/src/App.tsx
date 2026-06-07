@@ -18,6 +18,11 @@ const ApiKeysPage = lazy(() => import("./pages/ApiKeysPage"));
 const ListsPage = lazy(() => import("./pages/ListsPage"));
 const UsagePage = lazy(() => import("./pages/UsagePage"));
 const WhitelistPage = lazy(() => import("./pages/WhitelistPage"));
+const CustomersPage = lazy(() => import("./pages/CustomersPage"));
+const ReviewBoardPage = lazy(() => import("./pages/ReviewBoardPage"));
+const SarsPage = lazy(() => import("./pages/SarsPage"));
+const SarFormPage = lazy(() => import("./pages/SarFormPage"));
+const AttestationsPage = lazy(() => import("./pages/AttestationsPage"));
 
 function RouteFallback() {
 	return (
@@ -83,6 +88,46 @@ function App() {
 									element={
 										<ProtectedRoute>
 											<WhitelistPage />
+										</ProtectedRoute>
+									}
+								/>
+								<Route
+									path="/customers"
+									element={
+										<ProtectedRoute>
+											<CustomersPage />
+										</ProtectedRoute>
+									}
+								/>
+								<Route
+									path="/review"
+									element={
+										<ProtectedRoute>
+											<ReviewBoardPage />
+										</ProtectedRoute>
+									}
+								/>
+								<Route
+									path="/sars"
+									element={
+										<ProtectedRoute>
+											<SarsPage />
+										</ProtectedRoute>
+									}
+								/>
+								<Route
+									path="/sars/new"
+									element={
+										<ProtectedRoute>
+											<SarFormPage />
+										</ProtectedRoute>
+									}
+								/>
+								<Route
+									path="/attestations"
+									element={
+										<ProtectedRoute>
+											<AttestationsPage />
 										</ProtectedRoute>
 									}
 								/>

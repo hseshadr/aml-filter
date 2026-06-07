@@ -187,6 +187,35 @@ Three ways to screen, one scoring contract:
 
 Full write-up and diagrams: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
+### KYC / AML compliance workstation (DB path)
+
+On top of the screening engine, the DB-backed HTTP tier (path 1) adds a full
+case-management workflow — the lifecycle a compliance team actually works:
+
+- **Customer onboarding** (`POST /v1/customers`) — register a customer; it is
+  screened against the enabled sanctions lists on the spot and matches are persisted.
+- **Tiered review board** (`GET/PUT /v1/review/matches`) — every match is bucketed
+  STRONG / POSSIBLE / WEAK so a reviewer can triage and resolve (false-positive /
+  true-positive / resolved) with a reviewer id and notes.
+- **Multi-list ingest** — OFAC, EU consolidated, UK OFSI, and UN consolidated lists
+  via a pluggable parser registry, each enable/disable-able per tenant
+  (`GET /v1/lists/available`).
+- **SAR filing** (`POST /v1/sars`, `/v1/sars/{id}/export`) — generate a Suspicious
+  Activity Report for a STRONG match and export a fileable FinCEN JSON/PDF.
+  **The export produces a report you file yourself; it does NOT submit to FinCEN or
+  any government system.**
+- **Screening attestations** (`POST /v1/attestations`, `/verify`, `/export`) — a
+  verifiable "this customer was screened against these list versions on this date,
+  result X" review badge, optionally ed25519-signed with the bundle trust root and
+  independently verifiable.
+- **Delta-driven rescan** — when a list updates, only the customers near the changed
+  sanctions entries are re-screened (full rescan as a fallback). Backend-only.
+
+These run on path 1 only (they need Postgres). See
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#kyc--aml-compliance-workstation-db-path)
+and [`docs/API_SPEC.md`](docs/API_SPEC.md). The frontend SPA mounts pages for each
+(`/customers`, `/review`, `/sars`, `/attestations`, `/lists`).
+
 ### How matching & scoring works
 
 Each request flows through the same shape: **normalize** the name (strip accents,
@@ -301,7 +330,9 @@ aml-filter/
 │   │   ├── api/              #   FastAPI app + /v1 routers (DB-backed front door)
 │   │   ├── search/           #   hybrid_search · pgvector_backend · localvec_backend (edge-proc FAISS)
 │   │   ├── bundle/           #   publish · sync · screening · runtime · meta (signed OFAC bundle)
-│   │   ├── scoring/ · embedding/ · ingest/ · db/ · domain/
+│   │   ├── customers/        #   KYC onboarding service (screen-on-onboard)
+│   │   ├── sar/ · attestation/ #   SAR filing (FinCEN renderer) · signed review badges
+│   │   ├── scoring/ · embedding/ · ingest/ · db/ · domain/  # scoring/tiers.py = match tiers
 │   │   └── cli.py            #   `amlfilter` — keygen · bundle · sync · screen
 │   ├── deploy/caddy/         #   Caddyfile — the bundle edge/CDN the browser syncs from
 │   ├── examples/             #   demo_entities.jsonl (FICTIONAL) + committed signed catalog/
@@ -319,13 +350,19 @@ aml-filter/
 
 ## Disclaimer
 
-aml-filter is a software demonstration and engineering-portfolio project. It is
-**NOT legal advice, NOT a regulatory-compliance product, and NOT a substitute for a
-qualified compliance program or a commercial sanctions-screening vendor.** Sanctions
-screening has real legal consequences; any match — or absence of a match — must be
-reviewed by qualified compliance personnel against the official OFAC source before
-any decision is made. The software is provided "as is", without warranty. See
-[`NOTICE`](NOTICE) and [`LICENSE`](LICENSE).
+aml-filter is a software demonstration and engineering-portfolio project. It is a
+**reference implementation, NOT legal advice, NOT a regulatory-compliance product, and
+NOT a substitute for a qualified compliance program or a commercial sanctions-screening
+vendor.** Sanctions screening has real legal consequences; any match — or absence of a
+match — must be reviewed by qualified compliance personnel against the official OFAC
+source before any decision is made.
+
+The KYC/AML workstation (customer onboarding, the review board, SAR filing, and
+attestations) is illustrative: **the operator is solely responsible for their own
+regulatory obligations and for any actual filings.** SAR "export" generates a fileable
+report artifact — it does **NOT** submit anything to FinCEN or any government system.
+The software is provided "as is", without warranty. See [`NOTICE`](NOTICE) and
+[`LICENSE`](LICENSE).
 
 ## License
 

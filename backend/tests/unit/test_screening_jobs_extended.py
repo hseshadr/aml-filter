@@ -49,6 +49,7 @@ class TestScreenWhitelistOnBlacklistUpdate:
             tenant_id="tenant-1",
             list_id="OFAC_SDN",
             list_version="v2024-01",
+            use_delta=False,  # exercise the full-rescan fallback explicitly
         )
 
         assert result["status"] == "completed"
@@ -177,6 +178,7 @@ class TestScreenWhitelistOnBlacklistUpdate:
             list_id="EU_SANCTIONS",
             list_version="v2024-06-15",
             job_id=None,  # New job
+            use_delta=False,  # exercise the full-rescan fallback explicitly
         )
 
         # Verify service was called with correct parameters

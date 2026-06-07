@@ -324,6 +324,9 @@ class WhitelistBlacklistMatch(Base):
     match_type: Mapped[str] = mapped_column(
         String(50), nullable=False
     )  # WHITELIST_VS_BLACKLIST, BLACKLIST_VS_WHITELIST
+    match_tier: Mapped[str | None] = mapped_column(
+        String(20), nullable=True
+    )  # STRONG, POSSIBLE, WEAK
     list_version: Mapped[str | None] = mapped_column(String(50), nullable=True)
     detected_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
@@ -333,6 +336,8 @@ class WhitelistBlacklistMatch(Base):
     resolution_status: Mapped[str | None] = mapped_column(
         String(20), nullable=True
     )  # PENDING, FALSE_POSITIVE, TRUE_POSITIVE, RESOLVED
+    reviewer_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    review_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     metadata_json: Mapped[JsonObject] = mapped_column(
         "metadata", JSONB, default=dict, nullable=False
     )
@@ -341,6 +346,7 @@ class WhitelistBlacklistMatch(Base):
         Index("idx_wb_matches_tenant", "tenant_id"),
         Index("idx_wb_matches_detected", "detected_at"),
         Index("idx_wb_matches_status", "resolution_status"),
+        Index("idx_wb_matches_tier", "match_tier"),
         Index("idx_wb_matches_whitelist", "whitelist_entity_id"),
         Index("idx_wb_matches_blacklist", "blacklist_entity_id"),
     )
@@ -414,4 +420,135 @@ class BatchJob(Base):
     __table_args__ = (
         Index("idx_batch_jobs_tenant", "tenant_id", "status"),
         Index("idx_batch_jobs_status", "status", "created_at"),
+    )
+
+
+class Customer(Base):
+    """KYC customer onboarded on top of the screening engine.
+
+    A customer's screened identity lives in an ``Entity`` row (risk_category
+    ``WHITELIST``); this table carries the onboarding lifecycle, KYC risk band,
+    and identity documents, linked 1:1 to that entity via ``screening_entity_id``.
+    """
+
+    __tablename__ = "customers"
+
+    customer_id: Mapped[str] = mapped_column(String(36), primary_key=True)  # UUID as string
+    tenant_id: Mapped[str] = mapped_column(
+        String(100), ForeignKey("tenants.tenant_id", ondelete="CASCADE"), nullable=False
+    )
+    customer_reference: Mapped[str] = mapped_column(String(200), nullable=False)
+    onboarding_status: Mapped[str] = mapped_column(
+        String(20), default="DRAFT", nullable=False
+    )  # DRAFT, PENDING_REVIEW, ACTIVE, REJECTED
+    kyc_risk_rating: Mapped[str | None] = mapped_column(
+        String(10), nullable=True
+    )  # LOW, MEDIUM, HIGH (null until assessed)
+    id_documents: Mapped[JsonArray] = mapped_column(JSONB, default=list, nullable=False)
+    onboarded_by: Mapped[str] = mapped_column(String(200), nullable=False)
+    screening_entity_id: Mapped[str | None] = mapped_column(
+        String(500), ForeignKey("entities.entity_id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "customer_reference", name="uq_customers_tenant_reference"),
+        Index("idx_customers_tenant", "tenant_id"),
+        Index("idx_customers_status", "onboarding_status"),
+        Index("idx_customers_screening_entity", "screening_entity_id"),
+    )
+
+
+class Sar(Base):
+    """A Suspicious Activity Report generated for a STRONG sanctions match.
+
+    The ``subject`` JSONB column is an immutable, denormalized snapshot of the
+    customer and matched-entity fields *at filing time*, so the report stays
+    accurate even if the customer record later changes. ``jurisdiction`` +
+    ``template`` select the renderer that produces the fileable JSON/PDF artifact.
+    """
+
+    __tablename__ = "sars"
+
+    sar_id: Mapped[str] = mapped_column(String(36), primary_key=True)  # UUID as string
+    tenant_id: Mapped[str] = mapped_column(
+        String(100), ForeignKey("tenants.tenant_id", ondelete="CASCADE"), nullable=False
+    )
+    customer_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("customers.customer_id", ondelete="CASCADE"), nullable=False
+    )
+    match_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("whitelist_blacklist_matches.match_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    jurisdiction: Mapped[str] = mapped_column(String(10), nullable=False)  # US, UK, AU
+    template: Mapped[str] = mapped_column(String(20), nullable=False)  # FINCEN
+    subject: Mapped[JsonObject] = mapped_column(JSONB, nullable=False)
+    suspicious_activity_narrative: Mapped[str | None] = mapped_column(Text, nullable=True)
+    filer: Mapped[JsonObject] = mapped_column(JSONB, nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(20), default="DRAFT", nullable=False
+    )  # DRAFT, COMPLETED, EXPORTED
+    created_by: Mapped[str] = mapped_column(String(200), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+    filed_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+
+    __table_args__ = (
+        Index("idx_sars_tenant", "tenant_id"),
+        Index("idx_sars_customer", "customer_id"),
+        Index("idx_sars_status", "tenant_id", "status"),
+    )
+
+
+class Attestation(Base):
+    """A periodic screening attestation (review badge) for a customer.
+
+    A verifiable record that a customer was screened against the enabled lists at
+    ``lists_and_versions`` on ``screened_at`` with ``status`` (CLEAR, or matches
+    pending/dispositioned). ``valid_until`` drives the "due for re-review" staleness
+    query. ``signature`` is an optional detached ed25519 signature (base64) over the
+    canonical attestation payload — when present, the badge is independently
+    verifiable against the pinned bundle trust-root key.
+    """
+
+    __tablename__ = "attestations"
+
+    attestation_id: Mapped[str] = mapped_column(String(36), primary_key=True)  # UUID as string
+    tenant_id: Mapped[str] = mapped_column(
+        String(100), ForeignKey("tenants.tenant_id", ondelete="CASCADE"), nullable=False
+    )
+    customer_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("customers.customer_id", ondelete="CASCADE"), nullable=False
+    )
+    customer_reference: Mapped[str] = mapped_column(String(200), nullable=False)
+    screened_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
+    valid_until: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
+    lists_and_versions: Mapped[JsonArray] = mapped_column(JSONB, default=list, nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(30), nullable=False
+    )  # CLEAR, MATCHES_PENDING, MATCHES_DISPOSITIONED
+    match_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    pending_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    signature: Mapped[str | None] = mapped_column(Text, nullable=True)
+    signing_key_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    algo: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        Index("idx_attestations_tenant", "tenant_id"),
+        Index("idx_attestations_customer", "tenant_id", "customer_id"),
+        Index("idx_attestations_valid_until", "tenant_id", "valid_until"),
     )
