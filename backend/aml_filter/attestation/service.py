@@ -205,7 +205,12 @@ def _summarize(total: int, pending: int) -> ResultSummary:
 
 
 def _status_for(total: int, pending: int) -> AttestationStatus:
-    """CLEAR with no matches, PENDING if any unresolved, else DISPOSITIONED."""
+    """CLEAR with no matches, PENDING if any unresolved, else DISPOSITIONED.
+
+    ``total`` counts matches of ALL tiers (see ``queries._match_counts_query``): even a
+    single WEAK match keeps a customer out of CLEAR. This is a deliberate conservative
+    choice, not a bug.
+    """
     if total == 0:
         return AttestationStatus.CLEAR
     if pending > 0:

@@ -257,3 +257,39 @@ async def test_should_mark_exported(session: AsyncSession) -> None:
 
     # Then
     assert sar.status == SarStatus.EXPORTED.value
+
+
+@pytest.mark.asyncio
+async def test_should_stamp_filed_at_on_first_export(session: AsyncSession) -> None:
+    # Given a freshly created SAR (not yet exported)
+    customer_id, match_id = await _seed(session)
+    service = SarService(session=session)
+    sar = await _create(service, customer_id, match_id)
+    assert sar.filed_at is None
+
+    # When it is exported the first time
+    await service.mark_exported(sar)
+
+    # Then EXPORTED is set and filed_at is stamped
+    assert sar.status == SarStatus.EXPORTED.value
+    assert sar.filed_at is not None
+
+
+@pytest.mark.asyncio
+async def test_should_be_idempotent_and_not_restamp_filed_at_on_re_export(
+    session: AsyncSession,
+) -> None:
+    # Given a SAR exported once
+    customer_id, match_id = await _seed(session)
+    service = SarService(session=session)
+    sar = await _create(service, customer_id, match_id)
+    await service.mark_exported(sar)
+    first_filed_at = sar.filed_at
+    assert first_filed_at is not None
+
+    # When it is exported again
+    await service.mark_exported(sar)
+
+    # Then it stays EXPORTED and filed_at is unchanged (idempotent, no re-stamp)
+    assert sar.status == SarStatus.EXPORTED.value
+    assert sar.filed_at == first_filed_at

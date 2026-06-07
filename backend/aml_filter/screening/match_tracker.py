@@ -13,7 +13,12 @@ from aml_filter.types import JsonObject
 
 
 def _classify(match_score: float, possible_threshold: float | None) -> str:
-    """Classify a final score into its review tier value (STRONG/POSSIBLE/WEAK)."""
+    """Classify a final score into its review tier value (STRONG/POSSIBLE/WEAK).
+
+    Note: ``match_tier`` is point-in-time — it is classified once at record time and
+    persisted on the row. Later changes to the tier bands (e.g. a new ``TIER_STRONG``)
+    do NOT re-tier existing match rows; only a re-score of the pair updates the tier.
+    """
     threshold = (
         possible_threshold
         if possible_threshold is not None

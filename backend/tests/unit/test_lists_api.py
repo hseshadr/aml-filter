@@ -142,3 +142,50 @@ async def test_upload_custom_list_csv():
 
         assert response.status_code == 201
         assert "custom:tenant-123" in response.json()["list_id"]
+
+
+@pytest.mark.asyncio
+async def test_upload_custom_list_rejects_oversized_file():
+    from aml_filter.api.v1.lists import _MAX_UPLOAD_BYTES
+
+    mock_session = AsyncMock()
+    app.dependency_overrides[get_db_session] = lambda: mock_session
+    app.dependency_overrides[require_api_key] = lambda: "tenant-123"
+
+    # Given a file larger than the upload byte cap
+    oversized = b"name\n" + (b"a" * (_MAX_UPLOAD_BYTES + 1))
+    file_obj = io.BytesIO(oversized)
+
+    client = TestClient(app)
+    response = client.post(
+        "/v1/lists/custom/upload",
+        params={"list_name": "My List"},
+        files={"file": ("big.csv", file_obj, "text/csv")},
+    )
+
+    # Then it is rejected with 413 (payload too large), no embedding/persist attempted
+    assert response.status_code == 413
+
+
+@pytest.mark.asyncio
+async def test_upload_custom_list_rejects_too_many_rows():
+    from aml_filter.api.v1.lists import _MAX_ROWS
+
+    mock_session = AsyncMock()
+    app.dependency_overrides[get_db_session] = lambda: mock_session
+    app.dependency_overrides[require_api_key] = lambda: "tenant-123"
+
+    # Given a small file whose row count exceeds the max-row cap
+    rows = "\n".join(f"Name {i}" for i in range(_MAX_ROWS + 1))
+    csv_content = "name\n" + rows
+    file_obj = io.BytesIO(csv_content.encode())
+
+    client = TestClient(app)
+    response = client.post(
+        "/v1/lists/custom/upload",
+        params={"list_name": "My List"},
+        files={"file": ("many.csv", file_obj, "text/csv")},
+    )
+
+    # Then it is rejected with 422 (too many rows)
+    assert response.status_code == 422

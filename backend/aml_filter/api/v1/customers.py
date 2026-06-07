@@ -10,6 +10,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aml_filter.api.dependencies import get_db_session
+from aml_filter.customers.erasure import CustomerErasureService
+from aml_filter.customers.errors import DuplicateCustomerReferenceError
 from aml_filter.customers.service import OnboardingService
 from aml_filter.db.models import Customer
 from aml_filter.domain.customer import IdDocument, KycRiskRating, OnboardingStatus
@@ -115,14 +117,17 @@ async def onboard_customer(
 ) -> OnboardResponse:
     """Onboard a customer: create + link a screened entity, screen, persist matches."""
     service = OnboardingService(session=session)
-    result = await service.onboard_customer(
-        tenant_id=tenant_id,
-        customer_reference=payload.customer_reference,
-        name=payload.name,
-        onboarded_by=payload.onboarded_by,
-        country=payload.country,
-        id_documents=payload.id_documents,
-    )
+    try:
+        result = await service.onboard_customer(
+            tenant_id=tenant_id,
+            customer_reference=payload.customer_reference,
+            name=payload.name,
+            onboarded_by=payload.onboarded_by,
+            country=payload.country,
+            id_documents=payload.id_documents,
+        )
+    except DuplicateCustomerReferenceError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     customer = _require_customer(
         await get_customer_for_tenant(session, tenant_id, result.customer_id),
         result.customer_id,
@@ -180,9 +185,8 @@ async def delete_customer(
     session: AsyncSession = Depends(get_db_session),
     tenant_id: str = Depends(require_api_key),
 ) -> None:
-    """Delete a customer owned by the authenticated tenant."""
+    """Delete a customer + cascade-erase its PII/screening footprint (right to erasure)."""
     customer = _require_customer(
         await get_customer_for_tenant(session, tenant_id, customer_id), customer_id
     )
-    await session.delete(customer)
-    await session.commit()
+    await CustomerErasureService(session).erase(tenant_id, customer)

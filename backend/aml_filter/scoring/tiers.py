@@ -6,7 +6,7 @@ score into a review tier (STRONG / POSSIBLE / WEAK) so a review board can triage
 
 Bands are env-overridable, mirroring ``scoring/config.py``::
 
-    TIER_STRONG=0.85
+    TIER_STRONG=0.80
 """
 
 from enum import StrEnum

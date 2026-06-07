@@ -213,3 +213,32 @@ async def test_screen_entity_against_list_with_matches(service, mock_session):
 
         assert matches == ["b1"]
         assert service.match_tracker.record_match.called
+
+
+def test_safe_risk_category_returns_known_value_unchanged() -> None:
+    # Given a recognized risk category
+    from aml_filter.screening.bidirectional import _safe_risk_category
+
+    # When converting it
+    # Then it is returned (uppercased) without falling back
+    assert _safe_risk_category("pep") == "PEP"
+
+
+def test_safe_risk_category_warns_and_defaults_on_unknown_value(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # Given an unexpected/corrupt risk category value
+    import logging
+
+    from aml_filter.screening.bidirectional import _safe_risk_category
+
+    # When converting it
+    with caplog.at_level(logging.WARNING, logger="aml_filter.screening.bidirectional"):
+        result = _safe_risk_category("TOTALLY_BOGUS")
+
+    # Then it falls back to the conservative SANCTION default AND logs a warning
+    assert result == "SANCTION"
+    assert any(
+        record.levelno == logging.WARNING and "TOTALLY_BOGUS" in record.getMessage()
+        for record in caplog.records
+    )

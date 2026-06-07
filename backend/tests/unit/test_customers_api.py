@@ -75,6 +75,28 @@ async def test_should_onboard_customer_when_posted() -> None:
 
 
 @pytest.mark.asyncio
+async def test_should_return_409_on_duplicate_reference() -> None:
+    # Given an onboarding service that rejects a duplicate reference
+    from aml_filter.customers.errors import DuplicateCustomerReferenceError
+
+    _override()
+    with patch("aml_filter.api.v1.customers.OnboardingService") as svc:
+        svc.return_value.onboard_customer = AsyncMock(
+            side_effect=DuplicateCustomerReferenceError("customer_reference 'REF-1' already exists")
+        )
+        client = TestClient(app)
+
+        # When posting a duplicate reference
+        resp = client.post(
+            "/v1/customers",
+            json={"customer_reference": "REF-1", "name": "Jon Q Fakename"},
+        )
+
+    # Then the API surfaces a clean 409 Conflict
+    assert resp.status_code == 409
+
+
+@pytest.mark.asyncio
 async def test_should_require_api_key_when_posting() -> None:
     # Given — session overridden but no auth override, so require_api_key runs for real
     _override()
@@ -164,12 +186,18 @@ async def test_should_update_status_when_put() -> None:
 async def test_should_delete_customer_when_owned() -> None:
     # Given
     _override()
-    with patch("aml_filter.api.v1.customers.get_customer_for_tenant") as getter:
+    with (
+        patch("aml_filter.api.v1.customers.get_customer_for_tenant") as getter,
+        patch("aml_filter.api.v1.customers.CustomerErasureService") as erasure,
+    ):
         getter.return_value = _customer()
+        erasure.return_value.erase = AsyncMock()
         client = TestClient(app)
 
         # When
         resp = client.delete("/v1/customers/cust-1")
 
-    # Then
+    # Then it cascades erasure (tenant-scoped) and returns 204
     assert resp.status_code == 204
+    erasure.return_value.erase.assert_awaited_once()
+    assert erasure.return_value.erase.await_args.args[0] == "tenant-123"

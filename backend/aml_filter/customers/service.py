@@ -12,6 +12,10 @@ from __future__ import annotations
 import uuid
 from typing import TYPE_CHECKING, Final
 
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
+
+from aml_filter.customers.errors import DuplicateCustomerReferenceError
 from aml_filter.db.models import Customer
 from aml_filter.domain.customer import IdDocument, OnboardingResult, OnboardingStatus
 from aml_filter.ingest.whitelist import WhitelistIngestionService
@@ -52,12 +56,26 @@ class OnboardingService:
     ) -> OnboardingResult:
         """Create the customer + screened entity, screen it, and return a typed result."""
         documents = id_documents or []
+        await self._reject_duplicate_reference(tenant_id, customer_reference)
         entity = await self._create_entity(tenant_id, name, country, documents)
         customer = await self._persist_customer(
-            tenant_id, customer_reference, onboarded_by, documents, entity.entity_id
+            tenant_id, customer_reference, onboarded_by, documents, entity
         )
         match_ids = await self._screen(entity, tenant_id)
         return _build_result(customer, entity.entity_id, match_ids)
+
+    async def _reject_duplicate_reference(self, tenant_id: str, customer_reference: str) -> None:
+        """Fail closed (no entity created yet) when the reference already exists for the tenant."""
+        existing = await self.session.execute(
+            select(Customer.customer_id).where(
+                Customer.tenant_id == tenant_id,
+                Customer.customer_reference == customer_reference,
+            )
+        )
+        if existing.scalar_one_or_none() is not None:
+            raise DuplicateCustomerReferenceError(
+                f"customer_reference {customer_reference!r} already exists"
+            )
 
     async def _create_entity(
         self,
@@ -80,9 +98,9 @@ class OnboardingService:
         customer_reference: str,
         onboarded_by: str,
         documents: list[IdDocument],
-        screening_entity_id: str,
+        entity: Entity,
     ) -> Customer:
-        """Insert the KYC customer row linked to its screened entity."""
+        """Insert the KYC customer row; on a duplicate-reference race, erase the orphan entity."""
         customer = Customer(
             customer_id=str(uuid.uuid4()),
             tenant_id=tenant_id,
@@ -90,12 +108,26 @@ class OnboardingService:
             onboarding_status=OnboardingStatus.PENDING_REVIEW.value,
             onboarded_by=onboarded_by,
             id_documents=[doc.model_dump(mode="json") for doc in documents],
-            screening_entity_id=screening_entity_id,
+            screening_entity_id=entity.entity_id,
         )
         self.session.add(customer)
-        await self.session.commit()
+        try:
+            await self.session.commit()
+        except IntegrityError as exc:
+            await self._rollback_orphan_entity(entity)
+            raise DuplicateCustomerReferenceError(
+                f"customer_reference {customer_reference!r} already exists"
+            ) from exc
         await self.session.refresh(customer)
         return customer
+
+    async def _rollback_orphan_entity(self, entity: Entity) -> None:
+        """Roll back the failed insert and erase the entity created earlier in this onboard."""
+        await self.session.rollback()
+        persisted = await self.session.get(type(entity), entity.entity_id)
+        if persisted is not None:
+            await self.session.delete(persisted)
+            await self.session.commit()
 
     async def _screen(self, entity: Entity, tenant_id: str) -> list[str]:
         """Reuse the bidirectional screening path; matches are persisted by the tracker."""

@@ -17,6 +17,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Awaitable, Callable
 from typing import Final
+from urllib.parse import urlparse
 
 import httpx
 from pydantic import BaseModel, ConfigDict, Field
@@ -29,6 +30,12 @@ from aml_filter.ingest.service import IngestionService
 logger = logging.getLogger(__name__)
 
 _DEFAULT_TIMEOUT_S: Final[float] = 60.0
+#: Allowed URL schemes for an operator-configured source URL (no file://, ftp://, etc.).
+_ALLOWED_SCHEMES: Final[frozenset[str]] = frozenset({"http", "https"})
+#: Cap on followed redirects — bounds an SSRF/redirect-chain surface.
+_MAX_REDIRECTS: Final[int] = 3
+#: Reject any response body larger than this (~50 MiB) to bound memory/DoS.
+_MAX_RESPONSE_BYTES: Final[int] = 50 * 1024 * 1024
 
 #: Fetch a URL and return its raw bytes.
 Fetcher = Callable[[str], Awaitable[bytes]]
@@ -55,12 +62,34 @@ class RefreshOutcome(BaseModel):
     error: str | None = None
 
 
+def _validate_scheme(url: str) -> None:
+    """Fail closed unless ``url`` uses an allowed http(s) scheme (anti-SSRF)."""
+    scheme = urlparse(url).scheme.lower()
+    if scheme not in _ALLOWED_SCHEMES:
+        raise ValueError(f"Refusing to fetch URL with disallowed scheme: {scheme!r}")
+
+
+async def _read_capped(response: httpx.Response) -> bytes:
+    """Stream the body, aborting if it exceeds the max-response byte cap (anti-DoS)."""
+    chunks: list[bytes] = []
+    total = 0
+    async for chunk in response.aiter_bytes():
+        total += len(chunk)
+        if total > _MAX_RESPONSE_BYTES:
+            raise ValueError(f"Response body too large (> {_MAX_RESPONSE_BYTES} bytes)")
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
 async def httpx_fetch(url: str) -> bytes:
-    """Fetch ``url`` over HTTP and return its bytes (raises on non-2xx)."""
-    async with httpx.AsyncClient(timeout=_DEFAULT_TIMEOUT_S, follow_redirects=True) as client:
-        response = await client.get(url)
+    """Fetch ``url`` (http/https only, bounded redirects + size) and return its bytes."""
+    _validate_scheme(url)
+    client = httpx.AsyncClient(
+        timeout=_DEFAULT_TIMEOUT_S, follow_redirects=True, max_redirects=_MAX_REDIRECTS
+    )
+    async with client, client.stream("GET", url) as response:
         response.raise_for_status()
-        return response.content
+        return await _read_capped(response)
 
 
 class ListSyncDownloader:

@@ -1,5 +1,6 @@
 """Unit tests for the customer onboarding service."""
 
+import uuid
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock
 
@@ -11,8 +12,9 @@ from aml_filter.db.models import Customer, Entity, Tenant
 from aml_filter.domain.customer import IdDocument, OnboardingStatus
 
 
-def _make_entity(entity_id: str = "whitelist:acme:abc") -> Entity:
+def _make_entity(entity_id: str | None = None) -> Entity:
     """Build a WHITELIST entity stand-in for the ingestion mock to return."""
+    entity_id = entity_id or "whitelist:acme:abc"
     now = datetime.now(UTC)
     return Entity(
         entity_id=entity_id,
@@ -47,6 +49,27 @@ def _service(session: AsyncSession, match_ids: list[str]) -> OnboardingService:
     ingestion.add_customer = AsyncMock(side_effect=_persist_entity)
     screening = AsyncMock()
     screening.screen_entity_against_list = AsyncMock(return_value=match_ids)
+    return OnboardingService(session=session, ingestion=ingestion, screening=screening)
+
+
+def _service_unique_entities(session: AsyncSession) -> OnboardingService:
+    """Like ``_service`` but each onboard persists a distinct WHITELIST entity id.
+
+    This lets a duplicate-reference test exercise the customer unique constraint without
+    first colliding on the entity primary key.
+    """
+
+    async def _persist_entity(**_kwargs: object) -> Entity:
+        entity = _make_entity(entity_id=f"whitelist:acme:{uuid.uuid4().hex[:12]}")
+        session.add(entity)
+        await session.commit()
+        await session.refresh(entity)
+        return entity
+
+    ingestion = AsyncMock()
+    ingestion.add_customer = AsyncMock(side_effect=_persist_entity)
+    screening = AsyncMock()
+    screening.screen_entity_against_list = AsyncMock(return_value=[])
     return OnboardingService(session=session, ingestion=ingestion, screening=screening)
 
 
@@ -118,6 +141,41 @@ async def test_should_persist_id_documents_when_supplied(session: AsyncSession) 
     stored = await session.get(Customer, result.customer_id)
     assert stored is not None
     assert stored.id_documents[0]["doc_type"] == "PASSPORT"
+
+
+@pytest.mark.asyncio
+async def test_should_reject_duplicate_reference_without_orphaning_entity(
+    session: AsyncSession,
+) -> None:
+    # Given an existing customer with a reference, and a fresh onboard reusing it
+    from sqlalchemy import func, select
+
+    from aml_filter.customers.errors import DuplicateCustomerReferenceError
+    from aml_filter.db.models import Entity
+
+    await _seed_tenant(session)
+    first = _service_unique_entities(session)
+    await first.onboard_customer(
+        tenant_id="acme",
+        customer_reference="DUP-REF",
+        name="Jon Q Fakename",
+        onboarded_by="officer@acme.com",
+    )
+    entities_before = await session.scalar(select(func.count()).select_from(Entity))
+
+    # When onboarding a second customer with the SAME reference
+    second = _service_unique_entities(session)
+    with pytest.raises(DuplicateCustomerReferenceError):
+        await second.onboard_customer(
+            tenant_id="acme",
+            customer_reference="DUP-REF",
+            name="Someone Else",
+            onboarded_by="officer@acme.com",
+        )
+
+    # Then it is rejected AND no orphan entity was left behind
+    entities_after = await session.scalar(select(func.count()).select_from(Entity))
+    assert entities_after == entities_before
 
 
 @pytest.mark.asyncio

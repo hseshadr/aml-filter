@@ -9,6 +9,7 @@ gate), and export (render + mark EXPORTED). The router stays thin; all rules liv
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Final
 
 from sqlalchemy import Select, select
@@ -88,8 +89,12 @@ class SarService:
         return sar
 
     async def mark_exported(self, sar: Sar) -> None:
-        """Transition a SAR to EXPORTED after a render."""
+        """Transition a SAR to EXPORTED after a render — idempotent, stamps filed_at once."""
+        if sar.status == SarStatus.EXPORTED.value:
+            return
         sar.status = SarStatus.EXPORTED.value
+        if sar.filed_at is None:
+            sar.filed_at = datetime.now(UTC)
         await self.session.commit()
 
 

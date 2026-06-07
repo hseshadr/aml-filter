@@ -1,5 +1,6 @@
 """Bidirectional screening service for whitelist vs blacklist matching."""
 
+import logging
 from typing import Literal
 
 from shared_libs_python import VectorEmbedding
@@ -23,13 +24,16 @@ from aml_filter.search.localvec_backend import (
 )
 from aml_filter.search.service import SearchService
 
+logger = logging.getLogger(__name__)
+
 RiskCategory = Literal["SANCTION", "PEP", "CUSTOM", "WHITELIST"]
 
 
 def _safe_risk_category(val: str | None) -> RiskCategory:
-    """Convert string to RiskCategory Literal, defaulting to SANCTION."""
+    """Convert string to RiskCategory Literal, defaulting to SANCTION (conservative)."""
     if val and val.upper() in ("SANCTION", "PEP", "CUSTOM", "WHITELIST"):
         return val.upper()  # type: ignore[return-value]
+    logger.warning("Unexpected risk_category %r; defaulting to SANCTION", val)
     return "SANCTION"
 
 

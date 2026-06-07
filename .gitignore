@@ -84,3 +84,6 @@ gradlew.bat
 build.gradle
 settings.gradle
 build/
+
+# Persisted localvec FAISS index (runtime/test artifact)
+.vector_index/

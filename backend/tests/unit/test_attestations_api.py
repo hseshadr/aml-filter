@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -257,6 +258,44 @@ def test_should_422_when_signature_required_but_no_key(monkeypatch: pytest.Monke
 
     # Then it fails closed with 422
     assert response.status_code == 422
+
+
+def test_read_paths_do_not_load_private_signing_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Given a configured-but-missing private signing key (a misconfig) and a valid public key
+    _private, public = generate_keypair()
+    row = _row()
+    app = _app()
+    app.dependency_overrides[get_db_session] = lambda: object()
+    app.dependency_overrides[require_api_key] = lambda: _TENANT
+
+    async def _get(self: object, tenant_id: str, attestation_id: str) -> Attestation:
+        return row
+
+    monkeypatch.setattr("aml_filter.attestation.service.AttestationService.get", _get)
+    monkeypatch.setattr(
+        "aml_filter.api.v1.attestations._load_public_key", lambda: public.public_bytes_raw()
+    )
+
+    class _Settings:
+        # The private signing key path is set but the file does not exist: load_signing_config
+        # would raise FileNotFoundError. Read/verify/export must NOT touch it.
+        attestation_signing_key_path = Path("/nonexistent/private.key")
+        attestation_signing_key_id = "default"
+        attestation_validity_days = 90
+        verify_key_path = None
+
+    monkeypatch.setattr("aml_filter.api.v1.attestations.get_settings", lambda: _Settings())
+    client = TestClient(app)
+
+    # When hitting the read, verify, and export paths
+    get_resp = client.get(f"/v1/attestations/{row.attestation_id}")
+    verify_resp = client.get(f"/v1/attestations/{row.attestation_id}/verify")
+    export_resp = client.get(f"/v1/attestations/{row.attestation_id}/export?format=json")
+
+    # Then none of them 500 on the absent private key (they only need the public verify key)
+    assert get_resp.status_code == 200
+    assert verify_resp.status_code == 200
+    assert export_resp.status_code == 200
 
 
 def test_should_export_pdf(monkeypatch: pytest.MonkeyPatch) -> None:

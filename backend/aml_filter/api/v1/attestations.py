@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from aml_filter.api.dependencies import get_db_session
 from aml_filter.attestation import renderer
-from aml_filter.attestation.config import load_signing_config
+from aml_filter.attestation.config import assert_signing_pair_pinned, load_signing_config
 from aml_filter.attestation.service import AttestationService
 from aml_filter.attestation.signing import VerificationResult, verify_payload
 from aml_filter.config import get_settings
@@ -81,9 +81,26 @@ def _load_public_key() -> bytes:
     return key_path.read_bytes()
 
 
-def _service(session: AsyncSession) -> AttestationService:
-    """Build the service with the (optional) configured signing key."""
-    return AttestationService(session=session, signing_config=load_signing_config(get_settings()))
+def _signing_service(session: AsyncSession) -> AttestationService:
+    """Build a service that can SIGN — loads the private key, pins it to the verify key.
+
+    Only the POST path needs this. When both a signing key and a verify key are
+    configured, the signer's public half MUST equal the pinned verify key (fail-closed).
+    """
+    config = load_signing_config(get_settings())
+    service = AttestationService(session=session, signing_config=config)
+    assert_signing_pair_pinned(service, get_settings().verify_key_path)
+    return service
+
+
+def _read_service(session: AsyncSession) -> AttestationService:
+    """Build a read-only service — never loads the private signing key.
+
+    The read/verify/export paths only need the public verify key, so they must not
+    touch ``ATTESTATION_SIGNING_KEY_PATH`` (a set-but-missing path would 500 and could
+    leak a filesystem path).
+    """
+    return AttestationService(session=session)
 
 
 @router.post("", response_model=AttestationRecord, status_code=status.HTTP_201_CREATED)
@@ -94,7 +111,7 @@ async def generate_attestation(
 ) -> AttestationRecord:
     """Generate/refresh an attestation for a customer (fail-closed on missing key)."""
     try:
-        row = await _service(session).build_for_customer(
+        row = await _signing_service(session).build_for_customer(
             tenant_id, payload.customer_id, require_signature=payload.require_signature
         )
     except ValueError as exc:
@@ -114,7 +131,7 @@ async def list_attestations(
     offset: int = Query(0, ge=0),
 ) -> list[AttestationRecord]:
     """List the latest attestation per customer (filterable, paginated)."""
-    rows = await _service(session).list_latest(
+    rows = await _read_service(session).list_latest(
         tenant_id, customer_id=customer_id, stale=stale, limit=limit, offset=offset
     )
     return [_to_record(row) for row in rows]
@@ -127,7 +144,7 @@ async def get_attestation(
     tenant_id: str = Depends(require_api_key),
 ) -> AttestationRecord:
     """Get a single attestation owned by the authenticated tenant."""
-    row = _require(await _service(session).get(tenant_id, attestation_id), attestation_id)
+    row = _require(await _read_service(session).get(tenant_id, attestation_id), attestation_id)
     return _to_record(row)
 
 
@@ -138,7 +155,7 @@ async def verify_attestation(
     tenant_id: str = Depends(require_api_key),
 ) -> VerificationResult:
     """Verify the attestation's signature against the pinned trust-root public key."""
-    service = _service(session)
+    service = _read_service(session)
     row = _require(await service.get(tenant_id, attestation_id), attestation_id)
     payload = service.payload_of(row)
     return verify_payload(payload, row.signature, _load_public_key())
@@ -152,7 +169,7 @@ async def export_attestation(
     tenant_id: str = Depends(require_api_key),
 ) -> Response:
     """Render the attestation badge to PDF or JSON and stream the artifact."""
-    row = _require(await _service(session).get(tenant_id, attestation_id), attestation_id)
+    row = _require(await _read_service(session).get(tenant_id, attestation_id), attestation_id)
     return _render(_to_record(row), export_format)
 
 

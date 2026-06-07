@@ -21,7 +21,7 @@ from aml_filter.db.models import (
 )
 from aml_filter.domain.attestation import ListVersionEntry
 
-_RESOLVED = "PENDING"
+_PENDING = "PENDING"
 
 
 async def enabled_list_versions(session: AsyncSession, tenant_id: str) -> list[ListVersionEntry]:
@@ -56,8 +56,13 @@ async def match_counts(
 
 
 def _match_counts_query(tenant_id: str, entity_id: str) -> Select[tuple[int, int]]:
-    """Count total and still-pending matches against a customer's whitelist entity."""
-    pending = func.count().filter(WhitelistBlacklistMatch.resolution_status == _RESOLVED)
+    """Count total and still-pending matches against a customer's whitelist entity.
+
+    The total counts matches of ALL tiers (STRONG/POSSIBLE/WEAK) deliberately: a WEAK
+    match still keeps a customer out of CLEAR. This conservative choice is intentional,
+    not a bug — any unreviewed match, however weak, blocks a clean attestation.
+    """
+    pending = func.count().filter(WhitelistBlacklistMatch.resolution_status == _PENDING)
     return select(func.count(), pending).where(
         WhitelistBlacklistMatch.tenant_id == tenant_id,
         WhitelistBlacklistMatch.whitelist_entity_id == entity_id,

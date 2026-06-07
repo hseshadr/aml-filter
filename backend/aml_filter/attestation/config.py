@@ -10,8 +10,13 @@ persisted unsigned. Fail-closed: a configured path that does not exist raises.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
+from typing import TYPE_CHECKING
 
 from aml_filter.config import Settings
+
+if TYPE_CHECKING:
+    from aml_filter.attestation.service import AttestationService
 
 
 @dataclass(frozen=True)
@@ -35,3 +40,21 @@ def load_signing_config(settings: Settings) -> AttestationSigningConfig | None:
         signing_key_id=settings.attestation_signing_key_id,
         validity_days=settings.attestation_validity_days,
     )
+
+
+def assert_signing_pair_pinned(service: AttestationService, verify_key_path: Path | None) -> None:
+    """Fail closed unless the signer's public half matches the pinned verify key.
+
+    When BOTH a signing key and ``VERIFY_KEY_PATH`` are configured, the signer's public
+    half MUST equal the pinned trust-root public bytes — otherwise every ``/verify`` would
+    silently return invalid and a rotated verify key would become a forge surface. When
+    either side is unset there is nothing to pin, so this is a no-op.
+    """
+    if service.signing_config is None or verify_key_path is None:
+        return
+    if not verify_key_path.is_file():
+        raise ValueError(f"Verification key not found: {verify_key_path}")
+    if service.public_key_raw() != verify_key_path.read_bytes():
+        raise ValueError(
+            "Attestation signing key does not match the pinned VERIFY_KEY_PATH public key"
+        )

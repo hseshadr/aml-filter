@@ -258,6 +258,227 @@ async def test_modified_entry_can_create_new_match(session: AsyncSession) -> Non
     assert ("cust-1", "sanc-1") in await _match_keys(session)
 
 
+async def test_modified_entry_that_loses_match_closes_stale_match(session: AsyncSession) -> None:
+    """An entry that was matching but is modified to NO LONGER match closes the stale match.
+
+    A previously-open PENDING match must be transitioned out of PENDING (with an audit
+    note) once the modified sanctions entry no longer scores >= threshold; an unrelated
+    match between a different customer and a different entry must be left untouched.
+    """
+    await _add_tenant(session)
+    await _add_customer(session, "cust-1", "Vladimir Petrov")
+    await _add_customer(session, "cust-2", "Carol Lee")
+    # sanc-1 used to match cust-1; it is now modified to an unrelated name (no longer matches).
+    sanc = await _add_sanction(session, "sanc-1", "Vladimir Petrov", "v1")
+    sanc.primary_name = "Completely Different Name"
+    sanc.name_canonical = "completely different name"
+    sanc.name_trigram = "completely different name"
+    sanc.list_version = "v2"
+    emb = (
+        await session.execute(select(EntityEmbedding).where(EntityEmbedding.entity_id == "sanc-1"))
+    ).scalar_one()
+    emb.embedding = await _embed("Completely Different Name")
+    # sanc-2 still matches cust-2 and is NOT in this change set — must stay PENDING.
+    await _add_sanction(session, "sanc-2", "Carol Lee", "v1")
+    session.add(
+        WhitelistBlacklistMatch(
+            match_id="stale",
+            tenant_id=_TENANT,
+            whitelist_entity_id="cust-1",
+            blacklist_entity_id="sanc-1",
+            match_score=0.9,
+            match_type="WHITELIST_VS_BLACKLIST",
+            resolution_status="PENDING",
+        )
+    )
+    session.add(
+        WhitelistBlacklistMatch(
+            match_id="unrelated",
+            tenant_id=_TENANT,
+            whitelist_entity_id="cust-2",
+            blacklist_entity_id="sanc-2",
+            match_score=0.9,
+            match_type="WHITELIST_VS_BLACKLIST",
+            resolution_status="PENDING",
+        )
+    )
+    await session.commit()
+
+    await _delta_service(session).rescan_added_or_modified(_TENANT, [sanc])
+
+    open_keys = await _match_keys(session)
+    assert ("cust-1", "sanc-1") not in open_keys  # stale match closed
+    assert ("cust-2", "sanc-2") in open_keys  # unrelated match untouched
+    stale = (
+        await session.execute(
+            select(WhitelistBlacklistMatch).where(WhitelistBlacklistMatch.match_id == "stale")
+        )
+    ).scalar_one()
+    assert stale.resolution_status != "PENDING"
+    assert stale.review_notes and "modified" in stale.review_notes.lower()
+
+
+async def test_modify_reconcile_only_touches_pending_rows(session: AsyncSession) -> None:
+    """A modify-that-loses-match must NOT reopen/alter an already-dispositioned match."""
+    await _add_tenant(session)
+    await _add_customer(session, "cust-1", "Vladimir Petrov")
+    sanc = await _add_sanction(session, "sanc-1", "Vladimir Petrov", "v1")
+    sanc.primary_name = "Completely Different Name"
+    sanc.name_canonical = "completely different name"
+    sanc.name_trigram = "completely different name"
+    sanc.list_version = "v2"
+    emb = (
+        await session.execute(select(EntityEmbedding).where(EntityEmbedding.entity_id == "sanc-1"))
+    ).scalar_one()
+    emb.embedding = await _embed("Completely Different Name")
+    session.add(
+        WhitelistBlacklistMatch(
+            match_id="done",
+            tenant_id=_TENANT,
+            whitelist_entity_id="cust-1",
+            blacklist_entity_id="sanc-1",
+            match_score=0.9,
+            match_type="WHITELIST_VS_BLACKLIST",
+            resolution_status="FALSE_POSITIVE",
+            review_notes="analyst dispositioned",
+        )
+    )
+    await session.commit()
+
+    await _delta_service(session).rescan_added_or_modified(_TENANT, [sanc])
+
+    done = (
+        await session.execute(
+            select(WhitelistBlacklistMatch).where(WhitelistBlacklistMatch.match_id == "done")
+        )
+    ).scalar_one()
+    assert done.resolution_status == "FALSE_POSITIVE"
+    assert done.review_notes == "analyst dispositioned"
+
+
+async def test_delta_equals_full_rescan_real_change_set(session: AsyncSession) -> None:
+    """REAL equivalence: with a NON-EMPTY old snapshot exercising add/modify(gain)/
+    modify(lose)/remove, the open-match set after the delta path EQUALS the open-match
+    set after a full rescan + close pass over the new snapshot.
+    """
+    await _add_tenant(session)
+    await _add_customer(session, "cust-petrov", "Vladimir Petrov")
+    await _add_customer(session, "cust-smith", "Jonathan Smith")
+    await _add_customer(session, "cust-lee", "Carol Lee")
+
+    # OLD snapshot v1: keep-smith (matches), modify-gain (far->lee), modify-lose (petrov->far),
+    # removed (gone). new snapshot v2 adds petrov.
+    await _add_sanction(session, "sanc-smith", "Jonathan Smith", "v1")
+    gain = await _add_sanction(session, "sanc-gain", "Nobody At All", "v1")
+    lose = await _add_sanction(session, "sanc-lose", "Vladimir Petrov", "v1")
+    await _add_sanction(session, "sanc-gone", "Doomed Entry", "v1")
+    old_snapshot = await _domain_snapshot(session, "v1")
+
+    # Build v2: smith kept; gain modified to match cust-lee; lose modified to NOT match;
+    # gone removed; petrov added.
+    smith = (
+        await session.execute(select(DBEntity).where(DBEntity.entity_id == "sanc-smith"))
+    ).scalar_one()
+    smith.list_version = "v2"
+    gain.primary_name, gain.name_canonical, gain.name_trigram = (
+        "Carol Lee",
+        "carol lee",
+        "carol lee",
+    )
+    gain.list_version = "v2"
+    (
+        await session.execute(
+            select(EntityEmbedding).where(EntityEmbedding.entity_id == "sanc-gain")
+        )
+    ).scalar_one().embedding = await _embed("Carol Lee")
+    lose.primary_name = "Totally Unrelated"
+    lose.name_canonical = "totally unrelated"
+    lose.name_trigram = "totally unrelated"
+    lose.list_version = "v2"
+    (
+        await session.execute(
+            select(EntityEmbedding).where(EntityEmbedding.entity_id == "sanc-lose")
+        )
+    ).scalar_one().embedding = await _embed("Totally Unrelated")
+    petrov = await _add_sanction(session, "sanc-petrov", "Vladimir Petrov", "v2")
+    await session.commit()
+
+    # Seed the pre-existing PENDING match for the lose-entry (full rescan would have made it).
+    session.add(
+        WhitelistBlacklistMatch(
+            match_id="pre-lose",
+            tenant_id=_TENANT,
+            whitelist_entity_id="cust-petrov",
+            blacklist_entity_id="sanc-lose",
+            match_score=0.9,
+            match_type="WHITELIST_VS_BLACKLIST",
+            resolution_status="PENDING",
+        )
+    )
+    await session.commit()
+
+    new_snapshot = await _domain_snapshot(session, "v2")
+    delta = diff_lists(old_snapshot, new_snapshot)
+    assert {e.entity_id for e in delta.added} == {"sanc-petrov"}
+    assert {e.entity_id for e in delta.modified} == {"sanc-gain", "sanc-lose"}
+    assert set(delta.removed) == {"sanc-gone"}
+
+    changed = await _changed_rows(session, delta)
+    svc = _delta_service(session)
+    await svc.rescan_added_or_modified(_TENANT, changed)
+    await svc.close_removed(_TENANT, delta.removed)
+    delta_keys = await _match_keys(session)
+
+    # Reset and run the FULL rescan over v2 + close removed for the comparison baseline.
+    await session.execute(
+        WhitelistBlacklistMatch.__table__.delete().where(
+            WhitelistBlacklistMatch.tenant_id == _TENANT
+        )
+    )
+    await session.commit()
+    full_keys = await _full_rescan_keys(session, "v2")
+
+    assert delta_keys == full_keys
+    assert delta_keys == {
+        ("cust-smith", "sanc-smith"),
+        ("cust-lee", "sanc-gain"),
+        ("cust-petrov", "sanc-petrov"),
+    }
+
+
+async def _changed_rows(session: AsyncSession, delta) -> list[DBEntity]:
+    """Load the DB rows for the added+modified entity ids of a diff."""
+    ids = [e.entity_id for e in (*delta.added, *delta.modified)]
+    result = await session.execute(select(DBEntity).where(DBEntity.entity_id.in_(ids)))
+    return list(result.scalars().all())
+
+
+async def test_saturation_falls_back_to_full_rescan(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When a changed entry's neighbour search saturates (>k customers cluster on it),
+    a true match ranked beyond k is still found via the full-customer fallback.
+
+    The neighbour cap is shrunk to 3 so the test stays fast while still forcing
+    saturation (4 clustered customers > cap of 3).
+    """
+    from aml_filter.screening import delta_rescan
+
+    monkeypatch.setattr(delta_rescan, "_NEIGHBOURS_PER_ENTRY", 3)
+    await _add_tenant(session)
+    # cap+1 customers ALL named "Vladimir Petrov" cluster on the one changed entry; the
+    # vector search caps at k=3, so at least one true match sits beyond the cap.
+    for i in range(4):
+        await _add_customer(session, f"cust-{i}", "Vladimir Petrov")
+    added = await _add_sanction(session, "sanc-1", "Vladimir Petrov", "v2")
+
+    await _delta_service(session).rescan_added_or_modified(_TENANT, [added])
+
+    open_keys = await _match_keys(session)
+    # Every one of the 4 clustered customers must have produced a match (none dropped).
+    assert open_keys == {(f"cust-{i}", "sanc-1") for i in range(4)}
+
+
 async def _full_rescan_keys(session: AsyncSession, version: str) -> set[tuple[str, str]]:
     """Run the existing FULL rescan and return its resulting open-match keys."""
     service = BidirectionalScreeningService(session=session, embedding_service=_svc())

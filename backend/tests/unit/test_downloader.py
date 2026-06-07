@@ -101,6 +101,31 @@ async def test_httpx_fetch_returns_body_bytes() -> None:
 
 
 @pytest.mark.asyncio
+async def test_httpx_fetch_rejects_non_http_scheme() -> None:
+    # Given a non-http(s) URL (SSRF surface: file://, ftp://, etc.)
+    # When fetching, then it is rejected fail-closed before any network call
+    with pytest.raises(ValueError, match="scheme"):
+        await httpx_fetch("file:///etc/passwd")
+
+
+@pytest.mark.asyncio
+async def test_httpx_fetch_rejects_oversized_payload() -> None:
+    # Given a transport returning a body larger than the max-response cap
+    from aml_filter.ingest.downloader import _MAX_RESPONSE_BYTES
+
+    big = b"x" * (_MAX_RESPONSE_BYTES + 1)
+    transport = httpx.MockTransport(lambda _: httpx.Response(200, content=big))
+    real_client = httpx.AsyncClient
+
+    # When fetching, then it aborts fail-closed (does not buffer the whole oversized body)
+    with (
+        patch.object(httpx, "AsyncClient", lambda **kw: real_client(transport=transport, **kw)),
+        pytest.raises(ValueError, match="too large"),
+    ):
+        await httpx_fetch("https://example.test/huge.xml")
+
+
+@pytest.mark.asyncio
 async def test_httpx_fetch_raises_on_http_error() -> None:
     # Given a transport returning a 503
     transport = httpx.MockTransport(lambda _: httpx.Response(503))
