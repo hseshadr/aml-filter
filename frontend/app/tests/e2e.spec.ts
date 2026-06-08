@@ -70,21 +70,25 @@ test.describe("AML-Filter v2 Dashboard", () => {
 		});
 	});
 
-	test("should redirect to login if not authenticated", async ({ page }) => {
+	test("should show the public landing at / when not authenticated", async ({
+		page,
+	}) => {
+		// "/" is now the public marketing landing — no auth gate, no redirect.
 		await page.goto("http://localhost:5173/");
-		await expect(page).toHaveURL(/.*login/);
+		await expect(page).toHaveURL("http://localhost:5173/");
+		await expect(page.locator("h1")).toContainText("entirely in your browser");
 	});
 
-	test("should allow login with API key", async ({ page }) => {
+	test("should land on /search after login with API key", async ({ page }) => {
 		await page.goto("http://localhost:5173/login");
 
 		// Fill in API key (mock or test key)
 		await page.fill('input[type="password"]', "test-api-key-123");
 		await page.click('button[type="submit"]');
 
-		// Should be on home page
-		await expect(page).toHaveURL("http://localhost:5173/");
-		await expect(page.locator("h1")).toContainText("AML-Filter v2");
+		// Post-login goes to the authed search workspace (/ is the public landing).
+		await expect(page).toHaveURL(/.*search/);
+		await expect(page.locator("h1")).toContainText("Entity Screening");
 	});
 
 	test("should navigate to search page", async ({ page }) => {

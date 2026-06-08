@@ -5,11 +5,13 @@ rows (already tier-classified by ``MatchTracker``), joins each to its customer a
 the matched sanctions entity, and lets a reviewer resolve a match with notes.
 """
 
+from typing import cast
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
-from sqlalchemy import Row, Select, select
+from sqlalchemy import Row, ScalarSelect, Select, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import aliased
+from sqlalchemy.orm import InstrumentedAttribute, aliased
 
 from aml_filter.api.dependencies import get_db_session
 from aml_filter.db.models import Customer, Entity, WhitelistBlacklistMatch
@@ -22,7 +24,8 @@ router = APIRouter(prefix="/review", tags=["review"])
 _WLEntity = aliased(Entity, name="wl_entity")
 _BLEntity = aliased(Entity, name="bl_entity")
 
-_ReviewRowT = tuple[WhitelistBlacklistMatch, Customer, Entity, Entity]
+# (match, customer_id, customer_reference, wl_entity, bl_entity).
+_ReviewRowT = tuple[WhitelistBlacklistMatch, str | None, str | None, Entity, Entity]
 
 
 class ReviewMatchRow(BaseModel):
@@ -50,22 +53,50 @@ class ResolveRequest(BaseModel):
     review_notes: str | None = None
 
 
+def _customer_field[T](column: InstrumentedAttribute[T]) -> ScalarSelect[T | None]:
+    """Correlated scalar subquery picking one customer column for the match's entity.
+
+    ``customers.screening_entity_id`` has no UNIQUE constraint, so several
+    customers may share a screening entity. Selecting via a scalar subquery (vs
+    an outer join) keeps the match row from fanning out. When duplicates exist
+    the **most-recent** customer wins (``created_at`` desc, then ``customer_id``
+    for a deterministic tie-break).
+    """
+    subquery = (
+        select(column)
+        .where(Customer.screening_entity_id == WhitelistBlacklistMatch.whitelist_entity_id)
+        .order_by(Customer.created_at.desc(), Customer.customer_id.desc())
+        .limit(1)
+        .correlate(WhitelistBlacklistMatch)
+        .scalar_subquery()
+    )
+    return cast("ScalarSelect[T | None]", subquery)
+
+
 def _review_query(tenant_id: str) -> Select[_ReviewRowT]:
-    """Join matches to their customer + whitelist/blacklist entities, tenant-scoped."""
+    """Join matches to their whitelist/blacklist entities, tenant-scoped.
+
+    The customer is read via correlated scalar subqueries (see ``_customer_field``)
+    rather than an outer join, so a screening entity shared by multiple customers
+    cannot multiply the match row.
+    """
     return (
-        select(WhitelistBlacklistMatch, Customer, _WLEntity, _BLEntity)
+        select(
+            WhitelistBlacklistMatch,
+            _customer_field(Customer.customer_id).label("customer_id"),
+            _customer_field(Customer.customer_reference).label("customer_reference"),
+            _WLEntity,
+            _BLEntity,
+        )
         .join(_BLEntity, _BLEntity.entity_id == WhitelistBlacklistMatch.blacklist_entity_id)
         .join(_WLEntity, _WLEntity.entity_id == WhitelistBlacklistMatch.whitelist_entity_id)
-        .outerjoin(
-            Customer, Customer.screening_entity_id == WhitelistBlacklistMatch.whitelist_entity_id
-        )
         .where(WhitelistBlacklistMatch.tenant_id == tenant_id)
     )
 
 
 def _build_row(row: Row[_ReviewRowT]) -> ReviewMatchRow:
-    """Map a joined (match, customer, wl_entity, bl_entity) row to the API model."""
-    match, customer, wl_entity, bl_entity = row
+    """Map a (match, customer_id, customer_reference, wl, bl) row to the API model."""
+    match, customer_id, customer_reference, wl_entity, bl_entity = row
     return ReviewMatchRow(
         match_id=match.match_id,
         tier=match.match_tier,
@@ -75,8 +106,8 @@ def _build_row(row: Row[_ReviewRowT]) -> ReviewMatchRow:
         reviewer_id=match.reviewer_id,
         review_notes=match.review_notes,
         detected_at=match.detected_at.isoformat(),
-        customer_id=customer.customer_id if customer else None,
-        customer_reference=customer.customer_reference if customer else None,
+        customer_id=customer_id,
+        customer_reference=customer_reference,
         customer_name=wl_entity.primary_name,
         sanctioned_name=bl_entity.primary_name,
         source_list=bl_entity.source_list,
@@ -135,7 +166,17 @@ async def resolve_review_match(
 
 
 async def _resolved_row(session: AsyncSession, tenant_id: str, match_id: str) -> ReviewMatchRow:
-    """Re-read the resolved match through the enriched review query."""
+    """Re-read the resolved match through the enriched review query.
+
+    The query yields exactly one row per match (customer fields come from scalar
+    subqueries, not a fan-out join), so ``one_or_none`` is safe; a missing row
+    surfaces as a 404 rather than a 500.
+    """
     query = _review_query(tenant_id).where(WhitelistBlacklistMatch.match_id == match_id)
     result = await session.execute(query)
-    return _build_row(result.one())
+    row = result.one_or_none()
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"Match {match_id} not found"
+        )
+    return _build_row(row)

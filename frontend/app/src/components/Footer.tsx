@@ -12,6 +12,8 @@ export function Footer() {
 				<a
 					className="screen-footer__link"
 					href="https://github.com/hseshadr/aml-filter"
+					target="_blank"
+					rel="noopener noreferrer"
 				>
 					aml-filter
 				</a>{" "}

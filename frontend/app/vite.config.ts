@@ -2,6 +2,7 @@
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 import { configDefaults } from "vitest/config";
+import { DEFAULT_API_BASE } from "./src/lib/apiBase";
 
 // https://vitejs.dev/config/
 export default defineConfig({
@@ -22,7 +23,7 @@ export default defineConfig({
 		port: 5173,
 		proxy: {
 			"/api": {
-				target: "http://localhost:8000",
+				target: DEFAULT_API_BASE,
 				changeOrigin: true,
 			},
 		},

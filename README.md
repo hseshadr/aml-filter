@@ -66,7 +66,8 @@ and the matcher runs in-tab, ranking the list as you type.
 
 ```bash
 make demo-browser          # docker compose: serves the signed bundle + builds the SPA
-# then open http://localhost:5273/screen and search:  Ivan Fakovich
+# then open http://localhost:5273/ — the public landing explains the project and
+# links to the live in-browser demo; or jump straight to .../screen and search: Ivan Fakovich
 ```
 
 Host ports default to **8643** (edge) / **5273** (SPA) — aml-filter-specific, chosen to
