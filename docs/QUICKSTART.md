@@ -203,7 +203,8 @@ pnpm --filter aml-filter-app dev      # open http://localhost:5173/screen
 ```
 
 The one-command `make demo` / `make demo-browser` path serves the edge + SPA on host
-ports **8081 / 5173** by default; override either with `AML_EDGE_PORT` / `AML_SPA_PORT`
+ports **8643 / 5273** by default — aml-filter-specific, to avoid colliding with other local
+projects on the common `8081`/`5173`; override either with `AML_EDGE_PORT` / `AML_SPA_PORT`
 (e.g. `AML_EDGE_PORT=8091 make demo`).
 
 The `/screen` page syncs the signed bundle into the browser (ed25519 + sha256,

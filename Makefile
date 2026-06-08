@@ -25,12 +25,12 @@ help: ## Show this help.
 # poe task (poe config lives in backend/pyproject.toml, not the root) so you do not
 # have to `cd backend` first. Serves the UNMINIFIED Vite dev SPA — for proof the
 # shipped artifact works, use `make demo-browser` (minified prod) + the C1 e2e.
-demo: ## Fast dev-mode in-browser /screen — edge (:8081) + Vite dev SPA (:5173); override via AML_EDGE_PORT / AML_SPA_PORT. For shippability use `make demo-browser`.
+demo: ## Fast dev-mode in-browser /screen — edge (:8643) + Vite dev SPA (:5273); override via AML_EDGE_PORT / AML_SPA_PORT. For shippability use `make demo-browser`.
 	cd $(BACKEND_DIR) && uv run poe demo
 
-demo-browser: ## One command: serve the signed demo bundle + build the SPA, open http://localhost:5173/screen (ports override via AML_EDGE_PORT / AML_SPA_PORT)
-	@echo ">> edge     -> http://localhost:$${AML_EDGE_PORT:-8081}        (signed demo bundle the browser syncs)"
-	@echo ">> /screen  -> http://localhost:$${AML_SPA_PORT:-5173}/screen <- open THIS in your browser"
+demo-browser: ## One command: serve the signed demo bundle + build the SPA, open http://localhost:5273/screen (ports override via AML_EDGE_PORT / AML_SPA_PORT)
+	@echo ">> edge     -> http://localhost:$${AML_EDGE_PORT:-8643}        (signed demo bundle the browser syncs)"
+	@echo ">> /screen  -> http://localhost:$${AML_SPA_PORT:-5273}/screen <- open THIS in your browser"
 	cd $(FRONTEND_DIR) && docker compose up --build
 
 demo-server: ## The DB-backed API stack (Postgres + Valkey + api + worker) on :8000.

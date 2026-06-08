@@ -66,10 +66,11 @@ and the matcher runs in-tab, ranking the list as you type.
 
 ```bash
 make demo-browser          # docker compose: serves the signed bundle + builds the SPA
-# then open http://localhost:5173/screen and search:  Ivan Fakovich
+# then open http://localhost:5273/screen and search:  Ivan Fakovich
 ```
 
-Host ports default to **8081** (edge) / **5173** (SPA); override either with
+Host ports default to **8643** (edge) / **5273** (SPA) — aml-filter-specific, chosen to
+avoid colliding with other local projects on the common `8081`/`5173`; override either with
 `AML_EDGE_PORT` / `AML_SPA_PORT` (e.g. `AML_EDGE_PORT=8091 make demo`).
 
 > **`make demo-browser` vs `make demo`.** `make demo-browser` builds and serves the
