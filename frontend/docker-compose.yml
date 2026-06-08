@@ -4,11 +4,11 @@
 # │ The whole stack runs with NO application backend. The browser does the  │
 # │ screening:                                                              │
 # │                                                                         │
-# │     origin (static signed bundle) ──► edge (Caddy CDN :8081)           │
+# │     origin (static signed bundle) ──► edge (Caddy CDN :8643)           │
 # │                                              │                          │
 # │                                              │ sync (signed, verified,  │
 # │                                              ▼  IN THE BROWSER)         │
-# │     frontend (static SPA :5173) ── syncs the OFAC bundle into the tab,  │
+# │     frontend (static SPA :5273) ── syncs the OFAC bundle into the tab,  │
 # │                                    loads the MiniLM matcher once, and   │
 # │                                    screens names IN-TAB on /screen.     │
 # │                                                                         │
@@ -17,9 +17,10 @@
 # │ (app/public/public.key) — it never trusts the bundle origin for the key.│
 # │                                                                         │
 # │ Run from this directory (frontend/): docker compose up --build          │
-# │ Then open:                          http://localhost:5173/screen        │
+# │ Then open:                          http://localhost:5273/screen        │
 # │                                                                         │
-# │ Host ports default to 8081 (edge) / 5173 (SPA); override with           │
+# │ Host ports default to 8643 (edge) / 5273 (SPA) — aml-filter-specific, to │
+# │ avoid colliding with other local projects on 8081/5173; override with    │
 # │ AML_EDGE_PORT / AML_SPA_PORT (container-internal ports are unchanged).   │
 # │                                                                         │
 # │ The committed bundle (../backend/examples/catalog) + pinned key are     │
@@ -48,7 +49,7 @@ services:
 
   # Edge CDN: Caddy reverse proxy with the bundle's cache policy (immutable
   # chunk/manifest, short-TTL `latest`) + permissive CORS. This is what the
-  # browser syncs from. Host-mapped on :8081 so the browser tab can reach it.
+  # browser syncs from. Host-mapped on :8643 so the browser tab can reach it.
   edge:
     image: caddy:2-alpine
     container_name: aml-filter-edge
@@ -56,7 +57,7 @@ services:
       origin:
         condition: service_healthy
     ports:
-      - "${AML_EDGE_PORT:-8081}:8081"
+      - "${AML_EDGE_PORT:-8643}:8081"
     volumes:
       - ../backend/deploy/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
@@ -78,10 +79,10 @@ services:
       context: .
       dockerfile: app/Dockerfile
       args:
-        VITE_BUNDLE_BASE_URL: http://localhost:${AML_EDGE_PORT:-8081}
+        VITE_BUNDLE_BASE_URL: http://localhost:${AML_EDGE_PORT:-8643}
     container_name: aml-filter-frontend
     ports:
-      - "${AML_SPA_PORT:-5173}:5173"
+      - "${AML_SPA_PORT:-5273}:5173"
     depends_on:
       edge:
         condition: service_healthy

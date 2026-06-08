@@ -279,22 +279,24 @@ scoring-golden-check = { shell = "uv run python scripts/gen_scoring_golden.py \"
 gate        = { sequence = ["lint", "typecheck", "complexity", "test", "scoring-golden-check"], help = "Run the full python-quality gate" }
 
 # `demo` is the fast, dev-mode, backend-free showcase (mirrors edge-reco's `poe demo`):
-# it brings up the Caddy edge (signed demo bundle on :8081) and runs the Vite dev server
-# (:5173, opens /screen). The whole screen runs in-browser — no FastAPI here.
+# it brings up the Caddy edge (signed demo bundle on :8643) and runs the Vite dev server
+# (:5273, opens /screen). The whole screen runs in-browser — no FastAPI here.
+# Ports are aml-filter-specific (not the common 8081/5173) to avoid colliding with other
+# local projects; override with AML_EDGE_PORT / AML_SPA_PORT.
 #
 # NOTE: this is the DEV demo and serves the UNMINIFIED Vite build. The canonical proof
 # the *shipped* artifact works is `make demo-browser` (minified prod build) plus the C1
 # browser e2e (`frontend/app`: `pnpm test:e2e:c1`) — not this task. Use `poe demo` for a
 # quick local look; trust `make demo-browser` + C1 for shippability.
 [tool.poe.tasks.demo]
-help = "Fast dev-mode in-browser /screen demo — edge (:8081) + Vite SPA (:5173); override via AML_EDGE_PORT / AML_SPA_PORT. For shippability use `make demo-browser` + C1 e2e."
+help = "Fast dev-mode in-browser /screen demo — edge (:8643) + Vite SPA (:5273); override via AML_EDGE_PORT / AML_SPA_PORT. For shippability use `make demo-browser` + C1 e2e."
 cwd = "../frontend"
 shell = """
 set -e
 docker info >/dev/null 2>&1 || { echo 'Docker is not running — start Docker Desktop first.'; exit 1; }
 [ -d node_modules ] || pnpm install
-EDGE_PORT="${AML_EDGE_PORT:-8081}"
-SPA_PORT="${AML_SPA_PORT:-5173}"
+EDGE_PORT="${AML_EDGE_PORT:-8643}"
+SPA_PORT="${AML_SPA_PORT:-5273}"
 echo ">> edge -> http://localhost:${EDGE_PORT}          (signed demo bundle the SPA syncs)"
 echo ">> app  -> http://localhost:${SPA_PORT}/screen   <- opening this in your browser"
 AML_EDGE_PORT="${EDGE_PORT}" docker compose up -d origin edge
