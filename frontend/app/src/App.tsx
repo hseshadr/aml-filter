@@ -4,15 +4,16 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import Layout from "./components/Layout";
 import ProtectedRoute from "./components/ProtectedRoute";
 import { AuthProvider } from "./contexts/AuthContext";
+import { LandingPage } from "./pages/LandingPage";
 import LoginPage from "./pages/LoginPage";
 import { ScreenPage } from "./pages/ScreenPage";
 
-// Public routes (/screen, /login) stay eager: /screen is the headline route and
-// intentionally boots the embedder worker on first paint, /login is the small
-// first-seen auth form. The auth-protected admin pages are lazy-loaded so a
-// keyless /screen visitor never downloads them — they split into per-route
-// chunks fetched only after sign-in.
-const HomePage = lazy(() => import("./pages/HomePage"));
+// Public routes (/, /screen, /login) stay eager: / is the marketing landing
+// (first paint for every visitor), /screen is the headline demo that
+// intentionally boots the embedder worker on first paint, and /login is the
+// small first-seen auth form. The auth-protected admin pages are lazy-loaded so
+// a keyless visitor never downloads them — they split into per-route chunks
+// fetched only after sign-in.
 const SearchPage = lazy(() => import("./pages/SearchPage"));
 const ApiKeysPage = lazy(() => import("./pages/ApiKeysPage"));
 const ListsPage = lazy(() => import("./pages/ListsPage"));
@@ -43,14 +44,8 @@ function App() {
 								<Route path="/login" element={<LoginPage />} />
 								{/* Public, backend-free in-browser OFAC screening tier. */}
 								<Route path="/screen" element={<ScreenPage />} />
-								<Route
-									path="/"
-									element={
-										<ProtectedRoute>
-											<HomePage />
-										</ProtectedRoute>
-									}
-								/>
+								{/* Public marketing landing — the front door for every visitor. */}
+								<Route path="/" element={<LandingPage />} />
 								<Route
 									path="/search"
 									element={

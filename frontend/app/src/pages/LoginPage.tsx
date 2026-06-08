@@ -19,9 +19,10 @@ export default function LoginPage() {
 			return;
 		}
 
-		// Set API key and navigate to home
+		// Set API key and navigate to the authed search workspace. "/" is the
+		// public marketing landing, so post-login goes to /search instead.
 		setAuthApiKey(apiKey.trim());
-		navigate("/");
+		navigate("/search");
 	};
 
 	return (
