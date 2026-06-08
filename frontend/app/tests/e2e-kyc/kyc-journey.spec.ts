@@ -60,8 +60,9 @@ test("full KYC compliance journey: onboard → review → SAR → attestation �
 	await expect(page).toHaveTitle(/AML-Filter/i); // guard against the port-collision trap
 	await page.locator("#api-key").fill(API_KEY);
 	await page.getByRole("button", { name: "Login" }).click();
-	// After login the app navigates to "/" (the protected home).
-	await expect(page).toHaveURL(/\/$/);
+	// After login the app navigates to the admin dashboard at /search
+	// ("/" is now the public landing page).
+	await expect(page).toHaveURL(/\/search$/);
 
 	// =========================================================================
 	// 2. ONBOARD a customer whose name matches the seeded sanctions entity.
