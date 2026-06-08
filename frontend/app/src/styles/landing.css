@@ -242,6 +242,13 @@
 	color: var(--landing-abyss);
 }
 
+/* The "~" approximator on a measured tile. Its own span (so the number stays a
+   discrete text node the tests assert against), but visually part of the number. */
+.landing__tile-prefix {
+	font: inherit;
+	color: inherit;
+}
+
 .landing__tile-unit {
 	font-size: 16px;
 	color: var(--landing-muted);

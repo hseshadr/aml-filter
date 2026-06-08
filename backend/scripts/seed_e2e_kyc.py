@@ -100,6 +100,29 @@ async def _ensure_schema(engine: object) -> None:
         await conn.run_sync(Base.metadata.create_all)
 
 
+#: Tenant-scoped tables cleared before each seed, in FK-dependency order
+#: (children first). The global sanctions entity (``tenant_id IS NULL``) and the
+#: tenant/api-key/list-config rows are NOT cleared — they are re-asserted by the
+#: idempotent upserts below.
+_RESET_TABLES = ("sars", "attestations", "whitelist_blacklist_matches", "customers", "entities")
+
+
+async def _reset_tenant_state(session: AsyncSession) -> None:
+    """Delete this tenant's customers/matches/sars/attestations/entities.
+
+    Makes the seed clean-idempotent: re-running it (as the Playwright webServer
+    does on every boot) starts from a known-empty state instead of accumulating
+    the app-created customers/matches the journey produces. Tenant-scoped, in one
+    transaction, so other tenants' data is untouched.
+    """
+    for table in _RESET_TABLES:
+        await session.execute(
+            text(f"DELETE FROM {table} WHERE tenant_id = :tenant"),  # noqa: S608
+            {"tenant": E2E_TENANT_ID},
+        )
+    await session.commit()
+
+
 async def _upsert_tenant(session: AsyncSession) -> None:
     """Create the e2e tenant if absent."""
     existing = await session.get(Tenant, E2E_TENANT_ID)
@@ -227,15 +250,20 @@ async def _seed_weak_customer_and_match(session: AsyncSession) -> None:
     await session.commit()
 
 
-async def seed(database_url: str) -> None:
-    """Apply every idempotent seed step against the given database."""
+async def seed(database_url: str, embedder: EmbeddingService | None = None) -> None:
+    """Apply every idempotent seed step against the given database.
+
+    ``embedder`` is injectable so tests can pass a fast stub instead of loading
+    the MiniLM model; production callers leave it unset and get the real one.
+    """
     engine = create_async_engine(database_url, echo=False)
     await _ensure_schema(engine)
     factory = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-    embedder = EmbeddingService()
+    embedder = embedder or EmbeddingService()
     async with factory() as session:
         await _upsert_tenant(session)
         await _upsert_api_key(session)
+        await _reset_tenant_state(session)
         await _upsert_sanctions_entity(session, embedder)
         await _ensure_list_version(session)
         await _enable_list(session)

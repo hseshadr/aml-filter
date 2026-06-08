@@ -1,6 +1,7 @@
 import { render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
+import { DEMO_STATS } from "../generated/landing-stats";
 import { LandingPage } from "./LandingPage";
 
 // The public marketing landing at "/". It is a static presentational page —
@@ -37,14 +38,20 @@ describe("LandingPage", () => {
 		expect(cta).toHaveAttribute("href", "/login");
 	});
 
-	it("renders the metrics band with real, sourced KPI numbers", () => {
+	it("renders the metrics band with KPI numbers derived from the source files", () => {
 		renderPage();
 		const band = screen.getByRole("region", { name: /metrics/i });
-		// Real numbers: $0 infra, the ~23 MB MiniLM export, 8 demo entities,
-		// and 0 bytes of PII leaving the device.
+		// The two measured tiles follow the GENERATED single source of truth
+		// (DEMO_STATS, derived from the demo list + the ONNX file) — NOT literals,
+		// so this assertion can never bake in a number that has drifted from the
+		// files. The other two ($0 infra, 0 bytes of PII) are intrinsic copy.
 		expect(within(band).getByText("$0")).toBeInTheDocument();
-		expect(within(band).getByText(/23/)).toBeInTheDocument();
-		expect(within(band).getByText("8")).toBeInTheDocument();
+		expect(
+			within(band).getByText(String(DEMO_STATS.modelSizeMb)),
+		).toBeInTheDocument();
+		expect(
+			within(band).getByText(String(DEMO_STATS.demoEntityCount)),
+		).toBeInTheDocument();
 		expect(within(band).getByText(/0 bytes/i)).toBeInTheDocument();
 	});
 

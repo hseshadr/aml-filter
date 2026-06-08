@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { Footer } from "../components/Footer";
+import { DEMO_STATS } from "../generated/landing-stats";
 import "../styles/landing.css";
 
 // The public marketing landing at "/". It is purely presentational: no engine,
@@ -7,17 +8,22 @@ import "../styles/landing.css";
 // in-browser screening demo (/screen) and the DB-backed compliance workstation
 // (/login) — and routes a logged-out visitor to whichever they want.
 //
-// HONESTY: every KPI below is a real, sourced number, not marketing fiction.
-//   • $0 backend infra      — the /screen path makes zero backend calls after sync.
-//   • ~23 MB MiniLM matcher — public/models/.../model_quantized.onnx is 22,972,370
-//                             bytes; mirrors ScreenPage's LOADING_MODEL_LABEL.
-//   • 8 demo entities       — backend/examples/demo_entities.jsonl is 8 fictional
-//                             records (the demo bundle, demo-v1); labelled "demo"
-//                             so nobody mistakes it for the full OFAC list.
-//   • 0 bytes PII leave     — the query is matched in-tab; nothing typed is sent.
+// HONESTY: every KPI below is a real number, not marketing fiction. The two
+// measured figures are GENERATED from the actual source files by
+// scripts/gen-demo-stats.mjs (committed as src/generated/landing-stats.ts and
+// regenerated on every build), so they can never silently drift:
+//   • $0 backend infra        — the /screen path makes zero backend calls after sync.
+//   • ~{modelSizeMb} MB matcher — statSync of public/models/.../model_quantized.onnx;
+//                                 mirrors ScreenPage's LOADING_MODEL_LABEL.
+//   • {demoEntityCount} demo entities — count of non-empty records in
+//                                 backend/examples/demo_entities.jsonl (the demo
+//                                 bundle, labelled "demo" so nobody mistakes it
+//                                 for the full OFAC list).
+//   • 0 bytes PII leave       — the query is matched in-tab; nothing typed is sent.
 
 interface Metric {
 	readonly num: string;
+	readonly prefix?: string;
 	readonly unit?: string;
 	readonly tone?: "hot" | "pos";
 	readonly label: string;
@@ -42,14 +48,15 @@ const METRICS: readonly Metric[] = [
 		sub: "no API, no vector DB, no servers in the path",
 	},
 	{
-		num: "~23",
+		prefix: "~",
+		num: String(DEMO_STATS.modelSizeMb),
 		unit: "MB",
 		tone: "hot",
 		label: "MiniLM matcher, cached once",
 		sub: "all-MiniLM-L6-v2 quantized ONNX, then offline",
 	},
 	{
-		num: "8",
+		num: String(DEMO_STATS.demoEntityCount),
 		label: "sanctions entities on the demo list",
 		sub: "fictional demo bundle · the workstation loads real lists",
 	},
@@ -98,6 +105,9 @@ function MetricTile({ metric }: { readonly metric: Metric }) {
 	return (
 		<div className="landing__tile">
 			<div className={`landing__tile-num${toneClass}`}>
+				{metric.prefix ? (
+					<span className="landing__tile-prefix">{metric.prefix}</span>
+				) : null}
 				{metric.num}
 				{metric.unit ? (
 					<span className="landing__tile-unit">{metric.unit}</span>

@@ -1,8 +1,9 @@
 /** API client for AML-Filter backend. */
 
 import axios, { type AxiosError, type AxiosInstance } from "axios";
+import { DEFAULT_API_BASE } from "./apiBase";
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const API_BASE_URL = import.meta.env.VITE_API_URL || DEFAULT_API_BASE;
 
 export interface ApiError {
 	detail: string;

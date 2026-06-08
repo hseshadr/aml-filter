@@ -82,6 +82,38 @@ async def _seed_match(
     return match.match_id, customer_id
 
 
+async def _add_duplicate_customer(
+    session: AsyncSession,
+    tenant_id: str,
+    *,
+    match_id: str,
+    customer_reference: str,
+) -> str:
+    """Attach a *second* Customer row to a match's whitelist entity.
+
+    ``customers.screening_entity_id`` has only an index (no UNIQUE constraint),
+    so more than one customer can legitimately point at the same screening
+    entity. The review query outer-joins Customer on that column, so a second
+    customer fans the joined row out — the cardinality bug. Returns the new
+    customer_id.
+    """
+    match = await session.get(WhitelistBlacklistMatch, match_id)
+    assert match is not None
+    customer_id = str(uuid.uuid4())
+    session.add(
+        Customer(
+            customer_id=customer_id,
+            tenant_id=tenant_id,
+            customer_reference=customer_reference,
+            onboarding_status="ACTIVE",
+            onboarded_by="tester",
+            screening_entity_id=match.whitelist_entity_id,
+        )
+    )
+    await session.commit()
+    return customer_id
+
+
 @pytest.mark.integration
 class TestReviewMatchesAPI:
     """GET /v1/review/matches."""
@@ -248,3 +280,64 @@ class TestReviewResolveAPI:
             headers=auth_headers,
         )
         assert resp.status_code == 404
+
+
+@pytest.mark.integration
+class TestReviewDuplicateCustomerCardinality:
+    """Regression: a whitelist entity shared by >1 Customer must not fan the row out.
+
+    ``customers.screening_entity_id`` has no UNIQUE constraint, so two customers
+    can point at the same screening entity. The review query outer-joins Customer
+    on that column; without a dedupe, the join multiplies the match row, which
+    (a) made ``resolve`` 500 with ``MultipleResultsFound`` and (b) double-counted
+    the match in the list endpoint.
+    """
+
+    @pytest.mark.asyncio
+    async def test_resolve_with_duplicate_customer_returns_200(
+        self, client, auth_headers, db_session, test_tenant
+    ):
+        match_id, _ = await _seed_match(
+            db_session,
+            test_tenant.tenant_id,
+            score=0.92,
+            tier=MatchTier.STRONG.value,
+            customer_reference="CUST-PRIMARY",
+        )
+        await _add_duplicate_customer(
+            db_session,
+            test_tenant.tenant_id,
+            match_id=match_id,
+            customer_reference="CUST-DUPLICATE",
+        )
+        resp = await client.put(
+            f"/v1/review/matches/{match_id}/resolve",
+            params={"resolution_status": "TRUE_POSITIVE"},
+            json={"reviewer_id": "analyst-7", "review_notes": "Confirmed."},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 200
+        assert resp.json()["resolution_status"] == "TRUE_POSITIVE"
+
+    @pytest.mark.asyncio
+    async def test_list_with_duplicate_customer_returns_match_once(
+        self, client, auth_headers, db_session, test_tenant
+    ):
+        match_id, _ = await _seed_match(
+            db_session,
+            test_tenant.tenant_id,
+            score=0.92,
+            tier=MatchTier.STRONG.value,
+            customer_reference="CUST-PRIMARY",
+        )
+        await _add_duplicate_customer(
+            db_session,
+            test_tenant.tenant_id,
+            match_id=match_id,
+            customer_reference="CUST-DUPLICATE",
+        )
+        resp = await client.get("/v1/review/matches", headers=auth_headers)
+        assert resp.status_code == 200
+        rows = resp.json()
+        assert len(rows) == 1
+        assert rows[0]["match_id"] == match_id
