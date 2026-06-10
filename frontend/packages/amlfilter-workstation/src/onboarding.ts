@@ -19,6 +19,7 @@ import type {
 } from "./types";
 
 /** Score floor for onboarding screens (customers/service.py:31). */
+// Deliberately below the POSSIBLE tier boundary: onboarding records WEAK-tier matches too.
 export const ONBOARDING_THRESHOLD = 0.65;
 
 /** The screen surface the service needs — ScreeningEngine satisfies it. */
