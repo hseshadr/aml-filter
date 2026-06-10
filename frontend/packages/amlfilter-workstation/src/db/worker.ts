@@ -23,20 +23,34 @@ const POOL_NAME = "amlfilter-workstation";
 const DB_FILENAME = "/kyc.sqlite3";
 
 let database: SqlDatabase | null = null;
+let databasePromise: Promise<SqlDatabase> | null = null;
+
+// Memoize the IN-FLIGHT promise, set synchronously before any await (the same
+// pattern as the engine worker's store()): two 'open' requests racing the
+// first await must share one openPersistentDatabase call. Memoizing only the
+// resolved value would let both racers pass the null guard — a double sahpool
+// VFS install, with the second pool acquisition clobbering the first.
+function openDb(): Promise<SqlDatabase> {
+	if (databasePromise === null) {
+		databasePromise = openPersistentDatabase(POOL_NAME, DB_FILENAME).catch(
+			(error) => {
+				databasePromise = null; // allow retry after a transient open failure
+				// sahpool is single-connection: a second tab cannot acquire the
+				// handle pool. Fail with a clear message instead of hanging.
+				const detail = error instanceof Error ? error.message : String(error);
+				throw new Error(
+					`could not open the local KYC database — is the workstation already open in another tab? (${detail})`,
+				);
+			},
+		);
+	}
+	return databasePromise;
+}
 
 async function openOnce(): Promise<number> {
-	if (database === null) {
-		try {
-			database = await openPersistentDatabase(POOL_NAME, DB_FILENAME);
-		} catch (error) {
-			// sahpool is single-connection: a second tab cannot acquire the
-			// handle pool. Fail with a clear message instead of hanging.
-			const detail = error instanceof Error ? error.message : String(error);
-			throw new Error(
-				`could not open the local KYC database — is the workstation already open in another tab? (${detail})`,
-			);
-		}
-	}
+	// Cache the resolved handle so requireDb() stays a synchronous guard for
+	// every post-open request kind.
+	database = await openDb();
 	return migrate(database);
 }
 
