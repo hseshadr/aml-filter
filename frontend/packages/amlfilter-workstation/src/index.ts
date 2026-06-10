@@ -14,6 +14,18 @@ export {
 	InvalidResolutionError,
 	NotFoundError,
 } from "./errors";
+export {
+	LocalOnboardingService,
+	type NameScreener,
+	ONBOARDING_THRESHOLD,
+	type OnboardRequest,
+	type OnboardResult,
+} from "./onboarding";
+export {
+	ANALYST_NAME_KEY,
+	LocalMatchTracker,
+	type ResolveOptions,
+} from "./review";
 export { classifyTier, STRONG_TIER_FLOOR } from "./tiering";
 export type {
 	CreateCustomerPayload,
