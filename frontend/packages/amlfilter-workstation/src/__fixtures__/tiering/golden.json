@@ -1,0 +1,72 @@
+[
+  {
+    "name": "well above the strong floor",
+    "score": 0.95,
+    "possible_threshold": 0.65,
+    "strong": null,
+    "expected_tier": "STRONG"
+  },
+  {
+    "name": "strong lower edge is inclusive",
+    "score": 0.8,
+    "possible_threshold": 0.65,
+    "strong": null,
+    "expected_tier": "STRONG"
+  },
+  {
+    "name": "just below the strong floor",
+    "score": 0.7999999,
+    "possible_threshold": 0.65,
+    "strong": null,
+    "expected_tier": "POSSIBLE"
+  },
+  {
+    "name": "possible lower edge is inclusive",
+    "score": 0.65,
+    "possible_threshold": 0.65,
+    "strong": null,
+    "expected_tier": "POSSIBLE"
+  },
+  {
+    "name": "just below the possible threshold",
+    "score": 0.6499999,
+    "possible_threshold": 0.65,
+    "strong": null,
+    "expected_tier": "WEAK"
+  },
+  {
+    "name": "weak at zero",
+    "score": 0.0,
+    "possible_threshold": 0.65,
+    "strong": null,
+    "expected_tier": "WEAK"
+  },
+  {
+    "name": "strict preset possible threshold",
+    "score": 0.76,
+    "possible_threshold": 0.75,
+    "strong": null,
+    "expected_tier": "POSSIBLE"
+  },
+  {
+    "name": "lenient preset possible threshold",
+    "score": 0.56,
+    "possible_threshold": 0.55,
+    "strong": null,
+    "expected_tier": "POSSIBLE"
+  },
+  {
+    "name": "custom strong band demotes 0.85",
+    "score": 0.85,
+    "possible_threshold": 0.65,
+    "strong": 0.9,
+    "expected_tier": "POSSIBLE"
+  },
+  {
+    "name": "custom strong band lower edge",
+    "score": 0.9,
+    "possible_threshold": 0.65,
+    "strong": 0.9,
+    "expected_tier": "STRONG"
+  }
+]
