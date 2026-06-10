@@ -12,6 +12,7 @@ export {
 	InvalidResolutionError,
 	NotFoundError,
 } from "./errors";
+export { classifyTier, STRONG_TIER_FLOOR } from "./tiering";
 export type {
 	CreateCustomerPayload,
 	CustomerPatch,
@@ -25,4 +26,3 @@ export type {
 	TieredMatch,
 	WorkstationStore,
 } from "./types";
-export { classifyTier, STRONG_TIER_FLOOR } from "./tiering";
