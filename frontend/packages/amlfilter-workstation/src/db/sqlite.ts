@@ -15,6 +15,8 @@ export interface SqlDatabase {
 		sql: string,
 		bind?: ReadonlyArray<SqlValue>,
 	): Array<Record<string, SqlValue>>;
+	/** Runs fn atomically (BEGIN/COMMIT); a throw rolls back every write. */
+	transaction(fn: () => void): void;
 	close(): void;
 }
 
@@ -24,6 +26,7 @@ interface Oo1Db {
 		sql: string,
 		bind?: SqlValue[],
 	): Array<Record<string, SqlValue>>;
+	transaction<T>(callback: (db: this) => T): T;
 	close(): void;
 }
 
@@ -51,7 +54,9 @@ async function loadSqlite(): Promise<SqliteModule> {
 	const init = sqlite3InitModule as unknown as SqliteInit;
 	return init({
 		print: () => undefined,
-		printErr: () => undefined,
+		// Engine diagnostics (OPFS/constraint failures) must stay visible in the
+		// worker for a fail-closed tool — never mute printErr.
+		printErr: (...args) => console.error(...args),
 	});
 }
 
@@ -62,6 +67,9 @@ function wrapDb(db: Oo1Db): SqlDatabase {
 		},
 		selectObjects: (sql, bind) =>
 			db.selectObjects(sql, bind === undefined ? undefined : [...bind]),
+		transaction: (fn) => {
+			db.transaction(fn);
+		},
 		close: () => db.close(),
 	};
 }

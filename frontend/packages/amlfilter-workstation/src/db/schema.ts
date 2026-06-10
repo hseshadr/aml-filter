@@ -59,7 +59,11 @@ function currentVersion(db: SqlDatabase): number {
 	return typeof v === "number" ? v : 0;
 }
 
-/** Bring the database to schema HEAD; per-connection pragmas included. */
+/**
+ * Bring the database to schema HEAD; per-connection pragmas included.
+ * Upgrade path is single-step (v0→v1) today — a future v2 must turn the apply
+ * logic into an ordered per-version list; this body does not loop.
+ */
 export function migrate(db: SqlDatabase): number {
 	db.exec("PRAGMA foreign_keys = ON");
 	if (currentVersion(db) < 1) {
