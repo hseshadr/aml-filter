@@ -25,3 +25,4 @@ export type {
 	TieredMatch,
 	WorkstationStore,
 } from "./types";
+export { classifyTier, STRONG_TIER_FLOOR } from "./tiering";
