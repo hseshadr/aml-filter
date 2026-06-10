@@ -5,6 +5,8 @@
 // someone else's data you must trust) stays on @amlfilter/browser's signed
 // fail-closed bundle path — two stores, two trust models.
 
+export { DbClient, type WorkerLike } from "./db/client";
+export type { DbErr, DbRequest, DbResponse } from "./db/protocol";
 export {
 	DuplicateReferenceError,
 	decodeWorkerError,

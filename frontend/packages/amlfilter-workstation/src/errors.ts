@@ -26,6 +26,7 @@ export class InvalidResolutionError extends Error {
 	}
 }
 
+// Codes are reserved prefixes: a plain error message must not itself start with "SOMECODE|" or it will be mis-decoded into a typed error.
 const CODES: ReadonlyArray<
 	readonly [string, (message: string) => Error, (error: unknown) => boolean]
 > = [
