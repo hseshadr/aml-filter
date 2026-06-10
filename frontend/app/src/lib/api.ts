@@ -2,6 +2,8 @@
 
 import axios, { type AxiosError, type AxiosInstance } from "axios";
 import { DEFAULT_API_BASE } from "./apiBase";
+import { LocalApiClient } from "./localApi";
+import { workstationProvider } from "./workstation";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || DEFAULT_API_BASE;
 
@@ -748,5 +750,8 @@ export interface SarMatchContext {
 	tier: string;
 }
 
-// Create singleton instance
-export const apiClient = new ApiClient();
+// The app is LOCAL-FIRST: the singleton every page calls is the
+// LocalApiClient — all KYC I/O stays in the tab (SQLite-WASM/OPFS + the
+// signed-bundle screening engine). The server-tier ApiClient above is kept
+// for SaaS deployments but is no longer wired into the app (spec D3).
+export const apiClient = new LocalApiClient(workstationProvider);

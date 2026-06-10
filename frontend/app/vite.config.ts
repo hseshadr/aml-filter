@@ -19,6 +19,18 @@ export default defineConfig({
 		// works.)
 		target: "es2022",
 	},
+	optimizeDeps: {
+		// sqlite-wasm resolves its .wasm + helper assets relative to its own
+		// module URL; esbuild pre-bundling breaks that resolution (official
+		// @sqlite.org/sqlite-wasm guidance for Vite).
+		exclude: ["@sqlite.org/sqlite-wasm"],
+	},
+	worker: {
+		// The DB worker imports the sqlite-wasm ES module; classic-script
+		// worker bundling cannot. The engine workers are already module
+		// workers, so this is a no-op for them.
+		format: "es",
+	},
 	server: {
 		port: 5173,
 		proxy: {

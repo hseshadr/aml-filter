@@ -95,6 +95,15 @@ describe("LocalApiClient slice methods", () => {
 		expect(result.match_entity_ids).toEqual(["DEMO_SDN:0001"]);
 	});
 
+	it("getCustomer throws a not-found error for an unknown id", async () => {
+		const services = makeServices();
+		vi.mocked(services.store.getCustomer).mockResolvedValue(null);
+		const client = new LocalApiClient(() => Promise.resolve(services));
+		await expect(client.getCustomer("missing")).rejects.toThrow(
+			/Customer missing not found/,
+		);
+	});
+
 	it("listReviewMatches maps rows to the ReviewMatch wire shape", async () => {
 		const services = makeServices();
 		const client = new LocalApiClient(() => Promise.resolve(services));

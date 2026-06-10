@@ -99,6 +99,8 @@ function toReviewMatch(row: ReviewRow): ReviewMatch {
 		// Constant locally — mirrors the match_type the backend onboarding
 		// records (customers/service.py:138).
 		match_type: "WHITELIST_VS_BLACKLIST",
+		// ResolutionStatus (workstation) and ReviewResolutionStatus (app REST
+		// types) are structurally identical unions that must stay in lockstep.
 		resolution_status: row.resolution_status,
 		reviewer_id: row.reviewer_id,
 		review_notes: row.review_notes,
