@@ -17,6 +17,9 @@ importers:
       '@amlfilter/browser':
         specifier: workspace:*
         version: link:../packages/amlfilter-browser
+      '@amlfilter/workstation':
+        specifier: workspace:*
+        version: link:../packages/amlfilter-workstation
       '@hpcc-js/wasm-zstd':
         specifier: ^1.12.6
         version: 1.13.0
