@@ -1,130 +1,42 @@
 import { expect, test } from "@playwright/test";
 
-test.describe("AML-Filter v2 Dashboard", () => {
-	test.beforeEach(async ({ page }) => {
-		// Mock backend APIs so E2E is stable without a running backend.
-		await page.route("**/v1/usage**", async (route) => {
-			await route.fulfill({
-				status: 200,
-				contentType: "application/json",
-				body: JSON.stringify({
-					tenant_id: "test-tenant",
-					period_start: null,
-					period_end: null,
-					event_type: null,
-					summary: { screen: 3 },
-					total_units: 3,
-				}),
-			});
-		});
-
-		await page.route("**/v1/lists**", async (route) => {
-			await route.fulfill({
-				status: 200,
-				contentType: "application/json",
-				body: JSON.stringify([
-					{
-						list_id: "OFAC_SDN",
-						enabled: true,
-						version_override: null,
-						current_version: "2024-01",
-						updated_at: new Date().toISOString(),
-					},
-				]),
-			});
-		});
-
-		await page.route("**/v1/screen", async (route) => {
-			await route.fulfill({
-				status: 200,
-				contentType: "application/json",
-				body: JSON.stringify({
-					request_id: "req_1",
-					execution_time_ms: 10,
-					list_versions_used: { OFAC_SDN: "2024-01" },
-					matches: [
-						{
-							entity_id: "ofac:sdn:123",
-							score: 0.9,
-							risk_category: "SANCTION",
-							source_list: "OFAC_SDN",
-							list_version: "2024-01",
-							primary_name: "JOHN DOE",
-							aliases: [],
-							countries: ["US"],
-							dob: [],
-							reasons: [
-								{
-									signal: "name_vector",
-									value: 0.9,
-									weight: 0.55,
-									contribution: 0.495,
-									description: "Vector similarity",
-								},
-							],
-							explanation: "Match due to: strong vector similarity",
-						},
-					],
-				}),
-			});
-		});
-	});
-
-	test("should show the public landing at / when not authenticated", async ({
-		page,
-	}) => {
-		// "/" is now the public marketing landing — no auth gate, no redirect.
+// Dev-suite shell checks (vite dev server): the local-first app has NO login —
+// the workstation routes are directly reachable and the server-tier routes are
+// unrouted. The full journey (real build + real signed bundle) lives in
+// tests/e2e-kyc/local-kyc-journey.spec.ts.
+test.describe("local-first app shell", () => {
+	test("shows the public landing at /", async ({ page }) => {
 		await page.goto("http://localhost:5173/");
 		await expect(page).toHaveURL("http://localhost:5173/");
 		await expect(page.locator("h1")).toContainText("entirely in your browser");
 	});
 
-	test("should land on /search after login with API key", async ({ page }) => {
-		await page.goto("http://localhost:5173/login");
-
-		// Fill in API key (mock or test key)
-		await page.fill('input[type="password"]', "test-api-key-123");
-		await page.click('button[type="submit"]');
-
-		// Post-login goes to the authed search workspace (/ is the public landing).
-		await expect(page).toHaveURL(/.*search/);
-		await expect(page.locator("h1")).toContainText("Entity Screening");
+	test("the workstation is reachable with no login gate", async ({ page }) => {
+		await page.goto("http://localhost:5173/customers");
+		// No redirect to /login; the gate boots the local DB and asks for the
+		// one-time analyst name on a fresh profile.
+		await expect(page).toHaveURL(/\/customers$/);
+		await expect(
+			page.getByRole("heading", { name: /welcome to the workstation/i }),
+		).toBeVisible();
 	});
 
-	test("should navigate to search page", async ({ page }) => {
-		await page.goto("http://localhost:5173/login");
-		await page.fill('input[type="password"]', "test-api-key-123");
-		await page.click('button[type="submit"]');
-
-		await page.click("text=Search");
-		await expect(page).toHaveURL(/.*search/);
-		await expect(page.locator("h1")).toContainText("Entity Screening");
-	});
-
-	test("should show usage dashboard", async ({ page }) => {
-		await page.goto("http://localhost:5173/login");
-		await page.fill('input[type="password"]', "test-api-key-123");
-		await page.click('button[type="submit"]');
-
-		await page.click("text=Usage");
-		await expect(page).toHaveURL(/.*usage/);
-		await expect(page.locator("h1")).toContainText("Usage Dashboard");
-	});
-
-	test("should perform a search and show results (mocked API)", async ({
+	test("the nav links the workstation pages and hides the server tier", async ({
 		page,
 	}) => {
-		await page.goto("http://localhost:5173/login");
-		await page.fill('input[type="password"]', "test-api-key-123");
-		await page.click('button[type="submit"]');
-
-		await page.click("text=Search");
-		await expect(page).toHaveURL(/.*search/);
-
-		await page.fill("input#name", "John Doe");
-		await page.click('button[type="submit"]');
-
-		await expect(page.locator("text=Results")).toBeVisible();
-		await expect(page.locator("text=JOHN DOE")).toBeVisible();
+		await page.goto("http://localhost:5173/");
+		await expect(page.getByRole("link", { name: "Customers" })).toBeVisible();
+		await expect(page.getByRole("link", { name: "Review" })).toBeVisible();
+		for (const hidden of [
+			"SARs",
+			"Attestations",
+			"Lists",
+			"Usage",
+			"API Keys",
+			"Whitelist",
+			"Search",
+		]) {
+			await expect(page.getByRole("link", { name: hidden })).toHaveCount(0);
+		}
 	});
 });

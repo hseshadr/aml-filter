@@ -42,10 +42,10 @@ test.describe("public landing (/)", () => {
 		await expect(page).toHaveURL(/.*\/screen/);
 	});
 
-	test("secondary CTA navigates to login", async ({ page }) => {
+	test("secondary CTA navigates to the workstation", async ({ page }) => {
 		await page.goto("http://localhost:5173/");
-		await page.getByRole("link", { name: /admin login/i }).click();
-		await expect(page).toHaveURL(/.*\/login/);
+		await page.getByRole("link", { name: /open the workstation/i }).click();
+		await expect(page).toHaveURL(/.*\/customers/);
 	});
 
 	test("renders without horizontal overflow at a 375px mobile width", async ({

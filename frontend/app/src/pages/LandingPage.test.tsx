@@ -32,10 +32,10 @@ describe("LandingPage", () => {
 		expect(cta).toHaveAttribute("href", "/screen");
 	});
 
-	it("links the secondary CTA to /login", () => {
+	it("links the secondary CTA to the workstation", () => {
 		renderPage();
-		const cta = screen.getByRole("link", { name: /admin login/i });
-		expect(cta).toHaveAttribute("href", "/login");
+		const cta = screen.getByRole("link", { name: /open the workstation/i });
+		expect(cta).toHaveAttribute("href", "/customers");
 	});
 
 	it("renders the metrics band with KPI numbers derived from the source files", () => {
@@ -70,16 +70,19 @@ describe("LandingPage", () => {
 		expect(within(how).getByText(/fail-closed/i)).toBeInTheDocument();
 	});
 
-	it("renders the DB-backed compliance workstation section linking to login", () => {
+	it("renders the local-first workstation section linking to /customers", () => {
 		renderPage();
 		const workstation = screen.getByRole("region", {
 			name: /compliance workstation/i,
 		});
-		// It must be explicit this is the backend/DB (your own Postgres) tier.
-		expect(within(workstation).getByText(/postgres/i)).toBeInTheDocument();
-		expect(within(workstation).getByText(/file a sar/i)).toBeInTheDocument();
-		const cta = within(workstation).getByRole("link", { name: /login/i });
-		expect(cta).toHaveAttribute("href", "/login");
+		expect(within(workstation).getByText(/opfs/i)).toBeInTheDocument();
+		expect(
+			within(workstation).getByText(/tiered review board/i),
+		).toBeInTheDocument();
+		const cta = within(workstation).getByRole("link", {
+			name: /start onboarding/i,
+		});
+		expect(cta).toHaveAttribute("href", "/customers");
 	});
 
 	it("renders the footer credit", () => {
