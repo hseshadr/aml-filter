@@ -263,10 +263,16 @@ export function recordMatches(
 			);
 		}
 	});
+	// Re-read scoped to the customer (no board pagination): the LIMIT 100
+	// board query would truncate fresh lower-scored rows out of the return.
 	const ids = new Set(matches.map((m) => m.ofac_entity_id));
-	return listReviewMatches(db, {}).filter(
-		(row) => row.customer_id === customerId && ids.has(row.ofac_entity_id),
-	);
+	return db
+		.selectObjects(
+			`${REVIEW_SELECT} WHERE m.customer_id = ? ORDER BY m.match_score DESC`,
+			[customerId],
+		)
+		.map(toReviewRow)
+		.filter((row) => ids.has(row.ofac_entity_id));
 }
 
 /** Review-board rows: a plain JOIN suffices locally (no entity fan-out). */

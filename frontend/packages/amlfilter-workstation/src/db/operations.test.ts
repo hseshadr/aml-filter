@@ -176,6 +176,33 @@ describe("recordMatches", () => {
 		deleteCustomer(db, customer.customer_id);
 		expect(listReviewMatches(db, {})).toHaveLength(0);
 	});
+
+	it("returns the persisted rows even when 100+ higher-scored matches exist elsewhere", () => {
+		// Regression: the return read used the board-paginated query (LIMIT 100,
+		// score DESC, no customer filter), so once the table held 100 stronger
+		// rows a fresh lower-scored screening returned [] despite a good write.
+		const crowd = createCustomer(db, {
+			customer_reference: "R-CROWD",
+			name: "Crowd",
+		});
+		recordMatches(
+			db,
+			crowd.customer_id,
+			Array.from({ length: 101 }, (_, i) =>
+				makeTiered({ ofac_entity_id: `e-high-${i}`, score: 0.99 }),
+			),
+		);
+
+		const late = createCustomer(db, {
+			customer_reference: "R-LATE",
+			name: "Late Low",
+		});
+		const rows = recordMatches(db, late.customer_id, [
+			makeTiered({ ofac_entity_id: "e-low", score: 0.1, tier: "WEAK" }),
+		]);
+		expect(rows).toHaveLength(1);
+		expect(rows[0]?.ofac_entity_id).toBe("e-low");
+	});
 });
 
 describe("listReviewMatches", () => {
