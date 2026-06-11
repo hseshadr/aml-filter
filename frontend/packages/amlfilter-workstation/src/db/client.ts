@@ -138,6 +138,15 @@ export class DbClient implements WorkstationStore {
 	}
 
 	public terminate(): void {
+		// Settle outstanding requests before the worker dies — otherwise their
+		// promises would hang forever (no reply is ever coming).
+		const error = new Error(
+			`DbClient terminated with ${this.#pending.size} request(s) in flight`,
+		);
+		for (const pending of this.#pending.values()) {
+			pending.reject(error);
+		}
+		this.#pending.clear();
 		this.#worker.terminate();
 	}
 
