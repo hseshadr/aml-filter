@@ -59,7 +59,7 @@ test.describe("In-browser OFAC screening page", () => {
 	});
 
 	test("is linked from the global nav", async ({ page }) => {
-		await page.goto("http://localhost:5173/login");
+		await page.goto("http://localhost:5173/");
 		await page.click("text=Screen (in-browser)");
 		await expect(page).toHaveURL(/.*screen/);
 	});

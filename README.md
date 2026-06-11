@@ -189,9 +189,17 @@ Three ways to screen, one scoring contract:
 
 Full write-up and diagrams: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
-### KYC / AML compliance workstation (DB path)
+### KYC / AML compliance workstation (local-first in the browser)
 
-On top of the screening engine, the DB-backed HTTP tier (path 1) adds a full
+The workstation now runs **fully in the browser with zero backend**: customers and
+review matches persist to **SQLite-WASM in OPFS** (a dedicated DB Web Worker,
+`opfs-sahpool` — no special headers), and onboarding auto-screens against the same
+signed OFAC bundle the `/screen` demo uses. No login, no API keys — open `/customers`
+and start. The DB-backed tier (SARs, attestations, lists, usage) remains in the repo
+for SaaS deployments but is not routed in the SPA; it returns as later cycles land
+local-first.
+
+On top of the screening engine, the DB-backed HTTP tier (path 1) adds the full
 case-management workflow — the lifecycle a compliance team actually works:
 
 - **Customer onboarding** (`POST /v1/customers`) — register a customer; it is
@@ -213,10 +221,11 @@ case-management workflow — the lifecycle a compliance team actually works:
 - **Delta-driven rescan** — when a list updates, only the customers near the changed
   sanctions entries are re-screened (full rescan as a fallback). Backend-only.
 
-These run on path 1 only (they need Postgres). See
+These HTTP endpoints run on path 1 only (they need Postgres). See
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#kyc--aml-compliance-workstation-db-path)
-and [`docs/API_SPEC.md`](docs/API_SPEC.md). The frontend SPA mounts pages for each
-(`/customers`, `/review`, `/sars`, `/attestations`, `/lists`).
+and [`docs/API_SPEC.md`](docs/API_SPEC.md). In the SPA, the onboarding + review slice
+(`/customers`, `/review`) runs local-first in the tab; the server-tier pages (SARs,
+attestations, lists, usage) are kept in the repo but not routed.
 
 ### How matching & scoring works
 
@@ -277,14 +286,16 @@ cp .env.example .env
 cd backend && uv run uvicorn aml_filter.api.main:app --reload
 ```
 
-The frontend is a **pnpm workspace** — the admin/demo SPA (`app/`) plus the
-in-browser screening engine (`packages/amlfilter-browser/`):
+The frontend is a **pnpm workspace** with three members — the SPA (`app/`), the
+in-browser screening engine (`packages/amlfilter-browser/`), and the local-first KYC
+tier (`packages/amlfilter-workstation/`: SQLite-WASM/OPFS persistence + tiered
+screening services, parity-tested against the Python tiering golden):
 
 ```bash
 cd frontend
-pnpm install                          # resolves the whole workspace (app + package)
-pnpm --filter aml-filter-app dev      # http://localhost:5173 (admin + /screen)
-pnpm -r run test                      # vitest on both members (incl. wire-format + scoring parity)
+pnpm install                          # resolves the whole workspace (app + packages)
+pnpm --filter aml-filter-app dev      # http://localhost:5173 (workstation + /screen)
+pnpm -r run test                      # vitest on all members (incl. wire-format + scoring + tiering parity)
 ```
 
 ### Configuration
@@ -342,9 +353,10 @@ aml-filter/
 │   └── tests/                #   unit/ + integration/
 ├── frontend/                 # pnpm workspace
 │   ├── docker-compose.yml    #   the backend-free /screen demo (origin + Caddy edge + SPA)
-│   ├── app/                  #   React + Vite admin UI + backend-free /screen page (Dockerfile)
+│   ├── app/                  #   React + Vite SPA — local-first workstation + /screen demo (Dockerfile)
 │   └── packages/
-│       └── amlfilter-browser/#   @amlfilter/browser — in-browser sync + screening engine
+│       ├── amlfilter-browser/#   @amlfilter/browser — in-browser sync + screening engine
+│       └── amlfilter-workstation/ # local-first KYC tier (SQLite-WASM/OPFS DB worker + service ports)
 ├── docs/                     # ARCHITECTURE · QUICKSTART · DEPLOY · diagrams/
 ├── docker-compose.yml        # Postgres (pgvector) + Valkey + api + worker
 ├── LICENSE  NOTICE  CHANGELOG.md  CONTRIBUTING.md
@@ -359,10 +371,11 @@ vendor.** Sanctions screening has real legal consequences; any match — or abse
 match — must be reviewed by qualified compliance personnel against the official OFAC
 source before any decision is made.
 
-The KYC/AML workstation (customer onboarding, the review board, SAR filing, and
-attestations) is illustrative: **the operator is solely responsible for their own
-regulatory obligations and for any actual filings.** SAR "export" generates a fileable
-report artifact — it does **NOT** submit anything to FinCEN or any government system.
+The KYC/AML workstation (customer onboarding and the review board, plus the
+server-tier SAR filing and attestation layers) is illustrative: **the operator is
+solely responsible for their own regulatory obligations and for any actual
+filings.** SAR "export" generates a fileable report artifact — it does **NOT**
+submit anything to FinCEN or any government system.
 The software is provided "as is", without warranty. See [`NOTICE`](NOTICE) and
 [`LICENSE`](LICENSE).
 

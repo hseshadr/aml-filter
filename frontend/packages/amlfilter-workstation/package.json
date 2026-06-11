@@ -1,0 +1,27 @@
+{
+	"name": "@amlfilter/workstation",
+	"private": true,
+	"version": "2.1.0",
+	"license": "MIT",
+	"type": "module",
+	"description": "Local-first KYC workstation tier: SQLite-WASM/OPFS persistence + tiered screening services over @amlfilter/browser.",
+	"exports": {
+		".": "./src/index.ts"
+	},
+	"scripts": {
+		"lint": "biome check .",
+		"typecheck": "tsc -b",
+		"test": "vitest run"
+	},
+	"dependencies": {
+		"@amlfilter/browser": "workspace:*",
+		"@sqlite.org/sqlite-wasm": "3.53.0-build1"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "^2.4.15",
+		"@types/node": "^22.10.0",
+		"typescript": "^5.2.2",
+		"vite": "^5.0.8",
+		"vitest": "^2.1.8"
+	}
+}

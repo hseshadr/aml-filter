@@ -1,0 +1,164 @@
+// The DB Worker: owns the opfs-sahpool SQLite database (persistent, no
+// COOP/COEP). One typed request in, one typed response out; all SQL behavior
+// lives in operations.ts where it is unit-tested against in-memory SQLite.
+
+import { encodeWorkerError } from "../errors";
+import {
+	createCustomer,
+	deleteCustomer,
+	getCustomer,
+	getSetting,
+	listCustomers,
+	listReviewMatches,
+	recordMatches,
+	resolveMatch,
+	setSetting,
+	updateCustomer,
+} from "./operations";
+import type { DbRequest, DbResponse } from "./protocol";
+import { migrate } from "./schema";
+import { openPersistentDatabase, type SqlDatabase } from "./sqlite";
+
+const POOL_NAME = "amlfilter-workstation";
+const DB_FILENAME = "/kyc.sqlite3";
+
+let database: SqlDatabase | null = null;
+let databasePromise: Promise<SqlDatabase> | null = null;
+
+// Memoize the IN-FLIGHT promise, set synchronously before any await (the same
+// pattern as the engine worker's store()): two 'open' requests racing the
+// first await must share one openPersistentDatabase call. Memoizing only the
+// resolved value would let both racers pass the null guard — a double sahpool
+// VFS install, with the second pool acquisition clobbering the first.
+function openDb(): Promise<SqlDatabase> {
+	if (databasePromise === null) {
+		databasePromise = openPersistentDatabase(POOL_NAME, DB_FILENAME).catch(
+			(error) => {
+				databasePromise = null; // allow retry after a transient open failure
+				// sahpool is single-connection: a second tab cannot acquire the
+				// handle pool. Fail with a clear message instead of hanging.
+				const detail = error instanceof Error ? error.message : String(error);
+				throw new Error(
+					`could not open the local KYC database — is the workstation already open in another tab? (${detail})`,
+				);
+			},
+		);
+	}
+	return databasePromise;
+}
+
+async function openOnce(): Promise<number> {
+	// Cache the resolved handle so requireDb() stays a synchronous guard for
+	// every post-open request kind.
+	database = await openDb();
+	return migrate(database);
+}
+
+function requireDb(): SqlDatabase {
+	if (database === null) {
+		throw new Error("database not open: send 'open' first");
+	}
+	return database;
+}
+
+async function execute(request: DbRequest): Promise<DbResponse> {
+	switch (request.kind) {
+		case "open":
+			return {
+				ok: true,
+				id: request.id,
+				kind: "open",
+				result: await openOnce(),
+			};
+		case "createCustomer":
+			return {
+				ok: true,
+				id: request.id,
+				kind: "createCustomer",
+				result: createCustomer(requireDb(), request.payload),
+			};
+		case "listCustomers":
+			return {
+				ok: true,
+				id: request.id,
+				kind: "listCustomers",
+				result: listCustomers(requireDb()),
+			};
+		case "getCustomer":
+			return {
+				ok: true,
+				id: request.id,
+				kind: "getCustomer",
+				result: getCustomer(requireDb(), request.customerId),
+			};
+		case "updateCustomer":
+			return {
+				ok: true,
+				id: request.id,
+				kind: "updateCustomer",
+				result: updateCustomer(requireDb(), request.customerId, request.patch),
+			};
+		case "deleteCustomer":
+			deleteCustomer(requireDb(), request.customerId);
+			return { ok: true, id: request.id, kind: "deleteCustomer", result: null };
+		case "recordMatches":
+			return {
+				ok: true,
+				id: request.id,
+				kind: "recordMatches",
+				result: recordMatches(requireDb(), request.customerId, request.matches),
+			};
+		case "listReviewMatches":
+			return {
+				ok: true,
+				id: request.id,
+				kind: "listReviewMatches",
+				result: listReviewMatches(requireDb(), request.filters),
+			};
+		case "resolveMatch":
+			return {
+				ok: true,
+				id: request.id,
+				kind: "resolveMatch",
+				result: resolveMatch(
+					requireDb(),
+					request.matchId,
+					request.resolution,
+					request.reviewerId,
+					request.notes,
+				),
+			};
+		case "getSetting":
+			return {
+				ok: true,
+				id: request.id,
+				kind: "getSetting",
+				result: getSetting(requireDb(), request.key),
+			};
+		case "setSetting":
+			setSetting(requireDb(), request.key, request.value);
+			return { ok: true, id: request.id, kind: "setSetting", result: null };
+	}
+}
+
+const scope = self as unknown as {
+	postMessage(message: DbResponse): void;
+	addEventListener(
+		type: "message",
+		listener: (event: MessageEvent<DbRequest>) => void,
+	): void;
+};
+
+scope.addEventListener("message", (event) => {
+	void execute(event.data)
+		.catch(
+			(error: unknown): DbResponse => ({
+				ok: false,
+				id: event.data.id,
+				error: encodeWorkerError(error),
+			}),
+		)
+		.then((response) => {
+			scope.postMessage(response);
+		});
+});

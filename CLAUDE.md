@@ -95,10 +95,13 @@ pnpm -r run format                    # Biome formatting
 ```
 
 **Note**: the frontend is a **pnpm workspace** (`pnpm` + **Biome**, not bun / ESLint /
-Prettier). Two packages: `frontend/app` (the React app) and
+Prettier). Three packages: `frontend/app` (the React app),
 `frontend/packages/amlfilter-browser` (`@amlfilter/browser`, the in-browser screening
-tier — a port of edge-proc's browser sync tier + the OFAC scoring contract). Always use
-`pnpm` for frontend package management.
+tier — a port of edge-proc's browser sync tier + the OFAC scoring contract), and
+`frontend/packages/amlfilter-workstation` (`@amlfilter/workstation`, the local-first
+KYC tier — SQLite-WASM/OPFS DB worker + TS ports of tiering/onboarding/review, tiering
+parity-locked via `poe tiering-golden-check`). Always use `pnpm` for frontend package
+management.
 
 ### Infrastructure
 ```bash
@@ -198,8 +201,18 @@ Tests use `pytest-asyncio` with `asyncio_mode = "auto"`. The browser tier's wire
 normalizer, and **scoring output** are parity-tested against the Python side (see
 `crypto.test.ts`, `normalize.test.ts`, and `scoring.parity.test.ts` — the last asserts the
 TS scorer against a golden emitted by the Python source of truth via
-`backend/scripts/gen_scoring_golden.py`). The embedder is wired through a `createEmbedderWith`
-seam for parity testing but is not yet covered by a committed parity test.
+`backend/scripts/gen_scoring_golden.py`). The workstation's **tier classification** is
+parity-locked the same way: `backend/scripts/gen_tiering_golden.py` emits the golden,
+`poe tiering-golden` refreshes it, and `poe tiering-golden-check` (part of `poe gate`,
+alongside `scoring-golden-check`) fails on drift. The embedder is wired through a
+`createEmbedderWith` seam for parity testing but is not yet covered by a committed
+parity test.
+
+The `e2e-kyc` Playwright lane (`frontend/app` → `pnpm test:e2e:kyc`) is the
+**backend-free local-first journey**: onboard → auto-screen → review → resolve in real
+Chromium against the minified production build and the committed signed demo bundle —
+its webServers are `vite preview` + the static catalog server only (no Postgres, no
+FastAPI).
 
 ## Documentation
 

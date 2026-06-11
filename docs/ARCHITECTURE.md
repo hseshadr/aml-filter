@@ -200,8 +200,10 @@ Nimbus demo:
 On top of the screening engine, the DB-backed tier adds the case-management lifecycle a
 compliance team works. Every stage **reuses the existing pipeline** — none of it
 re-implements normalize → embed → retrieve → score → explain; it layers workflow and
-state around that one contract. This is a server, DB-backed capability only (it needs
-Postgres); the bundle and browser paths do not have it.
+state around that one contract. The full lifecycle below is a server, DB-backed
+capability (it needs Postgres); the onboard → tier → review → resolve slice also runs
+entirely in the browser — see
+[Local-first workstation (browser path)](#local-first-workstation-browser-path) below.
 
 The lifecycle, end to end:
 
@@ -245,6 +247,18 @@ running the affected customers through the *same* `screen_entity_against_list` s
 recording path; removed entries auto-close their open matches (RESOLVED, annotated). The
 worker uses the delta path when a **prior `ListVersion` exists** and falls back to a full
 rescan otherwise.
+
+#### Local-first workstation (browser path)
+
+The slice journey — onboard → auto-screen → tiered matches → review board → resolve —
+also runs entirely in the tab. Two stores, two trust models: the OFAC reference list
+stays on the signed, fail-closed bundle path (`@amlfilter/browser`); KYC records (your
+data) live in SQLite-WASM persisted to OPFS behind a DB Web Worker
+(`@amlfilter/workstation`, `opfs-sahpool` VFS — no COOP/COEP). Tiering is a TS port of
+`aml_filter/scoring/tiers.py`, parity-locked by a Python-emitted golden
+(`poe tiering-golden-check`, part of the gate). Resolution semantics port the observed
+server contract: PENDING on create, regex-valid dispositions, unconditional
+re-resolution, re-screen resets to PENDING.
 
 ## Multi-list ingestion (the parser registry)
 

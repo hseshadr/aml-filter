@@ -526,7 +526,10 @@
 
 .nav-links {
 	display: flex;
-	gap: var(--spacing-2xl);
+	/* The no-login nav always shows the workstation links; wrap instead of
+	   overflowing the viewport at mobile widths (375px landing guard). */
+	flex-wrap: wrap;
+	gap: var(--spacing-sm) var(--spacing-2xl);
 	align-items: center;
 }
 

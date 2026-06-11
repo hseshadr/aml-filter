@@ -5,8 +5,8 @@ import "../styles/landing.css";
 
 // The public marketing landing at "/". It is purely presentational: no engine,
 // no backend, no auth. It pitches the two tiers of aml-filter — the backend-free
-// in-browser screening demo (/screen) and the DB-backed compliance workstation
-// (/login) — and routes a logged-out visitor to whichever they want.
+// in-browser screening demo (/screen) and the local-first KYC workstation
+// (/customers) — and routes a visitor to whichever they want.
 //
 // HONESTY: every KPI below is a real number, not marketing fiction. The two
 // measured figures are GENERATED from the actual source files by
@@ -92,13 +92,12 @@ const STEPS: readonly Step[] = [
 	{ n: "6", label: "ranked matches with per-signal reasons" },
 ];
 
-const WORKSTATION_FLOW: readonly string[] = [
-	"onboard customers",
-	"auto-screen against OFAC / EU / UK / UN lists",
-	"triage by match strength on a review board",
-	"file a SAR on a strong match",
-	"issue a signed periodic-review badge",
-];
+const WORKSTATION_FLOW = [
+	"Onboard a customer",
+	"Auto-screen in-tab",
+	"Tiered review board",
+	"Resolve with an audit trail",
+] as const;
 
 function MetricTile({ metric }: { readonly metric: Metric }) {
 	const toneClass = metric.tone ? ` landing__tile-num--${metric.tone}` : "";
@@ -148,8 +147,8 @@ function Hero() {
 				<Link to="/screen" className="landing__btn landing__btn--primary">
 					▶ Try the live demo
 				</Link>
-				<Link to="/login" className="landing__btn landing__btn--ghost">
-					Admin login
+				<Link to="/customers" className="landing__btn landing__btn--ghost">
+					Open the workstation
 				</Link>
 			</div>
 			<p className="landing__footnote">
@@ -218,14 +217,17 @@ function Workstation() {
 			className="landing__workstation"
 			aria-label="Compliance workstation"
 		>
-			<div className="landing__workstation-kicker">the backend / DB tier</div>
+			<div className="landing__workstation-kicker">
+				the local-first KYC tier
+			</div>
 			<h2 className="landing__workstation-title">
-				Need the full workflow? Run a local, DB-backed compliance workstation.
+				Need the full workflow? The KYC workstation runs in your browser too.
 			</h2>
 			<p className="landing__workstation-lede">
-				The in-browser demo is one tier. The other is a self-hosted compliance
-				workstation backed by <strong>your own Postgres</strong> — your customer
-				data stays in-house, never on someone else&rsquo;s servers.
+				Onboard customers, auto-screen them against the signed sanctions bundle,
+				and triage tiered matches on a review board — persisted to SQLite in
+				your browser&rsquo;s private storage (OPFS). No login, no server: your
+				customer data never leaves the device.
 			</p>
 			<ol className="landing__workstation-flow">
 				{WORKSTATION_FLOW.map((label, i) => (
@@ -239,8 +241,8 @@ function Workstation() {
 					</li>
 				))}
 			</ol>
-			<Link to="/login" className="landing__btn landing__btn--invert">
-				Open the workstation login
+			<Link to="/customers" className="landing__btn landing__btn--invert">
+				Start onboarding
 			</Link>
 		</section>
 	);

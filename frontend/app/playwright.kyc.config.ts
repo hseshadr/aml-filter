@@ -1,34 +1,25 @@
 import { defineConfig, devices } from "@playwright/test";
 
 /**
- * e2e-kyc — the FULL DB-backed KYC / AML compliance journey, proven END-TO-END in
- * a real headless Chromium against the MINIFIED production build talking to a LIVE
- * FastAPI + PostgreSQL backend.
+ * e2e-kyc — the LOCAL-FIRST KYC workstation journey, proven END-TO-END in a
+ * real headless Chromium against the MINIFIED production build with ZERO
+ * application backend: the OFAC list is the committed signed demo bundle
+ * (backend/examples/catalog) verified against the pinned key, and KYC records
+ * live in SQLite-WASM persisted to OPFS via the DB Worker.
  *
- * This is the regression guard the C1 suite never provided: C1 only covers the
- * backend-free in-browser `/screen` tier, NOT the auth-gated `/customers`,
- * `/review`, `/sars`, `/attestations`, `/lists` pages that hit the real backend.
+ * Two Playwright-managed webServers (the C1 pattern):
+ *   - `vite preview` over a freshly built dist/ with VITE_BUNDLE_BASE_URL
+ *     baked to the catalog origin;
+ *   - the CORS static catalog server reused from the C1 suite, serving the
+ *     committed signed bundle.
  *
- * Two Playwright-managed webServers:
- *   - the FastAPI app (DB-backed) on `API_PORT`, started by `start-api.sh` which
- *     mints the attestation keypair, migrates the DB, and seeds the deterministic
- *     KYC fixture before exec'ing uvicorn;
- *   - `vite preview` over a freshly built dist/, with `VITE_API_URL` baked to the
- *     API origin so the SPA's axios client hits the live backend.
- *
- * Port discipline (see CLAUDE.md): a Docker service holds :8000 and a stray vite
- * can squat IPv6 :5173, so we deliberately bind the API on `API_PORT` (8010) and
- * the SPA on `SPA_PORT` (4178) over 127.0.0.1, and the spec asserts the page
- * <title> is aml-filter's before trusting the run. `http://localhost` /
- * `127.0.0.1` is a secure context.
+ * `http://localhost` is a secure context — REQUIRED for OPFS (both the
+ * bundle cache and the sahpool database) and WebCrypto verification. A LAN
+ * IP or host.docker.internal is NOT a secure context and does not count as
+ * validation (CLAUDE.md browser-validation mandate).
  */
-const API_PORT = Number(process.env.E2E_KYC_API_PORT ?? 8010);
+const CATALOG_PORT = Number(process.env.E2E_KYC_CATALOG_PORT ?? 8912);
 const SPA_PORT = Number(process.env.E2E_KYC_SPA_PORT ?? 4178);
-
-const DATABASE_URL =
-	process.env.E2E_KYC_DATABASE_URL ??
-	"postgresql+asyncpg://amlfilter:amlfilter_dev_password@127.0.0.1:5435/amlfilter_e2e_kyc";
-const REDIS_URL = process.env.E2E_KYC_REDIS_URL ?? "redis://127.0.0.1:6379/0";
 
 export default defineConfig({
 	testDir: "tests/e2e-kyc",
@@ -37,58 +28,38 @@ export default defineConfig({
 	retries: 0,
 	workers: 1,
 	reporter: [["list"]],
-	timeout: 120_000,
-	expect: { timeout: 20_000 },
+	timeout: 180_000,
+	expect: { timeout: 30_000 },
 	use: {
-		baseURL: `http://127.0.0.1:${SPA_PORT}`,
+		baseURL: `http://localhost:${SPA_PORT}`,
 		headless: true,
-		actionTimeout: 20_000,
+		actionTimeout: 30_000,
 		navigationTimeout: 30_000,
 		trace: "retain-on-failure",
-		// Per-test downloads land here so the SAR/attestation export assertions can
-		// read the bytes back and check the %PDF magic header.
-		acceptDownloads: true,
 	},
 	projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
 	webServer: [
 		{
-			// DB-backed FastAPI app: schema + seed + run, all idempotent. The script
-			// lives in the frontend app's test dir but runs from backend/ (so uv +
-			// alembic + scripts resolve), hence the ../frontend path back into it.
-			command: "bash ../frontend/app/tests/e2e-kyc/start-api.sh",
-			cwd: "../../backend",
-			url: `http://127.0.0.1:${API_PORT}/health`,
+			// Minified SPA with the catalog origin baked in. The model-load
+			// ceiling is bounded so a blocked weights path fails loudly in
+			// seconds (same rationale as the C1 config).
+			command: `pnpm build && pnpm exec vite preview --port ${SPA_PORT} --strictPort`,
+			url: `http://localhost:${SPA_PORT}/`,
 			reuseExistingServer: !process.env.CI,
 			timeout: 180_000,
-			stdout: "pipe",
-			stderr: "pipe",
 			env: {
-				DATABASE_URL,
-				REDIS_URL,
-				E2E_API_PORT: String(API_PORT),
-				// EMBEDDING_MODEL_PATH + offline flags are passed through from the
-				// environment (CI sets them to the pre-fetched MiniLM weights); locally
-				// they are unset and the model is loaded from the HF cache.
-				...(process.env.EMBEDDING_MODEL_PATH
-					? { EMBEDDING_MODEL_PATH: process.env.EMBEDDING_MODEL_PATH }
-					: {}),
-				...(process.env.HF_HUB_OFFLINE
-					? { HF_HUB_OFFLINE: process.env.HF_HUB_OFFLINE }
-					: {}),
-				...(process.env.TRANSFORMERS_OFFLINE
-					? { TRANSFORMERS_OFFLINE: process.env.TRANSFORMERS_OFFLINE }
-					: {}),
+				VITE_BUNDLE_BASE_URL: `http://localhost:${CATALOG_PORT}`,
+				VITE_MODEL_LOAD_TIMEOUT_MS: "45000",
 			},
 		},
 		{
-			// Minified SPA with the live API origin baked in.
-			command: `pnpm build && pnpm exec vite preview --host 127.0.0.1 --port ${SPA_PORT} --strictPort`,
-			url: `http://127.0.0.1:${SPA_PORT}/login`,
+			// The committed signed demo bundle, served with CORS — the REAL
+			// artifact + the REAL pinned key, not a synthetic stand-in.
+			command: "node tests/e2e-c1/catalog-server.mjs",
+			url: `http://localhost:${CATALOG_PORT}/latest`,
 			reuseExistingServer: !process.env.CI,
-			timeout: 180_000,
-			env: {
-				VITE_API_URL: `http://127.0.0.1:${API_PORT}`,
-			},
+			timeout: 30_000,
+			env: { CATALOG_PORT: String(CATALOG_PORT) },
 		},
 	],
 });
