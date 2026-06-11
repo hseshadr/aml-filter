@@ -273,7 +273,11 @@ typecheck   = "mypy --strict aml_filter/"
 complexity  = "xenon --max-absolute A --max-modules A --max-average A aml_filter/"
 test        = "pytest -m 'not integration'"
 test-all    = "pytest"
-audit       = "pip-audit"
+# CVE-2025-3000 (torch): low-severity, local-only (CVSS4 AV:L, VC:L/VI:L/VA:L) and NO
+# fixed release exists (2.12.0 is latest and affected). torch here only embeds names
+# with self-hosted pinned weights — no untrusted model/input path. Drop the ignore as
+# soon as a patched torch ships (tracking issue on the repo).
+audit       = "pip-audit --ignore-vuln CVE-2025-3000"
 scoring-golden = { shell = "uv run python scripts/gen_scoring_golden.py ../frontend/packages/amlfilter-browser/src/engine/__fixtures__/scoring/golden.json", help = "Regenerate the browser scoring parity golden from the Python source of truth" }
 scoring-golden-check = { shell = "uv run python scripts/gen_scoring_golden.py \"${TMPDIR:-/tmp}/aml_scoring_golden.json\" >/dev/null && diff -u ../frontend/packages/amlfilter-browser/src/engine/__fixtures__/scoring/golden.json \"${TMPDIR:-/tmp}/aml_scoring_golden.json\"", help = "Fail if the committed scoring golden is stale vs the Python source of truth (run `poe scoring-golden` to refresh)" }
 tiering-golden = { shell = "uv run python scripts/gen_tiering_golden.py ../frontend/packages/amlfilter-workstation/src/__fixtures__/tiering/golden.json", help = "Regenerate the workstation tiering parity golden from the Python source of truth" }
