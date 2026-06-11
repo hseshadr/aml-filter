@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+	act,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { workstation } from "../lib/workstation";
 import WorkstationGate from "./WorkstationGate";
@@ -8,6 +14,8 @@ vi.mock("../lib/workstation", () => ({
 }));
 
 const mockWorkstation = vi.mocked(workstation);
+
+type OnStage = Parameters<ReturnType<typeof makeHandle>["engineBoot"]>[0];
 
 function makeHandle(analystName: string | null) {
 	return {
@@ -19,6 +27,33 @@ function makeHandle(analystName: string | null) {
 		onboarding: {},
 		engineBoot: vi.fn().mockResolvedValue(undefined),
 	};
+}
+
+/**
+ * Build a handle whose engineBoot captures the onStage callback so tests can
+ * drive stage transitions after mount.  engineBoot returns a promise that never
+ * settles so stages can be fired manually.
+ */
+function makeControllableHandle(analystName: string | null) {
+	let fireStage!: OnStage;
+	let rejectBoot!: (err: Error) => void;
+	const engineBoot = vi.fn(
+		(onStage: OnStage) =>
+			new Promise<void>((_resolve, reject) => {
+				fireStage = onStage;
+				rejectBoot = reject;
+			}),
+	);
+	const handle = {
+		store: {
+			getSetting: vi.fn().mockResolvedValue(analystName),
+			setSetting: vi.fn().mockResolvedValue(undefined),
+		},
+		tracker: {},
+		onboarding: {},
+		engineBoot,
+	};
+	return { handle, fireStage: () => fireStage, rejectBoot: () => rejectBoot };
 }
 
 beforeEach(() => {
@@ -81,5 +116,101 @@ describe("WorkstationGate", () => {
 		await waitFor(() =>
 			expect(screen.getByText("WORKSTATION CONTENT")).toBeInTheDocument(),
 		);
+	});
+});
+
+describe("EngineStatusStrip (rendered inside WorkstationGate once ready)", () => {
+	it("shows the correct label for each stage as stages fire", async () => {
+		const { handle, fireStage } = makeControllableHandle("Avery Analyst");
+		// biome-ignore lint/suspicious/noExplicitAny: structural fake for the mocked seam
+		mockWorkstation.mockResolvedValue(handle as any);
+		render(
+			<WorkstationGate>
+				<div>WORKSTATION CONTENT</div>
+			</WorkstationGate>,
+		);
+		// Wait until children (and therefore EngineStatusStrip) are mounted.
+		await screen.findByText("WORKSTATION CONTENT");
+
+		// syncing → "syncing the sanctions list…"
+		act(() => fireStage()({ kind: "syncing" }));
+		await screen.findByText(/syncing the sanctions list…/i);
+
+		// synced → "preparing the screening index…"
+		act(() => fireStage()({ kind: "synced", result: {} as never }));
+		await screen.findByText(/preparing the screening index…/i);
+
+		// reassembling → same label
+		act(() => fireStage()({ kind: "reassembling" }));
+		await screen.findByText(/preparing the screening index…/i);
+
+		// loading-model without progress → no % suffix
+		act(() => fireStage()({ kind: "loading-model" }));
+		await waitFor(() => {
+			const label = screen.getByRole("status", {
+				name: (_, el) =>
+					(el?.textContent ?? "").includes("loading the name-matching model"),
+			});
+			expect(label.textContent).toMatch(/loading the name-matching model…$/);
+		});
+
+		// loading-model with progress → shows rounded %
+		act(() =>
+			fireStage()({ kind: "loading-model", progress: { pct: 42.7 } as never }),
+		);
+		await waitFor(() => {
+			const label = screen.getByRole("status", {
+				name: (_, el) =>
+					(el?.textContent ?? "").includes("loading the name-matching model"),
+			});
+			expect(label.textContent).toMatch(/43%/);
+		});
+	});
+
+	it("hides the strip once the ready stage fires", async () => {
+		const { handle, fireStage } = makeControllableHandle("Avery Analyst");
+		// biome-ignore lint/suspicious/noExplicitAny: structural fake for the mocked seam
+		mockWorkstation.mockResolvedValue(handle as any);
+		render(
+			<WorkstationGate>
+				<div>WORKSTATION CONTENT</div>
+			</WorkstationGate>,
+		);
+		await screen.findByText("WORKSTATION CONTENT");
+
+		// Put something on screen first so we know the strip was visible.
+		act(() => fireStage()({ kind: "syncing" }));
+		await screen.findByText(/syncing the sanctions list…/i);
+
+		// ready → strip should vanish.
+		act(() => fireStage()({ kind: "ready" }));
+		await waitFor(() =>
+			expect(
+				screen.queryByText(/syncing the sanctions list…/i),
+			).not.toBeInTheDocument(),
+		);
+		// Children remain rendered — the gate is not blocking.
+		expect(screen.getByText("WORKSTATION CONTENT")).toBeInTheDocument();
+	});
+
+	it("shows the non-blocking engine-unavailable warning while still rendering children", async () => {
+		const { handle, rejectBoot } = makeControllableHandle("Avery Analyst");
+		// biome-ignore lint/suspicious/noExplicitAny: structural fake for the mocked seam
+		mockWorkstation.mockResolvedValue(handle as any);
+		render(
+			<WorkstationGate>
+				<div>WORKSTATION CONTENT</div>
+			</WorkstationGate>,
+		);
+		await screen.findByText("WORKSTATION CONTENT");
+
+		// Simulate the engine boot rejecting.
+		act(() => rejectBoot()(new Error("FAISS index failed to load")));
+
+		// Warning strip appears…
+		await screen.findByText(/screening engine unavailable/i);
+		expect(screen.getByText(/FAISS index failed to load/i)).toBeInTheDocument();
+		// …but children are STILL rendered (non-blocking).
+		expect(screen.getByText("WORKSTATION CONTENT")).toBeInTheDocument();
 	});
 });

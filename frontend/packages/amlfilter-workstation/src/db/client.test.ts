@@ -90,6 +90,19 @@ describe("DbClient", () => {
 		await expect(resolve).rejects.toBeInstanceOf(NotFoundError);
 	});
 
+	it("rejects all in-flight requests on terminate", {
+		timeout: 1000,
+	}, async () => {
+		const worker = new FakeWorker();
+		const client = new DbClient(worker);
+		// FakeWorker never replies on its own — both calls stay in flight.
+		const open = client.open();
+		const list = client.listCustomers();
+		client.terminate();
+		await expect(open).rejects.toThrow(/terminated/);
+		await expect(list).rejects.toThrow(/terminated/);
+	});
+
 	it("rejects on an unexpected response kind", async () => {
 		const worker = new FakeWorker();
 		const client = new DbClient(worker);
