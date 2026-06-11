@@ -16,7 +16,9 @@ import { ScreenPage } from "./pages/ScreenPage";
 // UsagePage, WhitelistPage, SarsPage, SarFormPage, AttestationsPage) and the
 // ApiClient remain in the repo for SaaS deployments but are NOT routed in the
 // local-first app (spec D3 + §9.2) — no dead UI behind a login with nothing
-// to log into.
+// to log into. The auth subtree (AuthContext, ProtectedRoute, LoginPage) is
+// likewise intentionally kept-but-unreachable, retained for a future SaaS
+// mode.
 const CustomersPage = lazy(() => import("./pages/CustomersPage"));
 const ReviewBoardPage = lazy(() => import("./pages/ReviewBoardPage"));
 
