@@ -4,87 +4,47 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [3.0.0] — 2026-06-19
+
+**The pivot to zero-server.** aml-filter is now a free, **pure-TypeScript, in-browser**
+AML/sanctions screening app — no backend, no database, no signup. The entire
+Python/FastAPI/Postgres server tier was removed; screening, customer storage, and
+watchlist sync all run in the browser tab. (Closes #13, #16, #23 as won't-fix — there is
+no Postgres, no server, and no torch left to fix.)
 
 ### Added
 
-- **KYC / AML compliance workstation (DB path).** A full case-management lifecycle on
-  top of the screening engine — reference implementation, not a compliance product (see
-  [`NOTICE`](NOTICE)). It is DB-path only (needs Postgres) and tenant-scoped via
-  `X-API-Key`. The frontend SPA mounts a page for each step
-  (`/customers`, `/review`, `/sars`, `/attestations`, `/lists`).
-  - **Customer onboarding** — a `Customer` model 1:1-linked to a screened WHITELIST
-    `Entity`; an `OnboardingService` that screens on onboarding by reusing the existing
-    bidirectional screening path; `POST/GET/PUT/DELETE /v1/customers`
-    (`aml_filter/customers/`, `api/v1/customers.py`).
-  - **Match tiering + review board** — a `MatchTier` (STRONG / POSSIBLE / WEAK)
-    classification layered over the parity-locked score without altering it
-    (`scoring/tiers.py`); `GET /v1/review/matches` + `PUT .../resolve`
-    (`api/v1/review.py`).
-  - **Multi-list ingest** — a generic `SanctionsListParser` registry
-    (`ingest/parsers/base.py`) with OFAC, EU consolidated, UK OFSI, and UN consolidated
-    parsers; `ingest_list`; a downloader/scheduler (`ingest/downloader.py`,
-    `worker/ingest_jobs.py`); `GET /v1/lists/available`; per-tenant enable/disable.
-  - **SAR filing** — a `Sar` model and a jurisdiction-agnostic engine (`sar/`) with a
-    FinCEN renderer (JSON + reportlab PDF), STRONG-gated; `POST/GET/PUT /v1/sars` +
-    `/export`. Export produces a fileable artifact; it does **not** submit to FinCEN or
-    any government system.
-  - **Screening attestations** — an `Attestation` model with canonical-payload ed25519
-    sign/verify reusing the bundle trust root, a staleness window, and a periodic RQ
-    refresh job; `POST/GET /v1/attestations` + `/verify` + `/export`
-    (`attestation/`).
-  - **Delta-driven rescan (backend-only)** — re-screens only the customers near changed
-    sanctions entries (full rescan as a fallback when no prior `ListVersion` exists),
-    via a list diff + a customer-side FAISS index
-    (`screening/delta_rescan.py`, `search/customer_index.py`).
-- **Live match-strictness slider on `/screen`** (Lenient / Balanced / Strict) — gates
-  candidate generation on lexical (trigram) relevance to the query, cutting
-  embedding-baseline false positives. Search-layer only; the scoring contract and
-  cross-path parity are untouched. (#8)
-- **Cross-language scoring parity test + drift-guard** — the TS scorer is now asserted
-  against a golden emitted by the Python source of truth (`scripts/gen_scoring_golden.py`),
-  with a `poe scoring-golden-check` guard so the two sides cannot silently diverge. (#5)
-- **Bundle↔key drift-guard test** — fails closed if the committed demo bundle
-  (`backend/examples/catalog`) stops verifying against the pinned key
-  (`frontend/app/public/public.key`), and boot errors now name the bundle origin. (#9)
-- **Overridable demo ports** — `AML_EDGE_PORT` / `AML_SPA_PORT` let the `/screen` demo
-  run when the default ports are taken. (#7)
+- **Signed-watchlist publisher** (`@amlfilter/publisher`) — fetch OFAC SDN → embed names
+  with **transformers.js in Node** (no torch, no Python) → Ed25519-sign
+  `{version, entities, vectors}` → emit 4 signed static files. Wire format documented in
+  [`docs/WATCHLIST_FORMAT.md`](docs/WATCHLIST_FORMAT.md); published by
+  `.github/workflows/publish-watchlist.yml`.
+- **Bidirectional auto-rescan** — a watchlist change re-screens every customer; a
+  customer change re-screens just that customer. Sync runs on app-open and via a
+  "Check for updates" button. A resolved match keeps its disposition across rescans.
+- **In-tab signed-watchlist load** — the browser engine verifies the watchlist
+  **fail-closed** (Ed25519 / WebCrypto) and loads precomputed name vectors; only the
+  query / customer name is embedded in-tab, so cold start stays fast.
 
 ### Changed
 
-- **Honest claims pass.** Corrected the overstated "byte-compatible scoring" claim by
-  fixing a multi-country description divergence on both sides (deterministic sorted
-  output) and dropping the unsupported embedder-parity claim. (#5)
-- **Honest security docs.** Documented Row Level Security as currently inert scaffolding
-  — the app layer is the real tenant-isolation control — and clarified that the
-  `X-API-Key` scope applies only to the DB-backed `POST /v1/screen` HTTP tier; also
-  fixed a GUC-name / "set by middleware" doc bug. (#12)
-- **Smaller `/screen` payload.** Code-split the admin routes out of the `/screen`
-  bundle. (#11)
-- **More reliable e2e CI.** The Playwright e2e job now fetches the MiniLM model weights
-  from the `model-weights-v1` GitHub Release asset instead of live Hugging Face (which
-  429s GitHub runners); `download-model.mjs` honors `Retry-After` and backs off on
-  429/5xx. (#15)
+- **Screening engine** now consumes a single signed JSON watchlist + brute-force cosine,
+  replacing the chunked content-addressed bundle + FAISS index (and its OPFS/zstd/GearCDC
+  sync tier, ~1.5k lines, removed).
+- **Goldens are now frozen committed regression snapshots** — the TS scorer/tiering is the
+  single source of truth (the Python golden generators were removed with the backend).
+- **Frontend majors**: React 18→19, React Router 6→7, Vite 7→8, `@vitejs/plugin-react`
+  5→6, TypeScript 5→6.
+- **CI is pure pnpm** — Biome → tsc → Vitest → build → Playwright C1 + KYC e2e.
 
-### Fixed
+### Removed
 
-- **`whitelist_blacklist_matches.match_id` schema drift.** The column was created as a
-  native `uuid` by the original migration but the ORM declares `String(36)`, which made
-  `GET /v1/review/matches` 500 and broke inserts on a migrated database. Migration
-  `6d4e7a1b` converts it `uuid → varchar(36)` to match the model.
-- **`/screen` in-browser boot hang.** Added boot-path timeouts and a StrictMode-safe
-  Retry, self-hosted SHA-256-pinned MiniLM weights (no runtime HF CDN dependency), and
-  model-load progress. (#6)
-- **Unrecoverable signature failure from HTTP cache.** The mutable `/latest` bundle
-  pointer is now fetched with `cache: "no-store"`, so a stale cached pointer can no
-  longer poison signature verification. (#10)
-- **Confusing port-collision failures.** A foreign bundle served on a colliding port no
-  longer looks like a crypto failure — the demo diagnoses the collision (no crypto
-  change). (#9)
-
-### Security
-
-- Constrained `pip >= 26.1.2` to clear PYSEC-2026-196. (#10)
+- **The entire Python/FastAPI server tier**: Postgres/pgvector, alembic + RLS,
+  multi-tenancy / API-keys / rate-limiting, batch + RQ workers, OFAC ingest, the DB-path
+  search backends, the `amlfilter` CLI, torch / sentence-transformers, and docker-compose.
+- The dead admin/auth SPA surface (login, the 8 server-tier pages, the axios client,
+  `@tanstack/react-query`).
+- `docs/API_SPEC.md` and `docs/DATABASE_SCHEMA.md` (no HTTP API, no SQL schema).
 
 ## [2.1.0] — 2026-05-31
 

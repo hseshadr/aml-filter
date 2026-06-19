@@ -1,7 +1,7 @@
 {
 	"name": "@amlfilter/publisher",
 	"private": true,
-	"version": "2.1.0",
+	"version": "3.0.0",
 	"license": "MIT",
 	"type": "module",
 	"description": "Node-side signed-watchlist publisher: maps OFAC entities, precomputes name vectors (transformers.js), and emits the signed v3 wire artifact the browser tier syncs.",

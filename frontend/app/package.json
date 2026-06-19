@@ -1,6 +1,6 @@
 {
 	"name": "aml-filter-app",
-	"version": "2.1.0",
+	"version": "3.0.0",
 	"description": "AML-Filter v2 frontend — admin dashboard + in-browser OFAC screening.",
 	"type": "module",
 	"private": true,

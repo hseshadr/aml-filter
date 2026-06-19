@@ -1,7 +1,7 @@
 {
 	"name": "@amlfilter/browser",
 	"private": true,
-	"version": "2.1.0",
+	"version": "3.0.0",
 	"license": "MIT",
 	"type": "module",
 	"description": "In-browser signed-bundle sync + explainable OFAC name screening (the aml-filter browser tier).",
