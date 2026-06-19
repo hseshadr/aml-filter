@@ -134,9 +134,8 @@ export default function WorkstationGate({ children }: WorkstationGateProps) {
 }
 
 function engineStageLabel(stage: BootStage): string | null {
-	if (stage.kind === "syncing") return "syncing the sanctions list…";
-	if (stage.kind === "synced" || stage.kind === "reassembling")
-		return "preparing the screening index…";
+	if (stage.kind === "downloading") return "downloading the sanctions list…";
+	if (stage.kind === "verified") return "preparing the screening index…";
 	if (stage.kind === "loading-model") {
 		const pct = stage.progress ? ` ${Math.round(stage.progress.pct)}%` : "";
 		return `loading the name-matching model…${pct}`;

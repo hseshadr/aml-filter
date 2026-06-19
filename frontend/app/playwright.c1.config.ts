@@ -6,17 +6,18 @@ import { defineConfig, devices } from "@playwright/test";
  * exercises (it runs `vite dev`, which is unminified and so hid the production
  * `Ke(...).call is not a function` model-load crash).
  *
- * Two webServers, started by Playwright:
- *   - `vite preview` over a freshly built dist/ (minified SPA + pinned pubkey),
- *     with VITE_BUNDLE_BASE_URL baked to the catalog origin below;
- *   - a CORS static server for the committed signed OFAC bundle.
+ * ONE webServer: `vite preview` over a freshly built dist/. The v3 signed
+ * watchlist (watchlist.json + .sig + manifest, in app/public/watchlist/) is a
+ * plain static asset served same-origin by `vite preview` — no separate catalog
+ * server, no VITE_BUNDLE_BASE_URL. The pinned ed25519 public key
+ * (app/public/public.key) ships in the same build and is read same-origin.
  *
  * The spec drives a real headless Chromium: it waits for the full
- * sync → verify → ~23 MB model download → screen pipeline, then asserts a real
- * explainable match for a sanctioned name and an empty result for a nonsense
- * name. `http://localhost` is a secure context, so OPFS works with no COOP/COEP.
+ * download → ed25519-verify → ~23 MB model download → screen pipeline, then
+ * asserts a real explainable match for the committed sanctioned name and an
+ * empty result for a nonsense name. `http://localhost` is a secure context, so
+ * OPFS + WebCrypto work with no COOP/COEP.
  */
-const CATALOG_PORT = 8911;
 const SPA_PORT = 4175;
 
 export default defineConfig({
@@ -38,7 +39,8 @@ export default defineConfig({
 	projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
 	webServer: [
 		{
-			// Build the minified SPA with the bundle origin baked in, then preview it.
+			// Build the minified SPA (which bundles the committed signed watchlist
+			// + pinned pubkey as static public/ assets), then preview it.
 			command: `pnpm build && pnpm exec vite preview --port ${SPA_PORT} --strictPort`,
 			url: `http://localhost:${SPA_PORT}/screen`,
 			reuseExistingServer: !process.env.CI,
@@ -48,16 +50,8 @@ export default defineConfig({
 			// 120s production ceiling. A local (or self-hosted) model load finishes
 			// well under this bound, so the warm specs are unaffected.
 			env: {
-				VITE_BUNDLE_BASE_URL: `http://localhost:${CATALOG_PORT}`,
 				VITE_MODEL_LOAD_TIMEOUT_MS: "45000",
 			},
-		},
-		{
-			command: "node tests/e2e-c1/catalog-server.mjs",
-			url: `http://localhost:${CATALOG_PORT}/latest`,
-			reuseExistingServer: !process.env.CI,
-			timeout: 30_000,
-			env: { CATALOG_PORT: String(CATALOG_PORT) },
 		},
 	],
 });

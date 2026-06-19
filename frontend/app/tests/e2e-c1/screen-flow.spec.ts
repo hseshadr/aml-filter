@@ -10,12 +10,17 @@ import { expect, test } from "@playwright/test";
  * both run unminified and so never caught it. This spec exercises the exact path
  * a real visitor hits:
  *
- *   sync the signed bundle → verify ed25519+sha256 → download + compile the
- *   ~23 MB MiniLM model in the Worker → search the list in-tab as you type.
+ *   fetch the signed watchlist.json (same-origin) → ed25519-verify fail-closed
+ *   → decode the precomputed vectors → download + compile the ~23 MB MiniLM
+ *   model in the Worker → search the list in-tab as you type.
  *
- * It asserts: the empty box browses the whole list; an exact name and a TYPO
- * both surface a real, explainable, full-dossier match; nonsense returns no
- * match — all with NO in-page errors.
+ * It is also the embedding-parity end-to-end proof + the real-artifact guard:
+ * it drives the COMMITTED signed watchlist.json against the COMMITTED pinned
+ * key and asserts the known demo entity "Ivan Fakovich" (DEMO_SDN:0001) surfaces
+ * as a strong, explainable hit. It asserts: the empty box browses the whole
+ * list; an exact name and a TYPO both surface a real, explainable, scored hit
+ * with the watchlist's DOB; nonsense returns no match — all with NO in-page
+ * errors.
  */
 
 const MODEL_LOAD_TIMEOUT_MS = 160_000;
@@ -39,9 +44,9 @@ test("searches the sanctions list in-browser over the minified build, with full 
 	const search = page.getByPlaceholder("Search a name, e.g. Ivan Fakovich");
 	await expect(search).toBeVisible();
 
-	// Bootstrap = sync + verify + ~23 MB model download + compile. The box is
-	// disabled until the runtime is "ready"; that it ENABLES proves the model
-	// loaded without the production crash.
+	// Bootstrap = fetch watchlist + ed25519-verify + ~23 MB model download +
+	// compile. The box is disabled until the runtime is "ready"; that it ENABLES
+	// proves the watchlist verified and the model loaded without the prod crash.
 	await expect(search).toBeEnabled({ timeout: MODEL_LOAD_TIMEOUT_MS });
 
 	const alert = page.locator('[role="alert"]');
@@ -72,9 +77,8 @@ test("searches the sanctions list in-browser over the minified build, with full 
 	expect(
 		await scoredCard.locator(".match-card__signal dt").count(),
 	).toBeGreaterThan(0);
-	// the widened dossier: DOB + address surfaced from the bundle
+	// the dossier carries the DOB the v3 watchlist publishes for this entity.
 	await expect(scoredCard).toContainText("1971-03-14");
-	await expect(scoredCard).toContainText("Invented Prospekt");
 
 	// --- fuzzy: a TYPO still finds the target (vector + trigram) ---
 	await search.fill("");

@@ -1,9 +1,11 @@
-// Node-only test helpers (Vitest): load the REAL committed signed bundle that
-// ships INSIDE this package (__fixtures__/bundle/, produced by the Python
-// producer via backend/scripts/gen_browser_fixture.py) so the unit tests prove
-// byte-parity with the producer against a self-contained fixture. The node
-// reference scopes Node types to this test-only file without leaking them into
-// runtime code.
+// Node-only test helpers (Vitest): load the REAL committed signed demo
+// watchlist that the /screen SPA ships (frontend/app/public/watchlist/),
+// produced + signed by the v3 publisher (frontend/packages/amlfilter-publisher),
+// plus the pinned public key the SPA verifies against. Tests prove fail-closed
+// verification and the signed-JSON load against this committed artifact — the
+// REAL one the live demo uses, not a synthetic stand-in. The node reference
+// scopes Node types to this test-only file without leaking them into runtime
+// code.
 //
 // NOT exported from any production barrel — imported only by *.test.ts files.
 
@@ -16,11 +18,19 @@ import type { Entity } from "./domain";
 import type { Preset, ScoringQuery } from "./scoring";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const BUNDLE = join(HERE, "__fixtures__", "bundle");
-const KEYS = join(BUNDLE, "keys");
-const ORIGIN = join(BUNDLE, "origin");
-const STAGING = join(BUNDLE, "staging");
+// src/engine -> amlfilter-browser -> packages -> frontend -> repo root.
+const REPO_ROOT = join(HERE, "..", "..", "..", "..", "..");
+const WATCHLIST = join(REPO_ROOT, "frontend", "app", "public", "watchlist");
+const PINNED_PUBKEY = join(
+	REPO_ROOT,
+	"frontend",
+	"app",
+	"public",
+	"public.key",
+);
 const SCORING = join(HERE, "__fixtures__", "scoring");
+
+const DECODER = new TextDecoder();
 
 /** One expected weighted reason in the Python-emitted scoring golden. */
 export interface GoldenReason {
@@ -55,65 +65,33 @@ export function scoringGolden(): ReadonlyArray<GoldenCase> {
 	) as GoldenCase[];
 }
 
+/** The pinned ed25519 public key the SPA ships (frontend/app/public/public.key). */
 export function pubkeyRaw(): Uint8Array {
-	return new Uint8Array(readFileSync(join(KEYS, "public.key")));
+	return new Uint8Array(readFileSync(PINNED_PUBKEY));
 }
 
-export function latestBytes(): Uint8Array {
-	return new Uint8Array(readFileSync(join(ORIGIN, "latest")));
+/** Raw bytes of the committed signed watchlist.json. */
+export function watchlistBytes(): Uint8Array {
+	return new Uint8Array(readFileSync(join(WATCHLIST, "watchlist.json")));
 }
 
-export function manifestBytes(hash: string): Uint8Array {
-	return new Uint8Array(readFileSync(join(ORIGIN, "manifest", hash)));
+/** The detached base64 signature over watchlist.json. */
+export function watchlistSig(): string {
+	return DECODER.decode(
+		readFileSync(join(WATCHLIST, "watchlist.json.sig")),
+	).trim();
 }
 
-export function chunkBytes(hash: string): Uint8Array {
-	return new Uint8Array(readFileSync(join(ORIGIN, "chunk", hash)));
+/** Raw bytes of the committed signed watchlist.manifest.json. */
+export function watchlistManifestBytes(): Uint8Array {
+	return new Uint8Array(
+		readFileSync(join(WATCHLIST, "watchlist.manifest.json")),
+	);
 }
 
-/** The staged (pre-bundle) entities.jsonl — for direct screening-engine tests. */
-export function stagedEntities(): Uint8Array {
-	return new Uint8Array(readFileSync(join(STAGING, "entities.jsonl")));
-}
-
-/** The staged vector/index.faiss — for direct vector-index reader tests. */
-export function stagedIndex(): Uint8Array {
-	return new Uint8Array(readFileSync(join(STAGING, "vector", "index.faiss")));
-}
-
-/** The staged vector/state.json — for direct vector-index reader tests. */
-export function stagedState(): Uint8Array {
-	return new Uint8Array(readFileSync(join(STAGING, "vector", "state.json")));
-}
-
-/** The staged ofac_meta.json — for direct screening-engine tests. */
-export function stagedMeta(): Uint8Array {
-	return new Uint8Array(readFileSync(join(STAGING, "ofac_meta.json")));
-}
-
-/**
- * A `FetchBytes` adapter backed by the real origin files, so the sync state
- * machine runs end-to-end without a network. Counts chunk requests.
- */
-export function originFetch(): {
-	readonly fetchBytes: (url: string) => Promise<Uint8Array>;
-	chunkRequests: () => ReadonlyArray<string>;
-} {
-	const chunkUrls: string[] = [];
-	const fetchBytes = (url: string): Promise<Uint8Array> => {
-		if (url.endsWith("/latest")) {
-			return Promise.resolve(latestBytes());
-		}
-		const manifestMatch = url.match(/\/manifest\/([0-9a-f]+)$/);
-		if (manifestMatch?.[1] !== undefined) {
-			return Promise.resolve(manifestBytes(manifestMatch[1]));
-		}
-		const chunkMatch = url.match(/\/chunk\/([0-9a-f]+)$/);
-		if (chunkMatch?.[1] !== undefined) {
-			chunkUrls.push(chunkMatch[1]);
-			return Promise.resolve(chunkBytes(chunkMatch[1]));
-		}
-		return Promise.reject(new Error(`unexpected url ${url}`));
-	};
-	return { fetchBytes, chunkRequests: () => chunkUrls };
+/** The detached base64 signature over watchlist.manifest.json. */
+export function watchlistManifestSig(): string {
+	return DECODER.decode(
+		readFileSync(join(WATCHLIST, "watchlist.manifest.json.sig")),
+	).trim();
 }

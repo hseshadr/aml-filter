@@ -132,16 +132,12 @@ describe("EngineStatusStrip (rendered inside WorkstationGate once ready)", () =>
 		// Wait until children (and therefore EngineStatusStrip) are mounted.
 		await screen.findByText("WORKSTATION CONTENT");
 
-		// syncing → "syncing the sanctions list…"
-		act(() => fireStage()({ kind: "syncing" }));
-		await screen.findByText(/syncing the sanctions list…/i);
+		// downloading → "downloading the sanctions list…"
+		act(() => fireStage()({ kind: "downloading" }));
+		await screen.findByText(/downloading the sanctions list…/i);
 
-		// synced → "preparing the screening index…"
-		act(() => fireStage()({ kind: "synced", result: {} as never }));
-		await screen.findByText(/preparing the screening index…/i);
-
-		// reassembling → same label
-		act(() => fireStage()({ kind: "reassembling" }));
+		// verified → "preparing the screening index…"
+		act(() => fireStage()({ kind: "verified", version: "demo-1" }));
 		await screen.findByText(/preparing the screening index…/i);
 
 		// loading-model without progress → no % suffix
@@ -179,14 +175,14 @@ describe("EngineStatusStrip (rendered inside WorkstationGate once ready)", () =>
 		await screen.findByText("WORKSTATION CONTENT");
 
 		// Put something on screen first so we know the strip was visible.
-		act(() => fireStage()({ kind: "syncing" }));
-		await screen.findByText(/syncing the sanctions list…/i);
+		act(() => fireStage()({ kind: "downloading" }));
+		await screen.findByText(/downloading the sanctions list…/i);
 
 		// ready → strip should vanish.
 		act(() => fireStage()({ kind: "ready" }));
 		await waitFor(() =>
 			expect(
-				screen.queryByText(/syncing the sanctions list…/i),
+				screen.queryByText(/downloading the sanctions list…/i),
 			).not.toBeInTheDocument(),
 		);
 		// Children remain rendered — the gate is not blocking.

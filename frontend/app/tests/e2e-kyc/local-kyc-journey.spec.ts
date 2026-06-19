@@ -10,12 +10,12 @@ import { expect, test } from "@playwright/test";
  *   the customer, the match, and the disposition all survived (OPFS).
  *
  * Asserts REAL outcomes (rendered tiers, persisted rows, dup-rejection,
- * console hygiene), against the REAL minified build + the REAL signed bundle
- * (backend/examples/catalog) + the REAL pinned key — per the CLAUDE.md
- * browser-validation mandate.
+ * console hygiene), against the REAL minified build + the REAL committed signed
+ * v3 watchlist (app/public/watchlist/watchlist.json) + the REAL pinned key — per
+ * the CLAUDE.md browser-validation mandate.
  */
 
-// "Ivan Fakovich" is entity DEMO_SDN:0001 in backend/examples/demo_entities.jsonl
+// "Ivan Fakovich" is entity DEMO_SDN:0001 in the committed signed watchlist
 // (countries: RU) — the same name the C1 /screen e2e matches against.
 const SANCTIONED_NAME = "Ivan Fakovich";
 const CUSTOMER_REF = "CUST-LOCAL-001";

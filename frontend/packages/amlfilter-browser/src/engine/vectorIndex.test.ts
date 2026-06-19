@@ -1,22 +1,27 @@
 import { describe, expect, it } from "vitest";
-import { stagedIndex, stagedState } from "./fixtures";
-import { FaissParseError, loadVectorIndex } from "./vectorIndex";
+import { VectorIndex } from "./vectorIndex";
 
 const DIM = 384;
 
-/** The exact-hit direction the fixture producer used for e_ivanov (seed=1.0). */
+/** Three L2-normalized rows along distinct axes, in entity-id order. */
+function fixtureIndex(): VectorIndex {
+	const matrix = new Float32Array(3 * DIM);
+	matrix[0 * DIM + 0] = 1; // e_ivanov along axis 0
+	matrix[1 * DIM + 1] = 1; // e_petrov along axis 1
+	matrix[2 * DIM + 2] = 1; // e_acme along axis 2
+	return new VectorIndex(matrix, ["e_ivanov", "e_petrov", "e_acme"], DIM);
+}
+
+/** A query aligned with e_ivanov's axis (cosine 1.0). */
 function exactHitVector(): Float32Array {
 	const v = new Float32Array(DIM);
 	v[0] = 1;
 	return v;
 }
 
-describe("loadVectorIndex parses the producer's FAISS IndexFlatIP", () => {
-	it("reads ntotal, dim, and the faiss_ids row map", () => {
-		const index = loadVectorIndex({
-			index: stagedIndex(),
-			state: stagedState(),
-		});
+describe("VectorIndex over the decoded watchlist vectors", () => {
+	it("reports ntotal, dim, and the row->id map", () => {
+		const index = fixtureIndex();
 		expect(index.dim).toBe(DIM);
 		expect(index.ntotal).toBe(3);
 		expect(index.idAt(0)).toBe("e_ivanov");
@@ -25,30 +30,24 @@ describe("loadVectorIndex parses the producer's FAISS IndexFlatIP", () => {
 	});
 
 	it("cosine-ranks the exact-hit entity first with similarity ~1.0", () => {
-		const index = loadVectorIndex({
-			index: stagedIndex(),
-			state: stagedState(),
-		});
-		const hits = index.search(exactHitVector(), 3);
+		const hits = fixtureIndex().search(exactHitVector(), 3);
 		expect(hits[0]?.id).toBe("e_ivanov");
 		expect(hits[0]?.score).toBeCloseTo(1.0, 5);
-		// e_acme (seed=0.2) is the least aligned with the [1,0,...] direction.
-		expect(hits[2]?.id).toBe("e_acme");
-		expect(hits[0]?.score).toBeGreaterThan(hits[2]?.score ?? 1);
+		// The orthogonal rows score ~0 — strictly below the exact hit.
+		expect(hits[0]?.score).toBeGreaterThan(hits[1]?.score ?? 1);
 	});
 
-	it("rejects a non-flat FAISS header (fail-closed)", () => {
-		const bad = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]);
-		expect(() => loadVectorIndex({ index: bad, state: stagedState() })).toThrow(
-			FaissParseError,
-		);
+	it("normalizes a non-unit query before scoring", () => {
+		const v = new Float32Array(DIM);
+		v[0] = 5; // non-unit; cosine with the unit row is still 1.0
+		expect(fixtureIndex().search(v, 1)[0]?.score).toBeCloseTo(1.0, 5);
+	});
+
+	it("rejects a matrix whose length disagrees with ids*dim (fail-closed)", () => {
+		expect(() => new VectorIndex(new Float32Array(5), ["a"], DIM)).toThrow();
 	});
 
 	it("rejects a query of the wrong dimension", () => {
-		const index = loadVectorIndex({
-			index: stagedIndex(),
-			state: stagedState(),
-		});
-		expect(() => index.search(new Float32Array(8), 3)).toThrow();
+		expect(() => fixtureIndex().search(new Float32Array(8), 3)).toThrow();
 	});
 });
