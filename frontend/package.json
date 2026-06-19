@@ -2,7 +2,7 @@
 	"name": "aml-filter-frontend",
 	"private": true,
 	"version": "3.0.0",
-	"description": "AML-Filter v2 frontend — admin dashboard + in-browser OFAC screening tier.",
+	"description": "AML-Filter v3 — zero-server, in-browser OFAC screening + local-first KYC workstation (pnpm workspace).",
 	"type": "module",
 	"packageManager": "pnpm@11.5.0",
 	"engines": {

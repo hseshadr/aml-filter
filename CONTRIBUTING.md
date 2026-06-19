@@ -5,14 +5,13 @@ afternoon — start with [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 > aml-filter is a portfolio demo, not a compliance product — see [`NOTICE`](NOTICE).
 
+aml-filter is a pure-TypeScript, zero-server, in-browser app. It's a pnpm
+workspace under [`frontend/`](frontend) with three packages: `frontend/app` (the
+React app), `frontend/packages/amlfilter-browser` (the in-browser screening tier),
+and `frontend/packages/amlfilter-workstation` (the local-first KYC tier). Tooling
+is **pnpm + Biome** — no bun, ESLint, or Prettier.
+
 ## Local setup
-
-```bash
-cd backend
-uv sync
-```
-
-The admin/demo frontend uses pnpm:
 
 ```bash
 cd frontend
@@ -21,30 +20,33 @@ pnpm install
 
 ## Quality gate (run before opening a PR)
 
+Run from `frontend/`, in order — this mirrors CI:
+
 ```bash
-cd backend
-uv run poe gate
+cd frontend
+pnpm install
+pnpm -r run lint        # Biome (lint + format check)
+pnpm -r run typecheck   # tsc --noEmit (TS strict)
+pnpm -r run test        # Vitest
+pnpm -r run build       # production build
 ```
 
-`poe gate` runs the exact commands CI runs, in order:
+Then the two end-to-end lanes, from `frontend/app`:
 
-- `ruff check` + `ruff format --check`
-- `mypy --strict`
-- `xenon` (Radon Grade A — functions stay simple and ≤15 lines)
-- `pytest` (unit; integration tests need Postgres + Valkey, ≥90% coverage)
-
-For the frontend: `pnpm lint && pnpm typecheck && pnpm test && pnpm build`.
+```bash
+cd frontend/app
+pnpm test:e2e:c1   # in-browser screening against the committed signed demo bundle
+pnpm test:e2e:kyc  # backend-free onboard → screen → review → resolve journey
+```
 
 ## How we work
 
 - **Test-first.** Write the failing test, watch it fail for the right reason, then
   write the smallest code that turns it green.
-- **Typed boundaries, no escape hatches.** No `dict[str, Any]`, no `# type: ignore`
-  to dodge the gate, no loosening tool config to make it pass.
+- **TypeScript strict, no escape hatches.** No `any`, no default exports, no
+  loosening Biome or tsconfig to make the gate pass.
 - **Explainability is non-negotiable.** Every screening match must carry its signal
   breakdown — don't add a scoring path that returns a bare number.
-- **The sanctions list is never bundled.** It's downloaded from OFAC at runtime;
-  keep it out of the repo and out of any container image.
 
 ## Invariants
 

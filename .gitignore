@@ -1,35 +1,21 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-/lib/
-/lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-
-# Virtual environments
-.venv/
-venv/
-ENV/
-env/
-
 # Node
 node_modules/
 .pnp
 .pnp.js
+
+# Frontend build
+frontend/dist/
+frontend/build/
+frontend/playwright-report/
+frontend/test-results/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
 
 # IDEs
 .vscode/
@@ -38,52 +24,6 @@ node_modules/
 *.swo
 *~
 
-# Testing
-.pytest_cache/
-.coverage
-htmlcov/
-.tox/
-coverage.xml
-*.cover
-.hypothesis/
-
-# Environment
-.env
-.env.local
-.env.*.local
-
-# Database
-*.db
-*.sqlite
-*.sqlite3
-
-# Logs
-*.log
-
 # OS
 .DS_Store
 Thumbs.db
-
-# Project specific
-backend/alembic/versions/*.pyc
-
-# Keep uv.lock (should be committed)
-# uv.lock is tracked in git for reproducible builds
-
-# Frontend build
-frontend/dist/
-frontend/build/
-frontend/playwright-report/
-frontend/test-results/
-
-# Legacy Java/Gradle artifacts (shouldn't exist, but just in case)
-.gradle/
-gradle/
-gradlew
-gradlew.bat
-build.gradle
-settings.gradle
-build/
-
-# Persisted localvec FAISS index (runtime/test artifact)
-.vector_index/

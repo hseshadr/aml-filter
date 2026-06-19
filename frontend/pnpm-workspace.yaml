@@ -14,3 +14,10 @@ allowBuilds:
   onnxruntime-node: true
   protobufjs: true
   sharp: true
+
+# Pin transitive protobufjs >=7.6.3 to clear the moderate advisory
+# GHSA-f38q-mgvj-vph7 (schema-derived names can shadow runtime-significant
+# properties; vulnerable <=7.6.2). protobufjs is pulled in transitively via
+# @huggingface/transformers > onnxruntime-web, so it is overridden here.
+overrides:
+  protobufjs: ">=7.6.3"
