@@ -32,7 +32,7 @@ const SCORING = join(HERE, "__fixtures__", "scoring");
 
 const DECODER = new TextDecoder();
 
-/** One expected weighted reason in the Python-emitted scoring golden. */
+/** One expected weighted reason in the committed scoring snapshot. */
 export interface GoldenReason {
 	readonly signal: string;
 	readonly value: number | string;
@@ -41,7 +41,7 @@ export interface GoldenReason {
 	readonly description: string;
 }
 
-/** One (entity, query) scoring case: TS-shaped input + canonical Python output. */
+/** One (entity, query) scoring case: TS-shaped input + the expected output. */
 export interface GoldenCase {
 	readonly name: string;
 	readonly preset: Preset;
@@ -55,9 +55,11 @@ export interface GoldenCase {
 }
 
 /**
- * The cross-language scoring parity golden (produced by the Python source of
- * truth via backend/scripts/gen_scoring_golden.py). The TS scorer must reproduce
- * every case byte-for-byte; see scoring.parity.test.ts.
+ * The scoring regression golden: a FROZEN, committed snapshot under
+ * __fixtures__/scoring of the TS scorer's full output. The TS scorer is the
+ * source of truth; this test fixture exists to catch unintended drift — the
+ * live scorer must still reproduce every case byte-for-byte; see
+ * scoring.parity.test.ts.
  */
 export function scoringGolden(): ReadonlyArray<GoldenCase> {
 	return JSON.parse(

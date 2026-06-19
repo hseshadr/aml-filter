@@ -1,352 +1,108 @@
-/** API client for AML-Filter backend. */
+/**
+ * Shared client-surface types for AML-Filter.
+ *
+ * This module is types-only at the wire level: there is NO server and NO
+ * axios. It declares the `ApiClient` method surface (the contract every page
+ * compiles against), the data interfaces that flow across that surface, and
+ * the single LOCAL-FIRST runtime singleton (`apiClient` = `LocalApiClient`,
+ * all I/O in-tab via SQLite-WASM/OPFS + the signed-bundle screening engine).
+ *
+ * It also installs one benign, well-documented e2e test seam
+ * (`window.__amlSetLastSynced`) — see its doc comment at the bottom.
+ */
 
 import { LAST_SYNCED_VERSION_KEY } from "@amlfilter/workstation";
-import axios, { type AxiosError, type AxiosInstance } from "axios";
-import { DEFAULT_API_BASE } from "./apiBase";
 import { LocalApiClient } from "./localApi";
 import { workstation, workstationProvider } from "./workstation";
-
-const API_BASE_URL = import.meta.env.VITE_API_URL || DEFAULT_API_BASE;
 
 export interface ApiError {
 	detail: string;
 }
 
-export class ApiClient {
-	private client: AxiosInstance;
-
-	constructor(apiKey?: string) {
-		this.client = axios.create({
-			baseURL: API_BASE_URL,
-			headers: {
-				"Content-Type": "application/json",
-				...(apiKey && { "X-API-Key": apiKey }),
-			},
-		});
-
-		// Add response interceptor for error handling
-		this.client.interceptors.response.use(
-			(response) => response,
-			(error: AxiosError<ApiError>) => {
-				if (error.response) {
-					throw new Error(error.response.data?.detail || error.message);
-				}
-				throw error;
-			},
-		);
-	}
-
-	setApiKey(apiKey: string) {
-		this.client.defaults.headers["X-API-Key"] = apiKey;
-	}
-
-	clearApiKey() {
-		delete this.client.defaults.headers["X-API-Key"];
-	}
+/**
+ * The shared client surface. `LocalApiClient` implements
+ * `Pick<ApiClient, keyof ApiClient>`, so every method here must keep its name
+ * for that constraint to hold. Method bodies live in `LocalApiClient`; this is
+ * the type contract only (no axios, no transport).
+ */
+export interface ApiClient {
+	setApiKey(apiKey: string): void;
+	clearApiKey(): void;
 
 	// Search API
-	async screen(query: SearchQuery): Promise<SearchResponse> {
-		const response = await this.client.post<SearchResponse>(
-			"/v1/screen",
-			query,
-		);
-		return response.data;
-	}
-
-	// Tenant API
-	async getTenant(tenantId: string): Promise<TenantResponse> {
-		const response = await this.client.get<TenantResponse>(
-			`/v1/tenants/${tenantId}`,
-		);
-		return response.data;
-	}
-
-	// API Keys
-	async createApiKey(data: ApiKeyCreate): Promise<ApiKeyCreateResponse> {
-		const response = await this.client.post<ApiKeyCreateResponse>(
-			"/v1/api-keys",
-			data,
-		);
-		return response.data;
-	}
-
-	async listApiKeys(): Promise<ApiKeyResponse[]> {
-		const response = await this.client.get<ApiKeyResponse[]>("/v1/api-keys");
-		return response.data;
-	}
-
-	async revokeApiKey(keyId: string): Promise<void> {
-		await this.client.delete(`/v1/api-keys/${keyId}`);
-	}
-
-	// Usage
-	async getUsage(days?: number): Promise<UsageSummaryResponse> {
-		const params = days ? { days } : {};
-		const response = await this.client.get<UsageSummaryResponse>("/v1/usage", {
-			params,
-		});
-		return response.data;
-	}
+	screen(query: SearchQuery): Promise<SearchResponse>;
+	getTenant(tenantId: string): Promise<TenantResponse>;
+	createApiKey(data: ApiKeyCreate): Promise<ApiKeyCreateResponse>;
+	listApiKeys(): Promise<ApiKeyResponse[]>;
+	revokeApiKey(keyId: string): Promise<void>;
+	getUsage(days?: number): Promise<UsageSummaryResponse>;
 
 	// Lists
-	async listLists(): Promise<ListConfigResponse[]> {
-		const response = await this.client.get<ListConfigResponse[]>("/v1/lists");
-		return response.data;
-	}
-
-	async getAvailableLists(): Promise<AvailableList[]> {
-		const response = await this.client.get<AvailableList[]>(
-			"/v1/lists/available",
-		);
-		return response.data;
-	}
-
-	async updateListConfig(
+	listLists(): Promise<ListConfigResponse[]>;
+	getAvailableLists(): Promise<AvailableList[]>;
+	updateListConfig(
 		listId: string,
 		config: ListConfigUpdate,
-	): Promise<ListConfigResponse> {
-		const response = await this.client.put<ListConfigResponse>(
-			`/v1/lists/${listId}`,
-			config,
-		);
-		return response.data;
-	}
+	): Promise<ListConfigResponse>;
 
 	// Whitelist
-	async addWhitelistCustomer(
+	addWhitelistCustomer(
 		customer: WhitelistCustomerCreate,
-	): Promise<WhitelistCustomerResponse> {
-		const response = await this.client.post<WhitelistCustomerResponse>(
-			"/v1/whitelist/customers",
-			customer,
-		);
-		return response.data;
-	}
-
-	async listWhitelistCustomers(): Promise<WhitelistCustomerResponse[]> {
-		const response = await this.client.get<WhitelistCustomerResponse[]>(
-			"/v1/whitelist/customers",
-		);
-		return response.data;
-	}
-
-	async getWhitelistCustomer(
-		entityId: string,
-	): Promise<WhitelistCustomerResponse> {
-		const response = await this.client.get<WhitelistCustomerResponse>(
-			`/v1/whitelist/customers/${entityId}`,
-		);
-		return response.data;
-	}
-
-	async updateWhitelistCustomer(
+	): Promise<WhitelistCustomerResponse>;
+	listWhitelistCustomers(): Promise<WhitelistCustomerResponse[]>;
+	getWhitelistCustomer(entityId: string): Promise<WhitelistCustomerResponse>;
+	updateWhitelistCustomer(
 		entityId: string,
 		customer: WhitelistCustomerUpdate,
-	): Promise<WhitelistCustomerResponse> {
-		const response = await this.client.put<WhitelistCustomerResponse>(
-			`/v1/whitelist/customers/${entityId}`,
-			customer,
-		);
-		return response.data;
-	}
-
-	async deleteWhitelistCustomer(entityId: string): Promise<void> {
-		await this.client.delete(`/v1/whitelist/customers/${entityId}`);
-	}
-
-	async getWhitelistMatches(
+	): Promise<WhitelistCustomerResponse>;
+	deleteWhitelistCustomer(entityId: string): Promise<void>;
+	getWhitelistMatches(
 		resolution_status?: string,
-	): Promise<WhitelistMatchResponse[]> {
-		const params = resolution_status ? { resolution_status } : {};
-		const response = await this.client.get<WhitelistMatchResponse[]>(
-			"/v1/whitelist/matches",
-			{
-				params,
-			},
-		);
-		return response.data;
-	}
-
-	async resolveMatch(
+	): Promise<WhitelistMatchResponse[]>;
+	resolveMatch(
 		matchId: string,
 		resolution_status: MatchResolutionStatus,
-	): Promise<WhitelistMatchResponse> {
-		const response = await this.client.put<WhitelistMatchResponse>(
-			`/v1/whitelist/matches/${matchId}/resolve`,
-			undefined,
-			{ params: { resolution_status } },
-		);
-		return response.data;
-	}
+	): Promise<WhitelistMatchResponse>;
 
 	// KYC customer onboarding (the /v1/customers tier)
-	async onboardCustomer(
+	onboardCustomer(
 		payload: CustomerOnboardRequest,
-	): Promise<CustomerOnboardResponse> {
-		const response = await this.client.post<CustomerOnboardResponse>(
-			"/v1/customers",
-			payload,
-		);
-		return response.data;
-	}
-
-	async listCustomers(
-		params?: CustomerListParams,
-	): Promise<CustomerResponse[]> {
-		const response = await this.client.get<CustomerResponse[]>(
-			"/v1/customers",
-			{
-				params,
-			},
-		);
-		return response.data;
-	}
-
-	async getCustomer(customerId: string): Promise<CustomerResponse> {
-		const response = await this.client.get<CustomerResponse>(
-			`/v1/customers/${customerId}`,
-		);
-		return response.data;
-	}
-
-	async updateCustomer(
+	): Promise<CustomerOnboardResponse>;
+	listCustomers(params?: CustomerListParams): Promise<CustomerResponse[]>;
+	getCustomer(customerId: string): Promise<CustomerResponse>;
+	updateCustomer(
 		customerId: string,
 		payload: CustomerUpdateRequest,
-	): Promise<CustomerResponse> {
-		const response = await this.client.put<CustomerResponse>(
-			`/v1/customers/${customerId}`,
-			payload,
-		);
-		return response.data;
-	}
-
-	async deleteCustomer(customerId: string): Promise<void> {
-		await this.client.delete(`/v1/customers/${customerId}`);
-	}
-
-	// Review / case board (the /v1/review tier)
-	async listReviewMatches(
-		params?: ReviewMatchListParams,
-	): Promise<ReviewMatch[]> {
-		const response = await this.client.get<ReviewMatch[]>(
-			"/v1/review/matches",
-			{ params },
-		);
-		return response.data;
-	}
-
-	async resolveReviewMatch(
+	): Promise<CustomerResponse>;
+	deleteCustomer(customerId: string): Promise<void>;
+	listReviewMatches(params?: ReviewMatchListParams): Promise<ReviewMatch[]>;
+	resolveReviewMatch(
 		matchId: string,
 		resolution_status: ReviewResolutionStatus,
 		body?: ReviewResolveBody,
-	): Promise<ReviewMatch> {
-		const response = await this.client.put<ReviewMatch>(
-			`/v1/review/matches/${matchId}/resolve`,
-			body ?? {},
-			{ params: { resolution_status } },
-		);
-		return response.data;
-	}
+	): Promise<ReviewMatch>;
 
 	// SAR (Suspicious Activity Report) filing (the /v1/sars tier)
-	async createSar(payload: SarCreateBody): Promise<SarRecord> {
-		const response = await this.client.post<SarRecord>("/v1/sars", payload);
-		return response.data;
-	}
-
-	async listSars(params?: SarListParams): Promise<SarRecord[]> {
-		const response = await this.client.get<SarRecord[]>("/v1/sars", {
-			params,
-		});
-		return response.data;
-	}
-
-	async getSar(sarId: string): Promise<SarRecord> {
-		const response = await this.client.get<SarRecord>(`/v1/sars/${sarId}`);
-		return response.data;
-	}
-
-	async updateSar(sarId: string, payload: SarUpdateBody): Promise<SarRecord> {
-		const response = await this.client.put<SarRecord>(
-			`/v1/sars/${sarId}`,
-			payload,
-		);
-		return response.data;
-	}
-
-	async exportSar(sarId: string, format: SarExportFormat): Promise<void> {
-		const response = await this.client.get<Blob>(`/v1/sars/${sarId}/export`, {
-			params: { format },
-			responseType: "blob",
-		});
-		triggerBlobDownload(response.data, `sar-${sarId}.${format}`);
-	}
+	createSar(payload: SarCreateBody): Promise<SarRecord>;
+	listSars(params?: SarListParams): Promise<SarRecord[]>;
+	getSar(sarId: string): Promise<SarRecord>;
+	updateSar(sarId: string, payload: SarUpdateBody): Promise<SarRecord>;
+	exportSar(sarId: string, format: SarExportFormat): Promise<void>;
 
 	// Attestations API (the /v1/attestations review-badge tier)
-	async generateAttestation(
-		body: AttestationCreateBody,
-	): Promise<AttestationRecord> {
-		const response = await this.client.post<AttestationRecord>(
-			"/v1/attestations",
-			body,
-		);
-		return response.data;
-	}
-
-	async listAttestations(
-		params: AttestationListParams = {},
-	): Promise<AttestationRecord[]> {
-		const response = await this.client.get<AttestationRecord[]>(
-			"/v1/attestations",
-			{ params },
-		);
-		return response.data;
-	}
-
-	async getAttestation(attestationId: string): Promise<AttestationRecord> {
-		const response = await this.client.get<AttestationRecord>(
-			`/v1/attestations/${attestationId}`,
-		);
-		return response.data;
-	}
-
-	async verifyAttestation(
-		attestationId: string,
-	): Promise<AttestationVerification> {
-		const response = await this.client.get<AttestationVerification>(
-			`/v1/attestations/${attestationId}/verify`,
-		);
-		return response.data;
-	}
-
-	async exportAttestation(
+	generateAttestation(body: AttestationCreateBody): Promise<AttestationRecord>;
+	listAttestations(
+		params?: AttestationListParams,
+	): Promise<AttestationRecord[]>;
+	getAttestation(attestationId: string): Promise<AttestationRecord>;
+	verifyAttestation(attestationId: string): Promise<AttestationVerification>;
+	exportAttestation(
 		attestationId: string,
 		format: AttestationExportFormat,
-	): Promise<void> {
-		const response = await this.client.get<Blob>(
-			`/v1/attestations/${attestationId}/export`,
-			{ params: { format }, responseType: "blob" },
-		);
-		triggerBlobDownload(
-			response.data,
-			`attestation-${attestationId}.${format}`,
-		);
-	}
+	): Promise<void>;
 }
 
-/** Trigger a browser file download for a fetched blob (export artifacts). */
-function triggerBlobDownload(blob: Blob, filename: string): void {
-	const url = URL.createObjectURL(blob);
-	const anchor = document.createElement("a");
-	anchor.href = url;
-	anchor.download = filename;
-	document.body.appendChild(anchor);
-	anchor.click();
-	anchor.remove();
-	URL.revokeObjectURL(url);
-}
-
-// Type definitions
+// Data types — the shapes that flow across the ApiClient surface.
 export interface SearchQuery {
 	name: string;
 	dob?: string;
@@ -737,10 +493,11 @@ export interface SarListParams {
 }
 
 /**
- * Match context handed from the review board to the SAR form via route state.
+ * Match context for a SAR (suspicious activity report) keyed off a review row.
  * Mirrors the fields a review row exposes. `customer_id` comes straight from the
  * review row; when it is null the match has no onboarded customer and a SAR
- * cannot be filed (see SarFormPage).
+ * cannot be filed. Part of the client surface contract only — the local-first
+ * tier does not yet implement SAR filing, so LocalApiClient throws for it.
  */
 export interface SarMatchContext {
 	match_id: string;
@@ -755,8 +512,8 @@ export interface SarMatchContext {
 
 // The app is LOCAL-FIRST: the singleton every page calls is the
 // LocalApiClient — all KYC I/O stays in the tab (SQLite-WASM/OPFS + the
-// signed-bundle screening engine). The server-tier ApiClient above is kept
-// for SaaS deployments but is no longer wired into the app (spec D3).
+// signed-bundle screening engine). `ApiClient` above is the shared TYPE
+// surface it satisfies; there is no server-tier transport in this app.
 export const apiClient = new LocalApiClient(workstationProvider);
 
 declare global {
@@ -765,8 +522,9 @@ declare global {
 		 * Test seam: stale the recorded last-synced watchlist version so the next
 		 * "Check for updates" sees a mismatch and runs a full rescanAll(). Always
 		 * present (the e2e drives the minified preview build, MODE==="production",
-		 * so it must NOT be gated behind import.meta.env.DEV). Harmless in prod —
-		 * only a settings row a user could already overwrite by re-syncing.
+		 * so it must NOT be gated behind import.meta.env.DEV). Benign in prod — it
+		 * only writes one local settings string (the recorded last-synced watchlist
+		 * version) that a user could already overwrite by re-syncing.
 		 */
 		__amlSetLastSynced?: (version: string) => Promise<void>;
 	}

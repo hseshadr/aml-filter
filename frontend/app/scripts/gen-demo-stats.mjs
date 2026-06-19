@@ -9,7 +9,8 @@
 // demo bundle's records and stats the committed quantized ONNX, then emits a
 // typed module the page imports.
 //
-//   • demo entity count = non-empty JSON lines in backend/examples/demo_entities.jsonl
+//   • demo entity count = non-empty JSON lines in
+//       frontend/packages/amlfilter-publisher/fixtures/demo_entities.jsonl
 //   • model size MB      = statSync(public/models/.../model_quantized.onnx) bytes → MB
 //
 // Run by the app's `prebuild` (alongside download-model) and `pretest` hooks so
@@ -30,9 +31,9 @@ export function demoEntitiesPath() {
 		here,
 		"..",
 		"..",
-		"..",
-		"backend",
-		"examples",
+		"packages",
+		"amlfilter-publisher",
+		"fixtures",
 		"demo_entities.jsonl",
 	);
 }
@@ -86,7 +87,7 @@ export function renderModule(stats) {
 
 /** The measured KPIs the public landing page renders. */
 export interface DemoStats {
-	/** Records on the fictional demo sanctions list (backend/examples/demo_entities.jsonl). */
+	/** Records on the fictional demo sanctions list (frontend/packages/amlfilter-publisher/fixtures/demo_entities.jsonl). */
 	readonly demoEntityCount: number;
 	/** Size of the in-browser MiniLM matcher (model_quantized.onnx), in whole MB. */
 	readonly modelSizeMb: number;

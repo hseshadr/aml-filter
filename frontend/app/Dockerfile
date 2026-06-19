@@ -1,17 +1,14 @@
 # aml-filter SPA image — multi-stage: Vite build -> static serve.
 #
-# The /screen page is backend-free: it syncs the signed OFAC bundle from the Caddy
-# edge and runs the matcher entirely in the browser. There is no API server in the
-# request path.
+# The /screen page is backend-free: the SPA bundles the committed signed-JSON OFAC
+# watchlist as a static public/ asset and runs the matcher entirely in the browser.
+# There is no edge origin, no VITE_BUNDLE_BASE_URL, and no API server in the request
+# path.
 #
 # Build context: the pnpm-WORKSPACE ROOT (frontend/), because the SPA depends on
 # the in-repo @amlfilter/browser workspace package (frontend/packages/
-# amlfilter-browser) and the lockfile lives at the root. Built via docker compose
-# with `context: .` + `dockerfile: app/Dockerfile`.
-#
-# VITE_BUNDLE_BASE_URL is baked at BUILD time (Vite inlines import.meta.env at
-# compile). It must be the origin the BROWSER reaches — i.e. the host-mapped edge
-# port (http://localhost:8081), NOT the in-network `edge` hostname.
+# amlfilter-browser) and the lockfile lives at the root. Build with
+# `context: frontend/` + `dockerfile: app/Dockerfile`.
 
 # ---- stage 1: build the static bundle ----
 FROM node:24-slim AS build
@@ -32,11 +29,6 @@ RUN pnpm install --frozen-lockfile
 
 # Bring in the full workspace sources (the package is consumed as TS by Vite).
 COPY . .
-
-# Caddy edge origin the browser syncs the signed bundle from. Default targets the
-# host-mapped edge port; compose can override.
-ARG VITE_BUNDLE_BASE_URL=http://localhost:8081
-ENV VITE_BUNDLE_BASE_URL=${VITE_BUNDLE_BASE_URL}
 
 # Build only the SPA workspace; it resolves @amlfilter/browser via the workspace
 # link. The app's `prebuild` hook (scripts/download-model.mjs) runs first and

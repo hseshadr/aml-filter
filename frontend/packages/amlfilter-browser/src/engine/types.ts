@@ -1,6 +1,8 @@
-// TS mirrors of edge-proc's bundle models (edgeproc/bundles/manifest.py).
-// Interface-over-type for object shapes; the JSON wire format is identical
-// across the native (Python) and browser tiers — this is the same manifest.
+// LEGACY chunked-bundle (CAS) manifest models, retained for the bundle-era
+// Store contract below. The current product loads a single signed-JSON
+// watchlist (see watchlist.ts), not a chunked manifest; these types describe
+// the older content-addressed wire format. Interface-over-type for object
+// shapes.
 
 /** One content-defined chunk: `hash` is the bare hex sha256 of its plaintext. */
 export interface ChunkRef {
@@ -20,7 +22,7 @@ export interface FileEntry {
 	readonly chunks: ReadonlyArray<ChunkRef>;
 }
 
-/** v2 chunked manifest; authenticated by its content hash, not an embedded sig. */
+/** Legacy v2 chunked manifest; authenticated by its content hash, not an embedded sig. */
 export interface IndexManifest {
 	readonly schema_version: number;
 	readonly bundle_id: string;

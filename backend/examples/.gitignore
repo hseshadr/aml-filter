@@ -1,8 +1,0 @@
-# The ed25519 PRIVATE signing key is a secret — never commit it. Only the signed
-# bundle (catalog/) and the pinned PUBLIC verify key (frontend/app/public/public.key)
-# are committed.
-keys/
-*.key
-
-# Intermediate staging dir the `bundle` CLI writes next to the origin.
-catalog.staging/
