@@ -8,6 +8,10 @@
 	"engines": {
 		"node": ">=22.13"
 	},
+	"scripts": {
+		"publish-list": "pnpm --filter @amlfilter/publisher run publish",
+		"build-demo-list": "pnpm --filter @amlfilter/publisher run build-demo"
+	},
 	"devDependencies": {
 		"jsdom": "^29.1.1"
 	}

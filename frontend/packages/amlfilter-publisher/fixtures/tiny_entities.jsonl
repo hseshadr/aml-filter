@@ -1,0 +1,3 @@
+{"entity_id": "TEST:0001", "entity_type": "PERSON", "primary_name": "Jon Q. Fakename", "aliases": [{"name": "Johnny Fake"}, {"name": "J. Q. Fake"}], "dob": ["1970-01-01", "1971-02-02"], "countries": ["US", "CA"], "risk_category": "SANCTION", "source_list": "OFAC_SDN", "list_version": "2026-06-19"}
+{"entity_id": "TEST:0002", "entity_type": "ORGANIZATION", "primary_name": "Imaginary Holdings LLC", "aliases": [], "dob": [], "countries": ["GB"], "risk_category": "WATCH", "source_list": "OFAC_SDN", "list_version": "2026-06-19"}
+{"entity_id": "TEST:0003", "entity_type": "PERSON", "primary_name": "Nadia Notreal", "aliases": [{"name": "Nadya Notreal"}], "dob": ["1988"], "countries": [], "risk_category": "SANCTION", "source_list": "OFAC_SDN", "list_version": "2026-06-19"}

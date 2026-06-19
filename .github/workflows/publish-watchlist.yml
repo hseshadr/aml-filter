@@ -1,0 +1,104 @@
+# Publish the signed OFAC watchlist artifact.
+#
+# Fetches the live OFAC SDN list, maps it to the publisher's source-JSONL shape,
+# precomputes name vectors (transformers.js, MiniLM), and signs the four static
+# files with the production key held in the WATCHLIST_SIGNING_KEY secret.
+#
+# Key format: WATCHLIST_SIGNING_KEY is the raw 32-byte Ed25519 seed, base64-
+# encoded (so it round-trips cleanly through a GitHub secret). The job decodes it
+# back to 32 raw bytes before signing. The signed list verifies in-tab against the
+# committed frontend/app/public/public.key.
+#
+# This scaffold uploads the artifact for review; wiring an actual publish/deploy
+# step (e.g. commit-back or object-store upload) is left as the deployment choice.
+
+name: publish-watchlist
+
+on:
+  schedule:
+    - cron: "0 6 * * *" # daily at 06:00 UTC
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Watchlist version stamp (default: run date)"
+        required: false
+        type: string
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.5.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install workspace deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Resolve version stamp
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          VERSION="$INPUT_VERSION"
+          [ -n "$VERSION" ] || VERSION="$(date -u +%Y-%m-%d)"
+          # Constrain to a safe stamp; reject anything that isn't date/version-like.
+          case "$VERSION" in
+            *[!A-Za-z0-9._-]*) echo "::error::invalid version stamp"; exit 1 ;;
+          esac
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Fetch OFAC SDN -> source JSONL
+        run: |
+          node --experimental-strip-types - "$VERSION" <<'EOF'
+          import { writeFile } from "node:fs/promises";
+          import { fetchOfacJsonl } from "@amlfilter/publisher";
+          const version = process.argv[2];
+          const jsonl = await fetchOfacJsonl(version);
+          await writeFile("entities.jsonl", jsonl);
+          console.log(`wrote entities.jsonl (${jsonl.split("\n").length} lines) for ${version}`);
+          EOF
+
+      - name: Decode signing key
+        env:
+          WATCHLIST_SIGNING_KEY: ${{ secrets.WATCHLIST_SIGNING_KEY }}
+        run: |
+          if [ -z "$WATCHLIST_SIGNING_KEY" ]; then
+            echo "::error::WATCHLIST_SIGNING_KEY secret is not set" && exit 1
+          fi
+          printf '%s' "$WATCHLIST_SIGNING_KEY" | base64 -d > signing.key
+          SIZE=$(wc -c < signing.key)
+          [ "$SIZE" -eq 32 ] || { echo "::error::decoded key is $SIZE bytes, expected 32"; exit 1; }
+
+      - name: Publish signed watchlist
+        run: |
+          pnpm --filter @amlfilter/publisher run publish -- \
+            --in "$GITHUB_WORKSPACE/frontend/entities.jsonl" \
+            --version "$VERSION" \
+            --key "$GITHUB_WORKSPACE/frontend/signing.key" \
+            --out "$GITHUB_WORKSPACE/frontend/app/public/watchlist"
+
+      - name: Scrub the key
+        if: always()
+        run: rm -f signing.key
+
+      - name: Upload watchlist artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: watchlist-${{ env.VERSION }}
+          path: |
+            frontend/app/public/watchlist/watchlist.json
+            frontend/app/public/watchlist/watchlist.json.sig
+            frontend/app/public/watchlist/watchlist.manifest.json
+            frontend/app/public/watchlist/watchlist.manifest.json.sig
+          if-no-files-found: error

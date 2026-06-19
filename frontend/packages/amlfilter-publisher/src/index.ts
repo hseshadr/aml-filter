@@ -1,0 +1,18 @@
+// @amlfilter/publisher — the Node-side signed-watchlist producer.
+//
+// Reads a source-entities JSONL, maps it to the v3 wire shape (recomputing
+// name_canonical via the SAME canonicalize() the browser uses), precomputes the
+// per-entity name vectors with transformers.js, and emits the four signed static
+// files the browser tier syncs and verifies fail-closed:
+//   watchlist.json(.sig)  +  watchlist.manifest.json(.sig)
+//
+// See docs/WATCHLIST_FORMAT.md for the wire contract. The embedder is injected so
+// callers can pass a fake (tests) or the real Node embedder (CLI / build-demo).
+
+export { fetchOfacJsonl, parseSdn } from "./fetchOfac.ts";
+export { createNodeEmbedder } from "./nodeEmbedder.ts";
+export { type PublishInput, publishWatchlist } from "./publisher.ts";
+export { derivePublicKey, signBytes, writeSigned } from "./signing.ts";
+export { parseEntities, toWatchlistEntity } from "./sourceEntity.ts";
+export type { Watchlist, WatchlistEntity, WatchlistManifest } from "./types.ts";
+export { packVectors, vectorsToBase64 } from "./vectors.ts";
