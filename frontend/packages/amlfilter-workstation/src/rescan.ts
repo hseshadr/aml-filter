@@ -1,0 +1,126 @@
+// RescanService — the bidirectional auto-rescan tier. When the signed watchlist
+// bundle advances to a new version, every existing customer is re-screened
+// against it: brand-new hits surface as PENDING, hits that no longer match are
+// cleared, and a still-matching hit keeps whatever disposition a reviewer
+// already gave it (replaceMatches carries the audit trail forward). The screen
+// + tiering path is the SAME one onboarding uses (tierMatch), so a re-screen and
+// an onboard tier identically.
+
+import { PRESETS } from "@amlfilter/browser";
+import { NotFoundError } from "./errors";
+import { type NameScreener, ONBOARDING_THRESHOLD } from "./onboarding";
+import { tierMatch } from "./tier_match";
+import type { CustomerRow, ReviewRow, WorkstationStore } from "./types";
+
+/** The settings key under which the last fully-synced watchlist version lives. */
+export const LAST_SYNCED_VERSION_KEY = "last_synced_watchlist_version";
+
+export interface RescanSummary {
+	readonly customersScanned: number;
+	readonly newHits: number;
+	readonly clearedHits: number;
+}
+
+export interface SyncResult extends RescanSummary {
+	/** false => the watchlist was unchanged and no rescan ran. */
+	readonly changed: boolean;
+	/** The version now recorded as last-synced. */
+	readonly version: string;
+}
+
+const EMPTY_SUMMARY: RescanSummary = {
+	customersScanned: 0,
+	newHits: 0,
+	clearedHits: 0,
+};
+
+export class RescanService {
+	readonly #store: WorkstationStore;
+	readonly #screener: NameScreener;
+	readonly #possibleThreshold: number;
+
+	public constructor(
+		store: WorkstationStore,
+		screener: NameScreener,
+		possibleThreshold: number = PRESETS.balanced.threshold,
+	) {
+		this.#store = store;
+		this.#screener = screener;
+		this.#possibleThreshold = possibleThreshold;
+	}
+
+	/** Re-screen one customer and replace their complete match set. */
+	public async screenCustomer(
+		customerId: string,
+	): Promise<ReadonlyArray<ReviewRow>> {
+		const customer = await this.#store.getCustomer(customerId);
+		if (customer === null) {
+			throw new NotFoundError(`customer ${customerId} not found`);
+		}
+		return this.#replaceFor(customer);
+	}
+
+	/** Re-screen every customer; summarize new and cleared hits across all. */
+	public async rescanAll(): Promise<RescanSummary> {
+		const customers = await this.#store.listCustomers();
+		const priorByCustomer = await this.#priorEntityIds();
+		let newHits = 0;
+		let clearedHits = 0;
+		for (const customer of customers) {
+			const rows = await this.#replaceFor(customer);
+			const prior = priorByCustomer.get(customer.customer_id) ?? new Set();
+			const next = new Set(rows.map((r) => r.ofac_entity_id));
+			newHits += countMissing(next, prior);
+			clearedHits += countMissing(prior, next);
+		}
+		return { customersScanned: customers.length, newHits, clearedHits };
+	}
+
+	/** Idempotent on version: rescan + persist only when the version advanced. */
+	public async syncWatchlist(currentVersion: string): Promise<SyncResult> {
+		const lastSynced = await this.#store.getSetting(LAST_SYNCED_VERSION_KEY);
+		if (lastSynced === currentVersion) {
+			return { changed: false, version: currentVersion, ...EMPTY_SUMMARY };
+		}
+		const summary = await this.rescanAll();
+		await this.#store.setSetting(LAST_SYNCED_VERSION_KEY, currentVersion);
+		return { changed: true, version: currentVersion, ...summary };
+	}
+
+	async #replaceFor(customer: CustomerRow): Promise<ReadonlyArray<ReviewRow>> {
+		const response = await this.#screener.screen({
+			name: customer.name,
+			country: customer.country,
+			threshold: ONBOARDING_THRESHOLD,
+		});
+		const tiered = response.matches.map((match) =>
+			tierMatch(match, this.#possibleThreshold),
+		);
+		return this.#store.replaceMatches(customer.customer_id, tiered);
+	}
+
+	/** Snapshot every customer's prior match entity-id set in one board read. */
+	async #priorEntityIds(): Promise<Map<string, Set<string>>> {
+		const rows = await this.#store.listReviewMatches({
+			limit: Number.MAX_SAFE_INTEGER,
+		});
+		const byCustomer = new Map<string, Set<string>>();
+		for (const row of rows) {
+			const set = byCustomer.get(row.customer_id) ?? new Set<string>();
+			set.add(row.ofac_entity_id);
+			byCustomer.set(row.customer_id, set);
+		}
+		return byCustomer;
+	}
+}
+
+/** Count members of `a` that are absent from `b` (set difference size). */
+function countMissing(a: ReadonlySet<string>, b: ReadonlySet<string>): number {
+	let count = 0;
+	for (const value of a) {
+		if (!b.has(value)) {
+			count += 1;
+		}
+	}
+	return count;
+}

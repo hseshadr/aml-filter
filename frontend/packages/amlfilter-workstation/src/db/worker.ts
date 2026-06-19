@@ -11,6 +11,7 @@ import {
 	listCustomers,
 	listReviewMatches,
 	recordMatches,
+	replaceMatches,
 	resolveMatch,
 	setSetting,
 	updateCustomer,
@@ -107,6 +108,17 @@ async function execute(request: DbRequest): Promise<DbResponse> {
 				id: request.id,
 				kind: "recordMatches",
 				result: recordMatches(requireDb(), request.customerId, request.matches),
+			};
+		case "replaceMatches":
+			return {
+				ok: true,
+				id: request.id,
+				kind: "replaceMatches",
+				result: replaceMatches(
+					requireDb(),
+					request.customerId,
+					request.matches,
+				),
 			};
 		case "listReviewMatches":
 			return {

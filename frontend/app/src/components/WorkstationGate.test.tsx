@@ -26,6 +26,18 @@ function makeHandle(analystName: string | null) {
 		tracker: {},
 		onboarding: {},
 		engineBoot: vi.fn().mockResolvedValue(undefined),
+		// Auto-sync-on-boot reads the loaded version then syncs; default to an
+		// unchanged watchlist so the strip stays silent in these tests.
+		watchlistVersion: vi.fn(() => "wl-test"),
+		rescan: {
+			syncWatchlist: vi.fn().mockResolvedValue({
+				changed: false,
+				version: "wl-test",
+				customersScanned: 0,
+				newHits: 0,
+				clearedHits: 0,
+			}),
+		},
 	};
 }
 
@@ -52,6 +64,16 @@ function makeControllableHandle(analystName: string | null) {
 		tracker: {},
 		onboarding: {},
 		engineBoot,
+		watchlistVersion: vi.fn(() => "wl-test"),
+		rescan: {
+			syncWatchlist: vi.fn().mockResolvedValue({
+				changed: false,
+				version: "wl-test",
+				customersScanned: 0,
+				newHits: 0,
+				clearedHits: 0,
+			}),
+		},
 	};
 	return { handle, fireStage: () => fireStage, rejectBoot: () => rejectBoot };
 }

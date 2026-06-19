@@ -156,23 +156,34 @@ export function updateCustomer(
 	) {
 		assertReferenceFree(db, patch.customer_reference);
 	}
-	// The COALESCE patch is intentionally additive — it cannot null-out a set column.
+	// The COALESCE patch is intentionally additive — it cannot null-out a set
+	// column. Empty name/country strings are normalized to null ("no change").
 	db.exec(
 		`UPDATE customers SET
 		   onboarding_status  = COALESCE(?, onboarding_status),
 		   kyc_risk_rating    = COALESCE(?, kyc_risk_rating),
 		   customer_reference = COALESCE(?, customer_reference),
+		   name               = COALESCE(?, name),
+		   country            = COALESCE(?, country),
 		   updated_at         = ?
 		 WHERE customer_id = ?`,
 		[
 			patch.onboarding_status ?? null,
 			patch.kyc_risk_rating ?? null,
 			patch.customer_reference ?? null,
+			blankToNull(patch.name),
+			blankToNull(patch.country),
 			nowIso(),
 			customerId,
 		],
 	);
 	return requireCustomer(db, customerId);
+}
+
+/** Trim a patch field; an empty/whitespace string means "no change" (null). */
+function blankToNull(value: string | undefined): string | null {
+	const trimmed = value?.trim();
+	return trimmed ? trimmed : null;
 }
 
 export function deleteCustomer(db: SqlDatabase, customerId: string): void {
@@ -273,6 +284,113 @@ export function recordMatches(
 		)
 		.map(toReviewRow)
 		.filter((row) => ids.has(row.ofac_entity_id));
+}
+
+/** Prior disposition fields carried forward across a replaceMatches write. */
+interface PriorDisposition {
+	readonly resolution_status: ResolutionStatus;
+	readonly resolved_at: string | null;
+	readonly reviewer_id: string | null;
+	readonly review_notes: string | null;
+}
+
+/** Snapshot each existing match's disposition, keyed by ofac_entity_id. */
+function existingDispositions(
+	db: SqlDatabase,
+	customerId: string,
+): Map<string, PriorDisposition> {
+	const rows = db.selectObjects(
+		`SELECT ofac_entity_id, resolution_status, resolved_at, reviewer_id, review_notes
+		 FROM kyc_matches WHERE customer_id = ?`,
+		[customerId],
+	);
+	const prior = new Map<string, PriorDisposition>();
+	for (const row of rows) {
+		prior.set(asString(row.ofac_entity_id), {
+			resolution_status: asString(row.resolution_status) as ResolutionStatus,
+			resolved_at: asNullableString(row.resolved_at),
+			reviewer_id: asNullableString(row.reviewer_id),
+			review_notes: asNullableString(row.review_notes),
+		});
+	}
+	return prior;
+}
+
+/** Insert one match, carrying a prior disposition forward when the entity survived. */
+function insertReplacedMatch(
+	db: SqlDatabase,
+	customerId: string,
+	match: TieredMatch,
+	detectedAt: string,
+	prior: PriorDisposition | undefined,
+): void {
+	const carried = prior ?? {
+		resolution_status: "PENDING",
+		resolved_at: null,
+		reviewer_id: null,
+		review_notes: null,
+	};
+	db.exec(
+		`INSERT INTO kyc_matches (match_id, customer_id, ofac_entity_id, match_score,
+		   match_tier, list_version, sanctioned_name, source_list, reasons,
+		   explanation, detected_at, resolution_status, resolved_at, reviewer_id, review_notes)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		[
+			crypto.randomUUID(),
+			customerId,
+			match.ofac_entity_id,
+			match.score,
+			match.tier,
+			match.list_version,
+			match.sanctioned_name,
+			match.source_list,
+			JSON.stringify(match.reasons),
+			match.explanation,
+			detectedAt,
+			carried.resolution_status,
+			carried.resolved_at,
+			carried.reviewer_id,
+			carried.review_notes,
+		],
+	);
+}
+
+/**
+ * Authoritative "this is the customer's complete current match set" write —
+ * the rescan primitive. In ONE transaction: snapshot prior dispositions,
+ * DELETE every existing match for the customer, then INSERT the new set,
+ * carrying forward `resolution_status`/`resolved_at`/`reviewer_id`/`review_notes`
+ * for any entity that still matches (a still-matching, previously-resolved hit
+ * keeps its disposition — unlike recordMatches, which resets to PENDING).
+ * Entities absent from the new set are cleared by the DELETE. Atomic: a
+ * mid-batch failure rolls back the whole replacement.
+ */
+export function replaceMatches(
+	db: SqlDatabase,
+	customerId: string,
+	matches: ReadonlyArray<TieredMatch>,
+): ReviewRow[] {
+	requireCustomer(db, customerId);
+	const detectedAt = nowIso();
+	db.transaction(() => {
+		const prior = existingDispositions(db, customerId);
+		db.exec("DELETE FROM kyc_matches WHERE customer_id = ?", [customerId]);
+		for (const match of matches) {
+			insertReplacedMatch(
+				db,
+				customerId,
+				match,
+				detectedAt,
+				prior.get(match.ofac_entity_id),
+			);
+		}
+	});
+	return db
+		.selectObjects(
+			`${REVIEW_SELECT} WHERE m.customer_id = ? ORDER BY m.match_score DESC`,
+			[customerId],
+		)
+		.map(toReviewRow);
 }
 
 /** Review-board rows: a plain JOIN suffices locally (no entity fan-out). */

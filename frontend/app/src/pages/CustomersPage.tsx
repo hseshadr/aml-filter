@@ -9,6 +9,8 @@ import {
 	type KycRiskRating,
 	type OnboardingStatus,
 } from "../lib/api";
+import { runWatchlistSync, syncSummaryText } from "../lib/sync";
+import { workstation } from "../lib/workstation";
 
 const ONBOARDING_STATUSES: OnboardingStatus[] = [
 	"DRAFT",
@@ -30,6 +32,13 @@ interface NewCustomerForm {
 	customer_reference: string;
 	name: string;
 	onboarded_by: string;
+	country: string;
+}
+
+/** Inline edit buffer for a single customer row (name / country). */
+interface EditState {
+	customerId: string;
+	name: string;
 	country: string;
 }
 
@@ -78,6 +87,13 @@ export default function CustomersPage() {
 	const [lastResult, setLastResult] = useState<CustomerOnboardResponse | null>(
 		null,
 	);
+	const [syncing, setSyncing] = useState(false);
+	const [syncMessage, setSyncMessage] = useState<string | null>(null);
+	const [lastSynced, setLastSynced] = useState<{
+		version: string;
+		at: string;
+	} | null>(null);
+	const [editing, setEditing] = useState<EditState | null>(null);
 
 	const loadCustomers = useCallback(async () => {
 		try {
@@ -153,6 +169,52 @@ export default function CustomersPage() {
 		}
 	};
 
+	const handleCheckForUpdates = async () => {
+		try {
+			setSyncing(true);
+			setError(null);
+			const handle = await workstation();
+			// A fresh manual click may precede the background engine boot — the
+			// watchlist version is only known after bootstrap, so ensure it first.
+			if (handle.watchlistVersion() === null) {
+				await handle.engineBoot();
+			}
+			const result = await runWatchlistSync(handle);
+			if (result === null) {
+				setSyncMessage(
+					"Screening engine is still starting — try again shortly.",
+				);
+				return;
+			}
+			setSyncMessage(syncSummaryText(result));
+			setLastSynced({ version: result.version, at: new Date().toISOString() });
+			await loadCustomers();
+		} catch (err) {
+			setError(errorMessage(err, "Failed to check for updates"));
+		} finally {
+			setSyncing(false);
+		}
+	};
+
+	const handleEditSave = async () => {
+		if (editing === null) return;
+		try {
+			setError(null);
+			// Persist name/country, then re-screen this customer against the
+			// current watchlist so the review board reflects the new identity.
+			await apiClient.updateCustomer(editing.customerId, {
+				name: editing.name,
+				country: editing.country,
+			});
+			const handle = await workstation();
+			await handle.rescan.screenCustomer(editing.customerId);
+			setEditing(null);
+			await loadCustomers();
+		} catch (err) {
+			setError(errorMessage(err, "Failed to save customer"));
+		}
+	};
+
 	const addIdDocRow = () =>
 		setIdDocs((rows) => [
 			...rows,
@@ -173,7 +235,29 @@ export default function CustomersPage() {
 
 	return (
 		<div>
-			<h1>KYC Customer Onboarding</h1>
+			<div className="flex-between">
+				<h1>KYC Customer Onboarding</h1>
+				<button
+					type="button"
+					onClick={handleCheckForUpdates}
+					disabled={syncing}
+					className="btn btn-secondary btn-sm"
+				>
+					{syncing ? "Checking…" : "Check for updates"}
+				</button>
+			</div>
+
+			{syncMessage && (
+				<div className="alert card-muted text-sm" role="status">
+					{syncMessage}
+				</div>
+			)}
+			{lastSynced && (
+				<p className="text-muted text-sm">
+					Last synced: {lastSynced.version} ·{" "}
+					{new Date(lastSynced.at).toLocaleTimeString()}
+				</p>
+			)}
 
 			{error && <div className="alert alert-error">Error: {error}</div>}
 
@@ -402,6 +486,58 @@ export default function CustomersPage() {
 												</option>
 											))}
 										</select>
+										{editing?.customerId === customer.customer_id ? (
+											<>
+												<input
+													type="text"
+													aria-label={`Edit name for ${customer.customer_reference}`}
+													value={editing.name}
+													onChange={(e) =>
+														setEditing({ ...editing, name: e.target.value })
+													}
+													className="form-input"
+												/>
+												<input
+													type="text"
+													aria-label={`Edit country for ${customer.customer_reference}`}
+													value={editing.country}
+													maxLength={2}
+													onChange={(e) =>
+														setEditing({ ...editing, country: e.target.value })
+													}
+													className="form-input"
+												/>
+												<button
+													type="button"
+													onClick={handleEditSave}
+													className="btn btn-primary btn-sm"
+												>
+													Save
+												</button>
+												<button
+													type="button"
+													onClick={() => setEditing(null)}
+													className="btn btn-secondary btn-sm"
+												>
+													Cancel
+												</button>
+											</>
+										) : (
+											<button
+												type="button"
+												aria-label={`Edit ${customer.customer_reference}`}
+												onClick={() =>
+													setEditing({
+														customerId: customer.customer_id,
+														name: "",
+														country: "",
+													})
+												}
+												className="btn btn-secondary btn-sm"
+											>
+												Edit
+											</button>
+										)}
 										<button
 											type="button"
 											onClick={() => handleDelete(customer.customer_id)}

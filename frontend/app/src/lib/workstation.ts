@@ -21,6 +21,7 @@ import {
 	LocalMatchTracker,
 	LocalOnboardingService,
 	type NameScreener,
+	RescanService,
 	type WorkstationStore,
 } from "@amlfilter/workstation";
 import type { WorkstationServices } from "./localApi";
@@ -33,6 +34,8 @@ export interface EngineHandle {
 /** The runtime surface the boot path needs (EngineRuntime satisfies it). */
 export interface RuntimePort {
 	bootstrap(config: RuntimeConfig, onStage?: OnStage): Promise<EngineHandle>;
+	/** The loaded watchlist version; null before the first successful boot. */
+	version(): string | null;
 }
 
 /** Seams for tests; defaulted to the real DB Worker + EngineRuntime. */
@@ -44,6 +47,10 @@ export interface WorkstationDeps {
 export interface WorkstationHandle extends WorkstationServices {
 	/** Kick (or await) the engine bootstrap, streaming boot stages to the UI. */
 	readonly engineBoot: (onStage?: OnStage) => Promise<void>;
+	/** The bidirectional auto-rescan service (Wave 2), over this DB + screener. */
+	readonly rescan: RescanService;
+	/** The loaded watchlist version; null until the engine has bootstrapped. */
+	readonly watchlistVersion: () => string | null;
 }
 
 const defaultDeps: WorkstationDeps = {
@@ -84,6 +91,8 @@ async function build(deps: WorkstationDeps): Promise<WorkstationHandle> {
 		store,
 		tracker: new LocalMatchTracker(store),
 		onboarding: new LocalOnboardingService(store, screener),
+		rescan: new RescanService(store, screener),
+		watchlistVersion: (): string | null => deps.runtime.version(),
 		engineBoot: async (onStage?: OnStage): Promise<void> => {
 			await bootEngine(onStage);
 		},

@@ -1,9 +1,10 @@
 /** API client for AML-Filter backend. */
 
+import { LAST_SYNCED_VERSION_KEY } from "@amlfilter/workstation";
 import axios, { type AxiosError, type AxiosInstance } from "axios";
 import { DEFAULT_API_BASE } from "./apiBase";
 import { LocalApiClient } from "./localApi";
-import { workstationProvider } from "./workstation";
+import { workstation, workstationProvider } from "./workstation";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || DEFAULT_API_BASE;
 
@@ -530,6 +531,8 @@ export interface CustomerUpdateRequest {
 	onboarding_status?: OnboardingStatus;
 	kyc_risk_rating?: KycRiskRating;
 	customer_reference?: string;
+	name?: string;
+	country?: string;
 }
 
 export interface CustomerResponse {
@@ -755,3 +758,23 @@ export interface SarMatchContext {
 // signed-bundle screening engine). The server-tier ApiClient above is kept
 // for SaaS deployments but is no longer wired into the app (spec D3).
 export const apiClient = new LocalApiClient(workstationProvider);
+
+declare global {
+	interface Window {
+		/**
+		 * Test seam: stale the recorded last-synced watchlist version so the next
+		 * "Check for updates" sees a mismatch and runs a full rescanAll(). Always
+		 * present (the e2e drives the minified preview build, MODE==="production",
+		 * so it must NOT be gated behind import.meta.env.DEV). Harmless in prod —
+		 * only a settings row a user could already overwrite by re-syncing.
+		 */
+		__amlSetLastSynced?: (version: string) => Promise<void>;
+	}
+}
+
+if (typeof window !== "undefined") {
+	window.__amlSetLastSynced = async (version: string): Promise<void> => {
+		const handle = await workstation();
+		await handle.store.setSetting(LAST_SYNCED_VERSION_KEY, version);
+	};
+}

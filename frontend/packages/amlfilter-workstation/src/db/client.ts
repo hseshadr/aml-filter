@@ -103,6 +103,18 @@ export class DbClient implements WorkstationStore {
 		});
 	}
 
+	public replaceMatches(
+		customerId: string,
+		matches: ReadonlyArray<TieredMatch>,
+	): Promise<ReadonlyArray<ReviewRow>> {
+		return this.#call({
+			kind: "replaceMatches",
+			id: this.#allocId(),
+			customerId,
+			matches,
+		});
+	}
+
 	public listReviewMatches(
 		filters: ReviewFilters,
 	): Promise<ReadonlyArray<ReviewRow>> {

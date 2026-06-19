@@ -22,10 +22,17 @@ export {
 	type OnboardResult,
 } from "./onboarding";
 export {
+	LAST_SYNCED_VERSION_KEY,
+	RescanService,
+	type RescanSummary,
+	type SyncResult,
+} from "./rescan";
+export {
 	ANALYST_NAME_KEY,
 	LocalMatchTracker,
 	type ResolveOptions,
 } from "./review";
+export { tierMatch } from "./tier_match";
 export { classifyTier, STRONG_TIER_FLOOR } from "./tiering";
 export type {
 	CreateCustomerPayload,

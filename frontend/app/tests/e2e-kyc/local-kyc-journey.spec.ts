@@ -143,6 +143,55 @@ test("local-first journey: no login → onboard → tiered match → resolve →
 	).toBeVisible();
 
 	// =======================================================================
+	// 6b. Bidirectional auto-rescan (Wave 2): force the workstation to think it
+	//     last synced an OLD watchlist version, then drive "Check for updates".
+	//     The version itself is unchanged, but the stale marker makes
+	//     syncWatchlist see a mismatch and run a real rescanAll() through the UI.
+	//     The previously-resolved match MUST survive with its FALSE_POSITIVE
+	//     disposition preserved (proof that replaceMatches carries the audit
+	//     trail forward across a rescan).
+	// =======================================================================
+	await page.evaluate(() => {
+		const w = window as unknown as {
+			__amlSetLastSynced?: (v: string) => Promise<void>;
+		};
+		return w.__amlSetLastSynced?.("v0-stale");
+	});
+	await page.getByRole("button", { name: "Check for updates" }).click();
+	// A real re-screen ran (≥1 customer scanned) — the summary is visible.
+	await expect(page.getByText(/Re-screened \d+ customer\(s\)/)).toBeVisible({
+		timeout: 120_000,
+	});
+
+	// The resolved match survived the rescan with its disposition preserved.
+	await page.goto("/review");
+	await expect(
+		page.getByRole("heading", { name: "Review Board" }),
+	).toBeVisible();
+	const rescannedRow = page.locator("tbody tr", { hasText: CUSTOMER_REF });
+	await expect(rescannedRow).toBeVisible();
+	await expect(
+		rescannedRow.locator(".badge", { hasText: "FALSE_POSITIVE" }),
+	).toBeVisible();
+	await expect(rescannedRow).toContainText(ANALYST);
+	await expect(rescannedRow).toContainText(REVIEW_NOTES);
+
+	// Reload after the rescan: customer, match, and resolution all persist (OPFS).
+	await page.reload();
+	const afterRescanReload = page.locator("tbody tr", { hasText: CUSTOMER_REF });
+	await expect(afterRescanReload).toBeVisible();
+	await expect(
+		afterRescanReload.locator(".badge", { hasText: "FALSE_POSITIVE" }),
+	).toBeVisible();
+	await expect(afterRescanReload).toContainText(REVIEW_NOTES);
+
+	// Back to /customers for the dup-rejection step.
+	await page.goto("/customers");
+	await expect(
+		page.getByRole("heading", { name: "KYC Customer Onboarding" }),
+	).toBeVisible();
+
+	// =======================================================================
 	// 7. Dup-rejection: onboarding the same reference fails loudly.
 	// =======================================================================
 	await page.locator("#customer-reference").fill(CUSTOMER_REF);
