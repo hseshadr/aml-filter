@@ -6,14 +6,10 @@
  * compiles against), the data interfaces that flow across that surface, and
  * the single LOCAL-FIRST runtime singleton (`apiClient` = `LocalApiClient`,
  * all I/O in-tab via SQLite-WASM/OPFS + the signed-bundle screening engine).
- *
- * It also installs one benign, well-documented e2e test seam
- * (`window.__amlSetLastSynced`) — see its doc comment at the bottom.
  */
 
-import { LAST_SYNCED_VERSION_KEY } from "@amlfilter/workstation";
 import { LocalApiClient } from "./localApi";
-import { workstation, workstationProvider } from "./workstation";
+import { workstationProvider } from "./workstation";
 
 export interface ApiError {
 	detail: string;
@@ -515,24 +511,3 @@ export interface SarMatchContext {
 // signed-bundle screening engine). `ApiClient` above is the shared TYPE
 // surface it satisfies; there is no server-tier transport in this app.
 export const apiClient = new LocalApiClient(workstationProvider);
-
-declare global {
-	interface Window {
-		/**
-		 * Test seam: stale the recorded last-synced watchlist version so the next
-		 * "Check for updates" sees a mismatch and runs a full rescanAll(). Always
-		 * present (the e2e drives the minified preview build, MODE==="production",
-		 * so it must NOT be gated behind import.meta.env.DEV). Benign in prod — it
-		 * only writes one local settings string (the recorded last-synced watchlist
-		 * version) that a user could already overwrite by re-syncing.
-		 */
-		__amlSetLastSynced?: (version: string) => Promise<void>;
-	}
-}
-
-if (typeof window !== "undefined") {
-	window.__amlSetLastSynced = async (version: string): Promise<void> => {
-		const handle = await workstation();
-		await handle.store.setSetting(LAST_SYNCED_VERSION_KEY, version);
-	};
-}

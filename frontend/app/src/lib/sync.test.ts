@@ -1,6 +1,10 @@
 import type { SyncResult } from "@amlfilter/workstation";
 import { describe, expect, it, vi } from "vitest";
-import { runWatchlistSync, syncSummaryText } from "./sync";
+import {
+	checkForWatchlistUpdates,
+	runWatchlistSync,
+	syncSummaryText,
+} from "./sync";
 import type { WorkstationHandle } from "./workstation";
 
 function makeHandle(
@@ -41,6 +45,78 @@ describe("runWatchlistSync", () => {
 		const { handle, syncWatchlist } = makeHandle("v2");
 		syncWatchlist.mockRejectedValue(new Error("rescan failed"));
 		await expect(runWatchlistSync(handle)).rejects.toThrow(/rescan failed/);
+	});
+});
+
+interface UpdateHandleMocks {
+	readonly handle: WorkstationHandle;
+	readonly fetchPublishedVersion: ReturnType<typeof vi.fn>;
+	readonly reloadWatchlist: ReturnType<typeof vi.fn>;
+	readonly syncWatchlist: ReturnType<typeof vi.fn>;
+}
+
+function makeUpdateHandle(
+	loadedVersion: string | null,
+	publishedVersion: string,
+	syncResult?: SyncResult,
+): UpdateHandleMocks {
+	const fetchPublishedVersion = vi.fn().mockResolvedValue(publishedVersion);
+	const reloadWatchlist = vi.fn().mockResolvedValue(undefined);
+	const syncWatchlist = vi.fn().mockResolvedValue(syncResult);
+	let currentVersion = loadedVersion;
+	const handle = {
+		watchlistVersion: () => currentVersion,
+		fetchPublishedVersion,
+		// reload advances what the handle reports as the loaded version.
+		reloadWatchlist: reloadWatchlist.mockImplementation(async () => {
+			currentVersion = publishedVersion;
+		}),
+		rescan: { syncWatchlist },
+	} as unknown as WorkstationHandle;
+	return { handle, fetchPublishedVersion, reloadWatchlist, syncWatchlist };
+}
+
+describe("checkForWatchlistUpdates", () => {
+	it("returns null and polls nothing when the engine has not booted", async () => {
+		const m = makeUpdateHandle(null, "demo-2");
+		expect(await checkForWatchlistUpdates(m.handle)).toBeNull();
+		expect(m.fetchPublishedVersion).not.toHaveBeenCalled();
+		expect(m.reloadWatchlist).not.toHaveBeenCalled();
+	});
+
+	it("reloads + re-screens when a NEW version is published", async () => {
+		const changed: SyncResult = {
+			changed: true,
+			version: "demo-2",
+			customersScanned: 2,
+			newHits: 1,
+			clearedHits: 0,
+		};
+		const m = makeUpdateHandle("demo-1", "demo-2", changed);
+		const result = await checkForWatchlistUpdates(m.handle);
+		expect(m.fetchPublishedVersion).toHaveBeenCalledTimes(1);
+		// The new publish was reloaded BEFORE re-screening against demo-2.
+		expect(m.reloadWatchlist).toHaveBeenCalledTimes(1);
+		expect(m.syncWatchlist).toHaveBeenCalledWith("demo-2");
+		expect(result).toEqual(changed);
+	});
+
+	it("does NOT reload when the published version equals the loaded version", async () => {
+		const unchanged: SyncResult = {
+			changed: false,
+			version: "demo-1",
+			customersScanned: 0,
+			newHits: 0,
+			clearedHits: 0,
+		};
+		const m = makeUpdateHandle("demo-1", "demo-1", unchanged);
+		const result = await checkForWatchlistUpdates(m.handle);
+		expect(m.fetchPublishedVersion).toHaveBeenCalledTimes(1);
+		expect(m.reloadWatchlist).not.toHaveBeenCalled();
+		// Still calls syncWatchlist with the loaded version — a no-op that yields
+		// the "already current" summary when nothing drifted.
+		expect(m.syncWatchlist).toHaveBeenCalledWith("demo-1");
+		expect(result).toEqual(unchanged);
 	});
 });
 

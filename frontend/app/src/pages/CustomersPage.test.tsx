@@ -26,10 +26,16 @@ const mockSyncWatchlist = vi.fn();
 const mockScreenCustomer = vi.fn();
 const mockWatchlistVersion = vi.fn<() => string | null>(() => "wl-v1");
 const mockEngineBoot = vi.fn().mockResolvedValue(undefined);
+const mockFetchPublishedVersion = vi
+	.fn<() => Promise<string>>()
+	.mockResolvedValue("wl-v1");
+const mockReloadWatchlist = vi.fn().mockResolvedValue(undefined);
 vi.mock("../lib/workstation", () => ({
 	workstation: vi.fn(async () => ({
 		watchlistVersion: mockWatchlistVersion,
 		engineBoot: mockEngineBoot,
+		fetchPublishedVersion: mockFetchPublishedVersion,
+		reloadWatchlist: mockReloadWatchlist,
 		rescan: {
 			syncWatchlist: mockSyncWatchlist,
 			screenCustomer: mockScreenCustomer,
@@ -72,6 +78,8 @@ describe("CustomersPage", () => {
 		vi.clearAllMocks();
 		mockClient.listCustomers.mockResolvedValue([]);
 		mockWatchlistVersion.mockReturnValue("wl-v1");
+		mockFetchPublishedVersion.mockResolvedValue("wl-v1");
+		mockReloadWatchlist.mockResolvedValue(undefined);
 	});
 
 	afterEach(() => {
@@ -206,7 +214,9 @@ describe("CustomersPage", () => {
 		);
 	});
 
-	it("Check for updates triggers a sync and renders the re-screen summary", async () => {
+	it("Check for updates detects a NEW publish, reloads, and renders the re-screen summary", async () => {
+		// A newer list (wl-v2) was published after this tab booted at wl-v1.
+		mockFetchPublishedVersion.mockResolvedValue("wl-v2");
 		mockSyncWatchlist.mockResolvedValue({
 			changed: true,
 			version: "wl-v2",
@@ -220,8 +230,10 @@ describe("CustomersPage", () => {
 
 		fireEvent.click(screen.getByRole("button", { name: "Check for updates" }));
 
+		// The new publish was reloaded into the engine before re-screening it.
+		await waitFor(() => expect(mockReloadWatchlist).toHaveBeenCalledTimes(1));
 		await waitFor(() =>
-			expect(mockSyncWatchlist).toHaveBeenCalledWith("wl-v1"),
+			expect(mockSyncWatchlist).toHaveBeenCalledWith("wl-v2"),
 		);
 		await waitFor(() =>
 			expect(
@@ -252,6 +264,8 @@ describe("CustomersPage", () => {
 				screen.getByText("Watchlist already current."),
 			).toBeInTheDocument(),
 		);
+		// No new publish → no reload.
+		expect(mockReloadWatchlist).not.toHaveBeenCalled();
 	});
 
 	it("editing a row saves name/country then re-screens the customer", async () => {

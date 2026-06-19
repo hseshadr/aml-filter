@@ -155,6 +155,85 @@ describe("EngineRuntime bootstrap timeout", () => {
 	});
 });
 
+describe("EngineRuntime.reload", () => {
+	/** A loaded watchlist tagged with a version + a single entity id. */
+	function loadedAt(version: string, entityId: string): LoadedWatchlist {
+		return {
+			index: new VectorIndex(new Float32Array(1), [entityId], 1),
+			entities: new Map([
+				[
+					entityId,
+					{
+						entity_id: entityId,
+						entity_type: "PERSON",
+						primary_name: entityId,
+						name_canonical: entityId,
+						aliases: [],
+						dob: [],
+						countries: [],
+						risk_category: "SANCTION",
+						source_list: "OFAC_SDN",
+						list_version: version,
+					},
+				],
+			]),
+			version,
+			listId: "OFAC_SDN",
+		};
+	}
+
+	/** An embedder that resolves instantly so bootstrap completes (no fake timers). */
+	function instantEmbedder(): Embedder {
+		return { embed: () => Promise.resolve(new Float32Array(1)) };
+	}
+
+	it("swaps the watchlist + version and reuses the warm embedder (no re-download)", async () => {
+		const loads = [loadedAt("demo-1", "E1"), loadedAt("demo-2", "E2")];
+		let calls = 0;
+		const makeEmbedder = vi.fn(() => instantEmbedder());
+		const runtime = new EngineRuntime({
+			loadWatchlist: () => {
+				const next = loads[calls] ?? loads[loads.length - 1];
+				calls += 1;
+				if (next === undefined) throw new Error("no load");
+				return Promise.resolve(next);
+			},
+			makeEmbedder,
+		});
+
+		const first = await runtime.bootstrap(CONFIG);
+		expect(runtime.version()).toBe("demo-1");
+		expect(first.meta.version).toBe("demo-1");
+
+		const reloaded = await runtime.reload();
+		// Version + entities advanced to the second watchlist.
+		expect(runtime.version()).toBe("demo-2");
+		expect(reloaded.meta.version).toBe("demo-2");
+		expect(reloaded.allEntities().map((e) => e.entity_id)).toEqual(["E2"]);
+		// engine() now returns the reloaded engine, not the boot-time one.
+		expect(runtime.engine()).toBe(reloaded);
+		expect(runtime.engine()).not.toBe(first);
+		// The embedder was built ONCE (at bootstrap) — reload did NOT re-download.
+		expect(makeEmbedder).toHaveBeenCalledTimes(1);
+	});
+
+	it("throws if reload is called before a successful bootstrap", async () => {
+		const runtime = new EngineRuntime({
+			loadWatchlist: () => Promise.resolve(loadedAt("demo-1", "E1")),
+			makeEmbedder: () => instantEmbedder(),
+		});
+		await expect(runtime.reload()).rejects.toThrow();
+	});
+
+	it("throws if fetchPublishedVersion is called before a successful bootstrap", async () => {
+		const runtime = new EngineRuntime({
+			loadWatchlist: () => Promise.resolve(loadedAt("demo-1", "E1")),
+			makeEmbedder: () => instantEmbedder(),
+		});
+		await expect(runtime.fetchPublishedVersion()).rejects.toThrow();
+	});
+});
+
 describe("throttleByRoundedPct", () => {
 	function progress(pct: number): EmbedProgress {
 		return { loaded: pct, total: 100, pct };

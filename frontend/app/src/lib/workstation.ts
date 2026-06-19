@@ -36,6 +36,10 @@ export interface RuntimePort {
 	bootstrap(config: RuntimeConfig, onStage?: OnStage): Promise<EngineHandle>;
 	/** The loaded watchlist version; null before the first successful boot. */
 	version(): string | null;
+	/** Cheap signed-manifest poll: the currently PUBLISHED watchlist version. */
+	fetchPublishedVersion(): Promise<string>;
+	/** Re-fetch + re-verify the watchlist, swap it in over the warm embedder. */
+	reload(): Promise<EngineHandle>;
 }
 
 /** Seams for tests; defaulted to the real DB Worker + EngineRuntime. */
@@ -51,6 +55,12 @@ export interface WorkstationHandle extends WorkstationServices {
 	readonly rescan: RescanService;
 	/** The loaded watchlist version; null until the engine has bootstrapped. */
 	readonly watchlistVersion: () => string | null;
+	/** Cheap signed-manifest poll for the currently PUBLISHED watchlist version
+	 * — what "Check for updates" compares against the loaded version. */
+	readonly fetchPublishedVersion: () => Promise<string>;
+	/** Re-fetch + re-verify the signed watchlist and swap it into the running
+	 * engine (reuses the warm embedder — no second model download). */
+	readonly reloadWatchlist: () => Promise<void>;
 }
 
 const defaultDeps: WorkstationDeps = {
@@ -95,6 +105,11 @@ async function build(deps: WorkstationDeps): Promise<WorkstationHandle> {
 		watchlistVersion: (): string | null => deps.runtime.version(),
 		engineBoot: async (onStage?: OnStage): Promise<void> => {
 			await bootEngine(onStage);
+		},
+		fetchPublishedVersion: (): Promise<string> =>
+			deps.runtime.fetchPublishedVersion(),
+		reloadWatchlist: async (): Promise<void> => {
+			await deps.runtime.reload();
 		},
 	};
 }

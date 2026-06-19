@@ -16,7 +16,7 @@
 // the watchlist origin). Any verify failure aborts the load with NO fallback.
 
 import { verifyEd25519 } from "./crypto";
-import type { Alias, Entity, EntityType } from "./domain";
+import type { Alias, Entity, EntityType, RiskCategory } from "./domain";
 import { canonicalize } from "./normalize";
 import { VectorIndex } from "./vectorIndex";
 
@@ -25,6 +25,13 @@ const EXPECTED_DIM = 384;
 const FLOAT32_BYTES = 4;
 /** Entity type assumed when the lean wire record omits it (scorer signal only). */
 const DEFAULT_ENTITY_TYPE: EntityType = "PERSON";
+/** The only risk buckets the engine accepts; any other value is rejected. */
+const RISK_CATEGORIES: ReadonlySet<RiskCategory> = new Set([
+	"SANCTION",
+	"PEP",
+	"CUSTOM",
+	"WHITELIST",
+]);
 
 /** One screened entity exactly as it appears in `watchlist.json`. */
 export interface WatchlistEntity {
@@ -154,6 +161,16 @@ function toAlias(name: string): Alias {
 	return { name, name_canonical: canonicalize(name), source: "" };
 }
 
+/** Narrow a wire risk_category to the domain union fail-closed, else throw. */
+function assertRiskCategory(value: string, entityId: string): RiskCategory {
+	if (RISK_CATEGORIES.has(value as RiskCategory)) {
+		return value as RiskCategory;
+	}
+	throw new WatchlistFormatError(
+		`entity ${entityId} has risk_category "${value}"; expected one of ${[...RISK_CATEGORIES].join(", ")}`,
+	);
+}
+
 /**
  * Project a lean watchlist entity onto the domain Entity the scorer + UI use.
  * The wire shape omits entity_type and a display primary_name and carries a
@@ -171,7 +188,7 @@ function toEntity(wire: WatchlistEntity): Entity {
 		countries: wire.countries,
 		nationalities: [],
 		addresses: [],
-		risk_category: wire.risk_category as Entity["risk_category"],
+		risk_category: assertRiskCategory(wire.risk_category, wire.entity_id),
 		source_list: wire.source_list,
 		list_version: wire.list_version,
 	};

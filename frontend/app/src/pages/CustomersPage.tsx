@@ -9,7 +9,7 @@ import {
 	type KycRiskRating,
 	type OnboardingStatus,
 } from "../lib/api";
-import { runWatchlistSync, syncSummaryText } from "../lib/sync";
+import { checkForWatchlistUpdates, syncSummaryText } from "../lib/sync";
 import { workstation } from "../lib/workstation";
 
 const ONBOARDING_STATUSES: OnboardingStatus[] = [
@@ -179,7 +179,10 @@ export default function CustomersPage() {
 			if (handle.watchlistVersion() === null) {
 				await handle.engineBoot();
 			}
-			const result = await runWatchlistSync(handle);
+			// Live new-publish detection: poll the signed manifest, and if a newer
+			// list was published after this tab booted, reload it into the engine
+			// before re-screening every customer against it.
+			const result = await checkForWatchlistUpdates(handle);
 			if (result === null) {
 				setSyncMessage(
 					"Screening engine is still starting — try again shortly.",

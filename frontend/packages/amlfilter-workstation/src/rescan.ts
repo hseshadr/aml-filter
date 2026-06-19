@@ -38,6 +38,13 @@ export class RescanService {
 	readonly #store: WorkstationStore;
 	readonly #screener: NameScreener;
 	readonly #possibleThreshold: number;
+	/** Dedupes concurrent syncWatchlist so one rescan runs, not N. */
+	#syncInFlight: Promise<SyncResult> | null = null;
+	/** Per-customer in-flight screen+replace, so overlaps share one write. */
+	readonly #screenInFlight = new Map<
+		string,
+		Promise<ReadonlyArray<ReviewRow>>
+	>();
 
 	public constructor(
 		store: WorkstationStore,
@@ -57,7 +64,7 @@ export class RescanService {
 		if (customer === null) {
 			throw new NotFoundError(`customer ${customerId} not found`);
 		}
-		return this.#replaceFor(customer);
+		return this.#guardedReplaceFor(customer);
 	}
 
 	/** Re-screen every customer; summarize new and cleared hits across all. */
@@ -67,7 +74,7 @@ export class RescanService {
 		let newHits = 0;
 		let clearedHits = 0;
 		for (const customer of customers) {
-			const rows = await this.#replaceFor(customer);
+			const rows = await this.#guardedReplaceFor(customer);
 			const prior = priorByCustomer.get(customer.customer_id) ?? new Set();
 			const next = new Set(rows.map((r) => r.ofac_entity_id));
 			newHits += countMissing(next, prior);
@@ -76,8 +83,23 @@ export class RescanService {
 		return { customersScanned: customers.length, newHits, clearedHits };
 	}
 
-	/** Idempotent on version: rescan + persist only when the version advanced. */
-	public async syncWatchlist(currentVersion: string): Promise<SyncResult> {
+	/**
+	 * Idempotent on version: rescan + persist only when the version advanced.
+	 * Concurrent calls share one in-flight run, so the version guard cannot be
+	 * straddled by a second rescan (no double-run).
+	 */
+	public syncWatchlist(currentVersion: string): Promise<SyncResult> {
+		if (this.#syncInFlight !== null) {
+			return this.#syncInFlight;
+		}
+		const run = this.#syncWatchlist(currentVersion).finally(() => {
+			this.#syncInFlight = null;
+		});
+		this.#syncInFlight = run;
+		return run;
+	}
+
+	async #syncWatchlist(currentVersion: string): Promise<SyncResult> {
 		const lastSynced = await this.#store.getSetting(LAST_SYNCED_VERSION_KEY);
 		if (lastSynced === currentVersion) {
 			return { changed: false, version: currentVersion, ...EMPTY_SUMMARY };
@@ -85,6 +107,23 @@ export class RescanService {
 		const summary = await this.rescanAll();
 		await this.#store.setSetting(LAST_SYNCED_VERSION_KEY, currentVersion);
 		return { changed: true, version: currentVersion, ...summary };
+	}
+
+	/**
+	 * Per-customer in-flight guard: an overlapping screen for the same customer
+	 * shares one screen+replace, so a stale result can never clobber a fresh one.
+	 */
+	#guardedReplaceFor(customer: CustomerRow): Promise<ReadonlyArray<ReviewRow>> {
+		const id = customer.customer_id;
+		const pending = this.#screenInFlight.get(id);
+		if (pending !== undefined) {
+			return pending;
+		}
+		const run = this.#replaceFor(customer).finally(() => {
+			this.#screenInFlight.delete(id);
+		});
+		this.#screenInFlight.set(id, run);
+		return run;
 	}
 
 	async #replaceFor(customer: CustomerRow): Promise<ReadonlyArray<ReviewRow>> {

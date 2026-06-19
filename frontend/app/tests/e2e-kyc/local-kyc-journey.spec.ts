@@ -1,4 +1,7 @@
-import { expect, test } from "@playwright/test";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { expect, type Route, test } from "@playwright/test";
 
 /**
  * The local-first KYC workstation slice journey, end-to-end with no backend:
@@ -7,12 +10,21 @@ import { expect, test } from "@playwright/test";
  *   customer whose name is in the committed signed demo bundle → the
  *   sanctions-match warning fires → the Review Board shows the TIERED match
  *   → resolve it (reviewer stamped from the analyst settings row) → reload:
- *   the customer, the match, and the disposition all survived (OPFS).
+ *   the customer, the match, and the disposition all survived (OPFS) →
+ *   a NEW watchlist is published → "Check for updates" detects it (real signed
+ *   manifest poll), reloads + re-screens, and the disposition carries forward.
  *
  * Asserts REAL outcomes (rendered tiers, persisted rows, dup-rejection,
  * console hygiene), against the REAL minified build + the REAL committed signed
  * v3 watchlist (app/public/watchlist/watchlist.json) + the REAL pinned key — per
  * the CLAUDE.md browser-validation mandate.
+ *
+ * The new-publish step is driven the REAL way (no test seam): a SECOND signed
+ * artifact (version "demo-2", built by @amlfilter/publisher with the same demo
+ * key — see packages/amlfilter-publisher/src/buildDemoV2.ts) lives under
+ * fixtures/watchlist-v2/. A Playwright route serves the boot watchlist normally,
+ * then — once `servePublishV2` flips — serves the v2 manifest+watchlist+sigs so
+ * the running tab's manifest poll sees a genuinely newer, validly-signed list.
  */
 
 // "Ivan Fakovich" is entity DEMO_SDN:0001 in the committed signed watchlist
@@ -22,9 +34,34 @@ const CUSTOMER_REF = "CUST-LOCAL-001";
 const ANALYST = "Avery Analyst";
 const REVIEW_NOTES = "Resolved as noise in the local-first e2e journey.";
 
+const HERE = dirname(fileURLToPath(import.meta.url));
+const V2_DIR = join(HERE, "fixtures", "watchlist-v2");
+
+/** The four signed v2 artifact files, read once as raw bytes for route fulfilment. */
+const V2_FILES: Readonly<
+	Record<string, { body: Buffer; contentType: string }>
+> = {
+	"watchlist.manifest.json": {
+		body: readFileSync(join(V2_DIR, "watchlist.manifest.json")),
+		contentType: "application/json",
+	},
+	"watchlist.manifest.json.sig": {
+		body: readFileSync(join(V2_DIR, "watchlist.manifest.json.sig")),
+		contentType: "text/plain",
+	},
+	"watchlist.json": {
+		body: readFileSync(join(V2_DIR, "watchlist.json")),
+		contentType: "application/json",
+	},
+	"watchlist.json.sig": {
+		body: readFileSync(join(V2_DIR, "watchlist.json.sig")),
+		contentType: "text/plain",
+	},
+};
+
 test.describe.configure({ mode: "serial" });
 
-test("local-first journey: no login → onboard → tiered match → resolve → persists", async ({
+test("local-first journey: no login → onboard → tiered match → resolve → persists → new publish re-screens", async ({
 	page,
 }) => {
 	test.setTimeout(180_000);
@@ -37,6 +74,28 @@ test("local-first journey: no login → onboard → tiered match → resolve →
 	page.on("console", (msg) => {
 		if (msg.type() === "error")
 			consoleErrors.push(`console.error: ${msg.text()}`);
+	});
+
+	// --- New-publish route: serve the committed demo-1 watchlist until the
+	//     test flips `servePublishV2`, then serve the validly-signed demo-2
+	//     artifact so the tab's manifest poll detects a real new publish. -----
+	let servePublishV2 = false;
+	await page.route("**/watchlist/watchlist*", async (route: Route) => {
+		if (!servePublishV2) {
+			await route.continue();
+			return;
+		}
+		const name = new URL(route.request().url()).pathname.split("/").pop() ?? "";
+		const file = V2_FILES[name];
+		if (file === undefined) {
+			await route.continue();
+			return;
+		}
+		await route.fulfill({
+			status: 200,
+			contentType: file.contentType,
+			body: file.body,
+		});
 	});
 
 	// =======================================================================
@@ -143,25 +202,24 @@ test("local-first journey: no login → onboard → tiered match → resolve →
 	).toBeVisible();
 
 	// =======================================================================
-	// 6b. Bidirectional auto-rescan (Wave 2): force the workstation to think it
-	//     last synced an OLD watchlist version, then drive "Check for updates".
-	//     The version itself is unchanged, but the stale marker makes
-	//     syncWatchlist see a mismatch and run a real rescanAll() through the UI.
-	//     The previously-resolved match MUST survive with its FALSE_POSITIVE
-	//     disposition preserved (proof that replaceMatches carries the audit
-	//     trail forward across a rescan).
+	// 6b. LIVE new-publish detection (the headline feature): a newer watchlist
+	//     ("demo-2") goes live AFTER this tab booted on "demo-1". Flip the route
+	//     to serve the validly-signed v2 artifact, then drive "Check for
+	//     updates". The tab's cheap signed-manifest poll must see demo-2 ≠
+	//     demo-1, RELOAD the watchlist into the running engine (fail-closed
+	//     verify), then re-screen every customer. The previously-resolved match
+	//     MUST survive with its FALSE_POSITIVE disposition (proof replaceMatches
+	//     carries the audit trail forward across a real reload + rescan).
 	// =======================================================================
-	await page.evaluate(() => {
-		const w = window as unknown as {
-			__amlSetLastSynced?: (v: string) => Promise<void>;
-		};
-		return w.__amlSetLastSynced?.("v0-stale");
-	});
+	servePublishV2 = true;
 	await page.getByRole("button", { name: "Check for updates" }).click();
-	// A real re-screen ran (≥1 customer scanned) — the summary is visible.
+	// A real re-screen ran against the newly-published list (≥1 customer scanned).
 	await expect(page.getByText(/Re-screened \d+ customer\(s\)/)).toBeVisible({
 		timeout: 120_000,
 	});
+	// The UI now reports demo-2 as the last-synced version — the new publish was
+	// genuinely detected and loaded, not the frozen boot-time version.
+	await expect(page.getByText(/Last synced: demo-2/)).toBeVisible();
 
 	// The resolved match survived the rescan with its disposition preserved.
 	await page.goto("/review");

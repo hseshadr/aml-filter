@@ -37,6 +37,10 @@ function makeDeps(store: WorkstationStore): WorkstationDeps {
 				screen: vi.fn().mockResolvedValue(response),
 			}),
 			version: vi.fn(() => "watchlist-v-test"),
+			fetchPublishedVersion: vi.fn().mockResolvedValue("watchlist-v-next"),
+			reload: vi.fn().mockResolvedValue({
+				screen: vi.fn().mockResolvedValue(response),
+			}),
 		},
 	};
 }
@@ -79,6 +83,17 @@ describe("workstation boot", () => {
 		const handle = await workstation(deps);
 		expect(handle.watchlistVersion()).toBe("watchlist-v-test");
 		expect(deps.runtime.version).toHaveBeenCalled();
+	});
+
+	it("fetchPublishedVersion + reloadWatchlist delegate to the runtime", async () => {
+		const deps = makeDeps(makeStore());
+		const handle = await workstation(deps);
+		await expect(handle.fetchPublishedVersion()).resolves.toBe(
+			"watchlist-v-next",
+		);
+		expect(deps.runtime.fetchPublishedVersion).toHaveBeenCalledTimes(1);
+		await handle.reloadWatchlist();
+		expect(deps.runtime.reload).toHaveBeenCalledTimes(1);
 	});
 
 	it("a failed DB open clears the memo so the next call retries", async () => {

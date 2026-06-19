@@ -195,6 +195,31 @@ function screenerFor(
 	};
 }
 
+// A screener whose every screen() call parks on a shared, manually-released
+// gate. This holds open the async window between screen() and replaceMatches()
+// so concurrent callers genuinely overlap — the only way to observe the race.
+function gatedScreenerFor(byName: Record<string, ReadonlyArray<Match>>): {
+	readonly screener: NameScreener;
+	release(): void;
+} {
+	let open!: () => void;
+	const gate = new Promise<void>((resolve) => {
+		open = resolve;
+	});
+	const screener: NameScreener = {
+		screen: vi.fn(async (query: ScreenQuery): Promise<ScreenResponse> => {
+			await gate;
+			return {
+				request_id: "req",
+				matches: [...(byName[query.name] ?? [])],
+				list_versions_used: { DEMO_SDN: "v" },
+				execution_time_ms: 1,
+			};
+		}),
+	};
+	return { screener, release: open };
+}
+
 describe("RescanService.syncWatchlist", () => {
 	it("does NOT re-screen when the stored version equals the current version", async () => {
 		const store = new FakeStore();
@@ -225,6 +250,31 @@ describe("RescanService.syncWatchlist", () => {
 		expect(result.version).toBe("v2");
 		expect(result.customersScanned).toBe(2);
 		expect(screener.screen).toHaveBeenCalledTimes(2);
+		expect(await store.getSetting(LAST_SYNCED_VERSION_KEY)).toBe("v2");
+	});
+
+	it("two concurrent syncWatchlist calls run rescanAll only once", async () => {
+		const store = new FakeStore();
+		store.seedCustomer(customerRow("c-1", "Ivan Fakovich"));
+		store.seedCustomer(customerRow("c-2", "Anna Other"));
+		await store.setSetting(LAST_SYNCED_VERSION_KEY, "v1");
+		const { screener, release } = gatedScreenerFor({
+			"Ivan Fakovich": [makeMatch()],
+		});
+		const service = new RescanService(store, screener, 0.65);
+
+		// Fire both BEFORE either can finish — both straddle the version guard.
+		const first = service.syncWatchlist("v2");
+		const second = service.syncWatchlist("v2");
+		release();
+		const [a, b] = await Promise.all([first, second]);
+
+		// One shared rescan over the 2 customers => 2 screens, not 4.
+		expect(screener.screen).toHaveBeenCalledTimes(2);
+		expect(a.changed).toBe(true);
+		expect(b.changed).toBe(true);
+		expect(a.customersScanned).toBe(2);
+		expect(b.customersScanned).toBe(2);
 		expect(await store.getSetting(LAST_SYNCED_VERSION_KEY)).toBe("v2");
 	});
 
@@ -278,6 +328,25 @@ describe("RescanService.screenCustomer", () => {
 		// c-2 untouched.
 		const c2 = await store.listReviewMatches({});
 		expect(c2.filter((r) => r.customer_id === "c-2")).toHaveLength(1);
+	});
+
+	it("concurrent screenCustomer for the same customer collapses to one screen", async () => {
+		const store = new FakeStore();
+		store.seedCustomer(customerRow("c-1", "Ivan Fakovich"));
+		const { screener, release } = gatedScreenerFor({
+			"Ivan Fakovich": [makeMatch({ entity_id: "new-one" })],
+		});
+		const service = new RescanService(store, screener, 0.65);
+
+		// Both calls overlap inside the screen() gate for the SAME customer.
+		const first = service.screenCustomer("c-1");
+		const second = service.screenCustomer("c-1");
+		release();
+		const [rowsA, rowsB] = await Promise.all([first, second]);
+
+		expect(screener.screen).toHaveBeenCalledTimes(1);
+		expect(rowsA.map((r) => r.ofac_entity_id)).toEqual(["new-one"]);
+		expect(rowsB).toEqual(rowsA);
 	});
 
 	it("throws for an unknown customer", async () => {

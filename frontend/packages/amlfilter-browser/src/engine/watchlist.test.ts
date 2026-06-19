@@ -10,6 +10,7 @@ import { pubkeyRaw, watchlistBytes, watchlistSig } from "./fixtures";
 import {
 	buildLoadedWatchlist,
 	type Watchlist,
+	type WatchlistEntity,
 	WatchlistFormatError,
 } from "./watchlist";
 
@@ -57,6 +58,30 @@ function fixtureWatchlist(overrides: Partial<Watchlist> = {}): Watchlist {
 		vectors: encodeVectors(matrix),
 		...overrides,
 	};
+}
+
+/** A single well-typed entity (DEMO:1) carrying the given risk_category. */
+function withRiskCategory(riskCategory: string): WatchlistEntity {
+	return {
+		entity_id: "DEMO:1",
+		name_canonical: "ivan fakovich",
+		aliases: ["Vanya Fakovich"],
+		dob: "1971-03-14",
+		countries: ["RU"],
+		risk_category: riskCategory,
+		source_list: "DEMO_SDN",
+		list_version: "2026-05-01",
+	};
+}
+
+/** A 1-entity watchlist whose sole entity carries the given risk_category. */
+function singleEntityWatchlist(riskCategory: string): Watchlist {
+	const matrix = new Float32Array(DIM);
+	matrix[0] = 1;
+	return fixtureWatchlist({
+		entities: [withRiskCategory(riskCategory)],
+		vectors: encodeVectors(matrix),
+	});
 }
 
 describe("buildLoadedWatchlist — decode + project", () => {
@@ -108,6 +133,17 @@ describe("buildLoadedWatchlist — decode + project", () => {
 		expect(() =>
 			buildLoadedWatchlist(fixtureWatchlist({ vectors: short })),
 		).toThrow(WatchlistFormatError);
+	});
+
+	it("rejects a watchlist entity whose risk_category is outside the allowed union (fail-closed)", () => {
+		const bogus = singleEntityWatchlist("BOGUS");
+		expect(() => buildLoadedWatchlist(bogus)).toThrow(WatchlistFormatError);
+	});
+
+	it("accepts a non-SANCTION risk_category that is in the union (e.g. WHITELIST)", () => {
+		const ok = singleEntityWatchlist("WHITELIST");
+		const entity = buildLoadedWatchlist(ok).entities.get("DEMO:1");
+		expect(entity?.risk_category).toBe("WHITELIST");
 	});
 });
 

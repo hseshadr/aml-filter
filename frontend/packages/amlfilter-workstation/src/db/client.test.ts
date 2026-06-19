@@ -103,6 +103,18 @@ describe("DbClient", () => {
 		await expect(list).rejects.toThrow(/terminated/);
 	});
 
+	it("rejects a request issued AFTER terminate (no hang)", {
+		timeout: 1000,
+	}, async () => {
+		const worker = new FakeWorker();
+		const client = new DbClient(worker);
+		client.terminate();
+		// FakeWorker never replies; before the fix this would post to a dead
+		// worker and hang forever (the 1000ms timeout would fire).
+		await expect(client.open()).rejects.toThrow(/terminated/);
+		await expect(client.listCustomers()).rejects.toThrow(/terminated/);
+	});
+
 	it("round-trips replaceMatches as its own request kind", async () => {
 		const worker = new FakeWorker();
 		const client = new DbClient(worker);

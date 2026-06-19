@@ -21,7 +21,11 @@ import {
 } from "./embedder";
 import { createWorkerEmbedder, spawnEmbedderWorker } from "./embedderClient";
 import { createScreeningEngine, type ScreeningEngine } from "./screeningEngine";
-import { type LoadedWatchlist, loadWatchlist } from "./watchlist";
+import {
+	fetchWatchlistVersion,
+	type LoadedWatchlist,
+	loadWatchlist,
+} from "./watchlist";
 
 /** Any non-empty string warms the ONNX session; content is discarded. */
 const WARMUP_PROMPT = "warm up the model";
@@ -173,6 +177,11 @@ export class EngineRuntime {
 	#enginePromise: Promise<ScreeningEngine> | null = null;
 	#ready: ScreeningEngine | null = null;
 	#version: string | null = null;
+	// Captured on the first successful bootstrap so reload() can re-fetch the
+	// watchlist with the same pinned key and reuse the already-warm embedder
+	// (no second ~23 MB model download).
+	#embedder: Embedder | null = null;
+	#config: RuntimeConfig | null = null;
 
 	public constructor(deps: RuntimeDeps = defaultDeps) {
 		this.#deps = deps;
@@ -204,6 +213,44 @@ export class EngineRuntime {
 		return this.#enginePromise;
 	}
 
+	/**
+	 * Re-fetch + re-verify (fail-closed) the signed watchlist, swap the in-memory
+	 * cosine index + entities + version, and rebuild the ScreeningEngine over the
+	 * SAME already-warm embedder (no second model download). Used by the app's
+	 * "Check for updates" path once a cheap manifest poll detects a new publish.
+	 * Requires a prior successful bootstrap — the embedder + pinned-key config are
+	 * captured then; calling reload before that throws.
+	 */
+	public async reload(): Promise<ScreeningEngine> {
+		if (this.#embedder === null || this.#config === null) {
+			throw new Error("reload() requires a successful bootstrap first");
+		}
+		const pubkey = await fetchPubkey(this.#config.pubkeyUrl);
+		const loaded = await this.#deps.loadWatchlist(pubkey);
+		const engine = createScreeningEngine(loaded, this.#embedder);
+		this.#ready = engine;
+		this.#version = loaded.version;
+		this.#enginePromise = Promise.resolve(engine);
+		return engine;
+	}
+
+	/**
+	 * Cheap new-publish poll: fetch + verify (fail-closed) ONLY the tiny signed
+	 * manifest and return its version — no full list, no vectors, no model. The
+	 * "Check for updates" path compares this against {@link version} to decide
+	 * whether a {@link reload} + re-screen is needed. Requires a prior bootstrap
+	 * (the pinned-key config is captured then).
+	 */
+	public async fetchPublishedVersion(): Promise<string> {
+		if (this.#config === null) {
+			throw new Error(
+				"fetchPublishedVersion() requires a successful bootstrap first",
+			);
+		}
+		const pubkey = await fetchPubkey(this.#config.pubkeyUrl);
+		return fetchWatchlistVersion(pubkey);
+	}
+
 	async #build(
 		config: RuntimeConfig,
 		onStage: OnStage,
@@ -225,6 +272,8 @@ export class EngineRuntime {
 			onStage({ kind: "loading-model", progress }),
 		);
 		const embedder = this.#deps.makeEmbedder(onModelProgress);
+		this.#embedder = embedder;
+		this.#config = config;
 		// Force the ~23 MB model download/compile now so "loading-model" reflects
 		// real work and the first user query is fast. Bounded: a stalled CDN must
 		// reject (bootstrap clears its memo + the UI errors) rather than hang. The
