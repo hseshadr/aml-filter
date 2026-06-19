@@ -1,223 +1,133 @@
 # Quickstart
 
-Clone → run the quality gate → load a sanctions list → screen a name. About ten
-minutes, mostly waiting on Docker and the OFAC download.
+aml-filter is a **zero-server, in-browser** AML / sanctions screening app: a static
+React SPA that syncs a **signed OFAC watchlist** into the tab and screens names
+locally — embedding, search, and the explainable scorer all run in the browser. No
+server, no database, nothing to provision.
+
+Clone → install → run → screen a name. About **ten minutes**, mostly the first build
+fetching the embedding-model weights.
 
 > Reminder: aml-filter is a portfolio demo, **not** a compliance product. See
 > [`../NOTICE`](../NOTICE).
 
 ## Prerequisites
 
-- **Python 3.13+** and [`uv`](https://docs.astral.sh/uv/)
-- **Docker** + Docker Compose
-- `curl` and `jq` (for the demo request)
+- **Node 22.13.0** (see [`../frontend/.nvmrc`](../frontend/.nvmrc); `nvm use` picks it up)
+- **pnpm** (`corepack enable` provides the pinned version)
 
-## 1. Clone and check the build
+That's the whole list. There is no backend to install.
+
+## 1. Clone, install, run
+
+All commands run from `frontend/` — there is no root `package.json`.
 
 ```bash
 git clone https://github.com/hseshadr/aml-filter.git
-cd aml-filter/backend
-uv sync
-uv run poe gate     # ruff + mypy --strict + xenon (Radon A) + pytest (≥90% cov)
-```
-
-`uv run poe gate` must pass before anything else — it's the same gate CI runs.
-
-## 2. Start the services
-
-From the repo root:
-
-```bash
-docker compose up -d
-```
-
-This starts Postgres (pgvector, published on `localhost:5435`), Valkey/Redis
-(`localhost:6380`), the API (`localhost:8000`), and the batch worker.
-
-## 3. Create the schema
-
-```bash
-docker compose exec api uv run python scripts/init_db.py
-```
-
-(Schema migrations live in `backend/alembic/`; `init_db.py` brings a fresh database
-up to head.)
-
-## 4. Load the official OFAC SDN list
-
-aml-filter does **not** ship the sanctions data. Download the current SDN list as
-`SDN.XML` from the official source —
-<https://sanctionslist.ofac.treasury.gov> — then ingest it:
-
-```bash
-docker compose exec api uv run python scripts/ingest_ofac.py SDN.XML
-```
-
-This parses the XML, upserts sanctioned entities + aliases, builds a name embedding
-for each, and stamps a `list_version`. Re-run it whenever you refresh the list.
-
-## 5. Screen a name
-
-```bash
-curl -s http://localhost:8000/v1/screen \
-  -H 'Content-Type: application/json' \
-  -d '{"name": "Jon Q. Fakename", "threshold": 0.65}' | jq
-```
-
-### Request fields (`SearchQuery`)
-
-| Field | Type | Default | Notes |
-| --- | --- | --- | --- |
-| `name` | string | — | **Required.** The name to screen. |
-| `dob` | date | — | Optional `YYYY-MM-DD`; feeds the `dob_match` signal. |
-| `country` | string | — | Optional ISO-3166 alpha-2; feeds `country_match`. |
-| `entity_type` | `PERSON`\|`ORGANIZATION` | — | Optional filter. |
-| `threshold` | float | `0.65` | Minimum score to count as a match. |
-| `k` | int | `20` | Max candidates to retrieve. |
-
-The response is a `SearchResponse` with scored `matches[]` — each carrying a
-`reasons[]` signal breakdown and a plain-language `explanation`. See
-[`ARCHITECTURE.md`](ARCHITECTURE.md) for the scoring contract.
-
-## A full KYC walkthrough (onboard → review → SAR → badge)
-
-The DB-backed tier adds a compliance workflow on top of screening: onboard a customer,
-work its matches on a tiered review board, file a SAR on a STRONG match, and generate a
-verifiable review badge. These endpoints are **tenant-scoped** — they need an
-`X-API-Key`. (Create one with `POST /v1/api-keys`; see [`API_SPEC.md`](API_SPEC.md).)
-
-> Reference implementation, **not** a compliance product. The SAR export below produces
-> a *fileable* FinCEN report — it does **NOT** submit anything to FinCEN or any
-> government system. See [`../NOTICE`](../NOTICE).
-
-Set your key once:
-
-```bash
-export AK='X-API-Key: ak_live_…'      # your tenant's API key
-```
-
-**1. Onboard a customer.** This creates a screened entity, screens it on the spot, and
-persists any matches.
-
-```bash
-curl -s http://localhost:8000/v1/customers \
-  -H "$AK" -H 'Content-Type: application/json' \
-  -d '{"customer_reference": "CUST-001", "name": "Jon Q. Fakename", "country": "US"}' | jq
-# → returns customer_id + match_entity_ids[] (the sanctions hits found on onboarding)
-```
-
-**2. Work the review board.** Matches are tiered STRONG / POSSIBLE / WEAK. List the
-STRONG ones, then resolve one with a reviewer note.
-
-```bash
-curl -s "http://localhost:8000/v1/review/matches?tier=STRONG" -H "$AK" | jq
-# grab a match_id, then resolve it:
-curl -s -X PUT \
-  "http://localhost:8000/v1/review/matches/<MATCH_ID>/resolve?resolution_status=TRUE_POSITIVE" \
-  -H "$AK" -H 'Content-Type: application/json' \
-  -d '{"reviewer_id": "analyst@acme.com", "review_notes": "Confirmed — sanctioned individual."}' | jq
-```
-
-**3. File a SAR on a STRONG match.** SAR creation is STRONG-gated (a non-STRONG match
-returns `422`).
-
-```bash
-curl -s http://localhost:8000/v1/sars \
-  -H "$AK" -H 'Content-Type: application/json' \
-  -d '{
-        "customer_id": "<CUSTOMER_ID>",
-        "match_id": "<MATCH_ID>",
-        "narrative": "Customer matched a sanctioned individual on the OFAC SDN list.",
-        "filer": {"name": "Jane Compliance", "institution": "Acme Bank", "contact": "compliance@acme.com"}
-      }' | jq
-# export the fileable FinCEN report (PDF or JSON) — you file it; it is NOT submitted:
-curl -s "http://localhost:8000/v1/sars/<SAR_ID>/export?format=pdf" -H "$AK" -o sar.pdf
-```
-
-**4. Generate a screening review badge.** A verifiable record of what the customer was
-screened against, when, and the result. With a signing key configured
-(`ATTESTATION_SIGNING_KEY_PATH`) it is ed25519-signed and verifiable.
-
-```bash
-curl -s http://localhost:8000/v1/attestations \
-  -H "$AK" -H 'Content-Type: application/json' \
-  -d '{"customer_id": "<CUSTOMER_ID>"}' | jq
-# verify its signature against the pinned trust-root key:
-curl -s "http://localhost:8000/v1/attestations/<ATTESTATION_ID>/verify" -H "$AK" | jq
-# → {"valid": true, "reason": "..."}
-```
-
-See [`API_SPEC.md`](API_SPEC.md) for the full request/response shapes, including the
-multi-list endpoints (`GET /v1/lists/available`, `PUT /v1/lists/{id}`). The frontend SPA
-mounts a page for each step (`/customers`, `/review`, `/sars`, `/attestations`,
-`/lists`).
-
-## The edge-proc path — backend-free screening
-
-aml-filter is built on the [edge-proc](https://github.com/hseshadr/edge-proc)
-substrate: the OFAC list can be published as a **signed, versioned bundle** and
-screened against **without Postgres** — from the terminal, or entirely in a browser
-tab. This path needs no Docker and no database.
-
-### 1. Mint a trust root and build a signed bundle
-
-You provide an `entities.jsonl` (one JSON domain `Entity` per line — e.g. produced
-from the OFAC SDN load above, or your own export):
-
-```bash
-cd backend
-uv sync
-
-uv run amlfilter keygen ./trust.key ./trust.pub
-uv run amlfilter bundle ./entities.jsonl ./origin ./trust.key --list-id OFAC_SDN
-```
-
-`bundle` embeds each name with the sentence-transformers encoder, builds the
-localvec FAISS index, and writes a **content-addressed origin** under `./origin`
-(`latest` pointer + `manifest/<hash>` + `chunk/<hash>`).
-
-### 2. Screen against the bundle (no Postgres)
-
-```bash
-# sync + verify + screen in one shot:
-uv run amlfilter screen "Jon Q. Fakename" ./origin ./trust.pub
-
-# or just sync + verify into a local cache and report the version:
-uv run amlfilter sync ./origin ./trust.pub --cache ./.ofac_bundle
-```
-
-Verification is **fail-closed** — a tampered or unsigned bundle aborts the load.
-
-### 3. Run the in-browser `/screen` demo
-
-Serve the origin as static files, point the frontend at it, and screen in the tab:
-
-```bash
-# serve the bundle origin at, say, http://localhost:8080 (any static server)
-#   e.g.  (cd backend/origin && python -m http.server 8080)
-# set VITE_BUNDLE_BASE_URL to that origin in frontend/.env
-
-cd frontend
+cd aml-filter/frontend
 pnpm install
-pnpm --filter aml-filter-app dev      # open http://localhost:5173/screen
+pnpm --filter aml-filter-app dev      # Vite dev server; prints the localhost URL
 ```
 
-The one-command `make demo` / `make demo-browser` path serves the edge + SPA on host
-ports **8643 / 5273** by default — aml-filter-specific, to avoid colliding with other local
-projects on the common `8081`/`5173`; override either with `AML_EDGE_PORT` / `AML_SPA_PORT`
-(e.g. `AML_EDGE_PORT=8091 make demo`).
+Open the printed URL (default <http://localhost:5173>). Use **`localhost`**, not a LAN
+IP — a secure context is required for the in-tab WebCrypto signature check and OPFS
+storage.
 
-The `/screen` page syncs the signed bundle into the browser (ed25519 + sha256,
-fail-closed), loads the MiniLM matcher once (~23 MB), and screens names **in-tab** —
-no FastAPI on this path. The ed25519 public key is pinned in the app build, not
-fetched from the (untrusted) bundle origin.
+## 2. Screen a name (`/screen`)
+
+Go to **`/screen`**. On first visit the page:
+
+1. boots the **MiniLM** embedder once (cached after the first load),
+2. syncs the committed **signed watchlist** into the tab and **verifies it**
+   (Ed25519 + SHA-256, fail-closed — a tampered or unsigned list aborts the load),
+3. is then ready to screen names entirely in-tab.
+
+Type a sanctioned-ish name (something close to a real SDN entry) and submit. You get a
+**scored result with a `reasons[]` breakdown and a plain-language explanation** —
+which name signals fired (name similarity, alias, country, DOB) and how they rolled up
+into the score. Adjust the strictness slider (Lenient / Balanced / Strict) to see the
+match threshold tighten. See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the scoring
+contract.
+
+## 3. Onboard a customer and work a match (`/customers` → `/review`)
+
+The app is a small **local-first KYC workstation** on top of screening. Its store is a
+SQLite-WASM database persisted in your browser's OPFS — local to the tab, no server.
+
+1. Go to **`/customers`** and onboard a customer (name, and optionally country / DOB).
+   The customer is **auto-screened on the spot** against the signed watchlist; any hits
+   are saved with the customer.
+2. Go to **`/review`** to work the resulting matches. They are tiered
+   (STRONG / POSSIBLE / WEAK); open one, read its reasons, and **resolve** it with a
+   reviewer note (e.g. true positive / false positive).
+
+Everything — onboarding, screening, and the review decision — happens in the browser
+against the in-tab database and the signed watchlist.
+
+## 4. Build a demo watchlist
+
+The repo already ships a committed **demo** watchlist (signed, under
+`frontend/app/public/watchlist/`) so `/screen` works on a cold clone. To rebuild it:
+
+```bash
+cd frontend
+pnpm build-demo-list      # alias for: pnpm --filter @amlfilter/publisher run build-demo
+```
+
+This regenerates the four signed static files (`watchlist.json`, `watchlist.json.sig`,
+`watchlist.manifest.json`, `watchlist.manifest.json.sig`). For building a watchlist from
+your own OFAC export, and for refreshing the live list, see [`DEPLOY.md`](DEPLOY.md) and
+the wire format in [`WATCHLIST_FORMAT.md`](WATCHLIST_FORMAT.md).
+
+## 5. Run the gate
+
+There is no single `gate` script — run these four commands from `frontend/`, in order:
+
+```bash
+cd frontend
+pnpm -r run lint          # Biome lint + format check across the workspace
+pnpm -r run typecheck     # tsc across the workspace
+pnpm -r run test          # Vitest across all packages (incl. the frozen scoring +
+                          #   tiering golden parity tests vs. the source of truth)
+pnpm -r run build         # production build across the workspace
+```
+
+These mirror what CI runs. The golden parity tests are the guard that the in-browser
+scorer and tier classifier stay byte-for-byte faithful to their reference output.
+
+### End-to-end browser lanes
+
+Two Playwright lanes drive the **real minified build** against the **committed signed
+demo watchlist** in real Chromium (from `frontend/app`):
+
+```bash
+cd frontend/app
+pnpm test:e2e:c1     # the in-tab C1 screening lane (boot → verify → screen)
+pnpm test:e2e:kyc    # the backend-free KYC journey: onboard → auto-screen → review → resolve
+```
+
+CI runs both. A green build is **not** proof the app works — these lanes are the
+guard that the actual demo bundle verifies and screens in a real browser.
+
+## Production build + preview (browser-validation path)
+
+To exercise exactly what ships (and what the e2e lanes drive):
+
+```bash
+cd frontend
+pnpm --filter aml-filter-app build      # runs tsc --noEmit && vite build;
+                                        #   a prebuild hook fetches the model weights
+                                        #   and regenerates demo stats
+pnpm --filter aml-filter-app preview    # serves the dist/ build; open the printed URL
+```
 
 ## Troubleshooting
 
-- **`DATABASE_URL` error on startup** — aml-filter fails closed by design. For a
-  host-run API, `cp backend/.env.example backend/.env` first.
-- **No matches ever** — confirm step 4 succeeded (the SDN list is loaded) and that
-  you're screening a name that's actually on it.
-- **Port already in use** — Postgres/Valkey publish on `5435`/`6380` (not the
-  defaults) specifically to avoid clashing with local installs; adjust
-  `docker-compose.yml` if needed.
+- **`/screen` never becomes ready** — it boots the embedder and verifies the signed
+  watchlist on first load; give the model fetch a moment on a cold cache, and confirm a
+  clean browser console.
+- **"signature verification failed"** — verification is fail-closed by design. Make sure
+  you're serving the committed `watchlist/` files and the pinned `public.key` together,
+  over a secure context (`localhost` or HTTPS) — not a LAN IP.
+- **No matches ever** — screen a name that's actually close to one on the loaded
+  watchlist (the committed demo list is small).

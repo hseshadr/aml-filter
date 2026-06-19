@@ -1,92 +1,114 @@
 # Deploy
 
-> aml-filter is a portfolio demo, **not** a compliance product. Do not deploy it
-> as a production sanctions-screening control. See [`../NOTICE`](../NOTICE).
+> aml-filter is a portfolio demo, **not** a compliance product. Do not deploy it as a
+> production sanctions-screening control. See [`../NOTICE`](../NOTICE).
 
-aml-filter runs as a small docker-compose stack: PostgreSQL (with the pgvector
-extension), Redis/Valkey, the FastAPI **api**, and a background **worker** for
-batch jobs.
+**TL;DR.** aml-filter is a **static single-page app** plus a set of **signed static
+watchlist files**. There is nothing to provision — no server, no database, no
+containers. Build it, then host the output directory on any static host or CDN
+(Netlify, Vercel, GitHub Pages, S3 + CloudFront, Cloudflare Pages, …). The only hard
+requirement is that it be served over a **secure context (HTTPS)** so the browser can do
+WebCrypto signature verification and use OPFS.
 
-## Bring up the stack
+## 1. Build the static site
 
-From the repo root:
-
-```bash
-docker compose up -d
-```
-
-This starts four services (`docker-compose.yml`):
-
-| Service | Image | Host port | Role |
-| --- | --- | --- | --- |
-| `postgres` | `pgvector/pgvector:pg15` | `5435 → 5432` | Entities, embeddings, trigram indexes |
-| `redis` | `valkey/valkey:7.2-alpine` | `6380 → 6379` | Rate limiting + worker queue |
-| `api` | built from `backend/Dockerfile` (`target: api`) | `8000` | FastAPI screening API |
-| `worker` | built from `backend/Dockerfile` (`target: worker`) | — | RQ batch-screening worker |
-
-The API serves at `http://localhost:8000` (`/docs` for interactive OpenAPI).
-
-## Required environment variables
-
-All config is env-driven via Pydantic `BaseSettings`
-(`backend/aml_filter/config.py`). The compose file injects DB/Redis URLs into
-the `api` and `worker` containers; for a host-side run, copy `.env.example` →
-`.env`. **Names only — never commit real secret values.**
-
-| Variable | Purpose | Notes |
-| --- | --- | --- |
-| `DATABASE_URL` | Async Postgres DSN (`postgresql+asyncpg://…`) | Required; app fails closed if unset |
-| `REDIS_URL` | Redis/Valkey URL | Rate limiting + worker queue |
-| `SCREENING_QUEUE_NAME` | RQ queue name for batch jobs | Defaults to `screening` |
-| `ENVIRONMENT` | Deployment label | `development` in compose |
-
-The committed `docker-compose.yml` uses a **development-only** Postgres password
-for local convenience. Replace it (and route it through a secret manager) before
-running anywhere real.
-
-## Initialize the database
-
-Once Postgres is healthy, create the extensions + tables (one time):
+All commands run from `frontend/` — there is no root `package.json`.
 
 ```bash
-cd backend
-uv run python scripts/init_db.py     # CREATE EXTENSION vector / pg_trgm / btree_gin
-uv run alembic upgrade head          # apply migrations
+cd frontend
+pnpm install
+pnpm --filter aml-filter-app build
 ```
 
-## Load / refresh the OFAC SDN list
+`build` runs `tsc --noEmit && vite build`. A `prebuild` hook first fetches the embedding
+model weights and regenerates demo stats, so the output is self-contained.
 
-aml-filter does **not** bundle the sanctions list. Download it from the official
-OFAC source, then ingest it:
+The build emits **`frontend/app/dist/`**. Ship that directory as-is. It already includes
+everything the app needs at runtime:
+
+| Bundled into `dist/` | What it is |
+| --- | --- |
+| the SPA (HTML/JS/CSS) | the React app and the in-tab screening/scorer code |
+| `watchlist/` (4 files) | the committed **signed** OFAC watchlist artifact |
+| `public.key` | the pinned Ed25519 public key the app verifies the watchlist against |
+| `models/` | the MiniLM embedding-model weights (loaded once, in-tab) |
+
+## 2. Serve it (secure context required)
+
+Serve `dist/` as plain static files over **HTTPS**. A secure context is required:
+
+- **WebCrypto** (`crypto.subtle`) — the in-tab Ed25519 signature verification of the
+  watchlist. The verification is **fail-closed**: any signature or hash mismatch aborts
+  the load.
+- **OPFS** — where the local-first KYC store (SQLite-WASM) persists in the browser.
+
+`localhost` also counts as a secure context, which is what local preview and the e2e
+lanes rely on; a LAN IP does **not** and will fail differently. Any static host that
+serves over HTTPS works without further configuration.
+
+## 3. Refreshing the OFAC list
+
+The OFAC SDN list changes frequently; screening against a stale copy can miss
+newly-listed entities. The watchlist is regenerated and re-signed by the
+**`publish-watchlist` GitHub Action**
+([`../.github/workflows/publish-watchlist.yml`](../.github/workflows/publish-watchlist.yml)).
+
+**Trigger.** It runs **daily on a cron** (`0 6 * * *`, 06:00 UTC) and on manual
+**`workflow_dispatch`** (with an optional `version` stamp input that defaults to the run
+date).
+
+**What it does.** Install workspace deps → resolve the version stamp → fetch the live
+OFAC SDN list into `entities.jsonl` (via `fetchOfacJsonl`) → decode the signing key →
+run the publisher → scrub the key → upload the four signed files as a build artifact.
+
+**The signing key.** The `WATCHLIST_SIGNING_KEY` repository secret holds the **raw
+32-byte Ed25519 seed, base64-encoded** (so it round-trips cleanly through a GitHub
+secret). The job decodes it back to 32 raw bytes before signing and **fails if it is not
+exactly 32 bytes**. The key's public half is the `public.key` pinned in the app build —
+that pairing is what makes in-tab verification meaningful, so never rotate one without
+the other.
+
+**The signed artifact.** The publisher emits four static files into the out directory:
+
+```
+watchlist.json
+watchlist.json.sig
+watchlist.manifest.json
+watchlist.manifest.json.sig
+```
+
+Running the publisher directly (the same CLI the Action invokes):
 
 ```bash
-# 1. download the current official OFAC SDN list (XML)
-curl -o /tmp/sdn.xml https://sanctionslist.ofac.treasury.gov/Home/SdnList
-
-# 2. ingest it (optionally pass list_id and a version label)
-cd backend
-uv run python scripts/ingest_ofac.py /tmp/sdn.xml OFAC_SDN 2026-05-01
+cd frontend
+pnpm publish-list -- \
+  --in <entities.jsonl> \
+  --version <version-stamp> \
+  --key <raw-32-byte-ed25519-seed-file> \
+  --out <output-dir> \
+  [--models <model-weights-dir>]
 ```
 
-Ingestion upserts entities + aliases and builds name embeddings. The
-`list_version` you pass is echoed back in every screening response
-(`list_versions_used`), so you can prove which list a decision was made against.
+(`pnpm publish-list` is an alias for `pnpm --filter @amlfilter/publisher run publish`.)
+The wire format is documented in [`WATCHLIST_FORMAT.md`](WATCHLIST_FORMAT.md).
 
-**Refresh cadence.** The SDN list changes frequently. Re-run the ingest on a
-schedule (e.g. daily) against a freshly downloaded file. Screening against a
-stale copy can miss newly-listed entities — operationally and legally, that
-matters.
+**Honest note on delivery.** The Action currently **uploads the four signed files as a
+build artifact for review**. Actually getting them onto your static host — committing
+them back to the repo, or pushing them to your object store / CDN — is **left as the
+deployment choice**; wire that step to match wherever you host `dist/`.
+
+## 4. How clients pick up a refresh
+
+Once new watchlist files are live, browser clients **auto-detect the new `version` via
+the manifest poll**, then re-sync and **re-verify fail-closed** against the pinned
+`public.key`. So the refresh flow is: re-sign the list (the Action) → publish the new
+files to your host → clients converge on their own.
 
 ## Operational caveats
 
-- **Embedding model download.** On first run, the sentence-transformers model is
-  fetched and cached; cold start is slower than steady state. In a container,
-  bake the model into the image or mount a warm cache to avoid per-boot fetches.
-- **CORS.** The app ships `allow_origins=["*"]` for the demo. Lock this down to
-  your frontend origin before exposing it.
-- **Same embedder everywhere.** Ingestion and query-time must use the same
-  embedding model, or vector similarity is meaningless. Don't swap one without
-  re-ingesting.
+- **Same embedder on both sides.** The publisher precomputes name vectors with the same
+  MiniLM model the app loads at query time. They must match, or vector similarity is
+  meaningless — don't swap one without re-publishing.
 - **This is a demo.** Re-read [`../NOTICE`](../NOTICE): not legal advice, not a
-  compliance product. Every match must be reviewed by qualified compliance
-  personnel against the official OFAC source.
+  compliance product. Every match must be reviewed by qualified compliance personnel
+  against the official OFAC source.

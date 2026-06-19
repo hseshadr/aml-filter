@@ -1,49 +1,40 @@
-# aml-filter — screening pipeline
-# normalize -> candidate-gen (fuzzy + vector) -> score -> threshold -> decision + explanation
+# aml-filter — screening pipeline (v3, in-browser)
+# normalize -> embed -> cosine retrieve -> weighted score -> threshold -> decision + explanation
 
 direction: down
 
 query: {
-  label: "POST /v1/screen\nname · dob? · country? · entity_type? · threshold · k"
+  label: "screen({ name, dob?, country?, preset })\nrun entirely in the tab — no HTTP, no backend"
   shape: parallelogram
 }
 
 normalize: {
-  label: "1. Normalize\nlower-case · strip accents + honorifics · canonicalize"
+  label: "1. Normalize\nlower-case · strip accents + honorifics · canonicalize()\n(same fn the publisher used on the watchlist)"
   shape: rectangle
 }
 
 embed: {
-  label: "2. Embed\nsentence-transformers (local) -> vector"
+  label: "2. Embed (in-tab)\ntransformers.js MiniLM (Xenova/all-MiniLM-L6-v2, 384-dim) -> vector"
   shape: rectangle
 }
 
-candidates: {
-  label: "3. Candidate generation (hybrid search) — union"
+retrieve: {
+  label: "3. Retrieve — brute-force cosine\nover the precomputed name vectors\ndecoded from the signed watchlist (no Postgres)"
   shape: rectangle
-
-  vector: {
-    label: "Vector\npgvector cosine\n(transliterations, near-spellings)"
-    shape: rectangle
-  }
-  lexical: {
-    label: "Lexical\npg_trgm trigram\n(typos, partial names)"
-    shape: rectangle
-  }
 }
 
 score: {
-  label: "4. Score (weighted, explainable)\nname_vector · name_trigram · alias · dob · country\nfinal = Σ (weight × value)"
+  label: "4. Score (weighted, explainable)\nname_vector · name_trigram · alias · dob · country\nfinal = Σ (weight × value), per preset"
   shape: rectangle
 }
 
 threshold: {
-  label: "5. Threshold\nscore >= request.threshold ?"
+  label: "5. Threshold\nscore >= preset.threshold ?"
   shape: diamond
 }
 
 matches: {
-  label: "matches[] with reasons[] + explanation\n(per-signal value · weight · contribution)"
+  label: "matches[] with reasons[] + explanation\n(per-signal value · weight · contribution)\ntiered STRONG / POSSIBLE / WEAK"
   shape: parallelogram
 }
 
@@ -54,10 +45,8 @@ empty: {
 
 query -> normalize
 normalize -> embed
-embed -> candidates.vector
-normalize -> candidates.lexical
-candidates.vector -> score
-candidates.lexical -> score
+embed -> retrieve
+retrieve -> score
 score -> threshold
 threshold -> matches: "yes"
 threshold -> empty: "no"

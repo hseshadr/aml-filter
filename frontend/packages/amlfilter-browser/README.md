@@ -1,8 +1,8 @@
 # @amlfilter/browser
 
-**The in-browser tier of aml-filter — OFAC name screening that runs entirely in the tab, with no backend.**
+**The in-browser screening engine of aml-filter — OFAC name screening that runs entirely in the tab, with no backend.**
 
-It syncs a signed, content-addressed OFAC bundle into the browser's origin-private file system (OPFS), verifies it fail-closed (ed25519 + sha256), and then screens a name locally with an explainable score. Because the native (Python) producer and this browser consumer share one wire format and one scoring contract, an in-browser match is byte-compatible with the server.
+It fetches a signed OFAC watchlist same-origin, verifies its detached Ed25519 signature **fail-closed** against a pinned public key, decodes the precomputed name vectors, embeds the query name in-tab (transformers.js MiniLM, `Xenova/all-MiniLM-L6-v2`, 384-dim), runs a brute-force cosine search, and produces an **explainable** weighted score — all locally. The wire contract is `docs/WATCHLIST_FORMAT.md`; the `@amlfilter/publisher` package produces the signed files this consumer reads.
 
 > aml-filter is an engineering-portfolio demonstration. It is **not** legal advice and **not** a compliance product — see the root `NOTICE` and `LICENSE`.
 
@@ -10,7 +10,7 @@ It syncs a signed, content-addressed OFAC bundle into the browser's origin-priva
 
 ### `.` — domain screening (OFAC)
 
-The full OFAC tier: bootstrap the engine over a synced bundle and screen names.
+The full OFAC tier: bootstrap the engine over the signed watchlist and screen names.
 
 ```ts
 import { EngineRuntime } from "@amlfilter/browser";
@@ -19,27 +19,22 @@ const engine = await EngineRuntime.bootstrap();
 const result = await engine.screen({ name: "Some Name" });
 ```
 
-This surface owns the OFAC domain: entity/alias types, the explainable scoring presets, the embedder seam, and the `ScreeningEngine`.
+This surface owns the OFAC domain: entity/alias types, the explainable scoring presets (`computeScore` / `PRESETS`, five weighted signals), the embedder seam, and the `ScreeningEngine`.
 
-### `./engine` — the reusable, domain-agnostic bundle-sync tier
+### `./engine` — the fail-closed crypto primitives
 
-The production substrate underneath the OFAC tier, with **zero** domain coupling (no screening, no embeddings, no OFAC). Spawn an `EngineClient`, `sync()` a signed bundle into OPFS in a Web Worker, `readFile()` the synced assets, then run your own compute over them.
+After the v3 pivot to a single signed JSON watchlist, the heavy chunked-CAS sync tier (OPFS store, GearCDC chunk reassembly, zstd, the sync Worker) is **gone** — the browser fetches one signed file and verifies it. What remains reusable, and what the publisher's round-trip test pins against, is the fail-closed Ed25519 primitive plus a content hash, with **zero** domain coupling (no screening, no embeddings, no OFAC):
 
 ```ts
-import { EngineClient } from "@amlfilter/browser/engine";
+import { verifyEd25519, sha256Hex, SignatureError } from "@amlfilter/browser/engine";
 
-const client = new EngineClient(/* ... */);
-await client.sync(/* version pointer */);
-const bytes = await client.readFile("some/asset");
+// throws SignatureError if the detached signature does not verify (fail-closed)
+await verifyEd25519(pubkeyRaw32, bytes, sigBase64);
 ```
-
-Use this surface to build any in-browser edge-proc consumer — aml-filter just layers OFAC name screening on top of it.
-
-> `./testing` exposes low-level sync primitives and the Worker-backed client for tests only — it is not a production surface.
 
 ## Attribution
 
-The `./engine` tier is a **TypeScript port of edge-proc's browser bundle-sync engine** — the sync state machine, content-addressed store, fail-closed ed25519/sha256 crypto, and the canonical manifest/wire format. Individual files carry per-file provenance comments (e.g. "TS port of edgeproc.bundles.sync.sync_index", "mirrors edge-proc's …"). It shares one wire format and one trust root with every other edge-proc consumer.
+The fail-closed Ed25519 / SHA-256 crypto and the canonical signed-watchlist wire format are a **TypeScript port of edge-proc's browser tier** — individual files carry per-file provenance comments (e.g. "TS port of edgeproc…", "mirrors edge-proc's …"). It shares one wire format and one trust root with every other edge-proc consumer.
 
 edge-proc is MIT licensed, © Harish Seshadri — https://github.com/hseshadr/edge-proc.
 

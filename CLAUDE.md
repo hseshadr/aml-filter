@@ -32,194 +32,150 @@ Required before claiming any such change works:
   will report misleading failures (OPFS `persist`, host-not-allowed). Prefer encoding the
   check as a Playwright spec so it becomes a permanent regression guard.
 - **Cover the REAL artifacts, not stand-ins.** The C1 e2e must (also) verify the actual
-  committed demo bundle (`backend/examples/catalog`) against the actual pinned key
-  (`frontend/app/public/public.key`) in-tab — not only a synthetic test catalog — so a
-  bundle/key/verification regression is caught.
+  committed demo watchlist (`frontend/app/public/watchlist/` — `watchlist.json(.sig)` +
+  `watchlist.manifest.json(.sig)`) against the actual pinned key
+  (`frontend/app/public/public.key`) in-tab — not only a synthetic test watchlist — so a
+  watchlist/key/verification regression is caught.
 - If a browser pass genuinely cannot be run in the harness, **say so explicitly and state
   what remains unverified** — never imply a screen works that you did not watch work.
 
 ## Project Overview
 
-AML-Filter v2.1 is an open-source AML and sanctions screening engine, **rebuilt to run
-on the [edge-proc](https://github.com/hseshadr/edge-proc) local-compute substrate**. It
-screens a query name against the OFAC SDN list and returns a **scored, explained**
-result. One scoring contract is served over **three paths**:
+aml-filter v3 is a free, **zero-server, pure-TypeScript, in-browser** AML and sanctions
+screening app. There is **no backend, no signup, no database server** — the entire product
+runs in the tab. The flow:
 
-- **Server, DB-backed** — the FastAPI app over PostgreSQL; `POST /v1/screen` is the
-  front door. Candidates come from **hybrid search** (pgvector + pg_trgm). This is the
-  default HTTP path and the only path with an HTTP surface.
-- **Server, bundle-backed (no Postgres)** — `backend/aml_filter/bundle/` syncs a signed
-  edge-proc bundle and screens against its **localvec** FAISS index + in-memory
-  entities. Driven by the `amlfilter` CLI; gated on `BUNDLE_BASE_URL` + `VERIFY_KEY_PATH`.
-- **Browser, backend-free** — `frontend/packages/amlfilter-browser` (`@amlfilter/browser`)
-  syncs the same signed bundle into the tab and searches/screens the list in-tab, no
-  application backend.
+1. Open the app in a browser → it downloads a **signed OFAC watchlist** and **verifies it
+   in-tab** (Ed25519, fail-closed — any signature/hash mismatch aborts the load).
+2. You load your customers (the **whitelist**) → they are kept **locally** in SQLite-WASM
+   over OPFS and **never leave the machine**.
+3. It screens every customer against the watchlist **entirely in the browser** and returns
+   a **scored, explained** result.
+4. **Bidirectional sync**: a watchlist change re-screens all customers; a customer change
+   re-screens just that customer.
 
-The HTTP `/v1/screen` endpoint stays **DB-backed**; the bundle + browser path is the new
-edge-proc capability layered on top.
-
-**Tech Stack**: Python 3.13+ FastAPI backend, React + TypeScript (Vite) frontend,
-PostgreSQL with pgvector, Redis/Valkey for job queues, edge-proc (localvec FAISS +
-signed content-addressed bundles), sentence-transformers (all-MiniLM-L6-v2, 384-dim).
+**Tech Stack**: React + TypeScript (Vite) SPA, a pnpm workspace, Biome, transformers.js
+MiniLM (`Xenova/all-MiniLM-L6-v2`, 384-dim) running both in-tab and in-Node, SQLite-WASM
+over OPFS, and an Ed25519-signed static watchlist (plain static files, served same-origin).
 
 ## Common Commands
 
-### Backend (from `backend/` directory)
+Everything is a pnpm workspace under `frontend/` — **there is no root `package.json` and
+no `gate` script**. Run all commands from `frontend/`.
+
 ```bash
-uv sync                                           # Install dependencies
-uv run poe gate                                   # Full gate: ruff + mypy --strict + xenon (Radon A) + pytest (≥90% cov)
-uv run pytest                                     # Run all tests
-uv run pytest tests/unit/                         # Run unit tests only
-uv run pytest tests/integration/ -m integration   # Run integration tests
-uv run pytest -k "test_name"                      # Run single test by name
-uv run uvicorn aml_filter.api.main:app --reload   # Start dev server (port 8000)
-uv run alembic upgrade head                       # Run database migrations
-uv run alembic revision --autogenerate -m "msg"   # Create new migration
+cd frontend && pnpm install               # Install workspace dependencies
+
+pnpm --filter aml-filter-app dev          # Vite dev server (default :5173); routes / /screen /customers /review
+pnpm --filter aml-filter-app build        # tsc --noEmit && vite build (prebuild downloads MiniLM weights + gen demo stats)
+pnpm --filter aml-filter-app preview      # Serve the production build
 ```
 
-### `amlfilter` CLI — the edge-proc bundle path (from `backend/`)
+### The gate — the literal sequence (NOT a single `gate` script), from `frontend/`
 ```bash
-uv run amlfilter keygen ./trust.key ./trust.pub                          # Mint an ed25519 trust root
-uv run amlfilter bundle ./entities.jsonl ./origin ./trust.key --list-id OFAC_SDN  # Build a signed, content-addressed bundle
-uv run amlfilter sync ./origin ./trust.pub --cache ./.ofac_bundle        # Sync + ed25519/sha256-verify (fail-closed)
-uv run amlfilter screen "Jon Q. Fakename" ./origin ./trust.pub           # Sync + verify + screen, no Postgres
+pnpm -r run lint        # Biome check across the workspace
+pnpm -r run typecheck   # tsc across the workspace
+pnpm -r run test        # Vitest across the workspace
+pnpm -r run build       # Production build across the workspace
 ```
 
-### Frontend (pnpm workspace, from `frontend/` directory)
+### e2e lanes (from `frontend/app`)
 ```bash
-pnpm install                          # Install workspace dependencies
-pnpm --filter aml-filter-app dev      # Start dev server (port 5173); the /screen page is backend-free
-pnpm -r run build                     # Production build across the workspace
-pnpm -r run lint                      # Biome check across the workspace
-pnpm -r run format                    # Biome formatting
+pnpm test:e2e:c1        # Browser-engine e2e in real Chromium
+pnpm test:e2e:kyc       # Backend-free local-first KYC journey in real Chromium
+```
+
+### Publish a signed watchlist (from `frontend/`)
+```bash
+pnpm build-demo-list    # Build the committed demo watchlist
+pnpm publish-list       # Build a production watchlist; CLI flags: --in --version --key --out [--models]
 ```
 
 **Note**: the frontend is a **pnpm workspace** (`pnpm` + **Biome**, not bun / ESLint /
 Prettier). Three packages: `frontend/app` (the React app),
 `frontend/packages/amlfilter-browser` (`@amlfilter/browser`, the in-browser screening
-tier — a port of edge-proc's browser sync tier + the OFAC scoring contract), and
-`frontend/packages/amlfilter-workstation` (`@amlfilter/workstation`, the local-first
-KYC tier — SQLite-WASM/OPFS DB worker + TS ports of tiering/onboarding/review, tiering
-parity-locked via `poe tiering-golden-check`). Always use `pnpm` for frontend package
-management.
-
-### Infrastructure
-```bash
-docker compose up -d              # Start all services (postgres, valkey, api, worker)
-docker compose up -d postgres     # Start just PostgreSQL
-docker compose exec api uv run python scripts/init_db.py  # Create schema / bring DB to head (run once)
-```
+engine), and `frontend/packages/amlfilter-workstation` (`@amlfilter/workstation`, the
+local-first KYC tier — SQLite-WASM/OPFS DB worker + TS tiering/onboarding/review). There
+is also `frontend/packages/amlfilter-publisher` (`@amlfilter/publisher`, the Node-side
+signed-watchlist publisher). Always use `pnpm` for frontend package management.
 
 ## Code Quality Requirements
 
-**Backend (Python)**:
-- Ruff for linting and formatting (line length: 100)
-- MyPy in strict mode — all functions must have type annotations
-- xenon / Radon Grade A complexity; functions ≤15 lines
-- Test coverage minimum: 90%
-- `uv run poe gate` is the single source of truth (it mirrors CI)
-
-**Frontend**:
+Frontend-only — the codebase is entirely TypeScript.
 - Biome (lint + format)
 - TypeScript strict mode; no `any`, no default exports
+- Vitest for unit tests; Playwright for e2e
+- The gate is the literal `lint → typecheck → test → build` sequence above (it mirrors CI)
 
 ## Architecture
 
-aml-filter is **two layers**: edge-proc (the generic local-compute substrate —
-localvec + signed bundles) at the bottom, and aml-filter (the OFAC domain model, the
-explainable weighted scorer, the screening pipeline) on top. The pipeline shape is the
-same on every path: normalize → embed → generate candidates by vector retrieval → score
-with a transparent weighted policy → threshold → return matches with per-signal reasons.
+The product is **three TypeScript units**. The screening pipeline shape is constant:
+normalize → embed → vector candidate retrieval → transparent weighted scoring → threshold
+→ return matches with per-signal reasons.
 
-### Backend Structure (`backend/aml_filter/`)
-```
-api/         # FastAPI routers + endpoints (the DB-backed HTTP tier)
-bundle/      # edge-proc bundle producer/consumer: publish.py (build+sign), sync.py
-             #   (sync+verify, fail-closed), runtime.py (server bundle read-path gate),
-             #   screening.py (BundleScreeningSource), meta.py (OfacBundleMeta)
-db/          # SQLAlchemy models and database session
-domain/      # Pydantic domain models + name normalization
-embedding/   # Local sentence-transformers embedding service (in-process cache)
-ingest/      # Data ingestion (OFAC SDN XML parser)
-scoring/     # DefaultScoringPolicy — weighted, explainable scoring + named presets
-search/      # Retrieval backends: hybrid_search, pgvector_backend (DB path),
-             #   localvec_backend (edge-proc FAISS, bundle/browser path), lexical_backend
-```
+### 1. Publisher — `frontend/packages/amlfilter-publisher` (`@amlfilter/publisher`)
+The Node-side build step, run by `.github/workflows/publish-watchlist.yml`: fetch the OFAC
+SDN list → normalize → embed names with transformers.js **in Node** (no torch, no Python)
+→ Ed25519-sign → emit **4 signed static files** (`watchlist.json` + `.sig` and
+`watchlist.manifest.json` + `.sig`). Wire format is documented in `docs/WATCHLIST_FORMAT.md`.
 
-### Retrieval — DB path vs edge-proc path
-- **DB path — hybrid search** (`search/hybrid_search.py`): union of **vector**
-  (`pgvector_backend.py`, cosine over name embeddings) and **lexical**
-  (`lexical_backend.py`, `pg_trgm` trigram similarity).
-- **Bundle / browser path — localvec** (`search/localvec_backend.py`): in-process vector
-  retrieval against edge-proc's `FaissVectorIndex` (`IndexFlatIP`), a drop-in for the
-  pgvector ANN with the same `vector_search(query_vector, k, tenant_id, filters)`
-  contract. Lexical signal derived in Python (no Postgres).
+### 2. Browser engine — `frontend/packages/amlfilter-browser` (`@amlfilter/browser`)
+Fetch the signed watchlist same-origin → **verify fail-closed** (`verifyEd25519` against
+the pinned `frontend/app/public/public.key`) → decode the precomputed name vectors → embed
+the query name in-tab → **brute-force cosine** retrieval → explainable weighted scorer
+(`computeScore` / `PRESETS`: `strict` / `balanced` / `lenient`; 5 signals —
+`name_vector`, `name_trigram`, `alias_match`, `dob_match`, `country_match`). Entry points:
+`EngineRuntime.bootstrap()` → `ScreeningEngine.screen({ name })`. (The old chunked-CAS /
+OPFS / GearCDC / zstd sync tier and `EngineClient` were **removed**; the `./engine` export
+is now just the crypto primitives.)
 
-### Signed-bundle distribution (the edge-proc tier)
-The OFAC list is distributed as a signed, content-addressed bundle: `build_bundle`
-chunks (GearCDC) + signs (Ed25519) + lays out a flat origin (`latest` version pointer →
-immutable `manifest/<hash>` → `chunk/<hash>`). The consumer's `sync_index`
-(`Ed25519Verifier` over a pinned public key) is **fail-closed** — any signature or
-SHA-256 mismatch aborts the load. The same wire format + trust root serves the browser
-tier (`@amlfilter/browser`), which syncs into OPFS in a Web Worker.
+### 3. Workstation — `frontend/packages/amlfilter-workstation` (`@amlfilter/workstation`) + `frontend/app`
+A **SQLite-WASM/OPFS DB worker** (tables `customers`, `kyc_matches`, `settings`) holds the
+customers and their match history; the workstation supplies onboarding, review, tiering,
+and the **bidirectional rescan** (`rescan.ts`: `screenCustomer(customerId)`,
+`rescanAll()`, `syncWatchlist(version)`). Tiering (`classifyTier`) maps a score to **STRONG**
+(≥0.8) / **POSSIBLE** (≥ the preset threshold) / **WEAK**; it is layered on top of scoring
+and **never alters the score**.
+
+### Signed-watchlist distribution
+The OFAC list ships as plain **signed static files** served same-origin. The browser
+verifier is **fail-closed** (Ed25519 over the pinned public key) — any signature or hash
+mismatch aborts the load; there is no silent empty list.
 
 ### Key Patterns
-- **One scoring contract, three paths**: DB, server-bundle, and browser all emit the
-  same `reasons[]` + plain-language `explanation`. The browser TS scorer is a faithful
-  port of `DefaultScoringPolicy` (identical weights, thresholds, and signal order); the
-  wire format, the normalizer, and the scorer's **full output** — score, reasons, and each
-  reason's plain-language description — are parity-tested against Python.
-- **Async everywhere**: SQLAlchemy async with asyncpg driver.
-- **Multi-tenancy (DB path)**: tenant isolation is enforced **at the application
-  layer** — the search backends and queries filter by `tenant_id` (e.g.
-  `search/localvec_backend.py`'s `_matches_tenant`, `pgvector_backend.py`'s tenant
-  partition key). The Postgres RLS policies in
-  `backend/alembic/versions/add_rls_policies.py` are **scaffolding for SaaS deployments
-  and are not yet wired**: the `app.current_tenant_id` GUC they gate on is never set,
-  and the app connects as the table owner (which bypasses RLS unless
-  `FORCE ROW LEVEL SECURITY` is set), so the policies are currently inert.
-- **Background jobs**: Redis Queue (RQ) for batch processing and ingestion.
-- **Dependency injection**: FastAPI's `Depends()` for services.
-- **Fail closed** on config (missing `DATABASE_URL` aborts the DB path) and on trust
-  (bundle mode needs both `BUNDLE_BASE_URL` + `VERIFY_KEY_PATH`; no silent empty index).
+- **One scoring contract**: the TS scorer emits a numeric score plus `reasons[]` with a
+  plain-language `explanation`. The scorer is the source of truth and is parity-locked by a
+  frozen golden snapshot (see Testing).
+- **Local-first**: customer data lives only in the browser (SQLite-WASM over OPFS) and
+  never leaves the machine.
+- **Fail closed** on trust: watchlist verification aborts on any signature/hash mismatch.
 
 ### Entry Points
-- Backend API: `backend/aml_filter/api/main.py`
-- `amlfilter` CLI: `backend/aml_filter/bundle/` (behind the `amlfilter` console script)
 - Frontend app: `frontend/app/src/main.tsx`
-- In-browser screening tier: `frontend/packages/amlfilter-browser`
-- Database models: `backend/aml_filter/db/models.py`
+- In-browser screening engine: `frontend/packages/amlfilter-browser` (`EngineRuntime.bootstrap()`)
+- Local-first KYC tier: `frontend/packages/amlfilter-workstation`
+- Signed-watchlist publisher: `frontend/packages/amlfilter-publisher`
 
 ## Testing
 
-Test markers (use with `-m`):
-- `unit` - Unit tests (no external dependencies)
-- `integration` - Requires PostgreSQL and Redis
-- `slow` - Long-running tests
+Unit tests run under **Vitest**; end-to-end runs under **Playwright** in real Chromium.
 
-Tests use `pytest-asyncio` with `asyncio_mode = "auto"`. The browser tier's wire format,
-normalizer, and **scoring output** are parity-tested against the Python side (see
-`crypto.test.ts`, `normalize.test.ts`, and `scoring.parity.test.ts` — the last asserts the
-TS scorer against a golden emitted by the Python source of truth via
-`backend/scripts/gen_scoring_golden.py`). The workstation's **tier classification** is
-parity-locked the same way: `backend/scripts/gen_tiering_golden.py` emits the golden,
-`poe tiering-golden` refreshes it, and `poe tiering-golden-check` (part of `poe gate`,
-alongside `scoring-golden-check`) fails on drift. The embedder is wired through a
-`createEmbedderWith` seam for parity testing but is not yet covered by a committed
-parity test.
+Two e2e lanes (`frontend/app`), both driving the **minified production build** against the
+**committed signed demo watchlist**:
+- `pnpm test:e2e:c1` — the browser-engine lane.
+- `pnpm test:e2e:kyc` — the **backend-free local-first journey**: onboard → auto-screen →
+  review → resolve. Its webServers are `vite preview` + the static watchlist server only.
 
-The `e2e-kyc` Playwright lane (`frontend/app` → `pnpm test:e2e:kyc`) is the
-**backend-free local-first journey**: onboard → auto-screen → review → resolve in real
-Chromium against the minified production build and the committed signed demo bundle —
-its webServers are `vite preview` + the static catalog server only (no Postgres, no
-FastAPI).
+**Parity is frozen committed golden JSON snapshots** — the TS implementation is the source
+of truth (the former Python golden generators were deleted):
+- Scoring: `frontend/packages/amlfilter-browser/src/engine/__fixtures__/scoring/golden.json`
+- Tiering: `frontend/packages/amlfilter-workstation/src/__fixtures__/tiering/golden.json`
 
 ## Documentation
 
 Front-door docs live in `/docs` (the root `README.md` is the canonical index):
-- `ARCHITECTURE.md` - the pipeline, the three paths, the scoring contract, data model
-- `QUICKSTART.md` - clone → gate → load a list → screen a name (DB + edge-proc paths)
-- `DEPLOY.md` - docker-compose, env vars, refreshing the OFAC list
-- `API_SPEC.md` - REST reference for the **DB-backed** HTTP tier only
-- `DATABASE_SCHEMA.md` - PostgreSQL schema (DB path only; the bundle/browser paths use no Postgres)
+- `ARCHITECTURE.md` - the in-browser pipeline, the three TypeScript units, the scoring contract
+- `QUICKSTART.md` - clone → install → run the app → screen a name, all in the browser
+- `DEPLOY.md` - building and hosting the static app + refreshing the signed OFAC watchlist
+- `WATCHLIST_FORMAT.md` - the signed-watchlist wire format
 - `diagrams/` - d2 sources + rendered SVGs

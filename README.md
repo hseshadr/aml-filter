@@ -1,364 +1,221 @@
 # aml-filter
 
-> **Screen a name against the sanctions list — and see exactly why it matched.**
+> **A free, zero-server AML/sanctions screening app that runs entirely in your browser — and shows exactly why each customer matched.**
 
-[![CI](https://github.com/hseshadr/aml-filter/actions/workflows/ci.yml/badge.svg)](https://github.com/hseshadr/aml-filter/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Python 3.13+](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/downloads/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue.svg)](https://www.typescriptlang.org/)
+[![Node 22.13](https://img.shields.io/badge/node-22.13-green.svg)](frontend/.nvmrc)
 
 Banks and businesses are legally required to check that the people they deal with
-aren't on government sanctions lists. That sounds easy until you try it: the same
-person shows up as "Robert", "Bob", and "Rob"; names get spelled a dozen ways when
-they cross alphabets; and a single typo can hide a real match. So the hard part
-isn't looking a name up — it's deciding when two *differently-spelled* names are
-the same person.
+aren't on government sanctions lists. The hard part isn't looking a name up — it's
+deciding when two *differently-spelled* names are the same person. The same person
+shows up as "Robert", "Bob", and "Rob"; names get spelled a dozen ways across
+alphabets; one typo can hide a real match.
 
-**aml-filter does that fuzzy name-matching, and then shows its work.** You send it
-a name; it searches the sanctions list two ways at once (by meaning and by
-spelling), scores each candidate, and hands back a number *plus a plain-English
-reason for that number* — "strong name-vector similarity, country match." No black
-box. A human reviewer can always see why.
+**aml-filter does that fuzzy name-matching, shows its work, and does all of it in a
+browser tab — no server, no signup, no database to run.** Open the app and it:
 
-And it runs **at the edge**. aml-filter is built on the
-[**edge-proc**](https://github.com/hseshadr/edge-proc) substrate: the OFAC list is
-published once as a *signed, versioned bundle* that syncs to wherever you screen,
-and the matching itself runs **locally** — on the server with no vector database,
-or **entirely inside a browser tab** with no backend at all. Sync once, screen
-anywhere, nothing leaves the device.
+1. **Downloads a signed OFAC watchlist** and verifies it *in the tab* (Ed25519,
+   fail-closed — any bad signature or hash aborts the load).
+2. **Holds your customers locally** — your *whitelist* lives in SQLite-WASM on OPFS,
+   inside your own browser. Customer data never leaves your machine.
+3. **Screens every customer against the watchlist entirely in the browser**, scoring
+   each candidate and handing back a number *plus a plain-English reason* — "strong
+   name-vector similarity, country match." No black box; a reviewer can always see why.
+4. **Keeps both sides in sync.** A new watchlist version re-screens all your
+   customers; editing a customer re-screens that one customer.
+
+Lean and mean: the whole thing is TypeScript that runs client-side. The watchlist is
+just signed static files served from any host or CDN.
 
 > _aml-filter is an engineering-portfolio demo, **not** a compliance product. Do not
 > use it to meet any legal or regulatory obligation. See the
 > [Disclaimer](#disclaimer) and [`NOTICE`](NOTICE)._
 
-## Try it
+## Quickstart — clone to screening in ~10 minutes
 
-Two honest ways to run it. **Path B is one command** (it ships a fictional demo
-bundle, so it works on a cold clone). Path A is the real DB-backed API, which needs
-the official OFAC list — **not** shipped, you download it yourself (it's public
-domain; see [the OFAC list](#the-ofac-list-data)).
-
-### Path A — the server demo (the default DB-backed API)
-
-You need this repo, Docker, and `curl`. The HTTP `/v1/screen` endpoint is backed by
-PostgreSQL and the official OFAC list you load into it.
+You need [Node 22.13](frontend/.nvmrc) and [pnpm](https://pnpm.io/). Everything runs
+from the `frontend/` directory (the pnpm workspace is rooted there — there is no root
+`package.json`).
 
 ```bash
-# 1. Start the stack (Postgres + Valkey + API + worker)
-docker compose up -d
+git clone https://github.com/hseshadr/aml-filter
+cd aml-filter/frontend
 
-# 2. Create the schema and load the official OFAC SDN list
-#    (download SDN.XML from https://sanctionslist.ofac.treasury.gov first)
-docker compose exec api uv run python scripts/init_db.py
-docker compose exec api uv run python scripts/ingest_ofac.py SDN.XML
-
-# 3. Screen a name — get a scored, explained result
-curl -s http://localhost:8000/v1/screen \
-  -H 'Content-Type: application/json' \
-  -d '{"name": "Jon Q. Fakename", "threshold": 0.65}' | jq
+pnpm install
+pnpm --filter aml-filter-app dev   # Vite dev server; prints a localhost URL (default http://localhost:5173)
 ```
 
-### Path B — backend-free, in-browser search (the edge-proc tier) — **one command**
+Open the printed URL, then:
 
-No database, no API server, no model download. One command serves a **signed demo
-bundle** and builds the SPA; then you search the list **in your browser tab** — the
-bundle syncs into the tab, gets ed25519-verified fail-closed against a pinned key,
-and the matcher runs in-tab, ranking the list as you type.
+- **`/screen`** — the in-tab OFAC screening demo. Type a name and watch it match as
+  you type, with a scored, explained match card. (A made-up name returns nothing; a
+  name on the watchlist returns a ranked, reason-by-reason result.)
+- **`/customers`** — load your own customers (the local whitelist) and let the app
+  auto-screen them against the same signed watchlist.
 
-```bash
-make demo-browser          # docker compose: serves the signed bundle + builds the SPA
-# then open http://localhost:5273/ — the public landing explains the project and
-# links to the live in-browser demo; or jump straight to .../screen and search: Ivan Fakovich
-```
+On first run the demo watchlist is already built and committed, so it works on a cold
+clone with no extra steps.
 
-Host ports default to **8643** (edge) / **5273** (SPA) — aml-filter-specific, chosen to
-avoid colliding with other local projects on the common `8081`/`5173`; override either with
-`AML_EDGE_PORT` / `AML_SPA_PORT` (e.g. `AML_EDGE_PORT=8091 make demo`).
-
-> **`make demo-browser` vs `make demo`.** `make demo-browser` builds and serves the
-> **minified production SPA** — the same artifact the C1 browser e2e
-> (`cd frontend/app && pnpm test:e2e:c1`) guards, so it's the canonical proof the
-> *shipped* thing works. For a faster local look there's also `make demo` (from the repo
-> root; it delegates to `cd backend && uv run poe demo`), which runs the **unminified
-> Vite dev** server instead. Reach for `make demo` to iterate; trust `make demo-browser`
-> + C1 for shippability.
-
-Type `Ivan Fakovich` and watch it match as you type — a scored, explained match
-card for an **obviously-fictional** demo sanctioned entity (a made-up name like
-`Jon Q. Fakename` ranks nothing). The bundle here is built from
-[`backend/examples/demo_entities.jsonl`](backend/examples/demo_entities.jsonl) — a
-handful of fake entities, **not** the real OFAC list — so the demo is turnkey from a
-cold clone. (Want to screen the real list? Build a bundle from the official SDN
-data — see [the CLI](#the-signed-ofac-bundle-amlfilter-cli) and
-[the OFAC list](#the-ofac-list-data).)
-
-<details>
-<summary>Under the hood: the same loop by hand (and with the real OFAC list)</summary>
-
-`make demo-browser` is just the committed result of the `amlfilter` CLI delivery
-loop, served behind a Caddy edge. To run the loop yourself over any entities JSONL:
-
-```bash
-cd backend
-uv sync
-
-# 1. mint a trust root, then build a signed bundle from an entities JSONL
-uv run amlfilter keygen ./trust.key ./trust.pub
-uv run amlfilter bundle ./entities.jsonl ./origin ./trust.key --list-id OFAC_SDN
-
-# 2. screen a name straight against that bundle (no Postgres, terminal-only)
-uv run amlfilter screen "Ivan Fakovich" ./origin ./trust.pub
-
-# 3. …or serve ./origin as static files at VITE_BUNDLE_BASE_URL and run the SPA
-cd ../frontend && pnpm install && pnpm --filter aml-filter-app dev
-#    open http://localhost:5173/screen and search the list as you type
-```
-
-To regenerate the committed demo bundle after editing the demo entities:
-`make demo-bundle` (slow once — it downloads the MiniLM embedder; the signed result
-is committed so `make demo-browser` never needs it).
-</details>
-
-Either path, a made-up name like `Jon Q. Fakename` returns no matches. A name on
-the list (the demo's `Ivan Fakovich`, or a real SDN name in a real bundle) returns
-something like:
-
-```json
-{
-  "request_id": "…",
-  "matches": [
-    {
-      "score": 0.87,
-      "risk_category": "SANCTION",
-      "source_list": "OFAC_SDN",
-      "primary_name": "…",
-      "explanation": "High-confidence match: strong vector similarity, country match.",
-      "reasons": [
-        { "signal": "name_vector",  "value": 0.91, "weight": 0.55, "contribution": 0.50 },
-        { "signal": "country_match", "value": 1.0,  "weight": 0.05, "contribution": 0.05 }
-      ]
-    }
-  ],
-  "list_versions_used": { "OFAC_SDN": "…" },
-  "execution_time_ms": 145
-}
-```
-
-That `reasons` array is the whole point: every score is broken down into the
-weighted signals that produced it.
-
-## Under the hood (for developers)
-
-### Built on edge-proc
-
-aml-filter is two layers, not one. The bottom layer is
-[**edge-proc**](https://github.com/hseshadr/edge-proc) — a generic local-compute
-substrate: signed, content-addressed bundle sync, an OPFS/CAS (content-addressed
-store) cache, Ed25519 + SHA-256 fail-closed verification, and local vector
-retrieval (a FAISS **localvec** index over a sentence-transformers space). The top
-layer is **aml-filter** — the sanctions-screening brain: the OFAC domain model, the
-explainable weighted scorer, and the screening pipeline.
-
-That dependency is real in both runtimes. The Python side pulls
-[`edge-proc[localvec,bundles]`](backend/pyproject.toml); the browser side runs
-[`@amlfilter/browser`](frontend/packages/amlfilter-browser/) — which vendors the
-edge-proc browser sync tier verbatim — over the *same* signed bundle and the *same*
-explainable scoring contract. The wire format, the normalizer, and the **scorer's output**
-(score, reasons, and each reason's description) are parity-tested across the two tiers
-against a golden emitted by the Python source of truth.
-
-### Architecture
-
-Three ways to screen, one scoring contract:
-
-1. **Server, DB-backed** — a FastAPI service over PostgreSQL. `POST /v1/screen` is
-   the front door; Redis/Valkey backs rate limiting and the batch worker. This is
-   still the default HTTP path.
-2. **Server, bundle-backed (no Postgres)** — when `BUNDLE_BASE_URL` +
-   `VERIFY_KEY_PATH` are set, screening sources candidates from a synced,
-   ed25519-verified edge-proc bundle (localvec FAISS index + in-memory entities)
-   instead of a database. Exposed through the `amlfilter` CLI (`sync` / `screen`).
-3. **Browser, backend-free** — the `/screen` page syncs the same signed bundle into
-   the tab, verifies it fail-closed, loads the MiniLM matcher once, and screens
-   names in-tab. No application backend in the request path. This mirrors
-   edge-reco's Nimbus demo.
-
-> **On API keys:** only path 1 — the hosted, DB-backed `POST /v1/screen` HTTP tier —
-> uses `X-API-Key` (it selects the tenant and drives rate-limiting/usage metering). The
-> `/screen` browser demo (path 3, `make demo`) and the `amlfilter` CLI (path 2) run
-> locally and are **keyless** — no API key needed or accepted.
-
-Full write-up and diagrams: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
-
-### KYC / AML compliance workstation (local-first in the browser)
-
-The workstation now runs **fully in the browser with zero backend**: customers and
-review matches persist to **SQLite-WASM in OPFS** (a dedicated DB Web Worker,
-`opfs-sahpool` — no special headers), and onboarding auto-screens against the same
-signed OFAC bundle the `/screen` demo uses. No login, no API keys — open `/customers`
-and start. The DB-backed tier (SARs, attestations, lists, usage) remains in the repo
-for SaaS deployments but is not routed in the SPA; it returns as later cycles land
-local-first.
-
-On top of the screening engine, the DB-backed HTTP tier (path 1) adds the full
-case-management workflow — the lifecycle a compliance team actually works:
-
-- **Customer onboarding** (`POST /v1/customers`) — register a customer; it is
-  screened against the enabled sanctions lists on the spot and matches are persisted.
-- **Tiered review board** (`GET/PUT /v1/review/matches`) — every match is bucketed
-  STRONG / POSSIBLE / WEAK so a reviewer can triage and resolve (false-positive /
-  true-positive / resolved) with a reviewer id and notes.
-- **Multi-list ingest** — OFAC, EU consolidated, UK OFSI, and UN consolidated lists
-  via a pluggable parser registry, each enable/disable-able per tenant
-  (`GET /v1/lists/available`).
-- **SAR filing** (`POST /v1/sars`, `/v1/sars/{id}/export`) — generate a Suspicious
-  Activity Report for a STRONG match and export a fileable FinCEN JSON/PDF.
-  **The export produces a report you file yourself; it does NOT submit to FinCEN or
-  any government system.**
-- **Screening attestations** (`POST /v1/attestations`, `/verify`, `/export`) — a
-  verifiable "this customer was screened against these list versions on this date,
-  result X" review badge, optionally ed25519-signed with the bundle trust root and
-  independently verifiable.
-- **Delta-driven rescan** — when a list updates, only the customers near the changed
-  sanctions entries are re-screened (full rescan as a fallback). Backend-only.
-
-These HTTP endpoints run on path 1 only (they need Postgres). See
-[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#kyc--aml-compliance-workstation-db-path)
-and [`docs/API_SPEC.md`](docs/API_SPEC.md). In the SPA, the onboarding + review slice
-(`/customers`, `/review`) runs local-first in the tab; the server-tier pages (SARs,
-attestations, lists, usage) are kept in the repo but not routed.
-
-### How matching & scoring works
-
-Each request flows through the same shape: **normalize** the name (strip accents,
-honorifics, casing) → **embed** it with a sentence-transformers model →
-**generate candidates** via vector retrieval → **score** each candidate with a
-transparent weighted policy → **threshold** to keep only confident matches.
-
-The candidate-generation step is where the substrate shows through:
-
-- **DB path** — hybrid search: the union of pgvector cosine similarity *and*
-  `pg_trgm` lexical similarity.
-- **Bundle / browser path** — edge-proc **localvec** (FAISS `IndexFlatIP`) for the
-  vector candidates, with a Python/TS trigram stand-in for the lexical signal, so
-  name scoring stays meaningful without Postgres.
-
-The score is a sum of weighted signals (`name_vector`, `name_trigram`,
-`alias_match`, `dob_match`, `country_match`), clamped to `[0, 1]`, drawn from a
-named preset (`strict` / `balanced` / `lenient`). Every match carries the
-per-signal breakdown and a plain-language summary, on **all three paths**. The
-contract — *a reviewer can always see why a score is what it is* — is spelled out in
-[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#scoring--explainability-contract).
-
-### The signed OFAC bundle (`amlfilter` CLI)
-
-The OFAC list is distributed exactly like edge-reco's catalog: a signed,
-content-addressed bundle (a `latest` version pointer → an immutable
-`manifest/<hash>` → immutable `chunk/<hash>` objects), carrying `entities.jsonl`, a
-prebuilt localvec `vector/` index, and `ofac_meta.json` (the version pointer). The
-`amlfilter` CLI is the whole delivery loop:
-
-```
-amlfilter keygen PRIVATE_KEY PUBLIC_KEY              # mint an ed25519 trust root
-amlfilter bundle ENTITIES.jsonl ORIGIN_DIR PRIVATE_KEY [--list-id OFAC_SDN] [--version v1]
-    # embed + index the entities, sign + publish a content-addressed origin
-amlfilter sync   ORIGIN PUBLIC_KEY [--cache ./.ofac_bundle]
-    # pull + ed25519-verify (fail-closed) a bundle into a local cache
-amlfilter screen "NAME" ORIGIN PUBLIC_KEY [--threshold 0.65] [--k 20]
-    # sync + screen a name against the bundle, no Postgres
-```
-
-`bundle` reads a JSONL of domain `Entity` records, embeds each name with the
-sentence-transformers encoder, builds the localvec index, and lets edge-proc chunk
-+ sign + lay out the flat origin a device can sync.
-
-### Quickstart (development)
-
-```bash
-cd backend
-uv sync
-uv run poe gate    # ruff + mypy --strict + xenon (Radon A) + pytest (≥90% cov)
-```
-
-Run the API locally against the Docker Postgres/Valkey:
-
-```bash
-cp .env.example .env
-cd backend && uv run uvicorn aml_filter.api.main:app --reload
-```
-
-The frontend is a **pnpm workspace** with three members — the SPA (`app/`), the
-in-browser screening engine (`packages/amlfilter-browser/`), and the local-first KYC
-tier (`packages/amlfilter-workstation/`: SQLite-WASM/OPFS persistence + tiered
-screening services, parity-tested against the Python tiering golden):
+### Production build & preview
 
 ```bash
 cd frontend
-pnpm install                          # resolves the whole workspace (app + packages)
-pnpm --filter aml-filter-app dev      # http://localhost:5173 (workstation + /screen)
-pnpm -r run test                      # vitest on all members (incl. wire-format + scoring + tiering parity)
+pnpm --filter aml-filter-app build     # tsc --noEmit && vite build
+                                       #   (a prebuild hook downloads the MiniLM model
+                                       #    weights and generates demo stats)
+pnpm --filter aml-filter-app preview   # serves the minified production build locally
 ```
 
-### Configuration
+### Run the checks (the gate)
 
-All runtime config is env-driven through Pydantic `BaseSettings`
-(`backend/aml_filter/config.py`) — no hardcoded knobs. The DB path **fails closed**
-if `DATABASE_URL` is missing. Scoring weights/thresholds and rate-limit tiers are
-overridable via env (`SCORING_*`, `RATE_LIMIT_*`).
+There is no single `gate` command. The gate is the CI sequence, run from `frontend/`:
 
-The edge-proc paths add their own opt-in knobs:
+```bash
+cd frontend
+pnpm -r run lint        # Biome (lint + format)
+pnpm -r run typecheck   # tsc strict, every workspace member
+pnpm -r run test        # Vitest (incl. scoring + tiering parity goldens)
+pnpm -r run build       # production build across the workspace
+```
 
-- `VECTOR_INDEX_DIR` — where the localvec FAISS index is persisted (defaults to a
-  local `.vector_index` dir, so a fresh checkout retrieves with zero config).
-- `BUNDLE_BASE_URL` + `VERIFY_KEY_PATH` — set **both** to activate bundle-backed,
-  Postgres-free screening (an `http(s)://` origin or local path, plus the pinned
-  ed25519 public key). `BUNDLE_CACHE_DIR` sets the local sync cache.
-- Frontend: `VITE_BUNDLE_BASE_URL` points the `/screen` page at the served bundle
-  origin (the public key is pinned in the app build, never fetched from the bundle).
+Plus the two Playwright end-to-end lanes (run from `frontend/app`): the in-tab
+screening lane and the backend-free KYC journey (onboard → auto-screen → review →
+resolve) against the minified build and the committed signed demo watchlist.
 
-Copy `.env.example` → `.env` (repo root) to start.
+## Architecture — three TypeScript units
 
-### The OFAC list (data)
+There is no backend. The product is three TypeScript packages plus a React SPA, all
+under `frontend/`.
 
-aml-filter never bundles or redistributes the sanctions list. You download the
-**SDN List** from the U.S. Treasury's Office of Foreign Assets Control
+### 1. Publisher — `@amlfilter/publisher`
+
+[`frontend/packages/amlfilter-publisher`](frontend/packages/amlfilter-publisher) is the
+build-time tool that produces the signed watchlist. It fetches OFAC SDN → normalizes
+the entities → embeds the names with **transformers.js in Node** (no torch, no Python)
+→ Ed25519-signs → emits **four static files**: `watchlist.json` + `watchlist.json.sig`
+and `watchlist.manifest.json` + `watchlist.manifest.json.sig`. The wire format is
+documented in [`docs/WATCHLIST_FORMAT.md`](docs/WATCHLIST_FORMAT.md).
+
+```bash
+# from frontend/
+pnpm build-demo-list   # builds the committed demo watchlist (alias for @amlfilter/publisher build-demo)
+pnpm publish-list      # the production publish CLI (alias for @amlfilter/publisher publish)
+```
+
+The production publish CLI takes flags:
+
+```
+--in <entities.jsonl>  --version <v>  --key <raw-32-byte-ed25519-seed-file>  --out <dir>  [--models <dir>]
+```
+
+In CI, [`.github/workflows/publish-watchlist.yml`](.github/workflows/publish-watchlist.yml)
+runs daily (cron `0 6 * * *`) and on manual dispatch: it fetches OFAC SDN, builds
+`entities.jsonl`, signs with the `WATCHLIST_SIGNING_KEY` repo secret (a base64-encoded
+raw 32-byte Ed25519 seed), and emits the four signed static files.
+
+### 2. Browser engine — `@amlfilter/browser`
+
+[`frontend/packages/amlfilter-browser`](frontend/packages/amlfilter-browser) is the
+in-tab screening engine. It fetches the signed watchlist same-origin → verifies it
+**fail-closed** (Ed25519 against the pinned public key
+[`frontend/app/public/public.key`](frontend/app/public/public.key); any signature or
+hash mismatch aborts) → decodes the precomputed name vectors → embeds the query or
+customer name in-tab (transformers.js MiniLM, `Xenova/all-MiniLM-L6-v2`, 384-dim) →
+runs a brute-force cosine search → scores each candidate with an explainable weighted
+scorer.
+
+The scorer (`computeScore` / `PRESETS`: `strict` / `balanced` / `lenient`) sums five
+signals — `name_vector`, `name_trigram`, `alias_match`, `dob_match`, `country_match` —
+and every match carries the per-signal breakdown plus a plain-language summary.
+
+Entry point: `EngineRuntime.bootstrap()` → `ScreeningEngine.screen({ name })`.
+
+### 3. Workstation app — `@amlfilter/workstation` + the React SPA
+
+[`frontend/packages/amlfilter-workstation`](frontend/packages/amlfilter-workstation) is
+the local-first KYC tier, and [`frontend/app`](frontend/app) is the React SPA on top of
+it. A SQLite-WASM/OPFS DB Web Worker holds your customers and match history (tables
+`customers`, `kyc_matches`, `settings`). The package owns onboarding, review, tiering,
+and the **bidirectional rescan** (`rescan.ts`: `screenCustomer`, `rescanAll`,
+`syncWatchlist`).
+
+React routes:
+
+- `/` — marketing landing
+- `/screen` — the in-tab screening demo
+- `/customers` — your local customer whitelist (auto-screened)
+- `/review` — triage and resolve matches
+
+No login, no API key.
+
+Full write-up and diagrams: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md),
+[`docs/diagrams/`](docs/diagrams/).
+
+## Trust model
+
+The watchlist is distributed as plain **signed static files** on any host or CDN — no
+application server in the path. In the browser:
+
+- The engine polls the small `watchlist.manifest.json` for the current version.
+- If the version changed, it fetches the full `watchlist.json`.
+- **Both files are verified with detached Ed25519 signatures, fail-closed, against the
+  pinned [`public.key`](frontend/app/public/public.key)** baked into the app build. Any
+  signature or hash mismatch aborts the load — there is no silent fallback to an
+  unverified list.
+
+The signing private key never leaves CI: it lives only as the `WATCHLIST_SIGNING_KEY`
+GitHub Actions secret used by the publish workflow.
+
+## Correctness & parity
+
+Scoring and tiering correctness are locked by committed **golden JSON** parity tests:
+
+- [`frontend/packages/amlfilter-browser/src/engine/__fixtures__/scoring/golden.json`](frontend/packages/amlfilter-browser/src/engine/__fixtures__/scoring/golden.json)
+- [`frontend/packages/amlfilter-workstation/src/__fixtures__/tiering/golden.json`](frontend/packages/amlfilter-workstation/src/__fixtures__/tiering/golden.json)
+
+These are now **frozen regression snapshots**: the TypeScript implementation is the
+source of truth. (The generators that once produced these goldens were removed in the
+pivot to a pure-TypeScript app.) Any drift in score, reasons, or tier classification
+fails the test suite.
+
+## The OFAC list (data)
+
+aml-filter never bundles or redistributes the official sanctions list as part of the
+app. The signed watchlist is built from the **SDN List** published by the U.S.
+Treasury's Office of Foreign Assets Control
 (<https://sanctionslist.ofac.treasury.gov>) — a U.S. Government work in the public
-domain — and ingest it locally with `scripts/ingest_ofac.py`. Always screen against
-the current official list; it changes often. Attribution and the full data note are
-in [`NOTICE`](NOTICE).
+domain. The committed demo watchlist is built from a small set of **fictional**
+entities so the demo is turnkey from a cold clone. Always screen against the current
+official list; it changes often. Attribution and the full data note are in
+[`NOTICE`](NOTICE).
 
-### Docs
+## Docs
 
-- [`docs/QUICKSTART.md`](docs/QUICKSTART.md) — clone → gate → load a list → screen a name.
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — the pipeline, scoring contract, data model.
-- [`docs/DEPLOY.md`](docs/DEPLOY.md) — docker-compose, env vars, refreshing the OFAC list.
+This README is the canonical index.
+
+- [`docs/QUICKSTART.md`](docs/QUICKSTART.md) — clone → run → screen a name.
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — the in-browser pipeline, the three
+  units, the scoring contract.
+- [`docs/WATCHLIST_FORMAT.md`](docs/WATCHLIST_FORMAT.md) — the signed watchlist wire
+  format.
+- [`docs/DEPLOY.md`](docs/DEPLOY.md) — publishing and hosting the signed watchlist files.
 - [`docs/diagrams/`](docs/diagrams/) — d2 sources + rendered SVGs.
 
-### Repo layout
+## Repo layout
 
 ```
 aml-filter/
-├── Makefile                  # `make demo-browser` (turnkey /screen) · demo-server · demo-bundle
-├── backend/                  # FastAPI service + bundle CLI (Python 3.13, uv)
-│   ├── aml_filter/
-│   │   ├── api/              #   FastAPI app + /v1 routers (DB-backed front door)
-│   │   ├── search/           #   hybrid_search · pgvector_backend · localvec_backend (edge-proc FAISS)
-│   │   ├── bundle/           #   publish · sync · screening · runtime · meta (signed OFAC bundle)
-│   │   ├── customers/        #   KYC onboarding service (screen-on-onboard)
-│   │   ├── sar/ · attestation/ #   SAR filing (FinCEN renderer) · signed review badges
-│   │   ├── scoring/ · embedding/ · ingest/ · db/ · domain/  # scoring/tiers.py = match tiers
-│   │   └── cli.py            #   `amlfilter` — keygen · bundle · sync · screen
-│   ├── deploy/caddy/         #   Caddyfile — the bundle edge/CDN the browser syncs from
-│   ├── examples/             #   demo_entities.jsonl (FICTIONAL) + committed signed catalog/
-│   ├── scripts/              #   init_db.py · ingest_ofac.py
-│   └── tests/                #   unit/ + integration/
-├── frontend/                 # pnpm workspace
-│   ├── docker-compose.yml    #   the backend-free /screen demo (origin + Caddy edge + SPA)
-│   ├── app/                  #   React + Vite SPA — local-first workstation + /screen demo (Dockerfile)
+├── frontend/                            # pnpm workspace (Node 22.13, pnpm, Biome, Vitest, Playwright)
+│   ├── .nvmrc                           #   pinned Node version
+│   ├── app/                             #   React + Vite SPA — landing · /screen · /customers · /review
+│   │   └── public/public.key            #   pinned Ed25519 verify key
 │   └── packages/
-│       ├── amlfilter-browser/#   @amlfilter/browser — in-browser sync + screening engine
-│       └── amlfilter-workstation/ # local-first KYC tier (SQLite-WASM/OPFS DB worker + service ports)
-├── docs/                     # ARCHITECTURE · QUICKSTART · DEPLOY · diagrams/
-├── docker-compose.yml        # Postgres (pgvector) + Valkey + api + worker
+│       ├── amlfilter-publisher/         #   @amlfilter/publisher — fetch OFAC → embed → sign → emit static files
+│       ├── amlfilter-browser/           #   @amlfilter/browser — in-tab verify + embed + cosine search + scorer
+│       └── amlfilter-workstation/       #   @amlfilter/workstation — SQLite-WASM/OPFS DB worker + rescan
+├── .github/workflows/publish-watchlist.yml  # daily signed-watchlist publish
+├── docs/                                # ARCHITECTURE · QUICKSTART · DEPLOY · WATCHLIST_FORMAT · diagrams/
 ├── LICENSE  NOTICE  CHANGELOG.md  CONTRIBUTING.md
 ```
 
@@ -369,16 +226,12 @@ aml-filter is a software demonstration and engineering-portfolio project. It is 
 NOT a substitute for a qualified compliance program or a commercial sanctions-screening
 vendor.** Sanctions screening has real legal consequences; any match — or absence of a
 match — must be reviewed by qualified compliance personnel against the official OFAC
-source before any decision is made.
-
-The KYC/AML workstation (customer onboarding and the review board, plus the
-server-tier SAR filing and attestation layers) is illustrative: **the operator is
-solely responsible for their own regulatory obligations and for any actual
-filings.** SAR "export" generates a fileable report artifact — it does **NOT**
-submit anything to FinCEN or any government system.
-The software is provided "as is", without warranty. See [`NOTICE`](NOTICE) and
-[`LICENSE`](LICENSE).
+source before any decision is made. The operator is solely responsible for their own
+regulatory obligations and for any actual filings. The software is provided "as is",
+without warranty. See [`NOTICE`](NOTICE) and [`LICENSE`](LICENSE).
 
 ## License
 
-[MIT](LICENSE). Third-party data attribution is in [`NOTICE`](NOTICE).
+[MIT](LICENSE). Built on the signed-bundle / local-compute concepts from
+[edge-proc](https://github.com/hseshadr/edge-proc). Third-party data attribution is in
+[`NOTICE`](NOTICE).

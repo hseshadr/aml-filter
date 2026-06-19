@@ -1,45 +1,39 @@
-# aml-filter — system context
-# client -> API -> matcher -> OFAC data store
+# aml-filter — system context (v3, zero-server)
+# Publisher (CI) signs static watchlist files -> browser verifies + screens in-tab
 
 direction: right
 
-client: {
-  label: "Client\n(curl / app / frontend)"
-  shape: person
-}
-
-api: {
-  label: "aml-filter API\n(FastAPI · POST /v1/screen)"
-  shape: rectangle
-}
-
-engine: {
-  label: "Screening engine\nnormalize · embed · hybrid search · score"
-  shape: rectangle
-}
-
-db: {
-  label: "PostgreSQL\npgvector + pg_trgm\nsanctioned entities · embeddings"
-  shape: cylinder
-}
-
-redis: {
-  label: "Redis / Valkey\nrate limit · batch queue"
-  shape: cylinder
-}
-
 ofac: {
-  label: "OFAC SDN list\n(U.S. Treasury — public domain)\nNOT bundled · downloaded at runtime"
+  label: "OFAC SDN list\n(U.S. Treasury — public domain)"
   shape: document
 }
 
-client -> api: "name + dob/country (JSON)"
-api -> engine: "SearchQuery"
-engine -> db: "vector + lexical candidates"
-engine -> api: "matches + reasons"
-api -> client: "scored, explained SearchResponse"
-api -> redis: "rate limit / enqueue batch"
+publisher: {
+  label: "@amlfilter/publisher\n(GitHub Action, daily)\nfetch · normalize · embed (transformers.js in Node)\nEd25519-sign"
+  shape: rectangle
+}
 
-ofac -> db: "ingest_ofac.py (operator, ahead of time)" {
+cdn: {
+  label: "Static host / CDN\nwatchlist.json(.sig)\nwatchlist.manifest.json(.sig)\n+ the SPA"
+  shape: cylinder
+}
+
+browser: {
+  label: "Browser tab (the whole app)\n@amlfilter/browser — verify fail-closed · embed · cosine · score\n@amlfilter/workstation — SQLite-WASM / OPFS customers + matches"
+  shape: rectangle
+}
+
+user: {
+  label: "User\n(analyst — no signup, no backend)"
+  shape: person
+}
+
+ofac -> publisher: "SDN.CSV + ALT.CSV"
+publisher -> cdn: "4 signed static files"
+cdn -> browser: "fetch watchlist + SPA (HTTPS, same-origin)"
+user -> browser: "load customers · screen names"
+browser -> user: "scored, explained matches + review queue"
+
+publisher -> browser: "trust: Ed25519 signature\nverified vs pinned public.key" {
   style.stroke-dash: 4
 }
