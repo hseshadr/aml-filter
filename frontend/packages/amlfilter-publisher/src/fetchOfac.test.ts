@@ -21,7 +21,7 @@ describe("parseSdn", () => {
 		expect(lines).toHaveLength(2);
 
 		const org = lines[0];
-		expect(org?.entity_id).toBe("OFAC-36");
+		expect(org?.entity_id).toBe("OFAC_SDN:36");
 		expect(org?.primary_name).toBe("AEROCARIBBEAN AIRLINES");
 		expect(org?.entity_type).toBe("ORGANIZATION");
 		expect(org?.aliases).toEqual([{ name: "AERO-CARIBBEAN" }]);

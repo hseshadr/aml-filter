@@ -1,0 +1,8 @@
+{
+  "listId": "OFAC_SDN",
+  "version": "demo-1",
+  "generatedAt": "2026-06-19T00:00:00Z",
+  "model": "Xenova/all-MiniLM-L6-v2",
+  "dim": 384,
+  "entitiesCount": 3
+}

@@ -1,0 +1,5 @@
+Name 6,Name 1,Name 2,Name 3,DOB,Nationality,Group Type,Alias Type,Group ID
+Notreal,Sergei,Petrovich,,12/04/1980,Russia,Individual,Primary name,1001
+Notreal,Seryozha,,,12/04/1980,Russia,Individual,AKA,1001
+Imaginary Logistics Ltd,,,,,,Entity,Primary name,1002
+ImagLog,,,,,,Entity,AKA,1002

@@ -13,23 +13,18 @@
 // task on its own and is deliberately left as a marked TODO — the DEMO path
 // (demo_entities.jsonl) is fully real and is what the tests + committed artifact
 // exercise. See the README.
+//
+// `SourceLine` is the shared neutral shape (see sources/source.ts); entity_id is
+// the NAMESPACED id `OFAC_SDN:<ent_num>` so it stays unique across lists.
 
-const OFAC_BASE = "https://www.treasury.gov/ofac/downloads";
+import {
+	namespacedId,
+	OFAC_LIST_ID,
+	type SourceLine,
+} from "./sources/source.ts";
+
+export const OFAC_BASE = "https://www.treasury.gov/ofac/downloads";
 const EMPTY = "-0-";
-
-/** The source-JSONL record the publisher's parser consumes. */
-interface SourceLine {
-	readonly entity_id: string;
-	readonly primary_name: string;
-	readonly entity_type: "PERSON" | "ORGANIZATION";
-	readonly aliases: readonly { readonly name: string }[];
-	// TODO(dob/country): extract from SDN.CSV Remarks (freeform; best-effort).
-	readonly dob: readonly string[];
-	readonly countries: readonly string[];
-	readonly risk_category: string;
-	readonly source_list: string;
-	readonly list_version: string;
-}
 
 /** Split one OFAC CSV line into fields, stripping the surrounding quotes and
  * mapping the "-0-" sentinel to an empty string. (OFAC does not embed commas
@@ -82,14 +77,14 @@ export function parseSdn(
 			continue;
 		}
 		lines.push({
-			entity_id: `OFAC-${entNum}`,
+			entity_id: namespacedId(OFAC_LIST_ID, entNum),
 			primary_name: name,
 			entity_type: entityType(fields[2] ?? ""),
 			aliases: (aliasesByEnt.get(entNum) ?? []).map((n) => ({ name: n })),
 			dob: [],
 			countries: [],
 			risk_category: "SANCTION",
-			source_list: "OFAC_SDN",
+			source_list: OFAC_LIST_ID,
 			list_version: listVersion,
 		});
 	}

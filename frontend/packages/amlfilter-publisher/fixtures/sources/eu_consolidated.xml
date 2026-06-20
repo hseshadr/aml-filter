@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8" standalone="true"?>
+<export xmlns="http://eu.europa.ec/fpi/fsd/export" generationDate="2026-05-01T00:00:00">
+  <sanctionEntity logicalId="13" euReferenceNumber="EU.1.2">
+    <subjectType code="person" classificationCode="P"/>
+    <nameAlias firstName="Boris" lastName="Vymyshlyenny" wholeName="Boris Vymyshlyenny" strong="true"/>
+    <nameAlias firstName="Borya" lastName="Vymyshlyenny" wholeName="Borya Vymyshlyenny" strong="false"/>
+    <birthdate birthdate="1972-06-15" year="1972"/>
+    <citizenship countryIso2Code="RU" countryDescription="RUSSIA"/>
+    <address countryIso2Code="RU" city="Faketon"/>
+  </sanctionEntity>
+  <sanctionEntity logicalId="45" euReferenceNumber="EU.3.4">
+    <subjectType code="enterprise" classificationCode="E"/>
+    <nameAlias wholeName="Phantom Trading OOO" strong="true"/>
+    <address countryIso2Code="BY" city="Minskton"/>
+  </sanctionEntity>
+</export>
