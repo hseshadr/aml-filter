@@ -20,19 +20,19 @@ import {
 	type OnEmbedProgress,
 } from "./embedder";
 import { createWorkerEmbedder, spawnEmbedderWorker } from "./embedderClient";
+import { clearAll } from "./listCache";
 import {
 	createMultiListScreeningEngine,
 	type ListThresholds,
 	type MultiListScreeningEngine,
 } from "./multiEngine";
 import { PRESETS } from "./scoring";
-import {
-	fetchVerifiedCatalog,
-	type LoadedWatchlist,
-	loadList,
-	type WatchlistCatalog,
-	type WatchlistCatalogEntry,
+import type {
+	LoadedWatchlist,
+	WatchlistCatalog,
+	WatchlistCatalogEntry,
 } from "./watchlist";
+import { loadCatalogCached, loadListCached } from "./watchlistCache";
 
 /** Any non-empty string warms the ONNX session; content is discarded. */
 const WARMUP_PROMPT = "warm up the model";
@@ -161,19 +161,42 @@ export type LoadList = (
 
 /** The seams bootstrap depends on; defaulted to the real loaders + embedder Worker.
  * `makeEmbedder` receives an `onProgress` sink the runtime wires to the boot
- * banner so model-download progress reaches the UI. */
+ * banner so model-download progress reaches the UI. `loadCatalog`/`loadList` are
+ * the CACHE-AWARE loaders by default (durable IndexedDB byte cache + offline
+ * fallback, fail-closed re-verify on every load); `clearCache` drops every
+ * cached blob (the "Clear cached lists" affordance). */
 export interface RuntimeDeps {
 	readonly loadCatalog: LoadCatalog;
 	readonly loadList: LoadList;
 	readonly makeEmbedder: (onProgress: OnEmbedProgress) => Embedder;
+	readonly clearCache: () => Promise<void>;
 }
 
 const defaultDeps: RuntimeDeps = {
-	loadCatalog: fetchVerifiedCatalog,
-	loadList,
+	// Cache-aware: try the network (no-store) + cache the verified bytes; reuse a
+	// version-matching cached row (re-verified fail-closed) to skip the network;
+	// fall back to the cached catalog when offline. The cache is a byte store —
+	// verifyEd25519 runs over the served bytes (cached OR fetched) every load.
+	loadCatalog: (pubkey) => loadCatalogCached(pubkey),
+	loadList: (pubkey, entry) => loadListCached(pubkey, entry),
 	makeEmbedder: (onProgress) =>
 		createWorkerEmbedder(spawnEmbedderWorker(), onProgress),
+	clearCache: clearAll,
 };
+
+/**
+ * Best-effort request that the browser keep the list cache + OPFS durable
+ * (not evicted under storage pressure). Guarded: a browser without the
+ * Storage API, or a denied request, is a no-op — durability is an
+ * optimization, never a correctness requirement (every load re-verifies).
+ */
+async function requestPersistentStorage(): Promise<void> {
+	try {
+		await navigator.storage?.persist?.();
+	} catch {
+		// Persistence is best-effort; a failure must not abort bootstrap.
+	}
+}
 
 /** Build the production runtime deps (real catalog + list loaders + embedder Worker). */
 export function defaultRuntimeDeps(): RuntimeDeps {
@@ -257,6 +280,15 @@ export class EngineRuntime {
 	 * bootstrap — for the rescan path to compare against a cheap manifest poll. */
 	public version(): string | null {
 		return this.#version;
+	}
+
+	/**
+	 * Drop every durably-cached list blob (the "Clear cached lists" affordance).
+	 * Safe to call any time — the next load simply re-fetches + re-verifies. The
+	 * running engine is untouched; the cache is a load-time optimization only.
+	 */
+	public clearListCache(): Promise<void> {
+		return this.#deps.clearCache();
 	}
 
 	/**
@@ -393,6 +425,10 @@ export class EngineRuntime {
 		onStage: OnStage,
 	): Promise<MultiListScreeningEngine> {
 		onStage({ kind: "downloading" });
+		// Ask the browser to keep the cache + OPFS durable ONCE up front
+		// (best-effort, guarded — a no-op where unsupported). The cache-aware
+		// loaders open their own short IndexedDB transactions on demand.
+		await requestPersistentStorage();
 		const pubkey = await fetchPubkey(config.pubkeyUrl);
 		const loaded = await this.#loadEnabledLists(pubkey);
 		const versions: Record<string, string> = {};

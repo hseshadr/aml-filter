@@ -56,6 +56,8 @@ export interface RuntimePort {
 	catalogLists(): Promise<ReadonlyArray<CatalogListInfo>>;
 	/** Just the ids of every catalog list. */
 	catalogListIds(): Promise<ReadonlyArray<string>>;
+	/** Drop every durably-cached list blob; the next load re-fetches + re-verifies. */
+	clearListCache(): Promise<void>;
 }
 
 /** Seams for tests; defaulted to the real DB Worker + EngineRuntime. */
@@ -90,6 +92,10 @@ export interface WorkstationHandle extends WorkstationServices {
 	readonly setEnabledLists: (
 		ids: ReadonlyArray<string>,
 	) => Promise<RescanSummary>;
+	/** Drop every durably-cached list blob (the "Clear cached lists" affordance).
+	 * The running engine is untouched; the next cold load simply re-fetches +
+	 * re-verifies the lists from the network. */
+	readonly clearListCache: () => Promise<void>;
 }
 
 const defaultDeps: WorkstationDeps = {
@@ -200,6 +206,7 @@ async function build(deps: WorkstationDeps): Promise<WorkstationHandle> {
 			await deps.runtime.reload(await currentSelection(after));
 			return rescan.rescanAll();
 		},
+		clearListCache: (): Promise<void> => deps.runtime.clearListCache(),
 	};
 }
 

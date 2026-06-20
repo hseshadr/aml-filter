@@ -9,5 +9,9 @@ export default defineConfig({
 	test: {
 		environment: "jsdom",
 		globals: false,
+		// jsdom has no IndexedDB; fake-indexeddb/auto installs an in-memory
+		// implementation onto globalThis so listCache.ts's durable-store tests
+		// run standalone (the real IndexedDB is exercised by the browser e2e).
+		setupFiles: ["fake-indexeddb/auto"],
 	},
 });

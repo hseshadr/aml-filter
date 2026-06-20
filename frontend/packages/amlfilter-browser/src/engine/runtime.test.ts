@@ -3,6 +3,7 @@ import type { Embedder, EmbedProgress } from "./embedder";
 import {
 	type BootStage,
 	compositeVersion,
+	defaultRuntimeDeps,
 	EngineRuntime,
 	MODEL_LOAD_TIMEOUT_MS,
 	modelLoadTimeoutMs,
@@ -147,6 +148,7 @@ describe("EngineRuntime bootstrap timeout", () => {
 			loadCatalog: () => Promise.resolve(catalogOf([["OFAC_SDN", "test"]])),
 			loadList: () => Promise.resolve(fakeLoaded()),
 			makeEmbedder: () => embedder,
+			clearCache: () => Promise.resolve(),
 		};
 	}
 
@@ -236,6 +238,7 @@ describe("EngineRuntime.reload", () => {
 			loadList: (_pubkey, entry) =>
 				Promise.resolve(loadedAt(entry.version, `${entry.id}:E`, entry.id)),
 			makeEmbedder,
+			clearCache: () => Promise.resolve(),
 		};
 		return { deps, makeEmbedder };
 	}
@@ -275,6 +278,7 @@ describe("EngineRuntime.reload", () => {
 					? Promise.reject(new Error("signature verification failed"))
 					: Promise.resolve(loadedAt(entry.version, `${entry.id}:E`)),
 			makeEmbedder,
+			clearCache: () => Promise.resolve(),
 		});
 		await expect(runtime.bootstrap(CONFIG)).rejects.toThrow(/verification/);
 		// No partial engine was published.
@@ -384,6 +388,7 @@ describe("EngineRuntime enabledLists selection + thresholds", () => {
 				);
 			},
 			makeEmbedder,
+			clearCache: () => Promise.resolve(),
 		};
 		return { deps, loadedIds, makeEmbedder };
 	}
@@ -545,6 +550,7 @@ describe("EngineRuntime boot stages", () => {
 			loadCatalog: () => Promise.resolve(catalogOf([["OFAC_SDN", "test"]])),
 			loadList: () => Promise.resolve(fakeLoaded()),
 			makeEmbedder: () => neverEmbedder(),
+			clearCache: () => Promise.resolve(),
 		};
 		const runtime = new EngineRuntime(deps);
 		const stages: BootStage[] = [];
@@ -578,6 +584,7 @@ describe("EngineRuntime boot stages", () => {
 					return Promise.reject(new Error("warmup halted after progress"));
 				},
 			}),
+			clearCache: () => Promise.resolve(),
 		};
 		const runtime = new EngineRuntime(deps);
 		const stages: BootStage[] = [];
@@ -591,5 +598,27 @@ describe("EngineRuntime boot stages", () => {
 		});
 		// The plain (progress-less) loading-model stage still fires first.
 		expect(stages).toContainEqual({ kind: "loading-model" });
+	});
+});
+
+describe("EngineRuntime.clearListCache + cache-aware deps", () => {
+	function instantEmbedder(): Embedder {
+		return { embed: () => Promise.resolve(new Float32Array(1)) };
+	}
+
+	it("clearListCache delegates to the injected cache-clear seam", async () => {
+		const clearCache = vi.fn(() => Promise.resolve());
+		const runtime = new EngineRuntime({
+			loadCatalog: () => Promise.resolve(catalogOf([["OFAC_SDN", "v"]])),
+			loadList: () => Promise.resolve(fakeLoaded()),
+			makeEmbedder: () => instantEmbedder(),
+			clearCache,
+		});
+		await runtime.clearListCache();
+		expect(clearCache).toHaveBeenCalledTimes(1);
+	});
+
+	it("defaultRuntimeDeps exposes a clearCache seam (cache-aware by default)", () => {
+		expect(typeof defaultRuntimeDeps().clearCache).toBe("function");
 	});
 });

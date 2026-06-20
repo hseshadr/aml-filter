@@ -18,12 +18,14 @@ const mockSetSetting = vi.fn().mockResolvedValue(undefined);
 const mockCatalogLists = vi.fn();
 const mockGetEnabledLists = vi.fn();
 const mockSetEnabledLists = vi.fn();
+const mockClearListCache = vi.fn().mockResolvedValue(undefined);
 vi.mock("../lib/workstation", () => ({
 	workstation: vi.fn(async () => ({
 		store: { getSetting: mockGetSetting, setSetting: mockSetSetting },
 		catalogLists: mockCatalogLists,
 		getEnabledLists: mockGetEnabledLists,
 		setEnabledLists: mockSetEnabledLists,
+		clearListCache: mockClearListCache,
 	})),
 }));
 
@@ -184,6 +186,20 @@ describe("SettingsPage", () => {
 		fireEvent.click(screen.getByRole("button", { name: /apply/i }));
 		await waitFor(() =>
 			expect(screen.getByText(/Re-screened 5 customers/)).toBeInTheDocument(),
+		);
+	});
+
+	it("Clear cached lists calls clearListCache and confirms the next load re-fetches", async () => {
+		render(<SettingsPage />);
+		await waitFor(() => expect(mockCatalogLists).toHaveBeenCalled());
+
+		fireEvent.click(
+			screen.getByRole("button", { name: /clear cached lists/i }),
+		);
+
+		await waitFor(() => expect(mockClearListCache).toHaveBeenCalledTimes(1));
+		expect(await screen.findByRole("status")).toHaveTextContent(
+			/cached lists cleared/i,
 		);
 	});
 });

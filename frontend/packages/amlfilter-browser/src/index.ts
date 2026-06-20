@@ -34,6 +34,17 @@ export {
 	EMBEDDING_MODEL,
 	type Embedder,
 } from "./engine/embedder";
+// --- the durable list cache (Theme C): IndexedDB byte store, never a trust store ---
+export {
+	CATALOG_CACHE_KEY,
+	type CachedArtifact,
+	clearAll as clearListCache,
+	deleteArtifact,
+	listCached,
+	openListCache,
+	readArtifact,
+	writeArtifact,
+} from "./engine/listCache";
 // --- the multi-list screen: one warm embedder, N signed lists, one contract ---
 export {
 	createMultiListScreeningEngine,
@@ -89,3 +100,9 @@ export {
 	WatchlistFormatError,
 	type WatchlistManifest,
 } from "./engine/watchlist";
+// --- cache-aware loaders (Theme C): network-or-cache with fail-closed re-verify ---
+export {
+	loadCatalogCached,
+	loadListCached,
+	type NetworkLoaders,
+} from "./engine/watchlistCache";

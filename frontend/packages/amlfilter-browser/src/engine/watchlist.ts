@@ -119,6 +119,45 @@ async function fetchSignature(url: string): Promise<string> {
 }
 
 /**
+ * Verify FAIL-CLOSED against the pinned key over the EXACT bytes, then parse the
+ * JSON. Verify runs BEFORE parse so unverified bytes never reach JSON.parse.
+ * Extracted so the SAME verify-then-parse step runs over bytes already in hand —
+ * notably the durable cache's bytes, which are re-verified on every load (the
+ * cache is a byte store, never a trust store; see watchlistCache.ts). Throws
+ * SignatureError on a bad signature, the same fail-closed contract as the fetch.
+ */
+export async function verifyAndParse<T>(
+	bytes: Uint8Array,
+	signatureBase64: string,
+	pubkey: Uint8Array,
+): Promise<T> {
+	await verifyEd25519(pubkey, bytes, signatureBase64);
+	return JSON.parse(DECODER.decode(bytes)) as T;
+}
+
+/** A signed artifact's raw bytes + its detached base64 signature, fetched but
+ * NOT yet verified — the durable-cache write unit (verify happens in
+ * verifyAndParse, before any parse, on both the fetch and the cache paths). */
+export interface VerifiableArtifact {
+	readonly bytes: Uint8Array;
+	readonly signatureBase64: string;
+}
+
+/** Fetch a signed file + its detached `.sig` (no-store), same-origin relative to
+ * document.baseURI. Returns the raw bytes + signature UNVERIFIED — the caller
+ * passes them to verifyAndParse (fail-closed) before trusting/parsing. */
+export async function fetchArtifact(
+	relativePath: string,
+): Promise<VerifiableArtifact> {
+	const url = new URL(relativePath, document.baseURI).toString();
+	const [bytes, signatureBase64] = await Promise.all([
+		fetchFileBytes(url),
+		fetchSignature(`${url}.sig`),
+	]);
+	return { bytes, signatureBase64 };
+}
+
+/**
  * Fetch a signed file + its detached `.sig`, verify FAIL-CLOSED against the
  * pinned key over the EXACT file bytes, then parse the JSON. Verify runs BEFORE
  * parse so unverified bytes never reach JSON.parse. The url is resolved relative
@@ -128,13 +167,16 @@ async function fetchVerifiedJson<T>(
 	relativePath: string,
 	pubkey: Uint8Array,
 ): Promise<T> {
-	const url = new URL(relativePath, document.baseURI).toString();
-	const [bytes, signature] = await Promise.all([
-		fetchFileBytes(url),
-		fetchSignature(`${url}.sig`),
-	]);
-	await verifyEd25519(pubkey, bytes, signature);
-	return JSON.parse(DECODER.decode(bytes)) as T;
+	const { bytes, signatureBase64 } = await fetchArtifact(relativePath);
+	return verifyAndParse<T>(bytes, signatureBase64, pubkey);
+}
+
+/** Same-origin relative path of the signed catalog document. */
+export const CATALOG_PATH = "watchlist/catalog.json";
+
+/** Same-origin relative path of a list's signed watchlist document. */
+export function listWatchlistPath(entry: WatchlistCatalogEntry): string {
+	return `watchlist/${entry.path}watchlist.json`;
 }
 
 /** Decode a base64 string into raw bytes (browser atob, no Buffer dependency). */
@@ -293,11 +335,32 @@ export async function fetchVerifiedCatalog(
 	pubkey: Uint8Array,
 ): Promise<WatchlistCatalog> {
 	const catalog = await fetchVerifiedJson<WatchlistCatalog>(
-		"watchlist/catalog.json",
+		CATALOG_PATH,
 		pubkey,
 	);
 	assertCatalogShape(catalog);
 	return catalog;
+}
+
+/**
+ * Sanity-check an artifact's byte length is plausible for a list of
+ * `entitiesCount` entities BEFORE trusting/writing it — defense-in-depth that
+ * mirrors decodeVectors' exact byte-length check (a blob far smaller than even
+ * the vectors alone, or absurdly large, is rejected fail-closed). The vectors
+ * alone are entitiesCount * dim * 4 bytes; a real watchlist is strictly larger
+ * (entities JSON + framing). The ceiling guards against a wildly oversized blob.
+ */
+export function assertPlausibleArtifactSize(
+	byteLength: number,
+	entitiesCount: number,
+): void {
+	const minVectorBytes = entitiesCount * EXPECTED_DIM * FLOAT32_BYTES;
+	const ceiling = 64 * 1024 + minVectorBytes * 16;
+	if (byteLength < minVectorBytes || byteLength > ceiling) {
+		throw new WatchlistFormatError(
+			`watchlist blob is ${byteLength} bytes; implausible for ${entitiesCount} entities (expected ${minVectorBytes}..${ceiling})`,
+		);
+	}
 }
 
 /**
@@ -315,10 +378,7 @@ export async function loadList(
 			`watchlist/${entry.path}watchlist.manifest.json`,
 			pubkey,
 		),
-		fetchVerifiedJson<Watchlist>(
-			`watchlist/${entry.path}watchlist.json`,
-			pubkey,
-		),
+		fetchVerifiedJson<Watchlist>(listWatchlistPath(entry), pubkey),
 	]);
 	if (
 		entry.version !== manifest.version ||

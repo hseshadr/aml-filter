@@ -48,6 +48,7 @@ function makeDeps(store: WorkstationStore): WorkstationDeps {
 			catalogListIds: vi
 				.fn()
 				.mockResolvedValue(["OFAC_SDN", "EU_CONSOLIDATED"]),
+			clearListCache: vi.fn().mockResolvedValue(undefined),
 		},
 	};
 }
@@ -149,6 +150,13 @@ describe("workstation boot", () => {
 			{ id: "OFAC_SDN", title: "OFAC SDN" },
 			{ id: "EU_CONSOLIDATED", title: "EU Consolidated" },
 		]);
+	});
+
+	it("clearListCache delegates to the runtime", async () => {
+		const deps = makeDeps(makeStore());
+		const handle = await workstation(deps);
+		await handle.clearListCache();
+		expect(deps.runtime.clearListCache).toHaveBeenCalledTimes(1);
 	});
 
 	it("setEnabledLists persists the selection, re-bootstraps, and rescans on a real change", async () => {

@@ -229,6 +229,7 @@ export default function SettingsPage() {
 	const [applying, setApplying] = useState<boolean>(false);
 	const [summary, setSummary] = useState<RescanSummary | null>(null);
 	const [error, setError] = useState<string | null>(null);
+	const [cacheCleared, setCacheCleared] = useState<boolean>(false);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -298,6 +299,18 @@ export default function SettingsPage() {
 		}
 	}
 
+	async function handleClearCache(): Promise<void> {
+		setError(null);
+		setCacheCleared(false);
+		try {
+			const handle = await workstation();
+			await handle.clearListCache();
+			setCacheCleared(true);
+		} catch (err) {
+			setError(errorMessage(err, "Failed to clear cached lists"));
+		}
+	}
+
 	const overrideRows = catalog.filter((list) => enabled.has(list.id));
 
 	return (
@@ -356,6 +369,29 @@ export default function SettingsPage() {
 					value={analystName}
 					onChange={(e) => setAnalystName(e.target.value)}
 				/>
+			</section>
+
+			<section className="card">
+				<h2>Cached lists</h2>
+				<p className="text-muted">
+					Verified watchlists are cached on this device for fast cold starts and
+					offline use. Clearing the cache frees space; the next load re-fetches
+					and re-verifies every list.
+				</p>
+				<button
+					type="button"
+					className="btn btn-secondary"
+					onClick={() => {
+						void handleClearCache();
+					}}
+				>
+					Clear cached lists
+				</button>
+				{cacheCleared && (
+					<div className="alert alert-success" role="status">
+						Cached lists cleared — the next load re-fetches and re-verifies.
+					</div>
+				)}
 			</section>
 
 			<button
