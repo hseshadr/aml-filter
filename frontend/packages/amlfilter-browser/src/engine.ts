@@ -1,42 +1,11 @@
-// @amlfilter/browser/engine — the reusable, domain-agnostic sync tier.
+// @amlfilter/browser/engine — the reusable, domain-agnostic crypto tier.
 //
-// This is the PRODUCTION surface for building any in-browser edge-proc consumer.
-// It syncs a signed, content-addressed bundle into OPFS (ed25519 + sha256, fail-
-// closed), reassembles files, and runs the sync entirely in a Web Worker — with
-// ZERO domain coupling (no screening, no embeddings, no OFAC).
-//
-// The pattern: spawn an `EngineClient`, `sync()` a bundle, `readFile()` the
-// synced assets, then run your OWN compute over them. aml-filter layers OFAC
-// name screening on top (see the package root `.` entrypoint). This `engine`
-// subpath is a verbatim port of edge-proc's browser tier and shares one wire
-// format and one trust root with every other consumer.
+// After the v3 pivot to a single signed JSON watchlist, the heavy chunked-CAS
+// sync tier (OPFS store, GearCDC chunk reassembly, zstd, the sync Worker) is
+// gone — the browser fetches ONE signed file and verifies it. What remains
+// reusable, and what the publisher's round-trip test pins against, is the
+// fail-closed Ed25519 primitive + content hash. This subpath exposes exactly
+// those, with ZERO domain coupling (no screening, no embeddings, no OFAC).
 
-// --- the Worker-backed sync client: spawn -> sync -> readFile -> terminate ---
-export { EngineClient } from "./engine/client";
-// --- fail-closed crypto primitives (compose your own Verify if needed) ---
+// --- fail-closed crypto primitives (verify a detached signature, hash bytes) ---
 export { SignatureError, sha256Hex, verifyEd25519 } from "./engine/crypto";
-// --- the default byte fetcher + its network-unreachable sentinel ---
-export { fetchBytes, NetworkError } from "./engine/fetchBytes";
-// --- content-addressed stores: OPFS for production, in-memory for tests ---
-export { MemoryCacheStore } from "./engine/memoryStore";
-export { OpfsCacheStore } from "./engine/opfsStore";
-// --- the main<->worker postMessage wire contract ---
-export type {
-	EngineRequest,
-	EngineResponse,
-	ReadFileRequest,
-	SyncRequest,
-} from "./engine/protocol";
-// --- the sync state machine + on-demand file reassembly (verified) ---
-export { materializeFile, syncIndex } from "./engine/sync";
-// --- the seam types a consumer's runtime + worker accept ---
-export type {
-	CacheStore,
-	ChunkRef,
-	FetchBytes,
-	FileEntry,
-	IndexManifest,
-	SyncResult,
-	Verify,
-	VersionPointer,
-} from "./engine/types";

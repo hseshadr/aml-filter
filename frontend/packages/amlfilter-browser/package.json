@@ -1,14 +1,13 @@
 {
 	"name": "@amlfilter/browser",
 	"private": true,
-	"version": "2.1.0",
+	"version": "3.0.0",
 	"license": "MIT",
 	"type": "module",
 	"description": "In-browser signed-bundle sync + explainable OFAC name screening (the aml-filter browser tier).",
 	"exports": {
 		".": "./src/index.ts",
-		"./engine": "./src/engine.ts",
-		"./testing": "./src/testing.ts"
+		"./engine": "./src/engine.ts"
 	},
 	"scripts": {
 		"lint": "biome check .",
@@ -23,10 +22,10 @@
 	"devDependencies": {
 		"@biomejs/biome": "^2.4.15",
 		"@types/node": "^22.10.0",
-		"@vitejs/plugin-react": "^5.2.0",
+		"@vitejs/plugin-react": "^6.0.2",
 		"jsdom": "^29.1.1",
-		"typescript": "^5.2.2",
-		"vite": "^7.3.5",
-		"vitest": "^4.1.8"
+		"typescript": "^6.0.3",
+		"vite": "^8.0.16",
+		"vitest": "^4.1.9"
 	}
 }

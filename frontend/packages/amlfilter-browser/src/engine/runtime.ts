@@ -1,18 +1,18 @@
-// The browser runtime that turns the synced, signed OFAC bundle into a live,
-// in-tab ScreeningEngine — the in-browser replacement for the FastAPI screen.
+// The browser runtime that turns the signed, verified OFAC watchlist into a
+// live, in-tab ScreeningEngine — the in-browser replacement for the FastAPI
+// screen.
 //
-// Two Workers, off the UI thread:
-//   - the sync Worker (worker.ts) owns OPFS + the ported sync_index; it pulls the
-//     signed, content-addressed bundle from the origin, verifies it ed25519 +
-//     sha256 fail-closed, and materializes the four bundle files;
+//   - the watchlist loader (watchlist.ts) fetches ONE signed JSON watchlist
+//     (+ manifest) same-origin, verifies its detached ed25519 signature
+//     FAIL-CLOSED against the pinned key, decodes the precomputed vectors, and
+//     builds the cosine index + entity map;
 //   - the embedder Worker (embedderWorker.ts) owns transformers.js: the ~23 MB
-//     all-MiniLM-L6-v2 weights download + ONNX inference.
+//     all-MiniLM-L6-v2 weights download + ONNX inference for the QUERY only.
 //
 // bootstrap() drives both with a progress callback so the UI can show real
-// stages (syncing bundle… loading model…). It is idempotent: the engine is
-// built once and cached; later calls return the same instance.
+// stages (downloading list… verifying… loading model…). It is idempotent: the
+// engine is built once and cached; later calls return the same instance.
 
-import { EngineClient } from "./client";
 import {
 	createEmbedder,
 	type Embedder,
@@ -20,18 +20,12 @@ import {
 	type OnEmbedProgress,
 } from "./embedder";
 import { createWorkerEmbedder, spawnEmbedderWorker } from "./embedderClient";
+import { createScreeningEngine, type ScreeningEngine } from "./screeningEngine";
 import {
-	createScreeningEngine,
-	type ScreeningBundleFiles,
-	type ScreeningEngine,
-} from "./screeningEngine";
-import type { SyncResult } from "./types";
-
-/** The four bundle files the in-browser screen is assembled from. */
-const ENTITIES_PATH = "entities.jsonl";
-const INDEX_PATH = "vector/index.faiss";
-const STATE_PATH = "vector/state.json";
-const META_PATH = "ofac_meta.json";
+	fetchWatchlistVersion,
+	type LoadedWatchlist,
+	loadWatchlist,
+} from "./watchlist";
 
 /** Any non-empty string warms the ONNX session; content is discarded. */
 const WARMUP_PROMPT = "warm up the model";
@@ -115,82 +109,79 @@ export function throttleByRoundedPct(emit: OnEmbedProgress): OnEmbedProgress {
  * `loading-model` stage may fire with no progress yet (the plain banner) and
  * then re-fire carrying download progress as the ~23 MB model streams in. */
 export type BootStage =
-	| { readonly kind: "syncing" }
-	| { readonly kind: "synced"; readonly result: SyncResult }
-	| { readonly kind: "reassembling" }
+	| { readonly kind: "downloading" }
+	| { readonly kind: "verified"; readonly version: string }
 	| { readonly kind: "loading-model"; readonly progress?: EmbedProgress }
 	| { readonly kind: "ready" };
 
 /** Progress sink; called as bootstrap advances through its stages. */
 export type OnStage = (stage: BootStage) => void;
 
-/** Where the bundle is synced from + the pinned verify key, from Vite env. */
+/** The pinned verify key the fail-closed watchlist load is keyed on. */
 export interface RuntimeConfig {
-	/** Origin serving the signed bundle (`/latest`, `/manifest/*`, `/chunk/*`). */
-	readonly bundleBaseUrl: string;
-	/** Same-origin URL of the pinned ed25519 public key (NOT the bundle origin). */
+	/** Same-origin URL of the pinned ed25519 public key. */
 	readonly pubkeyUrl: string;
 }
 
-/** The sync-Worker surface bootstrap needs: pull the bundle, read its files. */
-export interface EnginePort {
-	sync(baseUrl: string, pubkeyUrl: string): Promise<SyncResult>;
-	readFile(path: string): Promise<Uint8Array>;
-}
+/** The watchlist-load surface bootstrap needs: fetch + verify + decode + build. */
+export type LoadWatchlist = (pubkey: Uint8Array) => Promise<LoadedWatchlist>;
 
-/** The seams bootstrap depends on; defaulted to the real Workers, faked in tests.
+/** The seams bootstrap depends on; defaulted to the real loader + embedder Worker.
  * `makeEmbedder` receives an `onProgress` sink the runtime wires to the boot
  * banner so model-download progress reaches the UI. */
 export interface RuntimeDeps {
-	readonly spawnEngine: () => EnginePort;
+	readonly loadWatchlist: LoadWatchlist;
 	readonly makeEmbedder: (onProgress: OnEmbedProgress) => Embedder;
 }
 
 const defaultDeps: RuntimeDeps = {
-	spawnEngine: () => EngineClient.spawn(),
+	loadWatchlist,
 	makeEmbedder: (onProgress) =>
 		createWorkerEmbedder(spawnEmbedderWorker(), onProgress),
 };
 
-/** Build the production runtime deps (real sync Worker + real embedder Worker). */
+/** Build the production runtime deps (real watchlist loader + embedder Worker). */
 export function defaultRuntimeDeps(): RuntimeDeps {
 	return defaultDeps;
 }
 
-async function readBundleFiles(
-	engine: EnginePort,
-): Promise<ScreeningBundleFiles> {
-	const [entities, index, state, meta] = await Promise.all([
-		engine.readFile(ENTITIES_PATH),
-		engine.readFile(INDEX_PATH),
-		engine.readFile(STATE_PATH),
-		engine.readFile(META_PATH),
-	]);
-	return { entities, index, state, meta };
+/** Fetch the pinned ed25519 public key same-origin (no-store), as raw bytes. */
+async function fetchPubkey(pubkeyUrl: string): Promise<Uint8Array> {
+	const response = await fetch(pubkeyUrl, { cache: "no-store" });
+	if (!response.ok) {
+		throw new Error(`fetch public key failed: HTTP ${response.status}`);
+	}
+	return new Uint8Array(await response.arrayBuffer());
 }
 
 /** Read Vite env into a RuntimeConfig; the pubkey is pinned same-origin. */
 export function configFromEnv(
-	env: Readonly<Record<string, string>>,
+	_env: Readonly<Record<string, string>>,
 ): RuntimeConfig {
-	const bundleBaseUrl = env.VITE_BUNDLE_BASE_URL ?? "";
 	// The pinned key ships in the SPA build (public/public.key), served from the
-	// app's OWN trusted origin — never fetched from the untrusted bundle origin.
+	// app's OWN trusted origin — the same origin the static watchlist is served
+	// from. The watchlist is no longer fetched from a separate bundle origin.
 	const pubkeyUrl = new URL("public.key", document.baseURI).toString();
-	return { bundleBaseUrl, pubkeyUrl };
+	return { pubkeyUrl };
 }
 
 /** Re-exported so call sites that only need the pure embedder can build one. */
 export { createEmbedder };
 
 /**
- * Sync the signed bundle, warm the embedder, and build the in-tab
+ * Load + verify the signed watchlist, warm the embedder, and build the in-tab
  * ScreeningEngine. Idempotent — the first call wins and its result is cached.
  */
 export class EngineRuntime {
 	readonly #deps: RuntimeDeps;
 	#enginePromise: Promise<ScreeningEngine> | null = null;
 	#ready: ScreeningEngine | null = null;
+	#version: string | null = null;
+	// Captured on the first successful bootstrap so reload() can re-fetch the
+	// watchlist with the same pinned key and reuse the already-warm embedder
+	// (no second ~23 MB model download).
+	#embedder: Embedder | null = null;
+	#config: RuntimeConfig | null = null;
 
 	public constructor(deps: RuntimeDeps = defaultDeps) {
 		this.#deps = deps;
@@ -199,6 +190,12 @@ export class EngineRuntime {
 	/** The ready engine, or null before the first successful bootstrap. */
 	public engine(): ScreeningEngine | null {
 		return this.#ready;
+	}
+
+	/** The loaded watchlist version, or null before bootstrap — for step-5
+	 * rescan to compare against a cheap manifest poll. */
+	public version(): string | null {
+		return this.#version;
 	}
 
 	/** Build (or reuse) the engine over the synced bundle, reporting progress. */
@@ -216,20 +213,53 @@ export class EngineRuntime {
 		return this.#enginePromise;
 	}
 
+	/**
+	 * Re-fetch + re-verify (fail-closed) the signed watchlist, swap the in-memory
+	 * cosine index + entities + version, and rebuild the ScreeningEngine over the
+	 * SAME already-warm embedder (no second model download). Used by the app's
+	 * "Check for updates" path once a cheap manifest poll detects a new publish.
+	 * Requires a prior successful bootstrap — the embedder + pinned-key config are
+	 * captured then; calling reload before that throws.
+	 */
+	public async reload(): Promise<ScreeningEngine> {
+		if (this.#embedder === null || this.#config === null) {
+			throw new Error("reload() requires a successful bootstrap first");
+		}
+		const pubkey = await fetchPubkey(this.#config.pubkeyUrl);
+		const loaded = await this.#deps.loadWatchlist(pubkey);
+		const engine = createScreeningEngine(loaded, this.#embedder);
+		this.#ready = engine;
+		this.#version = loaded.version;
+		this.#enginePromise = Promise.resolve(engine);
+		return engine;
+	}
+
+	/**
+	 * Cheap new-publish poll: fetch + verify (fail-closed) ONLY the tiny signed
+	 * manifest and return its version — no full list, no vectors, no model. The
+	 * "Check for updates" path compares this against {@link version} to decide
+	 * whether a {@link reload} + re-screen is needed. Requires a prior bootstrap
+	 * (the pinned-key config is captured then).
+	 */
+	public async fetchPublishedVersion(): Promise<string> {
+		if (this.#config === null) {
+			throw new Error(
+				"fetchPublishedVersion() requires a successful bootstrap first",
+			);
+		}
+		const pubkey = await fetchPubkey(this.#config.pubkeyUrl);
+		return fetchWatchlistVersion(pubkey);
+	}
+
 	async #build(
 		config: RuntimeConfig,
 		onStage: OnStage,
 	): Promise<ScreeningEngine> {
-		const engineClient = this.#deps.spawnEngine();
-		onStage({ kind: "syncing" });
-		const result = await engineClient.sync(
-			config.bundleBaseUrl,
-			config.pubkeyUrl,
-		);
-		onStage({ kind: "synced", result });
-
-		onStage({ kind: "reassembling" });
-		const files = await readBundleFiles(engineClient);
+		onStage({ kind: "downloading" });
+		const pubkey = await fetchPubkey(config.pubkeyUrl);
+		const loaded = await this.#deps.loadWatchlist(pubkey);
+		this.#version = loaded.version;
+		onStage({ kind: "verified", version: loaded.version });
 
 		onStage({ kind: "loading-model" });
 		// Re-fire the stage with each download tick so the banner shows a percent,
@@ -242,6 +272,8 @@ export class EngineRuntime {
 			onStage({ kind: "loading-model", progress }),
 		);
 		const embedder = this.#deps.makeEmbedder(onModelProgress);
+		this.#embedder = embedder;
+		this.#config = config;
 		// Force the ~23 MB model download/compile now so "loading-model" reflects
 		// real work and the first user query is fast. Bounded: a stalled CDN must
 		// reject (bootstrap clears its memo + the UI errors) rather than hang. The
@@ -254,7 +286,7 @@ export class EngineRuntime {
 			`loading the name-matching model timed out after ${timeoutMs}ms`,
 		);
 
-		const engine = createScreeningEngine(files, embedder);
+		const engine = createScreeningEngine(loaded, embedder);
 		this.#ready = engine;
 		onStage({ kind: "ready" });
 		return engine;

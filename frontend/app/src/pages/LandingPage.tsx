@@ -16,9 +16,9 @@ import "../styles/landing.css";
 //   • ~{modelSizeMb} MB matcher — statSync of public/models/.../model_quantized.onnx;
 //                                 mirrors ScreenPage's LOADING_MODEL_LABEL.
 //   • {demoEntityCount} demo entities — count of non-empty records in
-//                                 backend/examples/demo_entities.jsonl (the demo
-//                                 bundle, labelled "demo" so nobody mistakes it
-//                                 for the full OFAC list).
+//                                 frontend/packages/amlfilter-publisher/fixtures/
+//                                 demo_entities.jsonl (the demo bundle, labelled
+//                                 "demo" so nobody mistakes it for the full OFAC list).
 //   • 0 bytes PII leave       — the query is matched in-tab; nothing typed is sent.
 
 interface Metric {

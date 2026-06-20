@@ -1,14 +1,14 @@
+// Fail-closed ed25519 verification, proven against the REAL committed signed
+// demo watchlist (frontend/app/public/watchlist/watchlist.json) and the REAL
+// pinned key the /screen SPA ships (frontend/app/public/public.key). These two
+// artifacts are signed/pinned as a PAIR: a re-publish of the watchlist without
+// re-pinning the key (or vice versa) silently breaks the live demo's fail-closed
+// boot. This fast Node test catches that in the normal unit run — the
+// signed-JSON analogue of the old chunked-bundle drift guard.
+
 import { describe, expect, it } from "vitest";
-import { canonicalBytes, type JsonValue } from "./canonical";
 import { SignatureError, sha256Hex, verifyEd25519 } from "./crypto";
-import { latestBytes, pubkeyRaw } from "./fixtures";
-import type { VersionPointer } from "./types";
-
-const DECODER = new TextDecoder();
-
-function realPointer(): VersionPointer {
-	return JSON.parse(DECODER.decode(latestBytes())) as VersionPointer;
-}
+import { pubkeyRaw, watchlistBytes, watchlistSig } from "./fixtures";
 
 describe("sha256Hex", () => {
 	it("matches the known empty-string vector", async () => {
@@ -24,44 +24,33 @@ describe("sha256Hex", () => {
 	});
 });
 
-describe("verifyEd25519 against the REAL committed pointer", () => {
-	it("PASSES — proves canonical-bytes parity with the Python signer", async () => {
-		const pointer = realPointer();
-		const message = canonicalBytes(pointer as unknown as JsonValue, {
-			exclude: { signature: true },
-		});
+describe("verifyEd25519 against the REAL committed signed watchlist", () => {
+	it("PASSES — the demo watchlist verifies against the pinned public.key", async () => {
 		await expect(
-			verifyEd25519(pubkeyRaw(), message, pointer.signature),
+			verifyEd25519(pubkeyRaw(), watchlistBytes(), watchlistSig()),
 		).resolves.toBeUndefined();
 	});
 
 	it("THROWS fail-closed on a 1-byte-tampered signature", async () => {
-		const pointer = realPointer();
-		const message = canonicalBytes(pointer as unknown as JsonValue, {
-			exclude: { signature: true },
-		});
-		const sig = pointer.signature;
+		const sig = watchlistSig();
 		const flipped = (sig[0] === "A" ? "B" : "A") + sig.slice(1);
 		await expect(
-			verifyEd25519(pubkeyRaw(), message, flipped),
+			verifyEd25519(pubkeyRaw(), watchlistBytes(), flipped),
 		).rejects.toBeInstanceOf(SignatureError);
 	});
 
 	it("THROWS fail-closed when the signed message is tampered", async () => {
-		const pointer = realPointer();
-		const message = canonicalBytes(
-			{ ...pointer, version: "v999" } as unknown as JsonValue,
-			{ exclude: { signature: true } },
-		);
+		const bytes = watchlistBytes();
+		const tampered = bytes.slice();
+		tampered[0] = (tampered[0] ?? 0) ^ 0xff;
 		await expect(
-			verifyEd25519(pubkeyRaw(), message, pointer.signature),
+			verifyEd25519(pubkeyRaw(), tampered, watchlistSig()),
 		).rejects.toBeInstanceOf(SignatureError);
 	});
 
 	it("THROWS fail-closed on a malformed (non-base64) signature", async () => {
-		const message = canonicalBytes({ a: 1 });
 		await expect(
-			verifyEd25519(pubkeyRaw(), message, "!!!not base64!!!"),
+			verifyEd25519(pubkeyRaw(), watchlistBytes(), "!!!not base64!!!"),
 		).rejects.toBeInstanceOf(SignatureError);
 	});
 });

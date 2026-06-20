@@ -13,6 +13,7 @@ import {
 	listCustomers,
 	listReviewMatches,
 	recordMatches,
+	replaceMatches,
 	resolveMatch,
 	setSetting,
 	updateCustomer,
@@ -85,6 +86,21 @@ describe("updateCustomer / deleteCustomer", () => {
 		expect(updated.onboarding_status).toBe("ACTIVE");
 		expect(updated.kyc_risk_rating).toBe("HIGH");
 		expect(updated.customer_reference).toBe("R");
+	});
+
+	it("patches name and country, leaving blank fields unchanged", () => {
+		const row = createCustomer(db, {
+			customer_reference: "R",
+			name: "Old Name",
+			country: "US",
+		});
+		const updated = updateCustomer(db, row.customer_id, {
+			name: "New Name",
+			country: "",
+		});
+		// name changed; an empty-string country is "no change" (stays US).
+		expect(updated.name).toBe("New Name");
+		expect(updated.country).toBe("US");
 	});
 
 	it("rejects an update that steals another customer's reference", () => {
@@ -320,6 +336,136 @@ describe("recordMatches atomicity", () => {
 		).toThrow();
 		// A partial screening write is a compliance hazard — all or nothing.
 		expect(listReviewMatches(db, {})).toHaveLength(0);
+	});
+});
+
+describe("replaceMatches", () => {
+	it("inserts a fresh match set as PENDING for a customer with no prior matches", () => {
+		const customer = createCustomer(db, {
+			customer_reference: "R",
+			name: "Ann",
+		});
+		const rows = replaceMatches(db, customer.customer_id, [
+			makeTiered({ ofac_entity_id: "e-a", score: 0.9, tier: "STRONG" }),
+			makeTiered({ ofac_entity_id: "e-b", score: 0.7, tier: "POSSIBLE" }),
+		]);
+		expect(rows.map((r) => r.ofac_entity_id)).toEqual(["e-a", "e-b"]);
+		expect(rows.every((r) => r.resolution_status === "PENDING")).toBe(true);
+	});
+
+	it("PRESERVES a prior resolution (status + resolved_at + reviewer + notes) for a still-matching entity", () => {
+		// THE KEY DIFFERENCE FROM recordMatches: a still-matching, previously
+		// resolved hit keeps its disposition rather than being reset to PENDING.
+		const customer = createCustomer(db, {
+			customer_reference: "R",
+			name: "Ann",
+		});
+		const [first] = recordMatches(db, customer.customer_id, [
+			makeTiered({ ofac_entity_id: "e-keep" }),
+		]);
+		if (first === undefined) throw new Error("row missing");
+		resolveMatch(db, first.match_id, "FALSE_POSITIVE", "alice", "noise");
+		const resolvedAtBefore = db.selectObjects(
+			"SELECT resolved_at FROM kyc_matches WHERE customer_id = ?",
+			[customer.customer_id],
+		)[0]?.resolved_at;
+		expect(typeof resolvedAtBefore).toBe("string");
+
+		const [again] = replaceMatches(db, customer.customer_id, [
+			makeTiered({ ofac_entity_id: "e-keep", score: 0.7, tier: "POSSIBLE" }),
+		]);
+		if (again === undefined) throw new Error("row missing");
+		expect(again.resolution_status).toBe("FALSE_POSITIVE");
+		expect(again.reviewer_id).toBe("alice");
+		expect(again.review_notes).toBe("noise");
+		// The refreshed score/tier carry through alongside the preserved disposition.
+		expect(again.match_score).toBe(0.7);
+		expect(again.tier).toBe("POSSIBLE");
+		// resolved_at preserved (not nulled, not re-stamped to detection time).
+		const resolvedAtAfter = db.selectObjects(
+			"SELECT resolved_at FROM kyc_matches WHERE customer_id = ?",
+			[customer.customer_id],
+		)[0]?.resolved_at;
+		expect(resolvedAtAfter).toBe(resolvedAtBefore);
+	});
+
+	it("DROPS a stale hit whose entity is absent from the new set, preserving the survivor", () => {
+		const customer = createCustomer(db, {
+			customer_reference: "R",
+			name: "Ann",
+		});
+		const rows = recordMatches(db, customer.customer_id, [
+			makeTiered({ ofac_entity_id: "e-a" }),
+			makeTiered({ ofac_entity_id: "e-b" }),
+		]);
+		const a = rows.find((r) => r.ofac_entity_id === "e-a");
+		if (a === undefined) throw new Error("row missing");
+		resolveMatch(db, a.match_id, "FALSE_POSITIVE", "alice");
+
+		const after = replaceMatches(db, customer.customer_id, [
+			makeTiered({ ofac_entity_id: "e-a" }),
+		]);
+		expect(after.map((r) => r.ofac_entity_id)).toEqual(["e-a"]);
+		expect(after[0]?.resolution_status).toBe("FALSE_POSITIVE");
+		// e-b is gone entirely.
+		expect(listReviewMatches(db, {}).map((r) => r.ofac_entity_id)).toEqual([
+			"e-a",
+		]);
+	});
+
+	it("with an empty array clears ALL of a customer's matches", () => {
+		const customer = createCustomer(db, {
+			customer_reference: "R",
+			name: "Ann",
+		});
+		recordMatches(db, customer.customer_id, [
+			makeTiered({ ofac_entity_id: "e-a" }),
+			makeTiered({ ofac_entity_id: "e-b" }),
+		]);
+		const after = replaceMatches(db, customer.customer_id, []);
+		expect(after).toHaveLength(0);
+		expect(listReviewMatches(db, {})).toHaveLength(0);
+	});
+
+	it("throws NotFoundError for an unknown customer", () => {
+		expect(() => replaceMatches(db, "nope", [makeTiered()])).toThrow(
+			NotFoundError,
+		);
+	});
+
+	it("only affects the target customer — a second customer's matches are untouched", () => {
+		const one = createCustomer(db, { customer_reference: "R1", name: "A" });
+		const two = createCustomer(db, { customer_reference: "R2", name: "B" });
+		recordMatches(db, one.customer_id, [makeTiered({ ofac_entity_id: "e-1" })]);
+		recordMatches(db, two.customer_id, [makeTiered({ ofac_entity_id: "e-2" })]);
+
+		replaceMatches(db, one.customer_id, []);
+
+		const twoRows = listReviewMatches(db, {}).filter(
+			(r) => r.customer_id === two.customer_id,
+		);
+		expect(twoRows.map((r) => r.ofac_entity_id)).toEqual(["e-2"]);
+	});
+
+	it("rolls back the whole replacement on a mid-batch insert failure", () => {
+		const customer = createCustomer(db, {
+			customer_reference: "R",
+			name: "Ann",
+		});
+		recordMatches(db, customer.customer_id, [
+			makeTiered({ ofac_entity_id: "e-existing" }),
+		]);
+		const broken = makeTiered({
+			ofac_entity_id: "e-broken",
+			sanctioned_name: null as unknown as string,
+		});
+		expect(() =>
+			replaceMatches(db, customer.customer_id, [makeTiered(), broken]),
+		).toThrow();
+		// All-or-nothing: the prior set survives intact, no partial delete/insert.
+		expect(listReviewMatches(db, {}).map((r) => r.ofac_entity_id)).toEqual([
+			"e-existing",
+		]);
 	});
 });
 

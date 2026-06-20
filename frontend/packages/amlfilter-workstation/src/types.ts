@@ -48,6 +48,10 @@ export interface CustomerPatch {
 	readonly onboarding_status?: string;
 	readonly kyc_risk_rating?: string;
 	readonly customer_reference?: string;
+	/** Screened identity name. Empty string is treated as "no change". */
+	readonly name?: string;
+	/** ISO2 country. Empty string is treated as "no change". */
+	readonly country?: string;
 }
 
 /** One explanation reason — same shape as @amlfilter/browser MatchReason. */
@@ -114,6 +118,10 @@ export interface WorkstationStore {
 	): Promise<CustomerRow>;
 	deleteCustomer(customerId: string): Promise<void>;
 	recordMatches(
+		customerId: string,
+		matches: ReadonlyArray<TieredMatch>,
+	): Promise<ReadonlyArray<ReviewRow>>;
+	replaceMatches(
 		customerId: string,
 		matches: ReadonlyArray<TieredMatch>,
 	): Promise<ReadonlyArray<ReviewRow>>;

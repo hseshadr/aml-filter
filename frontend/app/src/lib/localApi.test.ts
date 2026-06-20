@@ -4,11 +4,7 @@ import type {
 	WorkstationStore,
 } from "@amlfilter/workstation";
 import { describe, expect, it, vi } from "vitest";
-import {
-	LocalApiClient,
-	NotImplementedError,
-	type WorkstationServices,
-} from "./localApi";
+import { LocalApiClient, type WorkstationServices } from "./localApi";
 
 function makeCustomerRow(): CustomerRow {
 	return {
@@ -146,62 +142,5 @@ describe("LocalApiClient slice methods", () => {
 		const client = new LocalApiClient(() => Promise.reject(new Error("no")));
 		expect(() => client.setApiKey("k")).not.toThrow();
 		expect(() => client.clearApiKey()).not.toThrow();
-	});
-});
-
-describe("LocalApiClient non-slice methods fail loudly", () => {
-	it("every non-slice method throws NotImplementedError", async () => {
-		const client = new LocalApiClient(() =>
-			Promise.reject(new Error("must not be called")),
-		);
-		const calls: ReadonlyArray<[string, () => Promise<unknown>]> = [
-			["screen", () => client.screen({ name: "x" })],
-			["getTenant", () => client.getTenant("t")],
-			["createApiKey", () => client.createApiKey({})],
-			["listApiKeys", () => client.listApiKeys()],
-			["revokeApiKey", () => client.revokeApiKey("k")],
-			["getUsage", () => client.getUsage()],
-			["listLists", () => client.listLists()],
-			["getAvailableLists", () => client.getAvailableLists()],
-			["updateListConfig", () => client.updateListConfig("l", {})],
-			[
-				"addWhitelistCustomer",
-				() => client.addWhitelistCustomer({ name: "x" }),
-			],
-			["listWhitelistCustomers", () => client.listWhitelistCustomers()],
-			["getWhitelistCustomer", () => client.getWhitelistCustomer("e")],
-			[
-				"updateWhitelistCustomer",
-				() => client.updateWhitelistCustomer("e", {}),
-			],
-			["deleteWhitelistCustomer", () => client.deleteWhitelistCustomer("e")],
-			["getWhitelistMatches", () => client.getWhitelistMatches()],
-			["resolveMatch", () => client.resolveMatch("m", "RESOLVED")],
-			[
-				"createSar",
-				() =>
-					client.createSar({
-						customer_id: "c",
-						match_id: "m",
-						filer: { name: "n", institution: "i", contact: "c" },
-					}),
-			],
-			["listSars", () => client.listSars()],
-			["getSar", () => client.getSar("s")],
-			["updateSar", () => client.updateSar("s", {})],
-			["exportSar", () => client.exportSar("s", "pdf")],
-			[
-				"generateAttestation",
-				() => client.generateAttestation({ customer_id: "c" }),
-			],
-			["listAttestations", () => client.listAttestations()],
-			["getAttestation", () => client.getAttestation("a")],
-			["verifyAttestation", () => client.verifyAttestation("a")],
-			["exportAttestation", () => client.exportAttestation("a", "pdf")],
-		];
-		for (const [name, call] of calls) {
-			await expect(call(), name).rejects.toBeInstanceOf(NotImplementedError);
-			await expect(call(), name).rejects.toThrow(name);
-		}
 	});
 });

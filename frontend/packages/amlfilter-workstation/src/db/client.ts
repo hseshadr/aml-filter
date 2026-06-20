@@ -39,6 +39,7 @@ export class DbClient implements WorkstationStore {
 	readonly #worker: WorkerLike;
 	readonly #pending = new Map<number, Pending>();
 	#nextId = 0;
+	#terminated = false;
 
 	public constructor(worker: WorkerLike) {
 		this.#worker = worker;
@@ -103,6 +104,18 @@ export class DbClient implements WorkstationStore {
 		});
 	}
 
+	public replaceMatches(
+		customerId: string,
+		matches: ReadonlyArray<TieredMatch>,
+	): Promise<ReadonlyArray<ReviewRow>> {
+		return this.#call({
+			kind: "replaceMatches",
+			id: this.#allocId(),
+			customerId,
+			matches,
+		});
+	}
+
 	public listReviewMatches(
 		filters: ReviewFilters,
 	): Promise<ReadonlyArray<ReviewRow>> {
@@ -147,6 +160,9 @@ export class DbClient implements WorkstationStore {
 			pending.reject(error);
 		}
 		this.#pending.clear();
+		// Block new requests — a #send() after this must reject, not post to a
+		// dead worker and hang forever (no reply is ever coming).
+		this.#terminated = true;
 		this.#worker.terminate();
 	}
 
@@ -171,6 +187,13 @@ export class DbClient implements WorkstationStore {
 	}
 
 	#send(request: DbRequest): Promise<DbResponse> {
+		if (this.#terminated) {
+			return Promise.reject(
+				new Error(
+					`DbClient is terminated; cannot send ${request.kind} request`,
+				),
+			);
+		}
 		return new Promise<DbResponse>((resolve, reject) => {
 			this.#pending.set(request.id, { resolve, reject });
 			this.#worker.postMessage(request);

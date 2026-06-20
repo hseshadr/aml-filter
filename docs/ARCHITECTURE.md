@@ -1,373 +1,275 @@
 # Architecture
 
-aml-filter screens a query name against the OFAC SDN sanctions list and returns a
-**scored, explained** result. Every path follows the same shape: normalize the name
-→ generate candidates by vector retrieval → score each candidate with a transparent
-weighted policy → threshold → return matches with per-signal reasons.
+**TL;DR.** aml-filter is a **zero-server, pure-TypeScript** app. It screens a name
+against the OFAC SDN sanctions list and returns a **scored, explained** result — and
+it does the whole thing in the browser tab, with no application backend, no database,
+and no API call. A small **publisher** turns the official OFAC list into a signed,
+self-contained file; the **browser engine** verifies that file and screens against it
+in-tab; the **workstation** app stores your KYC customers locally and keeps them
+re-screened. One screening pipeline, one explainable scoring contract, three
+TypeScript units.
 
-## Built on edge-proc
+There is no Python, no Postgres, no Docker, no HTTP screening endpoint. The watchlist
+is a static file you can host on any CDN; the trust comes from an Ed25519 signature the
+browser checks before it will load a single byte.
 
-aml-filter is two layers. The bottom layer is
-[**edge-proc**](https://github.com/hseshadr/edge-proc) — a generic local-compute
-substrate providing (a) **localvec**, an in-process FAISS vector index over a
-sentence-transformers space, and (b) **bundles**, a signed, content-addressed
-distribution format (Ed25519 + SHA-256, fail-closed). The top layer is **aml-filter**
-— the OFAC domain model, the explainable weighted scorer, and the screening
-pipeline. The substrate is reusable for any local search workload; aml-filter is what
-turns it into sanctions screening.
+## Why zero-server
 
-That split yields **three screening paths**, one scoring contract:
+Sanctions screening usually means standing up a service, a vector database, and an
+ingestion pipeline. But the OFAC SDN list is small — on the order of ~10⁴ entities —
+small enough that a browser tab can hold the whole thing in memory and scan it. Once
+you accept that, the server disappears:
 
-- **Server, DB-backed** — `backend/aml_filter/api/` is a FastAPI app over
-  PostgreSQL. `POST /v1/screen` is the front door; candidates come from **hybrid
-  search** (pgvector + pg_trgm). Redis/Valkey backs rate limiting and the batch
-  worker. This is the default HTTP path.
-- **Server, bundle-backed (no Postgres)** — `backend/aml_filter/bundle/` syncs a
-  signed edge-proc bundle and screens against its **localvec** index + in-memory
-  entities. Gated on `BUNDLE_BASE_URL` + `VERIFY_KEY_PATH`; driven by the
-  `amlfilter` CLI.
-- **Browser, backend-free** — `frontend/packages/amlfilter-browser/`
-  (`@amlfilter/browser`) syncs the same signed bundle into the tab and screens
-  in-tab. No application backend in the request path.
+- **No database.** Candidate retrieval is a brute-force cosine scan over precomputed
+  vectors. At this list size an exact scan is both correct and fast — no ANN index, no
+  pgvector, nothing to operate.
+- **No backend.** Embedding the *query* name runs in the tab via transformers.js. The
+  list's vectors were precomputed once at publish time, so the tab never has to embed
+  the list.
+- **No trusted server in the request path.** The list is a signed static file. The tab
+  verifies the signature against a pinned public key before loading it, so a hostile or
+  buggy CDN can't slip in a tampered list — verification is **fail-closed**.
 
-The shared screening engine lives in
-`backend/aml_filter/{search,scoring,embedding}/` (retrieval, the weighted scorer,
-the local embedder).
+What you give up is server-side scale; what you get is a screening tool that runs
+entirely on the user's machine, with the customer's KYC data never leaving the device.
 
-## System context
+## The pipeline (the same shape everywhere)
 
-![system context](diagrams/system-context.svg)
+Every screen — whether it's a one-off query or an automatic re-screen of a stored
+customer — follows the same five stages:
 
-A client POSTs a name to the API. The search service embeds and normalizes it,
-asks PostgreSQL for candidates two ways (vector + lexical), scores them, and
-returns matches. The sanctioned-entity data is loaded ahead of time from the
-**official OFAC source** (the list is never bundled — see [`../NOTICE`](../NOTICE)).
+```
+normalize → embed → cosine retrieve → explainable weighted score → threshold → reasons
+```
 
-## Screening pipeline
-
-![screening pipeline](diagrams/screening-pipeline.svg)
-
-A `POST /v1/screen` request (`SearchQuery`: `name`, optional `dob`, `country`,
-`entity_type`, plus `threshold` and `k`) flows through five stages:
-
-1. **Normalize** — `aml_filter/domain/normalization.py` lower-cases the name,
-   strips accents and honorifics, and canonicalizes it so spelling and
-   diacritic noise don't break the match.
-2. **Embed** — the normalized name is embedded by a local sentence-transformers
-   model (`aml_filter/embedding/`), with an in-process cache.
-3. **Candidate generation** — the retrieval backend depends on the path:
-   - **DB path — hybrid search** (`aml_filter/search/hybrid_search.py`) takes the
-     **union** of two retrievals: **vector** (`pgvector_backend.py`) — cosine
-     similarity over name embeddings, catching transliterations and near-spellings;
-     and **lexical** (`lexical_backend.py`) — `pg_trgm` trigram similarity, catching
-     typos and partial names. Each candidate carries a `vector_score` and/or
-     `lexical_score`.
-   - **Bundle / browser path — localvec** (`aml_filter/search/localvec_backend.py`)
-     runs the vector retrieval in-process against edge-proc's
-     `FaissVectorIndex` (`IndexFlatIP` over the same sentence-transformers space) —
-     a drop-in for the pgvector ANN with the same
-     `vector_search(query_vector, k, tenant_id, filters)` contract. aml's list-IN
-     and tenant-OR-global filters are preserved by carrying each entity's filter
-     metadata on its `VectorEmbedding` and applying them in Python over an
-     over-fetched candidate set. The lexical signal is derived in Python
-     (`SequenceMatcher` trigram stand-in) so name scoring stays meaningful without
-     Postgres.
-4. **Score** — `aml_filter/scoring/policy.py` (`DefaultScoringPolicy`) turns
-   each candidate into a final score plus a `MatchExplanation`.
-5. **Threshold → decision** — candidates at or above the request `threshold`
-   become `matches`; the rest are dropped.
-
-The orchestration lives in `aml_filter/search/service.py` (`SearchService.search`),
-which assembles the `SearchResponse` (`request_id`, `matches[]`,
-`list_versions_used`, `execution_time_ms`).
+1. **Normalize.** Lower-case the name, strip accents and honorifics, and run it through
+   `canonicalize()`. This is the load-bearing detail: the **same** `canonicalize()`
+   (`frontend/packages/amlfilter-browser/src/engine/normalize.ts`) is used by both the
+   publisher (when it precomputes each entity's `name_canonical`) and the browser (when
+   it normalizes the query). If query and corpus were canonicalized differently, vector
+   similarity would be comparing apples to oranges. The publisher imports the exact
+   function from `@amlfilter/browser`, so there is one source of truth.
+2. **Embed.** A sentence-transformers model — `Xenova/all-MiniLM-L6-v2`, 384-dim
+   (`EMBEDDING_MODEL` / `EMBEDDING_DIM` in `embedder.ts`) — turns the normalized name
+   into a vector. The publisher runs this model **in Node** to precompute one vector per
+   entity name; the browser runs the **same** model **in the tab** to embed the query or
+   customer name. Same model, same space, both runtimes — which is what makes the
+   precomputed vectors comparable to the live query vector.
+3. **Retrieve.** A brute-force **cosine** scan (`vectorIndex.ts`, exact top-k dot product
+   over L2-normalized rows) ranks every list entity against the query vector. No
+   approximate index — the list is small enough that exact is plenty fast.
+4. **Score.** Each candidate is scored by `computeScore` (`scoring.ts`) — a transparent,
+   weighted sum of five signals (below).
+5. **Threshold → reasons.** A candidate whose final score is **at or above the preset's
+   threshold** becomes a match. Each match carries `reasons[]` (one per signal: its
+   value, weight, contribution, and a plain-language description) plus a single
+   plain-language `explanation`.
 
 ## Scoring & explainability contract
 
-The score is **not** a black box. `DefaultScoringPolicy.compute_score` sums
-weighted signals, and emits each one as a `MatchSignal`:
+The score is **not** a black box. `computeScore` sums weighted signals:
 
 ```
 final_score = Σ ( weight_i × value_i )      # clamped to [0, 1]
 ```
 
-Signals: `name_vector`, `name_trigram`, `alias_match`, `dob_match`,
-`country_match`. Weights come from a named **preset** — each preset is a
-`ScoringWeights` + `threshold` pair:
+The five signals: `name_vector`, `name_trigram`, `alias_match`, `dob_match`,
+`country_match`. The weights and the match threshold come from a named **preset**
+(`PRESETS` in `scoring.ts`):
 
-| Preset | name_vector | name_trigram | alias | dob | country | threshold |
+| Preset | name_vector | name_trigram | alias_match | dob_match | country_match | threshold |
 | --- | --- | --- | --- | --- | --- | --- |
 | strict | 0.60 | 0.25 | 0.05 | 0.05 | 0.05 | 0.75 |
 | balanced | 0.55 | 0.20 | 0.10 | 0.10 | 0.05 | 0.65 |
 | lenient | 0.50 | 0.15 | 0.15 | 0.10 | 0.10 | 0.55 |
 
-Every match in the API response carries:
+Every match carries:
 
-- `reasons[]` — the weighted signals, each with `value`, `weight`, and
-  `contribution` (`weight × value`).
+- `reasons[]` — the weighted signals, each with `value`, `weight`, and `contribution`
+  (`weight × value`) plus a plain-language description.
 - `explanation` — a plain-language summary (e.g. _"Match due to: strong vector
   similarity, country match"_).
 
-This is the load-bearing contract: **a reviewer can always see why a score is
-what it is.** If you change the signal set or the preset weights, the
-explanation shape changes with it — keep the scorer and its tests in lockstep.
-The same contract holds on all three paths — the bundle and browser tiers reuse
-`DefaultScoringPolicy` (or its faithful TS port — identical weights, thresholds, and
-signal order) unchanged, so an in-tab match carries the same per-signal reasons and the
-same score as a server one.
+This is the load-bearing contract: **a reviewer can always see why a score is what it
+is.** If you change the signal set or the preset weights, the explanation shape changes
+with it — keep the scorer and its golden test in lockstep.
 
-## Signed-bundle distribution (the edge-proc bundle tier)
+## The three TypeScript units
 
-> A new diagram would help here — a `bundle-lifecycle.d2` showing
-> `entities.jsonl + localvec vector/ + ofac_meta.json → build_bundle (chunk + sign)
-> → origin → sync_index (verify) → SyncedBundle`. Not yet rendered; described below.
+### 1. Publisher — `@amlfilter/publisher`
 
-The OFAC list is distributed exactly like edge-reco's catalog: a signed,
-content-addressed bundle. The **producer** and **consumer** are thin domain wrappers
-over edge-proc's generic `build_bundle` / `sync_index`.
+`frontend/packages/amlfilter-publisher`. A Node CLI that turns the official OFAC list
+into a signed, self-contained watchlist. It runs offline, ahead of time — typically in
+CI — and **never ships the list inside the app**.
 
-**Producer** (`aml_filter/bundle/publish.py`, behind `amlfilter bundle`):
+The pipeline (`publishWatchlist`):
 
-1. `build_staging_dir` lays out three files in a staging dir — `entities.jsonl`
-   (one JSON domain `Entity` per line: id, names, aliases, countries, dob, type,
-   risk, list), a prebuilt localvec `vector/` index (built from the embedded names,
-   persisted verbatim for zero recompute downstream), and `ofac_meta.json`
-   (`OfacBundleMeta`: `list_id`, `version`, counts, embedding model/dim).
-2. `publish_bundle` reads every staging file into `{relpath: bytes}` and hands them
-   to edge-proc's `build_bundle` with a `GearCDC` chunker and an `Ed25519Signer`,
-   which chunks + signs + lays out the **flat origin** a device can sync: a `latest`
-   version pointer (Ed25519-signed) → an immutable `manifest/<hash>` → immutable
-   `chunk/<hash>` objects.
+1. **Fetch** the OFAC SDN source and map it to source-JSONL (`fetchOfacJsonl`,
+   `parseSdn`).
+2. **Canonicalize** each entity's `name_canonical` with the **same** `canonicalize()`
+   the browser uses (imported from `@amlfilter/browser`), so query and corpus match.
+3. **Precompute name vectors** with transformers.js in Node (`createNodeEmbedder`, on
+   `@huggingface/transformers`) — **no torch, no Python**. One 384-dim vector per entity
+   name. `packVectors` packs them into a single little-endian Float32 buffer.
+4. **Sign** the output Ed25519 (`signBytes` / `derivePublicKey` / `writeSigned`) and
+   emit four static files (see [Signed-watchlist trust model](#signed-watchlist-trust-model)).
 
-edge-proc stays generic (opaque files only); this module owns the domain shape.
+CLI flags: `--in <jsonl> --version <v> --key <privkey-file> --out <dir> [--models <dir>]`.
 
-**Version pointer.** `ofac_meta.json`'s `list_id` + `version` mirror the OFAC
-`ListVersion` (the ACTIVE, version-stamped list), so the consumer can report
-`list_versions_used` in its `SearchResponse` without ever touching Postgres.
+### 2. Browser engine — `@amlfilter/browser`
 
-**Consumer** (`aml_filter/bundle/sync.py`, behind `amlfilter sync` / `screen` and
-the server's bundle read-path):
+`frontend/packages/amlfilter-browser`. The in-tab screening engine. It runs the whole
+pipeline above against the signed watchlist, with no backend in the request path.
 
-1. `sync_bundle` calls edge-proc's `sync_index` with an `Ed25519Verifier` over the
-   pinned public key. Verification is **fail-closed** — any signature or SHA-256
-   mismatch aborts the load; there is no silent fallback to an empty index.
-2. It reads the active version pointer + manifest, `materialize_file`s each entry
-   into a local dir, and loads `ofac_meta.json`, the entities, and the localvec
-   index into a `SyncedBundle` (entities also indexed by id for O(1) scoring
-   lookup). The result is screenable **without Postgres**.
+The boot + screen flow:
 
-**Server bundle read-path.** `aml_filter/bundle/runtime.py` gates on
-`Settings.bundle_mode_active()` (both `BUNDLE_BASE_URL` and `VERIFY_KEY_PATH` set).
-When active, screening sources OFAC candidates from the synced bundle via
-`BundleScreeningSource` instead of `SearchService`; otherwise the DB path is
-untouched.
+1. **Fetch** the signed watchlist same-origin.
+2. **Verify** it fail-closed: `verifyEd25519` (`engine/crypto.ts`) checks the detached
+   Ed25519 signature against a public key pinned in the app build. Any signature or
+   SHA-256 mismatch aborts the load — there is no fallback to an unverified list.
+3. **Decode** the precomputed vectors: `buildLoadedWatchlist` (`engine/watchlist.ts`)
+   reconstructs the Float32 vector rows (failing closed on any dim ≠ 384).
+4. **Embed** the query name in-tab through the `Embedder` seam (`engine/embedder.ts`;
+   stubbable for tests via `createEmbedder`).
+5. **Retrieve + score**: brute-force cosine `vectorIndex` → `computeScore`.
 
-## Browser tier (`@amlfilter/browser`)
+Entry point: `EngineRuntime.bootstrap()` drives the boot stages and yields a
+`ScreeningEngine`; `ScreeningEngine.screen({ name })` runs one screen and returns the
+scored, explained matches.
 
-The same pipeline runs **in the tab** via the
-`frontend/packages/amlfilter-browser` workspace package, mirroring edge-reco's
-Nimbus demo:
+The package also exposes a domain-agnostic **`./engine` subpath** that is now **just the
+fail-closed crypto primitives** — `verifyEd25519`, `sha256Hex`, and `SignatureError`,
+with zero screening/embedding/OFAC coupling. (In the v3 pivot the old heavy chunked-CAS
+sync tier — content-addressed OPFS store, GearCDC chunk reassembly, zstd, the sync Web
+Worker — was **removed**. The browser now fetches **one signed JSON file and verifies
+it**; there is no bundle-sync client.)
 
-- `@amlfilter/browser/engine` is a **verbatim port of edge-proc's browser sync
-  tier** — domain-agnostic: it syncs a signed, content-addressed bundle into OPFS
-  (Origin Private File System), verifies it Ed25519 + SHA-256 **fail-closed**, and
-  reassembles files, all in a Web Worker. Same wire format, same trust root as the
-  Python producer.
-- The package root layers OFAC screening on top: a TS port of the domain model, the
-  normalizer, a localvec-equivalent `vectorIndex`, and the **same explainable
-  scoring contract** (the `PRESETS` weights and `computeScore` are a faithful port of
-  `DefaultScoringPolicy`), so an in-browser match reproduces the server's score and reasons.
-- `EngineRuntime.bootstrap()` drives the boot stages (syncing → synced →
-  reassembling → loading the MiniLM embedder → ready); the `/screen` page
-  (`frontend/app/src/pages/ScreenPage.tsx`) wires this to a live search box that
-  ranks the list as you type (and browses it when empty), rendering each match's
-  score, plain-language explanation, and per-signal breakdown. The
-  public key is pinned in the app build and served from the app's **own** origin,
-  never from the (untrusted) bundle origin.
-- What's cross-language **parity-tested**: the signed-bundle wire format (`crypto.test.ts`
-  checks the TS reader against a real Python-signed fixture and fail-closes on tamper), the
-  normalizer (`normalize.test.ts`), and the **scorer's full output** — score, reasons, and
-  each reason's plain-language description (`scoring.parity.test.ts` asserts the TS scorer
-  against a golden emitted by the Python source of truth via
-  `backend/scripts/gen_scoring_golden.py`). The MiniLM embedder is wired through a stubbable
-  `createEmbedderWith` seam for parity testing but has no committed parity test yet.
+### 3. Workstation app — `@amlfilter/workstation` + the React SPA
 
-## KYC / AML compliance workstation (DB path)
+`frontend/packages/amlfilter-workstation` provides the local-first KYC store; `frontend/app`
+is the React single-page app that drives it (entry `frontend/app/src/main.tsx`).
 
-> **Reference implementation, not a compliance product.** This layer is illustrative.
-> The operator owns their own regulatory obligations and any actual filings; "export"
-> never submits to a government system. See [`../NOTICE`](../NOTICE).
+- **Local data, local DB.** KYC records live in **SQLite-WASM** (the official
+  `@sqlite.org/sqlite-wasm` build) running inside a **Web Worker**, persisted to **OPFS**
+  via the `opfs-sahpool` VFS (`src/db/sqlite.ts` — persistent, no COOP/COEP headers
+  required). The customer's data never leaves the device.
+- **Two stores, two trust models.** The OFAC reference list comes from the signed,
+  fail-closed watchlist path (`@amlfilter/browser`); your KYC records live in the local
+  SQLite-WASM/OPFS database. The reference data is verified-and-trusted; your data is
+  yours.
 
-On top of the screening engine, the DB-backed tier adds the case-management lifecycle a
-compliance team works. Every stage **reuses the existing pipeline** — none of it
-re-implements normalize → embed → retrieve → score → explain; it layers workflow and
-state around that one contract. The full lifecycle below is a server, DB-backed
-capability (it needs Postgres); the onboard → tier → review → resolve slice also runs
-entirely in the browser — see
-[Local-first workstation (browser path)](#local-first-workstation-browser-path) below.
+#### Bidirectional rescan — the key behavior
 
-The lifecycle, end to end:
+`src/rescan.ts` (`RescanService`) keeps customers and the watchlist in sync **both
+ways**:
 
-1. **Onboard** (`aml_filter/customers/service.py`, `OnboardingService`) — creating a
-   `Customer` creates and links a **WHITELIST `Entity`** (which embeds the customer
-   name through the same encoder), then reuses `BidirectionalScreeningService.
-   screen_entity_against_list` to screen that entity against the active sanctions
-   lists. Any matches are persisted by the match tracker. The customer is 1:1-linked to
-   its screened entity via `screening_entity_id`.
-2. **Tier** (`aml_filter/scoring/tiers.py`, `MatchTier`) — a server-side classification
-   **on top of** the parity-locked score: it never alters a match's score, reasons, or
-   explanation, it just buckets the already-computed final score into STRONG / POSSIBLE
-   / WEAK (STRONG at/above `0.80`, POSSIBLE at/above the policy threshold, else WEAK;
-   bands env-overridable via `TIER_*`). The tier is stored on the match row.
-3. **Review** (`api/v1/review.py`) — the review board joins each tiered match to its
-   customer and the matched sanctions entity and lets a reviewer resolve it
-   (FALSE_POSITIVE / TRUE_POSITIVE / RESOLVED) with a reviewer id and notes.
-4. **File a SAR** (`aml_filter/sar/`) — for a **STRONG** match, generate a Suspicious
-   Activity Report. The engine is jurisdiction-agnostic: `SarJurisdiction` +
-   `SarTemplate` select a pluggable renderer (a FinCEN renderer ships, emitting JSON +
-   a reportlab PDF). SAR creation is **STRONG-gated** — it fails closed (`422`) on a
-   non-STRONG match. The SAR captures an immutable `SubjectSnapshot` of the customer +
-   match basis at filing time, so the report stays accurate even if the customer record
-   later changes. **Export produces a fileable artifact; it does not submit to FinCEN.**
-5. **Attest** (`aml_filter/attestation/`) — generate a screening attestation (review
-   badge): a verifiable record that a customer was screened against the enabled lists at
-   known versions, on a date, with a result (CLEAR / MATCHES_PENDING /
-   MATCHES_DISPOSITIONED). The canonical payload is **ed25519-signed reusing the bundle
-   trust root** (the signing private key's public half is the pinned `VERIFY_KEY_PATH`),
-   so a badge is independently verifiable via `/verify`. `valid_until` (default 90 days,
-   `ATTESTATION_VALIDITY_DAYS`) drives a staleness / due-for-re-review query; a periodic
-   RQ job refreshes badges. When no signing key is configured, badges persist unsigned.
+- A **customer edit** → re-screen that one customer. `screenCustomer(customerId)` loads
+  the customer and re-runs the pipeline for it.
+- A **watchlist update** → re-screen every customer. `rescanAll()` re-screens the whole
+  book. `syncWatchlist(currentVersion)` compares the new watchlist `version` against the
+  stored `last_synced_watchlist_version` setting; if it advanced, it triggers
+  `rescanAll()` and records the new version (idempotent on version — it only rescans when
+  the version actually changed).
 
-**Delta-driven rescan** (`aml_filter/screening/delta_rescan.py`, wired into the rescan
-worker `aml_filter/worker/screening_jobs.py`). A naive rescan re-screens every customer
-when a list updates — cost grows with the customer count. The delta path inverts this:
-it embeds only the **changed** sanctions entries and vector-searches them against an
-index built over **customers** (`search/customer_index.py`), so work scales with the
-size of the list change, not the book. Equivalence with the full rescan is preserved by
-running the affected customers through the *same* `screen_entity_against_list` scoring +
-recording path; removed entries auto-close their open matches (RESOLVED, annotated). The
-worker uses the delta path when a **prior `ListVersion` exists** and falls back to a full
-rescan otherwise.
+So neither side drifts: edit a customer and only that customer is re-checked; publish a
+new list and everyone is re-checked against it.
 
-#### Local-first workstation (browser path)
+## Signed-watchlist trust model
 
-The slice journey — onboard → auto-screen → tiered matches → review board → resolve —
-also runs entirely in the tab. Two stores, two trust models: the OFAC reference list
-stays on the signed, fail-closed bundle path (`@amlfilter/browser`); KYC records (your
-data) live in SQLite-WASM persisted to OPFS behind a DB Web Worker
-(`@amlfilter/workstation`, `opfs-sahpool` VFS — no COOP/COEP). Tiering is a TS port of
-`aml_filter/scoring/tiers.py`, parity-locked by a Python-emitted golden
-(`poe tiering-golden-check`, part of the gate). Resolution semantics port the observed
-server contract: PENDING on create, regex-valid dispositions, unconditional
-re-resolution, re-screen resets to PENDING.
+The watchlist is distributed as **plain signed static files** — host them on any
+server or CDN, no application backend required. There are four files:
 
-## Multi-list ingestion (the parser registry)
+| File | Purpose |
+| --- | --- |
+| `watchlist.manifest.json` | tiny — for cheap version polling on app-open |
+| `watchlist.manifest.json.sig` | detached Ed25519 signature over the manifest bytes |
+| `watchlist.json` | the full list: entities + precomputed name vectors |
+| `watchlist.json.sig` | detached Ed25519 signature over the `watchlist.json` bytes |
 
-Ingestion is no longer OFAC-only. `aml_filter/ingest/parsers/base.py` is a generic
-`SanctionsListParser` registry: each parser self-registers against its `list_id` via the
-`@parser_for` decorator, and `registered_list_ids()` enumerates them (this backs
-`GET /v1/lists/available`). Four parsers ship: `OFAC_SDN`, `EU_CONSOLIDATED`, `UK_OFSI`,
-and `UN_CONSOLIDATED`. `ingest_list` ingests a given list through its registered parser;
-`aml_filter/ingest/downloader.py` (`ListSyncDownloader.refresh`) fetches + re-ingests the
-**enabled** lists for a tenant, and `aml_filter/worker/ingest_jobs.py`
-(`refresh_all_enabled_lists`) is the schedulable refresh job (cron/queue are
-config-driven — nothing hard-codes a schedule). Tenants enable/disable lists with
-`PUT /v1/lists/{list_id}` (the `/lists` page in the SPA).
+On open, the browser polls the small **manifest** for its `version`. If the version
+differs from the last-synced value, it fetches the full `watchlist.json`. **Both** files
+are signature-verified **fail-closed**: a detached Ed25519 signature is checked against a
+public key pinned in the app and served **same-origin** from `frontend/app/public/public.key`
+(never from the untrusted watchlist origin). Any verification failure aborts the load.
 
-## Data model (high level)
+The signing **private** key never lives in the repo or the app — it is held only in CI
+(the `WATCHLIST_SIGNING_KEY` secret); the committed demo artifact is signed with a
+clearly-labeled non-production demo key whose public half is the pinned `public.key`.
 
-Stored in PostgreSQL (`aml_filter/db/models.py`), populated by ingestion:
+The exact wire format (manifest fields, the entity shape, the base64 Float32 vector
+buffer layout) is specified in **[`WATCHLIST_FORMAT.md`](WATCHLIST_FORMAT.md)** — that
+document is the single source of truth for the artifact and this one does not restate it.
 
-- **Entity** — a sanctioned person or organization: `entity_id`, `primary_name`,
-  `entity_type`, `risk_category` (SANCTION / PEP / CUSTOM / WHITELIST),
-  `source_list`, `list_version`, plus `countries[]` and `dob[]`.
-- **Alias** — alternate names for an entity (with canonical forms), used by the
-  `alias_match` signal.
-- **Name embedding** — the pgvector vector per name, built at ingest time by the
-  same local embedder used at query time (so query and corpus live in the same
-  space).
-- **SearchRequest** — an audit row per screening call.
+## Local data model (SQLite-WASM)
 
-The compliance workstation adds (all DB-path only):
+The schema lives in `frontend/packages/amlfilter-workstation/src/db/schema.ts`. Three
+tables hold the workstation's state:
 
-- **Customer** — a KYC customer, 1:1-linked to its screened WHITELIST `Entity` via
-  `screening_entity_id`; carries `onboarding_status`, `kyc_risk_rating`, `id_documents`.
-- **WhitelistBlacklistMatch** — a match between a customer's whitelist entity and a
-  blacklist (sanctions) entity, now carrying `match_tier`, `reviewer_id`, and
-  `review_notes` for the review board.
-- **Sar** — a Suspicious Activity Report for a STRONG match, with an immutable `subject`
-  snapshot and a `filer`.
-- **Attestation** — a screening review badge with an optional detached ed25519
-  `signature` over its canonical payload.
+- **`customers`** — a KYC customer.
+  - `customer_id` (PK), `customer_reference` (NOT NULL, UNIQUE), `name` (NOT NULL),
+    `country`, `onboarding_status` (NOT NULL, default `'DRAFT'`), `kyc_risk_rating`,
+    `id_documents` (JSON text, NOT NULL, default `'[]'`), `onboarded_by` (NOT NULL,
+    default `'local'`), `created_at`, `updated_at`.
+- **`kyc_matches`** — a match between a customer and an OFAC entity.
+  - `match_id` (PK), `customer_id` (FK → `customers`, `ON DELETE CASCADE`),
+    `ofac_entity_id`, `match_score` (REAL), `match_tier`, `list_version`,
+    `sanctioned_name`, `source_list`, `reasons` (JSON text), `explanation`,
+    `detected_at`, `resolution_status` (NOT NULL, default `'PENDING'`), `resolved_at`,
+    `reviewer_id`, `review_notes`.
+  - `UNIQUE (customer_id, ofac_entity_id)` so a customer/entity pair has one match row.
+  - Index `idx_kyc_matches_review` on `(resolution_status, match_tier)` for the review
+    board.
+- **`settings`** — `key` (PK), `value` (NOT NULL). Holds
+  `last_synced_watchlist_version` (the rescan version pointer above), among others.
 
-The query/response shapes (`SearchQuery`, `Match`, `MatchReason`,
-`MatchSignal`, `MatchExplanation`, `SearchResponse`) are Pydantic models in
-`aml_filter/domain/search.py` — the typed contract at the API boundary. The
-compliance-layer contracts live in `aml_filter/domain/{customer,sar,attestation}.py`.
-See [`DATABASE_SCHEMA.md`](DATABASE_SCHEMA.md) for the full table definitions.
+## Match tiers (review triage)
 
-## Ingestion (loading the sanctions lists)
+`src/tiering.ts` buckets each match's **final score** into a review tier. This layers
+**on top of** the scoring contract and **never changes the score, reasons, or
+explanation** — it only triages:
 
-aml-filter does not ship any sanctions list. The operator downloads each list from its
-official source and ingests it through the parser registry (see
-[Multi-list ingestion](#multi-list-ingestion-the-parser-registry) above):
+- **STRONG** — score ≥ `0.8` (`STRONG_TIER_FLOOR`).
+- **POSSIBLE** — score ≥ the active preset threshold.
+- **WEAK** — below that.
 
-- `aml_filter/ingest/parsers/{ofac,eu,uk,un}.py` parse the OFAC SDN, EU consolidated,
-  UK OFSI, and UN consolidated XML formats; each registers via `@parser_for`.
-- `aml_filter/ingest/service.py` (`IngestionService`) upserts entities + aliases, builds
-  embeddings, and stamps a `list_version` — `ingest_ofac_sdn` for OFAC, the generic
-  `ingest_list` path for any registered list.
-- `scripts/ingest_ofac.py <sdn.xml> [list_id] [version]` is the OFAC CLI wrapper; the
-  downloader/scheduler (`ingest/downloader.py`, `worker/ingest_jobs.py`) refreshes the
-  tenant's **enabled** lists on a config-driven schedule.
+Boundaries are inclusive on the lower edge of each tier. The TS implementation is the
+**source of truth**, parity-locked by a **frozen committed golden** snapshot
+(`tiering.parity.test.ts`) so any unintended drift in a tier boundary fails CI.
 
-See [`QUICKSTART.md`](QUICKSTART.md) for the end-to-end load and
-[`../NOTICE`](../NOTICE) for the source and public-domain status of the OFAC list.
+## Parity / correctness
 
-## Where config lives
+Both the **scoring** output (score, reasons, each reason's plain-language description)
+and the **tiering** classification are locked by committed golden-JSON parity tests —
+**frozen regression snapshots**. There is no Python side anymore: the TypeScript
+implementation is the source of truth, and the goldens are TS-emitted snapshots (the old
+Python golden generators were deleted in the v3 pivot). The fixtures:
 
-All runtime configuration is env-driven through Pydantic `BaseSettings` in
-`aml_filter/config.py` — no hardcoded knobs:
+- `frontend/packages/amlfilter-browser/src/engine/__fixtures__/scoring/golden.json`
+- `frontend/packages/amlfilter-workstation/src/__fixtures__/tiering/golden.json`
 
-- `DATABASE_URL` — async Postgres DSN. Required for the DB path; that path fails
-  closed without it. The bundle path does **not** require it.
-- `REDIS_URL` — Redis/Valkey for rate limiting + the worker queue.
-- `SCREENING_QUEUE_NAME` — RQ queue name for batch jobs.
-- `VECTOR_INDEX_DIR` — where the edge-proc localvec FAISS index is persisted
-  (default `.vector_index`). Resolved standalone, so building/loading the vector
-  backend never forces a `DATABASE_URL`.
-- `BUNDLE_BASE_URL` + `VERIFY_KEY_PATH` — set **both** to activate the bundle-backed
-  read-path (`Settings.bundle_mode_active()`). `BUNDLE_CACHE_DIR` (default
-  `.ofac_bundle`) is the local sync cache.
-- `ATTESTATION_SIGNING_KEY_PATH` — raw ed25519 private key used to sign attestation
-  badges; when unset, badges are persisted **unsigned**. Its public half is the pinned
-  trust root (`VERIFY_KEY_PATH`), so `/v1/attestations/{id}/verify` validates against it.
-  `ATTESTATION_SIGNING_KEY_ID` (default `default`) is recorded alongside a signed badge;
-  `ATTESTATION_VALIDITY_DAYS` (default `90`) sets the staleness window.
-- `TIER_STRONG` (default `0.80`) — override the STRONG match-tier floor.
-
-Copy `.env.example` → `.env` to set them. See [`DEPLOY.md`](DEPLOY.md) for the
-deployment surface.
+A change to the scorer or the tier boundaries that isn't reflected in the golden fails
+the parity test — that's the regression guard that keeps the explainable contract
+stable.
 
 ## Invariants (load-bearing rules)
 
-- **Explainability is non-negotiable.** Every match carries its signal
-  breakdown. Don't add a scoring path that returns a bare number.
-- **The list is never bundled.** It's downloaded from OFAC at runtime. Keep it
-  out of the repo and out of any container image.
-- **Same embedder, query and corpus.** Query names and stored names must be
-  embedded by the same model, or vector similarity is meaningless. This holds
-  across runtimes too — the browser runs the same MiniLM model as the Python
-  encoder (via transformers.js), which is what makes browser/server parity possible.
-- **Fail closed on config and on trust.** Missing `DATABASE_URL` aborts the DB path;
-  bundle mode requires both `BUNDLE_BASE_URL` and `VERIFY_KEY_PATH` (no silent
-  fallback to an empty index); and any Ed25519/SHA-256 mismatch aborts a bundle sync.
-- **One scoring contract, three paths.** DB, server-bundle, and browser screening
-  all emit the same `reasons[]` + `explanation`. A new path that returns a bare
-  number is a contract violation.
+- **Explainability is non-negotiable.** Every match carries its full signal breakdown.
+  Don't add a scoring path that returns a bare number.
+- **The list is never bundled into the app.** It is published from the official OFAC
+  source as a signed static file and verified at load time. Keep it out of the repo and
+  out of the app build.
+- **Same embedder, query and corpus.** The publisher (Node) and the browser (tab) must
+  use the **same** model and the **same** `canonicalize()`, or vector similarity is
+  meaningless. This is what makes precomputed vectors comparable to the live query.
+- **Fail closed on trust.** The watchlist is loaded only after its Ed25519 signature
+  verifies against the pinned, same-origin public key. Any signature or SHA-256 mismatch
+  aborts the load — never a silent fallback to an unverified list.
+- **Your data stays local.** KYC records live only in the in-tab SQLite-WASM/OPFS
+  database; nothing is sent to a server.
 
 ## Further reading
 
-- [`QUICKSTART.md`](QUICKSTART.md) — clone → gate → load a list → screen a name.
-- [`DEPLOY.md`](DEPLOY.md) — docker-compose, env vars, refreshing the OFAC list.
-- [`diagrams/`](diagrams/) — d2 sources (`system-context.d2`, `screening-pipeline.d2`) + rendered SVGs.
-- [`../NOTICE`](../NOTICE) — OFAC attribution and the not-a-compliance-product disclaimer.
+- [`WATCHLIST_FORMAT.md`](WATCHLIST_FORMAT.md) — the exact signed-watchlist wire
+  contract (the single source of truth for the published artifact).
+- [`../NOTICE`](../NOTICE) — OFAC attribution and the not-a-compliance-product
+  disclaimer.

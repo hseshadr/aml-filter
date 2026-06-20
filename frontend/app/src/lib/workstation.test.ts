@@ -1,5 +1,5 @@
 import type { ScreenResponse } from "@amlfilter/browser";
-import type { WorkstationStore } from "@amlfilter/workstation";
+import { RescanService, type WorkstationStore } from "@amlfilter/workstation";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	resetWorkstationForTests,
@@ -36,6 +36,11 @@ function makeDeps(store: WorkstationStore): WorkstationDeps {
 			bootstrap: vi.fn().mockResolvedValue({
 				screen: vi.fn().mockResolvedValue(response),
 			}),
+			version: vi.fn(() => "watchlist-v-test"),
+			fetchPublishedVersion: vi.fn().mockResolvedValue("watchlist-v-next"),
+			reload: vi.fn().mockResolvedValue({
+				screen: vi.fn().mockResolvedValue(response),
+			}),
 		},
 	};
 }
@@ -66,6 +71,29 @@ describe("workstation boot", () => {
 		const handle = await workstation(deps);
 		await handle.engineBoot();
 		expect(deps.runtime.bootstrap).toHaveBeenCalledTimes(1);
+	});
+
+	it("exposes a RescanService over the same DB + screener", async () => {
+		const handle = await workstation(makeDeps(makeStore()));
+		expect(handle.rescan).toBeInstanceOf(RescanService);
+	});
+
+	it("watchlistVersion reflects the runtime's loaded version", async () => {
+		const deps = makeDeps(makeStore());
+		const handle = await workstation(deps);
+		expect(handle.watchlistVersion()).toBe("watchlist-v-test");
+		expect(deps.runtime.version).toHaveBeenCalled();
+	});
+
+	it("fetchPublishedVersion + reloadWatchlist delegate to the runtime", async () => {
+		const deps = makeDeps(makeStore());
+		const handle = await workstation(deps);
+		await expect(handle.fetchPublishedVersion()).resolves.toBe(
+			"watchlist-v-next",
+		);
+		expect(deps.runtime.fetchPublishedVersion).toHaveBeenCalledTimes(1);
+		await handle.reloadWatchlist();
+		expect(deps.runtime.reload).toHaveBeenCalledTimes(1);
 	});
 
 	it("a failed DB open clears the memo so the next call retries", async () => {

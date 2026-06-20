@@ -8,8 +8,15 @@
  */
 
 import type { BootStage } from "@amlfilter/browser";
-import { ANALYST_NAME_KEY } from "@amlfilter/workstation";
-import { type FormEvent, type ReactNode, useEffect, useState } from "react";
+import { ANALYST_NAME_KEY, type SyncResult } from "@amlfilter/workstation";
+import {
+	type FormEvent,
+	type ReactNode,
+	useEffect,
+	useRef,
+	useState,
+} from "react";
+import { runWatchlistSync } from "../lib/sync";
 import { workstation } from "../lib/workstation";
 
 type GatePhase =
@@ -134,9 +141,8 @@ export default function WorkstationGate({ children }: WorkstationGateProps) {
 }
 
 function engineStageLabel(stage: BootStage): string | null {
-	if (stage.kind === "syncing") return "syncing the sanctions list…";
-	if (stage.kind === "synced" || stage.kind === "reassembling")
-		return "preparing the screening index…";
+	if (stage.kind === "downloading") return "downloading the sanctions list…";
+	if (stage.kind === "verified") return "preparing the screening index…";
 	if (stage.kind === "loading-model") {
 		const pct = stage.progress ? ` ${Math.round(stage.progress.pct)}%` : "";
 		return `loading the name-matching model…${pct}`;
@@ -147,7 +153,11 @@ function engineStageLabel(stage: BootStage): string | null {
 function EngineStatusStrip() {
 	const [stage, setStage] = useState<BootStage | null>(null);
 	const [error, setError] = useState<string | null>(null);
+	const [autoSync, setAutoSync] = useState<SyncResult | null>(null);
 	const [nonce, setNonce] = useState(0);
+	// Guards the once-per-boot auto-sync: the engine version is only known after
+	// engineBoot resolves, and we must not re-fire on every render.
+	const autoSyncFired = useRef(false);
 
 	// nonce is not read in the body — it is the intentional re-fire trigger:
 	// Retry bumps it so this effect re-kicks the background engine bootstrap.
@@ -156,11 +166,21 @@ function EngineStatusStrip() {
 		let cancelled = false;
 		setError(null);
 		workstation()
-			.then((handle) =>
-				handle.engineBoot((s) => {
+			.then(async (handle) => {
+				await handle.engineBoot((s) => {
 					if (!cancelled) setStage(s);
-				}),
-			)
+				});
+				// Engine ready → the watchlist version is now known. Auto-sync once:
+				// re-screen every customer if the list advanced since last sync.
+				if (autoSyncFired.current) return;
+				autoSyncFired.current = true;
+				const result = await runWatchlistSync(handle);
+				// Only surface a banner when a real rescan touched existing customers
+				// (a first boot on an empty DB advances the version but scans nobody).
+				if (!cancelled && result?.changed && result.customersScanned > 0) {
+					setAutoSync(result);
+				}
+			})
 			.catch((bootError: unknown) => {
 				if (!cancelled) setError(messageOf(bootError));
 			});
@@ -185,12 +205,31 @@ function EngineStatusStrip() {
 	}
 
 	const label = stage === null ? null : engineStageLabel(stage);
-	if (label === null) {
-		return null;
+	if (label !== null) {
+		return (
+			<div className="card card-muted text-sm" role="status" aria-live="polite">
+				Screening engine: {label}
+			</div>
+		);
 	}
-	return (
-		<div className="card card-muted text-sm" role="status" aria-live="polite">
-			Screening engine: {label}
-		</div>
-	);
+	if (autoSync !== null) {
+		return (
+			<div
+				className="alert card-muted text-sm"
+				role="status"
+				aria-live="polite"
+			>
+				Watchlist updated: re-screened {autoSync.customersScanned} customer(s) —{" "}
+				{autoSync.newHits} new hit(s), {autoSync.clearedHits} cleared.{" "}
+				<button
+					type="button"
+					className="btn btn-secondary btn-sm"
+					onClick={() => setAutoSync(null)}
+				>
+					Dismiss
+				</button>
+			</div>
+		);
+	}
+	return null;
 }

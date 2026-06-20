@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Embedder, EmbedProgress } from "./embedder";
 import {
 	type BootStage,
@@ -11,31 +11,38 @@ import {
 	throttleByRoundedPct,
 	withTimeout,
 } from "./runtime";
-import type { SyncResult } from "./types";
+import { VectorIndex } from "./vectorIndex";
+import type { LoadedWatchlist } from "./watchlist";
+
+const PUBKEY = new Uint8Array(32);
+
+beforeEach(() => {
+	// The runtime fetches the pinned pubkey same-origin before loading the
+	// watchlist; stub fetch so that read succeeds with deterministic bytes.
+	vi.stubGlobal(
+		"fetch",
+		vi.fn(() => Promise.resolve(new Response(PUBKEY, { status: 200 }))),
+	);
+});
 
 afterEach(() => {
 	vi.useRealTimers();
+	vi.unstubAllGlobals();
 	vi.restoreAllMocks();
 });
 
 const CONFIG: RuntimeConfig = {
-	bundleBaseUrl: "https://cdn.example/bundle",
 	pubkeyUrl: "https://app.example/public.key",
 };
 
-const SYNC_RESULT: SyncResult = {
-	version: "test",
-	manifestHash: "deadbeef",
-	chunksFetched: 0,
-	chunksReused: 0,
-	bytesFetched: 0,
-};
-
-/** A sync engine whose readFile is never reached when warmup hangs. */
-function fakeEngine() {
+/** A trivial loaded watchlist whose index/entities are never reached when
+ * warmup hangs or rejects. */
+function fakeLoaded(): LoadedWatchlist {
 	return {
-		sync: () => Promise.resolve(SYNC_RESULT),
-		readFile: () => Promise.resolve(new Uint8Array()),
+		index: new VectorIndex(new Float32Array(1), ["x"], 1),
+		entities: new Map(),
+		version: "test",
+		listId: "OFAC_SDN",
 	};
 }
 
@@ -110,7 +117,7 @@ describe("withTimeout", () => {
 describe("EngineRuntime bootstrap timeout", () => {
 	function deps(embedder: Embedder): RuntimeDeps {
 		return {
-			spawnEngine: () => fakeEngine(),
+			loadWatchlist: () => Promise.resolve(fakeLoaded()),
 			makeEmbedder: () => embedder,
 		};
 	}
@@ -145,6 +152,85 @@ describe("EngineRuntime bootstrap timeout", () => {
 		await secondAssert;
 		// A fresh #build ran (warmup re-attempted) — the rejected memo was cleared.
 		expect(embed).toHaveBeenCalledTimes(2);
+	});
+});
+
+describe("EngineRuntime.reload", () => {
+	/** A loaded watchlist tagged with a version + a single entity id. */
+	function loadedAt(version: string, entityId: string): LoadedWatchlist {
+		return {
+			index: new VectorIndex(new Float32Array(1), [entityId], 1),
+			entities: new Map([
+				[
+					entityId,
+					{
+						entity_id: entityId,
+						entity_type: "PERSON",
+						primary_name: entityId,
+						name_canonical: entityId,
+						aliases: [],
+						dob: [],
+						countries: [],
+						risk_category: "SANCTION",
+						source_list: "OFAC_SDN",
+						list_version: version,
+					},
+				],
+			]),
+			version,
+			listId: "OFAC_SDN",
+		};
+	}
+
+	/** An embedder that resolves instantly so bootstrap completes (no fake timers). */
+	function instantEmbedder(): Embedder {
+		return { embed: () => Promise.resolve(new Float32Array(1)) };
+	}
+
+	it("swaps the watchlist + version and reuses the warm embedder (no re-download)", async () => {
+		const loads = [loadedAt("demo-1", "E1"), loadedAt("demo-2", "E2")];
+		let calls = 0;
+		const makeEmbedder = vi.fn(() => instantEmbedder());
+		const runtime = new EngineRuntime({
+			loadWatchlist: () => {
+				const next = loads[calls] ?? loads[loads.length - 1];
+				calls += 1;
+				if (next === undefined) throw new Error("no load");
+				return Promise.resolve(next);
+			},
+			makeEmbedder,
+		});
+
+		const first = await runtime.bootstrap(CONFIG);
+		expect(runtime.version()).toBe("demo-1");
+		expect(first.meta.version).toBe("demo-1");
+
+		const reloaded = await runtime.reload();
+		// Version + entities advanced to the second watchlist.
+		expect(runtime.version()).toBe("demo-2");
+		expect(reloaded.meta.version).toBe("demo-2");
+		expect(reloaded.allEntities().map((e) => e.entity_id)).toEqual(["E2"]);
+		// engine() now returns the reloaded engine, not the boot-time one.
+		expect(runtime.engine()).toBe(reloaded);
+		expect(runtime.engine()).not.toBe(first);
+		// The embedder was built ONCE (at bootstrap) — reload did NOT re-download.
+		expect(makeEmbedder).toHaveBeenCalledTimes(1);
+	});
+
+	it("throws if reload is called before a successful bootstrap", async () => {
+		const runtime = new EngineRuntime({
+			loadWatchlist: () => Promise.resolve(loadedAt("demo-1", "E1")),
+			makeEmbedder: () => instantEmbedder(),
+		});
+		await expect(runtime.reload()).rejects.toThrow();
+	});
+
+	it("throws if fetchPublishedVersion is called before a successful bootstrap", async () => {
+		const runtime = new EngineRuntime({
+			loadWatchlist: () => Promise.resolve(loadedAt("demo-1", "E1")),
+			makeEmbedder: () => instantEmbedder(),
+		});
+		await expect(runtime.fetchPublishedVersion()).rejects.toThrow();
 	});
 });
 
@@ -185,13 +271,30 @@ describe("throttleByRoundedPct", () => {
 	});
 });
 
-describe("EngineRuntime model-load progress", () => {
+describe("EngineRuntime boot stages", () => {
+	it("emits downloading then verified(version) before loading the model", async () => {
+		const deps: RuntimeDeps = {
+			loadWatchlist: () => Promise.resolve(fakeLoaded()),
+			makeEmbedder: () => neverEmbedder(),
+		};
+		const runtime = new EngineRuntime(deps);
+		const stages: BootStage[] = [];
+		vi.useFakeTimers();
+		const pending = runtime.bootstrap(CONFIG, (s) => stages.push(s));
+		const assertion = expect(pending).rejects.toThrow();
+		// Let the (real-timer) fetch + load microtasks flush before the deadline.
+		await vi.advanceTimersByTimeAsync(MODEL_LOAD_TIMEOUT_MS);
+		await assertion;
+		expect(stages[0]).toEqual({ kind: "downloading" });
+		expect(stages).toContainEqual({ kind: "verified", version: "test" });
+	});
+
 	it("threads an embedder progress event into a loading-model stage", async () => {
 		// The embedder factory receives an onProgress sink; this fake fires one
 		// progress event during warmup, which the runtime must surface as a
 		// loading-model BootStage carrying that progress.
 		const deps: RuntimeDeps = {
-			spawnEngine: () => fakeEngine(),
+			loadWatchlist: () => Promise.resolve(fakeLoaded()),
 			makeEmbedder: (onProgress) => ({
 				// Fire one progress tick, then reject — that halts #build before the
 				// (out-of-scope) screening-engine assembly while still proving the

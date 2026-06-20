@@ -22,10 +22,10 @@ import {
 import { Footer } from "../components/Footer";
 import { bootErrorMessage } from "./bootErrorMessage";
 
-// The backend-free OFAC screening page. On mount it syncs the signed bundle
-// (ed25519 + sha256, fail-closed) and warms the MiniLM embedder, both in Web
-// Workers; then it SEARCHES the synced list entirely in-tab as you type. No
-// FastAPI on this path. With an empty box it browses the whole list so a
+// The backend-free OFAC screening page. On mount it fetches the signed JSON
+// watchlist (ed25519-verified, fail-closed) and warms the MiniLM embedder in a
+// Web Worker; then it SEARCHES the verified list entirely in-tab as you type.
+// No FastAPI on this path. With an empty box it browses the whole list so a
 // visitor immediately sees who is on it; typing surfaces ranked matches with a
 // full dossier + the explainable score. The admin pages keep their own
 // DB-backed flow — this is the public, in-browser tier.
@@ -41,9 +41,8 @@ type Phase =
 const LOADING_MODEL_LABEL = "Loading the name-matching model (~23 MB, once)…";
 
 const STAGE_LABEL: Readonly<Record<BootStage["kind"], string>> = {
-	syncing: "Syncing the signed OFAC bundle…",
-	synced: "Bundle verified.",
-	reassembling: "Reassembling the index…",
+	downloading: "Downloading the signed sanctions list…",
+	verified: "List verified.",
 	"loading-model": LOADING_MODEL_LABEL,
 	ready: "Ready.",
 };
@@ -179,7 +178,7 @@ export function ScreenPage() {
 	const runtime = useMemo(() => new EngineRuntime(), []);
 	const [phase, setPhase] = useState<Phase>({
 		kind: "booting",
-		stage: { kind: "syncing" },
+		stage: { kind: "downloading" },
 	});
 	const [query, setQuery] = useState("");
 	const [strictness, setStrictness] = useState<Strictness>("balanced");
@@ -226,12 +225,12 @@ export function ScreenPage() {
 				if (!alive.current) {
 					return;
 				}
-				// Surface the bundle origin so a misconfigured / colliding
-				// VITE_BUNDLE_BASE_URL (e.g. a foreign edge on the same port whose
-				// bundle fails verification) is diagnosable from the banner alone.
+				// A verify/format/model failure aborts the load fail-closed; surface
+				// the cause so a bad signature or stalled model is diagnosable from
+				// the banner alone.
 				setPhase({
 					kind: "error",
-					message: bootErrorMessage(config.bundleBaseUrl, error),
+					message: bootErrorMessage(error),
 				});
 			});
 	}, [runtime, bootNonce]);
@@ -241,7 +240,7 @@ export function ScreenPage() {
 		// nonce re-runs the boot effect, which calls bootstrap again (the runtime
 		// cleared its memo when the prior attempt rejected).
 		started.current = false;
-		setPhase({ kind: "booting", stage: { kind: "syncing" } });
+		setPhase({ kind: "booting", stage: { kind: "downloading" } });
 		setBootNonce((n) => n + 1);
 	}, []);
 

@@ -1,34 +1,73 @@
 import { describe, expect, it } from "vitest";
 import type { Entity, OfacBundleMeta } from "./domain";
 import type { Embedder } from "./embedder";
-import {
-	stagedEntities,
-	stagedIndex,
-	stagedMeta,
-	stagedState,
-} from "./fixtures";
-import {
-	createScreeningEngine,
-	type ScreeningBundleFiles,
-	ScreeningEngine,
-} from "./screeningEngine";
+import { createScreeningEngine, ScreeningEngine } from "./screeningEngine";
 import { VectorIndex } from "./vectorIndex";
+import { buildLoadedWatchlist, type Watchlist } from "./watchlist";
 
 const DIM = 384;
 
-function files(): ScreeningBundleFiles {
+/** A synthetic 3-entity watchlist with deterministic, axis-aligned vectors.
+ * Row 0 (e_ivanov) is the [1,0,...] direction the stub embedder hits. */
+function fixtureWatchlist(): Watchlist {
+	const matrix = new Float32Array(3 * DIM);
+	matrix[0 * DIM + 0] = 1; // e_ivanov along axis 0
+	matrix[1 * DIM + 1] = 1; // e_petrov along axis 1
+	matrix[2 * DIM + 2] = 1; // e_acme along axis 2
+	const vectors = Buffer.from(matrix.buffer).toString("base64");
 	return {
-		entities: stagedEntities(),
-		index: stagedIndex(),
-		state: stagedState(),
-		meta: stagedMeta(),
+		listId: "OFAC_SDN",
+		version: "2026-05-30",
+		generatedAt: "2026-05-30T00:00:00Z",
+		model: "Xenova/all-MiniLM-L6-v2",
+		dim: DIM,
+		entities: [
+			{
+				entity_id: "e_ivanov",
+				name_canonical: "vladimir ivanov",
+				aliases: [],
+				dob: "1970-01-01",
+				countries: ["RU"],
+				risk_category: "SANCTION",
+				source_list: "OFAC_SDN",
+				list_version: "2026-05-30",
+			},
+			{
+				entity_id: "e_petrov",
+				name_canonical: "sergei petrov",
+				aliases: [],
+				dob: null,
+				countries: ["RU"],
+				risk_category: "SANCTION",
+				source_list: "OFAC_SDN",
+				list_version: "2026-05-30",
+			},
+			{
+				entity_id: "e_acme",
+				name_canonical: "acme holdings",
+				aliases: [],
+				dob: null,
+				countries: ["US"],
+				risk_category: "SANCTION",
+				source_list: "OFAC_SDN",
+				list_version: "2026-05-30",
+			},
+		],
+		vectors,
 	};
 }
 
+function makeEngine(): ScreeningEngine {
+	return createScreeningEngine(
+		buildLoadedWatchlist(fixtureWatchlist()),
+		stubEmbedder(),
+	);
+}
+
 /**
- * A deterministic stub embedder that returns the fixture's exact-hit direction
- * (the e_ivanov vector, seed=1.0) for the sanctioned name, and an orthogonal
- * vector for anything else — so screening is model-free + reproducible.
+ * A deterministic stub embedder that returns the [1,0,...] direction (the
+ * e_ivanov vector) for the sanctioned name, and an orthogonal vector for
+ * anything else — so screening is model-free + reproducible.
  */
 function stubEmbedder(): Embedder {
 	return {
@@ -45,16 +84,16 @@ function stubEmbedder(): Embedder {
 }
 
 describe("ScreeningEngine — in-browser OFAC screen", () => {
-	it("exposes the bundle metadata", () => {
-		const engine = createScreeningEngine(files(), stubEmbedder());
+	it("synthesizes the bundle metadata from the watchlist", () => {
+		const engine = makeEngine();
 		expect(engine.meta.list_id).toBe("OFAC_SDN");
 		expect(engine.meta.entity_count).toBe(3);
 		expect(engine.meta.embedding_dim).toBe(DIM);
+		expect(engine.meta.version).toBe("2026-05-30");
 	});
 
 	it("scores an exact-name sanctioned hit high with an explanation", async () => {
-		const engine = createScreeningEngine(files(), stubEmbedder());
-		const res = await engine.screen({ name: "Vladimir Ivanov" });
+		const res = await makeEngine().screen({ name: "Vladimir Ivanov" });
 		expect(res.matches.length).toBeGreaterThan(0);
 		const top = res.matches[0];
 		expect(top?.primary_name).toBe("Vladimir Ivanov");
@@ -69,18 +108,16 @@ describe("ScreeningEngine — in-browser OFAC screen", () => {
 	});
 
 	it("returns no matches for a random unrelated name", async () => {
-		const engine = createScreeningEngine(files(), stubEmbedder());
-		const res = await engine.screen({ name: "Jane Q Public" });
+		const res = await makeEngine().screen({ name: "Jane Q Public" });
 		expect(res.matches).toHaveLength(0);
 	});
 
-	it("boosts the score when DOB and country corroborate", async () => {
-		const engine = createScreeningEngine(files(), stubEmbedder());
-		const withCountry = await engine.screen({
+	it("boosts the score when country corroborates", async () => {
+		const withCountry = await makeEngine().screen({
 			name: "Vladimir Ivanov",
 			country: "RU",
 		});
-		const nameOnly = await engine.screen({ name: "Vladimir Ivanov" });
+		const nameOnly = await makeEngine().screen({ name: "Vladimir Ivanov" });
 		const a = withCountry.matches[0]?.score ?? 0;
 		const b = nameOnly.matches[0]?.score ?? 0;
 		expect(a).toBeGreaterThan(b);
@@ -91,8 +128,7 @@ describe("ScreeningEngine — in-browser OFAC screen", () => {
 	});
 
 	it("honors a custom threshold (a high floor screens the hit out)", async () => {
-		const engine = createScreeningEngine(files(), stubEmbedder());
-		const res = await engine.screen({
+		const res = await makeEngine().screen({
 			name: "Vladimir Ivanov",
 			threshold: 0.999,
 		});
@@ -100,16 +136,14 @@ describe("ScreeningEngine — in-browser OFAC screen", () => {
 	});
 
 	it("exposes the full entity list for browsing (no query)", () => {
-		const engine = createScreeningEngine(files(), stubEmbedder());
-		const all = engine.allEntities();
+		const all = makeEngine().allEntities();
 		expect(all).toHaveLength(3);
 		expect(all.map((e) => e.primary_name)).toContain("Vladimir Ivanov");
 	});
 });
 
 // A rich entity carrying the dossier fields the search UI surfaces. Built with a
-// tiny real VectorIndex so the projection is exercised end-to-end without the
-// (deliberately minimal) signed-bundle fixture.
+// tiny real VectorIndex so the projection is exercised end-to-end.
 function richEntity(): Entity {
 	return {
 		entity_id: "e_rich",

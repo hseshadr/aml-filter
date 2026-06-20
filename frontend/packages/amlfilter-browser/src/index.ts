@@ -1,21 +1,18 @@
 // @amlfilter/browser — the in-browser tier of aml-filter.
 //
-// Sync a signed, content-addressed OFAC bundle into OPFS (ed25519 + sha256,
-// fail-closed), reassemble its files, and screen a name entirely in the tab —
-// no backend. The native (Python) producer and this browser consumer share one
-// wire format and one explainable scoring contract (see ./engine/domain +
-// ./engine/scoring): the wire format, the normalizer, and the scorer's full output
-// (score, reasons, and each reason's description) are parity-tested against the Python
-// side, and the scorer is a faithful port of DefaultScoringPolicy (identical weights,
-// thresholds, and signal order) — so an in-browser match reproduces the server's score
-// and explanation.
+// Fetch a signed JSON watchlist same-origin, verify its detached ed25519
+// signature (fail-closed) against a pinned key, decode the precomputed name
+// vectors, and screen a name entirely in the tab — no backend. The publisher
+// (frontend/packages/amlfilter-publisher) and this browser consumer share one
+// wire format (see docs/WATCHLIST_FORMAT.md) and one explainable scoring
+// contract (see ./engine/domain + ./engine/scoring): the wire format, the
+// normalizer, and the scorer's full output (score, reasons, and each reason's
+// description) are parity-tested against the Python side, and the scorer is a
+// faithful port of DefaultScoringPolicy (identical weights, thresholds, and
+// signal order) — so an in-browser match reproduces the server's score and
+// explanation.
 //
 // Primary entry point: EngineRuntime.bootstrap() → ScreeningEngine.
-//
-// Low-level sync primitives and the Worker-backed EngineClient live behind the
-// `@amlfilter/browser/testing` subpath (test-only seams, not the production
-// surface). The reusable, domain-agnostic sync tier lives at
-// `@amlfilter/browser/engine`.
 
 // --- the domain contract (single source of truth, mirrors the backend) ---
 export {
@@ -39,14 +36,14 @@ export {
 } from "./engine/embedder";
 // --- the canonical-name pipeline (shared by the engine and the UI's gates) ---
 export { canonicalize } from "./engine/normalize";
-// --- runtime: bootstrap the engine over the synced bundle ---
+// --- runtime: bootstrap the engine over the signed watchlist ---
 export {
 	type BootStage,
 	configFromEnv,
 	createEmbedder,
 	defaultRuntimeDeps,
-	type EnginePort,
 	EngineRuntime,
+	type LoadWatchlist,
 	type OnStage,
 	type RuntimeConfig,
 	type RuntimeDeps,
@@ -64,9 +61,17 @@ export {
 // --- the screen surface + its option/return contracts ---
 export {
 	createScreeningEngine,
-	type ScreeningBundleFiles,
 	ScreeningEngine,
 	type ScreenOptions,
 } from "./engine/screeningEngine";
-// --- the SyncResult shape leaks through BootStage; expose its type only ---
-export type { SyncResult } from "./engine/types";
+// --- the signed-watchlist loader + its loaded shape ---
+export {
+	buildLoadedWatchlist,
+	fetchWatchlistVersion,
+	type LoadedWatchlist,
+	loadWatchlist,
+	type Watchlist,
+	type WatchlistEntity,
+	WatchlistFormatError,
+	type WatchlistManifest,
+} from "./engine/watchlist";

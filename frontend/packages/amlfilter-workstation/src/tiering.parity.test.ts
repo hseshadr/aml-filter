@@ -1,8 +1,8 @@
-// Cross-language tiering parity: the TS classifyTier (a port of the Python
-// aml_filter.scoring.tiers.classify_tier) must reproduce the Python source-of-
-// truth verdicts. The golden is emitted by the canonical Python classifier
-// (backend/scripts/gen_tiering_golden.py); regenerate it after any tiering
-// change on either side (`backend $ uv run poe tiering-golden`).
+// Tiering regression guard: the TS classifyTier is the source of truth for the
+// review-tier verdict. The golden under __fixtures__ is a FROZEN, committed
+// regression snapshot of that classifier's verdicts. This test asserts the live
+// classifier still reproduces the committed snapshot, so any unintended drift in
+// the tier boundaries or verdicts fails CI.
 
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";

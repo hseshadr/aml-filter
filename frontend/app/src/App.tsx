@@ -6,19 +6,15 @@ import WorkstationGate from "./components/WorkstationGate";
 import { LandingPage } from "./pages/LandingPage";
 import { ScreenPage } from "./pages/ScreenPage";
 
+// The app is ZERO-SERVER / LOCAL-FIRST: there is no backend, no login, and no
+// API key — every route runs entirely in the tab.
+//
 // Public routes (/, /screen) stay eager: / is the marketing landing (first
 // paint for every visitor) and /screen is the headline demo that boots the
-// embedder worker on first paint. The LOCAL-FIRST workstation pages are
-// lazy-loaded per-route chunks fetched only on entry — no login, no API key:
-// the WorkstationGate opens the in-tab SQLite/OPFS store instead.
-//
-// Server-tier pages (LoginPage, SearchPage, ApiKeysPage, ListsPage,
-// UsagePage, WhitelistPage, SarsPage, SarFormPage, AttestationsPage) and the
-// ApiClient remain in the repo for SaaS deployments but are NOT routed in the
-// local-first app (spec D3 + §9.2) — no dead UI behind a login with nothing
-// to log into. The auth subtree (AuthContext, ProtectedRoute, LoginPage) is
-// likewise intentionally kept-but-unreachable, retained for a future SaaS
-// mode.
+// embedder worker on first paint. The workstation pages (/customers, /review)
+// are lazy-loaded per-route chunks fetched only on entry and gated by the
+// WorkstationGate, which opens the in-tab SQLite/OPFS store (no auth — there
+// is nothing to log into).
 const CustomersPage = lazy(() => import("./pages/CustomersPage"));
 const ReviewBoardPage = lazy(() => import("./pages/ReviewBoardPage"));
 

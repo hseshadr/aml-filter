@@ -1,9 +1,9 @@
-// Cross-language scoring parity: the TS scorer (a port of the Python
-// DefaultScoringPolicy) must reproduce the Python source-of-truth output —
-// score, summary, and every weighted reason (including the plain-language
-// description) — byte-for-byte. The golden is emitted by the canonical Python
-// scorer (backend/scripts/gen_scoring_golden.py); regenerate it after any
-// scoring change on either side.
+// Scoring regression guard: the TS scorer is the source of truth for the
+// screening score. The golden under __fixtures__/scoring is a FROZEN, committed
+// regression snapshot of that scorer's full output — score, summary, and every
+// weighted reason (including the plain-language description). This test asserts
+// the live scorer still reproduces the committed snapshot byte-for-byte, so any
+// unintended drift in score, reason set, or descriptions fails CI.
 
 import { describe, expect, it } from "vitest";
 import { type GoldenReason, scoringGolden } from "./fixtures";

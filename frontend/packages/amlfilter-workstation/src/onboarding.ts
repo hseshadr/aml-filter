@@ -4,17 +4,15 @@
 // signed-bundle engine; tiered matches are persisted back to SQLite.
 
 import {
-	type Match,
 	PRESETS,
 	type ScreenQuery,
 	type ScreenResponse,
 } from "@amlfilter/browser";
-import { classifyTier } from "./tiering";
+import { tierMatch } from "./tier_match";
 import type {
 	CustomerRow,
 	IdDocument,
 	ReviewRow,
-	TieredMatch,
 	WorkstationStore,
 } from "./types";
 
@@ -71,24 +69,13 @@ export class LocalOnboardingService {
 			country: request.country ?? null,
 			threshold: ONBOARDING_THRESHOLD,
 		});
-		const tiered = response.matches.map((match) => this.#tier(match));
+		const tiered = response.matches.map((match) =>
+			tierMatch(match, this.#possibleThreshold),
+		);
 		const matches =
 			tiered.length === 0
 				? []
 				: await this.#store.recordMatches(customer.customer_id, tiered);
 		return { customer, matches };
-	}
-
-	#tier(match: Match): TieredMatch {
-		return {
-			ofac_entity_id: match.entity_id,
-			score: match.score,
-			tier: classifyTier(match.score, this.#possibleThreshold),
-			sanctioned_name: match.primary_name,
-			source_list: match.source_list,
-			list_version: match.list_version,
-			reasons: [...match.reasons],
-			explanation: match.explanation,
-		};
 	}
 }

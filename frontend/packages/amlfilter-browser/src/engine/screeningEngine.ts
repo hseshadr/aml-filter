@@ -1,9 +1,9 @@
 // The in-browser OFAC screen — a faithful port of the backend's no-Postgres
-// bundle path (aml_filter.bundle.screening.BundleScreeningSource.screen):
+// screening path (aml_filter.bundle.screening.BundleScreeningSource.screen):
 //
 //   1. embed the query name with transformers.js MiniLM (same model as the
-//      producer), giving the `name_vector` signal via cosine over the bundle's
-//      stored, L2-normalized embeddings;
+//      publisher), giving the `name_vector` signal via cosine over the
+//      watchlist's stored, L2-normalized embeddings;
 //   2. over-fetch k*2 vector candidates from the flat index;
 //   3. for each candidate, derive `name_trigram` from a SequenceMatcher ratio
 //      over canonical names, then run the ported scoring policy (alias/dob/
@@ -11,7 +11,8 @@
 //   4. keep candidates at or above the threshold, sort by score, take top-k;
 //   5. project to the backend's Match / SearchResponse shape.
 //
-// No FastAPI on this path — everything runs in the tab over the synced bundle.
+// No FastAPI on this path — everything runs in the tab over the signed,
+// verified watchlist (see ./watchlist).
 
 import {
 	EMPTY_IDENTIFIERS,
@@ -22,7 +23,7 @@ import {
 	type ScreenResponse,
 } from "./domain";
 import type { Embedder } from "./embedder";
-import { parseEntities } from "./entities";
+import { EMBEDDING_MODEL } from "./embedder";
 import { canonicalize } from "./normalize";
 import {
 	computeScore,
@@ -31,21 +32,8 @@ import {
 	type ScoringWeights,
 } from "./scoring";
 import { sequenceRatio } from "./sequenceMatcher";
-import { loadVectorIndex, type VectorIndex } from "./vectorIndex";
-
-const DECODER = new TextDecoder();
-
-/** The four reassembled bundle files the screen is built from. */
-export interface ScreeningBundleFiles {
-	/** entities.jsonl — one JSON Entity per line. */
-	readonly entities: Uint8Array;
-	/** vector/index.faiss — binary FAISS IndexFlatIP. */
-	readonly index: Uint8Array;
-	/** vector/state.json — the faiss_ids row->entity_id map. */
-	readonly state: Uint8Array;
-	/** ofac_meta.json — list/version/model metadata. */
-	readonly meta: Uint8Array;
-}
+import type { VectorIndex } from "./vectorIndex";
+import type { LoadedWatchlist } from "./watchlist";
 
 /** Options for one screen call (defaults mirror the backend SearchQuery). */
 export interface ScreenOptions {
@@ -53,8 +41,15 @@ export interface ScreenOptions {
 	readonly preset?: Preset;
 }
 
-function parseMeta(bytes: Uint8Array): OfacBundleMeta {
-	return JSON.parse(DECODER.decode(bytes)) as OfacBundleMeta;
+/** Synthesize the engine's OfacBundleMeta from a loaded watchlist. */
+function metaOf(loaded: LoadedWatchlist): OfacBundleMeta {
+	return {
+		list_id: loaded.listId,
+		version: loaded.version,
+		entity_count: loaded.entities.size,
+		embedding_model: EMBEDDING_MODEL,
+		embedding_dim: loaded.index.dim,
+	};
 }
 
 interface Scored {
@@ -197,13 +192,15 @@ export class ScreeningEngine {
 	}
 }
 
-/** Parse the synced bundle files and build a query-ready ScreeningEngine. */
+/** Build a query-ready ScreeningEngine from a loaded, verified watchlist. */
 export function createScreeningEngine(
-	files: ScreeningBundleFiles,
+	loaded: LoadedWatchlist,
 	embedder: Embedder,
 ): ScreeningEngine {
-	const index = loadVectorIndex({ index: files.index, state: files.state });
-	const entities = parseEntities(files.entities);
-	const meta = parseMeta(files.meta);
-	return new ScreeningEngine(index, entities, meta, embedder);
+	return new ScreeningEngine(
+		loaded.index,
+		loaded.entities,
+		metaOf(loaded),
+		embedder,
+	);
 }

@@ -1,16 +1,16 @@
-// Match-strength tiers — a faithful port of backend aml_filter/scoring/tiers.py.
-// This layers ON TOP of the parity-locked scoring contract: it never alters a
-// match's score, reasons, or explanation; it only buckets the final score.
-// Parity with the Python source of truth is locked by tiering.parity.test.ts
-// against a golden emitted by backend/scripts/gen_tiering_golden.py.
+// Match-strength tiers. This layers ON TOP of the scoring contract: it never
+// alters a match's score, reasons, or explanation; it only buckets the final
+// score. This TS implementation is the source of truth; tiering.parity.test.ts
+// guards it against a FROZEN, committed golden snapshot under __fixtures__ so any
+// unintended drift in the tier boundaries or verdicts fails CI.
 
 import type { MatchTier } from "./types";
 
-/** Default STRONG band floor (tiers.py:17 STRONG_TIER_FLOOR). */
+/** Default STRONG band floor. */
 export const STRONG_TIER_FLOOR = 0.8;
 
 /**
- * Bucket a final match score into a review tier (tiers.py:28 classify_tier).
+ * Bucket a final match score into a review tier.
  * STRONG at/above `strong`; POSSIBLE at/above the policy `possibleThreshold`;
  * WEAK below it. Boundaries are inclusive on the lower edge of each tier.
  */

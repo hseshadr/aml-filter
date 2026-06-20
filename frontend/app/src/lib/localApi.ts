@@ -1,9 +1,8 @@
 /**
- * LocalApiClient — the local-first implementation of the FULL ApiClient
- * surface (spec §9.3). The slice methods (customers, review) are real and
- * backed by @amlfilter/workstation; every non-slice method throws a typed
- * NotImplementedError so a stray call fails loudly instead of silently.
- * Pages keep compiling against the same singleton shape: the class
+ * LocalApiClient — the local-first implementation of the ApiClient surface.
+ * The slice methods (customers, review) are real and backed by
+ * @amlfilter/workstation; the app ships exactly those two tiers. Pages compile
+ * against the same singleton shape: the class
  * `implements Pick<ApiClient, keyof ApiClient>` (the public surface).
  */
 
@@ -16,51 +15,16 @@ import type {
 } from "@amlfilter/workstation";
 import type {
 	ApiClient,
-	ApiKeyCreate,
-	ApiKeyCreateResponse,
-	ApiKeyResponse,
-	AttestationCreateBody,
-	AttestationExportFormat,
-	AttestationListParams,
-	AttestationRecord,
-	AttestationVerification,
-	AvailableList,
 	CustomerListParams,
 	CustomerOnboardRequest,
 	CustomerOnboardResponse,
 	CustomerResponse,
 	CustomerUpdateRequest,
-	ListConfigResponse,
-	ListConfigUpdate,
-	MatchResolutionStatus,
 	ReviewMatch,
 	ReviewMatchListParams,
 	ReviewResolutionStatus,
 	ReviewResolveBody,
-	SarCreateBody,
-	SarExportFormat,
-	SarListParams,
-	SarRecord,
-	SarUpdateBody,
-	SearchQuery,
-	SearchResponse,
-	TenantResponse,
-	UsageSummaryResponse,
-	WhitelistCustomerCreate,
-	WhitelistCustomerResponse,
-	WhitelistCustomerUpdate,
-	WhitelistMatchResponse,
 } from "./api";
-
-/** A non-slice method was called in the local-first workstation. */
-export class NotImplementedError extends Error {
-	public constructor(method: string) {
-		super(
-			`${method} is not available in the local-first workstation yet — this tier ships with customers + review only`,
-		);
-		this.name = "NotImplementedError";
-	}
-}
 
 /** The booted local tier the client runs on (built by lib/workstation.ts). */
 export interface WorkstationServices {
@@ -96,11 +60,10 @@ function toReviewMatch(row: ReviewRow): ReviewMatch {
 		match_id: row.match_id,
 		tier: row.tier,
 		match_score: row.match_score,
-		// Constant locally — mirrors the match_type the backend onboarding
-		// records (customers/service.py:138).
+		// Constant locally — mirrors the match_type onboarding records.
 		match_type: "WHITELIST_VS_BLACKLIST",
-		// ResolutionStatus (workstation) and ReviewResolutionStatus (app REST
-		// types) are structurally identical unions that must stay in lockstep.
+		// ResolutionStatus (workstation) and ReviewResolutionStatus (app types)
+		// are structurally identical unions that must stay in lockstep.
 		resolution_status: row.resolution_status,
 		reviewer_id: row.reviewer_id,
 		review_notes: row.review_notes,
@@ -198,144 +161,5 @@ export class LocalApiClient implements Pick<ApiClient, keyof ApiClient> {
 			notes: body?.review_notes,
 		});
 		return toReviewMatch(row);
-	}
-
-	// --- non-slice: typed, loud failure (spec §9.3) ---------------------------
-	public async screen(_query: SearchQuery): Promise<SearchResponse> {
-		throw new NotImplementedError("screen");
-	}
-
-	public async getTenant(_tenantId: string): Promise<TenantResponse> {
-		throw new NotImplementedError("getTenant");
-	}
-
-	public async createApiKey(
-		_data: ApiKeyCreate,
-	): Promise<ApiKeyCreateResponse> {
-		throw new NotImplementedError("createApiKey");
-	}
-
-	public async listApiKeys(): Promise<ApiKeyResponse[]> {
-		throw new NotImplementedError("listApiKeys");
-	}
-
-	public async revokeApiKey(_keyId: string): Promise<void> {
-		throw new NotImplementedError("revokeApiKey");
-	}
-
-	public async getUsage(_days?: number): Promise<UsageSummaryResponse> {
-		throw new NotImplementedError("getUsage");
-	}
-
-	public async listLists(): Promise<ListConfigResponse[]> {
-		throw new NotImplementedError("listLists");
-	}
-
-	public async getAvailableLists(): Promise<AvailableList[]> {
-		throw new NotImplementedError("getAvailableLists");
-	}
-
-	public async updateListConfig(
-		_listId: string,
-		_config: ListConfigUpdate,
-	): Promise<ListConfigResponse> {
-		throw new NotImplementedError("updateListConfig");
-	}
-
-	public async addWhitelistCustomer(
-		_customer: WhitelistCustomerCreate,
-	): Promise<WhitelistCustomerResponse> {
-		throw new NotImplementedError("addWhitelistCustomer");
-	}
-
-	public async listWhitelistCustomers(): Promise<WhitelistCustomerResponse[]> {
-		throw new NotImplementedError("listWhitelistCustomers");
-	}
-
-	public async getWhitelistCustomer(
-		_entityId: string,
-	): Promise<WhitelistCustomerResponse> {
-		throw new NotImplementedError("getWhitelistCustomer");
-	}
-
-	public async updateWhitelistCustomer(
-		_entityId: string,
-		_customer: WhitelistCustomerUpdate,
-	): Promise<WhitelistCustomerResponse> {
-		throw new NotImplementedError("updateWhitelistCustomer");
-	}
-
-	public async deleteWhitelistCustomer(_entityId: string): Promise<void> {
-		throw new NotImplementedError("deleteWhitelistCustomer");
-	}
-
-	public async getWhitelistMatches(
-		_resolution_status?: string,
-	): Promise<WhitelistMatchResponse[]> {
-		throw new NotImplementedError("getWhitelistMatches");
-	}
-
-	public async resolveMatch(
-		_matchId: string,
-		_resolution_status: MatchResolutionStatus,
-	): Promise<WhitelistMatchResponse> {
-		throw new NotImplementedError("resolveMatch");
-	}
-
-	public async createSar(_payload: SarCreateBody): Promise<SarRecord> {
-		throw new NotImplementedError("createSar");
-	}
-
-	public async listSars(_params?: SarListParams): Promise<SarRecord[]> {
-		throw new NotImplementedError("listSars");
-	}
-
-	public async getSar(_sarId: string): Promise<SarRecord> {
-		throw new NotImplementedError("getSar");
-	}
-
-	public async updateSar(
-		_sarId: string,
-		_payload: SarUpdateBody,
-	): Promise<SarRecord> {
-		throw new NotImplementedError("updateSar");
-	}
-
-	public async exportSar(
-		_sarId: string,
-		_format: SarExportFormat,
-	): Promise<void> {
-		throw new NotImplementedError("exportSar");
-	}
-
-	public async generateAttestation(
-		_body: AttestationCreateBody,
-	): Promise<AttestationRecord> {
-		throw new NotImplementedError("generateAttestation");
-	}
-
-	public async listAttestations(
-		_params: AttestationListParams = {},
-	): Promise<AttestationRecord[]> {
-		throw new NotImplementedError("listAttestations");
-	}
-
-	public async getAttestation(
-		_attestationId: string,
-	): Promise<AttestationRecord> {
-		throw new NotImplementedError("getAttestation");
-	}
-
-	public async verifyAttestation(
-		_attestationId: string,
-	): Promise<AttestationVerification> {
-		throw new NotImplementedError("verifyAttestation");
-	}
-
-	public async exportAttestation(
-		_attestationId: string,
-		_format: AttestationExportFormat,
-	): Promise<void> {
-		throw new NotImplementedError("exportAttestation");
 	}
 }

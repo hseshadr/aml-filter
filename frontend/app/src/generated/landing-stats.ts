@@ -6,7 +6,7 @@
 
 /** The measured KPIs the public landing page renders. */
 export interface DemoStats {
-	/** Records on the fictional demo sanctions list (backend/examples/demo_entities.jsonl). */
+	/** Records on the fictional demo sanctions list (frontend/packages/amlfilter-publisher/fixtures/demo_entities.jsonl). */
 	readonly demoEntityCount: number;
 	/** Size of the in-browser MiniLM matcher (model_quantized.onnx), in whole MB. */
 	readonly modelSizeMb: number;

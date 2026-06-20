@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 // accessible role="status" line.
 
 type BootStage =
-	| { readonly kind: "syncing" }
+	| { readonly kind: "downloading" }
 	| {
 			readonly kind: "loading-model";
 			readonly progress?: {

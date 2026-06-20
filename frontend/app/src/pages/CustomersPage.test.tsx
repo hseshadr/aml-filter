@@ -21,6 +21,28 @@ vi.mock("../lib/api", () => ({
 	},
 }));
 
+// The sync / re-screen path goes through the workstation handle.
+const mockSyncWatchlist = vi.fn();
+const mockScreenCustomer = vi.fn();
+const mockWatchlistVersion = vi.fn<() => string | null>(() => "wl-v1");
+const mockEngineBoot = vi.fn().mockResolvedValue(undefined);
+const mockFetchPublishedVersion = vi
+	.fn<() => Promise<string>>()
+	.mockResolvedValue("wl-v1");
+const mockReloadWatchlist = vi.fn().mockResolvedValue(undefined);
+vi.mock("../lib/workstation", () => ({
+	workstation: vi.fn(async () => ({
+		watchlistVersion: mockWatchlistVersion,
+		engineBoot: mockEngineBoot,
+		fetchPublishedVersion: mockFetchPublishedVersion,
+		reloadWatchlist: mockReloadWatchlist,
+		rescan: {
+			syncWatchlist: mockSyncWatchlist,
+			screenCustomer: mockScreenCustomer,
+		},
+	})),
+}));
+
 const mockClient = vi.mocked(apiClient);
 
 function makeCustomer(
@@ -55,6 +77,9 @@ describe("CustomersPage", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		mockClient.listCustomers.mockResolvedValue([]);
+		mockWatchlistVersion.mockReturnValue("wl-v1");
+		mockFetchPublishedVersion.mockResolvedValue("wl-v1");
+		mockReloadWatchlist.mockResolvedValue(undefined);
 	});
 
 	afterEach(() => {
@@ -186,6 +211,96 @@ describe("CustomersPage", () => {
 			expect(mockClient.updateCustomer).toHaveBeenCalledWith("cust-row", {
 				onboarding_status: "ACTIVE",
 			}),
+		);
+	});
+
+	it("Check for updates detects a NEW publish, reloads, and renders the re-screen summary", async () => {
+		// A newer list (wl-v2) was published after this tab booted at wl-v1.
+		mockFetchPublishedVersion.mockResolvedValue("wl-v2");
+		mockSyncWatchlist.mockResolvedValue({
+			changed: true,
+			version: "wl-v2",
+			customersScanned: 2,
+			newHits: 1,
+			clearedHits: 0,
+		});
+
+		render(<CustomersPage />);
+		await waitFor(() => expect(mockClient.listCustomers).toHaveBeenCalled());
+
+		fireEvent.click(screen.getByRole("button", { name: "Check for updates" }));
+
+		// The new publish was reloaded into the engine before re-screening it.
+		await waitFor(() => expect(mockReloadWatchlist).toHaveBeenCalledTimes(1));
+		await waitFor(() =>
+			expect(mockSyncWatchlist).toHaveBeenCalledWith("wl-v2"),
+		);
+		await waitFor(() =>
+			expect(
+				screen.getByText(
+					"Re-screened 2 customer(s) — 1 new hit(s), 0 cleared.",
+				),
+			).toBeInTheDocument(),
+		);
+		expect(screen.getByText(/Last synced: wl-v2/)).toBeInTheDocument();
+	});
+
+	it("Check for updates on an unchanged watchlist shows 'already current'", async () => {
+		mockSyncWatchlist.mockResolvedValue({
+			changed: false,
+			version: "wl-v1",
+			customersScanned: 0,
+			newHits: 0,
+			clearedHits: 0,
+		});
+
+		render(<CustomersPage />);
+		await waitFor(() => expect(mockClient.listCustomers).toHaveBeenCalled());
+
+		fireEvent.click(screen.getByRole("button", { name: "Check for updates" }));
+
+		await waitFor(() =>
+			expect(
+				screen.getByText("Watchlist already current."),
+			).toBeInTheDocument(),
+		);
+		// No new publish → no reload.
+		expect(mockReloadWatchlist).not.toHaveBeenCalled();
+	});
+
+	it("editing a row saves name/country then re-screens the customer", async () => {
+		mockClient.listCustomers.mockResolvedValue([
+			makeCustomer({ customer_id: "cust-edit" }),
+		]);
+		mockClient.updateCustomer.mockResolvedValue(
+			makeCustomer({ customer_id: "cust-edit" }),
+		);
+		mockScreenCustomer.mockResolvedValue([]);
+
+		render(<CustomersPage />);
+		await waitFor(() =>
+			expect(screen.getByText("REF-001")).toBeInTheDocument(),
+		);
+
+		const row = screen.getByText("REF-001").closest("tr");
+		if (!row) throw new Error("row not found");
+		fireEvent.click(within(row).getByLabelText(/edit REF-001/i));
+		fireEvent.change(within(row).getByLabelText(/edit name for/i), {
+			target: { value: "Renamed Person" },
+		});
+		fireEvent.change(within(row).getByLabelText(/edit country for/i), {
+			target: { value: "DE" },
+		});
+		fireEvent.click(within(row).getByRole("button", { name: "Save" }));
+
+		await waitFor(() =>
+			expect(mockClient.updateCustomer).toHaveBeenCalledWith("cust-edit", {
+				name: "Renamed Person",
+				country: "DE",
+			}),
+		);
+		await waitFor(() =>
+			expect(mockScreenCustomer).toHaveBeenCalledWith("cust-edit"),
 		);
 	});
 
