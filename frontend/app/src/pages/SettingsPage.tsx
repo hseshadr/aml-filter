@@ -1,15 +1,18 @@
 /**
- * Settings — the local-first workstation's configuration page. Three sections:
+ * Settings — the local-first workstation's configuration page. Four sections:
  *   1. Screening sensitivity (a global Strict/Balanced/Lenient segmented control)
- *   2. Per-list overrides (a sensitivity override per source list)
- *   3. Analyst name (the audit-trail signer, a SQLite settings row)
+ *   2. Watchlists (a checkbox per signed-catalog list — which lists are screened)
+ *   3. Per-list overrides (a sensitivity override per ENABLED source list)
+ *   4. Analyst name (the audit-trail signer, a SQLite settings row)
  *
- * Apply persists the analyst name to the store, then hands the screening config
- * to `apiClient.setScreeningConfig`, which persists it and re-screens every
- * customer — surfacing the rescan summary in a confirmation banner.
+ * Apply persists the analyst name, re-bootstraps the engine over the chosen
+ * watchlist set (a disabled list's matches drop out → SUPPRESSED on re-screen),
+ * and hands the screening config to `apiClient.setScreeningConfig`, which persists
+ * it and re-screens — surfacing the combined rescan summary in a banner.
  */
 
-import type { ScreeningConfig } from "@amlfilter/workstation";
+import type { CatalogListInfo } from "@amlfilter/browser";
+import type { RescanSummary, ScreeningConfig } from "@amlfilter/workstation";
 import { ANALYST_NAME_KEY } from "@amlfilter/workstation";
 import {
 	type KeyboardEvent as ReactKeyboardEvent,
@@ -36,15 +39,11 @@ const SENSITIVITY_LEVELS: ReadonlyArray<SensitivityLevel> = [
 	{ level: "strict", label: "Strict" },
 ];
 
-const SOURCE_LISTS: ReadonlyArray<{ id: string; label: string }> = [
-	{ id: "OFAC_SDN", label: "OFAC SDN" },
-];
-
-interface RescanBanner {
-	readonly customersScanned: number;
-	readonly newHits: number;
-	readonly clearedHits: number;
-}
+const EMPTY_SUMMARY: RescanSummary = {
+	customersScanned: 0,
+	newHits: 0,
+	clearedHits: 0,
+};
 
 function errorMessage(err: unknown, fallback: string): string {
 	return err instanceof Error ? err.message : fallback;
@@ -107,6 +106,30 @@ function SensitivityControl({
 	);
 }
 
+function WatchlistToggle({
+	id,
+	title,
+	enabled,
+	onToggle,
+}: {
+	readonly id: string;
+	readonly title: string;
+	readonly enabled: boolean;
+	readonly onToggle: (id: string, next: boolean) => void;
+}) {
+	return (
+		<label className="form-label" htmlFor={`watchlist-${id}`}>
+			<input
+				id={`watchlist-${id}`}
+				type="checkbox"
+				checked={enabled}
+				onChange={(e) => onToggle(id, e.target.checked)}
+			/>{" "}
+			{title}
+		</label>
+	);
+}
+
 function OverrideSelect({
 	id,
 	label,
@@ -142,7 +165,7 @@ function ResultBanner({
 	summary,
 	error,
 }: {
-	readonly summary: RescanBanner | null;
+	readonly summary: RescanSummary | null;
 	readonly error: string | null;
 }) {
 	if (error !== null) {
@@ -173,12 +196,38 @@ function setOverride(prev: Overrides, id: string, value: string): Overrides {
 	return { ...prev, [id]: value as Sensitivity };
 }
 
+/** The catalog ids that are currently enabled, in catalog order. */
+function enabledIds(
+	catalog: ReadonlyArray<CatalogListInfo>,
+	enabled: ReadonlySet<string>,
+): string[] {
+	return catalog.filter((l) => enabled.has(l.id)).map((l) => l.id);
+}
+
+/** Combine the selection + config rescan summaries: both re-screen the whole
+ * book, so prefer whichever actually ran (config runs last over the final engine
+ * state); if neither scanned, it's a clean no-op. */
+function combineSummaries(
+	selection: RescanSummary,
+	config: RescanSummary,
+): RescanSummary {
+	if (config.customersScanned > 0) return config;
+	if (selection.customersScanned > 0) return selection;
+	return EMPTY_SUMMARY;
+}
+
 export default function SettingsPage() {
 	const [sensitivity, setSensitivity] = useState<Sensitivity>("balanced");
 	const [overrides, setOverrides] = useState<Overrides>({});
 	const [analystName, setAnalystName] = useState<string>("");
+	const [catalog, setCatalog] = useState<ReadonlyArray<CatalogListInfo>>([]);
+	const [enabled, setEnabled] = useState<ReadonlySet<string>>(new Set());
+	// The catalog + enabled set load asynchronously (a signed-catalog fetch). Apply
+	// must wait for that: applying a half-loaded form would persist an empty
+	// selection and disable every list.
+	const [loaded, setLoaded] = useState<boolean>(false);
 	const [applying, setApplying] = useState<boolean>(false);
-	const [summary, setSummary] = useState<RescanBanner | null>(null);
+	const [summary, setSummary] = useState<RescanSummary | null>(null);
 	const [error, setError] = useState<string | null>(null);
 
 	useEffect(() => {
@@ -186,11 +235,18 @@ export default function SettingsPage() {
 		async function load(): Promise<void> {
 			const config = await apiClient.getScreeningConfig();
 			const handle = await workstation();
-			const stored = await handle.store.getSetting(ANALYST_NAME_KEY);
+			const [stored, lists, enabledList] = await Promise.all([
+				handle.store.getSetting(ANALYST_NAME_KEY),
+				handle.catalogLists(),
+				handle.getEnabledLists(),
+			]);
 			if (cancelled) return;
 			setSensitivity(config.sensitivity);
 			setOverrides({ ...config.overrides });
 			setAnalystName(stored ?? "");
+			setCatalog(lists);
+			setEnabled(new Set(enabledList));
+			setLoaded(true);
 		}
 		load().catch((err: unknown) => {
 			if (!cancelled) setError(errorMessage(err, "Failed to load settings"));
@@ -200,14 +256,33 @@ export default function SettingsPage() {
 		};
 	}, []);
 
+	function toggleWatchlist(id: string, next: boolean): void {
+		setEnabled((prev) => {
+			const updated = new Set(prev);
+			if (next) {
+				updated.add(id);
+			} else {
+				updated.delete(id);
+			}
+			return updated;
+		});
+	}
+
 	async function persist(): Promise<void> {
+		const handle = await workstation();
 		const trimmed = analystName.trim();
 		if (trimmed) {
-			const handle = await workstation();
 			await handle.store.setSetting(ANALYST_NAME_KEY, trimmed);
 		}
+		// Apply the watchlist selection first (re-bootstrap + re-screen), then the
+		// screening config (re-screen over the now-correct engine). Both return a
+		// rescan summary; either may be a no-op when nothing in its slice changed.
+		const selectionSummary = await handle.setEnabledLists(
+			enabledIds(catalog, enabled),
+		);
 		const config: ScreeningConfig = { sensitivity, overrides };
-		setSummary(await apiClient.setScreeningConfig(config));
+		const configSummary = await apiClient.setScreeningConfig(config);
+		setSummary(combineSummaries(selectionSummary, configSummary));
 	}
 
 	async function handleApply(): Promise<void> {
@@ -223,6 +298,8 @@ export default function SettingsPage() {
 		}
 	}
 
+	const overrideRows = catalog.filter((list) => enabled.has(list.id));
+
 	return (
 		<div className="page-content">
 			<h1>Settings</h1>
@@ -236,12 +313,29 @@ export default function SettingsPage() {
 			</section>
 
 			<section className="card">
+				<h2>Watchlists</h2>
+				<p className="text-muted">
+					Which sanctions lists to screen against. Disabling a list removes its
+					matches on the next re-screen.
+				</p>
+				{catalog.map((list) => (
+					<WatchlistToggle
+						key={list.id}
+						id={list.id}
+						title={list.title}
+						enabled={enabled.has(list.id)}
+						onToggle={toggleWatchlist}
+					/>
+				))}
+			</section>
+
+			<section className="card">
 				<h2>Per-list overrides</h2>
-				{SOURCE_LISTS.map((list) => (
+				{overrideRows.map((list) => (
 					<OverrideSelect
 						key={list.id}
 						id={list.id}
-						label={list.label}
+						label={list.title}
 						value={overrides[list.id] ?? ""}
 						onChange={(value) =>
 							setOverrides((prev) => setOverride(prev, list.id, value))
@@ -267,7 +361,7 @@ export default function SettingsPage() {
 			<button
 				type="button"
 				className="btn btn-primary"
-				disabled={applying}
+				disabled={applying || !loaded}
 				onClick={() => {
 					void handleApply();
 				}}

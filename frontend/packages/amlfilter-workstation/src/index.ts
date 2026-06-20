@@ -20,6 +20,12 @@ export {
 	materialFingerprint,
 } from "./fingerprint";
 export {
+	ENABLED_WATCHLISTS_KEY,
+	loadEnabledLists,
+	saveEnabledLists,
+	toListThresholds,
+} from "./list_selection";
+export {
 	LocalOnboardingService,
 	type NameScreener,
 	ONBOARDING_THRESHOLD,

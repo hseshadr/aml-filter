@@ -519,6 +519,51 @@ test("local-first journey: no login → onboard → tiered match → resolve →
 		sensitivityAfterReload.getByRole("radio", { name: "Lenient" }),
 	).toHaveAttribute("aria-checked", "true");
 
+	// =======================================================================
+	// 11b (Theme A / wave 3). Watchlist selection: the Watchlists section lists
+	//     EVERY signed-catalog list with a per-list toggle, all enabled by
+	//     default. Disabling a NON-OFAC list → Apply re-bootstraps the engine
+	//     over the smaller set and re-screens; screening still works (the OFAC
+	//     hit survives), and the selection persists across a full reload (OPFS).
+	// =======================================================================
+	// All four committed demo lists are present and on by default.
+	for (const title of [
+		"OFAC SDN",
+		"EU Consolidated",
+		"UN Consolidated",
+		"UK OFSI",
+	]) {
+		await expect(page.getByRole("checkbox", { name: title })).toBeChecked();
+	}
+	// Disable a non-OFAC list, then Apply (re-bootstrap + re-screen).
+	await page.getByRole("checkbox", { name: "EU Consolidated" }).click();
+	await expect(
+		page.getByRole("checkbox", { name: "EU Consolidated" }),
+	).not.toBeChecked();
+	await page.getByRole("button", { name: "Apply" }).click();
+	// Apply resolves with a confirmation banner — screening completed cleanly.
+	await expect(page.locator(".alert-success")).toBeVisible({
+		timeout: 120_000,
+	});
+
+	// Screening still works: the OFAC hit for our sanctioned customer remains.
+	await page.goto("/review");
+	await expect(
+		page.getByRole("heading", { name: "Review Board" }),
+	).toBeVisible();
+	await expect(
+		page.locator("tbody tr", { hasText: CUSTOMER_REF }),
+	).toBeVisible();
+
+	// The disabled-list selection persists across a full reload (OPFS settings).
+	await page.goto("/settings");
+	await page.reload();
+	await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
+	await expect(
+		page.getByRole("checkbox", { name: "EU Consolidated" }),
+	).not.toBeChecked();
+	await expect(page.getByRole("checkbox", { name: "OFAC SDN" })).toBeChecked();
+
 	await page.goto("/review");
 	await page.reload();
 	await expect(

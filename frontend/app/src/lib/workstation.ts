@@ -8,10 +8,12 @@
  */
 
 import {
+	type CatalogListInfo,
 	configFromEnv,
 	EngineRuntime,
 	type OnStage,
 	type RuntimeConfig,
+	type RuntimeSelection,
 	type ScreenOptions,
 	type ScreenQuery,
 	type ScreenResponse,
@@ -20,8 +22,13 @@ import {
 	DbClient,
 	LocalMatchTracker,
 	LocalOnboardingService,
+	loadEnabledLists,
+	loadScreeningConfig,
 	type NameScreener,
 	RescanService,
+	type RescanSummary,
+	saveEnabledLists,
+	toListThresholds,
 	type WorkstationStore,
 } from "@amlfilter/workstation";
 import type { WorkstationServices } from "./localApi";
@@ -33,13 +40,22 @@ export interface EngineHandle {
 
 /** The runtime surface the boot path needs (EngineRuntime satisfies it). */
 export interface RuntimePort {
-	bootstrap(config: RuntimeConfig, onStage?: OnStage): Promise<EngineHandle>;
+	bootstrap(
+		config: RuntimeConfig,
+		onStage?: OnStage,
+		selection?: RuntimeSelection,
+	): Promise<EngineHandle>;
 	/** The loaded watchlist version; null before the first successful boot. */
 	version(): string | null;
 	/** Cheap signed-manifest poll: the currently PUBLISHED watchlist version. */
 	fetchPublishedVersion(): Promise<string>;
-	/** Re-fetch + re-verify the watchlist, swap it in over the warm embedder. */
-	reload(): Promise<EngineHandle>;
+	/** Re-fetch + re-verify the watchlist, swap it in over the warm embedder. An
+	 * optional selection re-bootstraps for a new enabled set / thresholds. */
+	reload(selection?: RuntimeSelection): Promise<EngineHandle>;
+	/** Every list `{id, title}` in the signed catalog — the selectable set. */
+	catalogLists(): Promise<ReadonlyArray<CatalogListInfo>>;
+	/** Just the ids of every catalog list. */
+	catalogListIds(): Promise<ReadonlyArray<string>>;
 }
 
 /** Seams for tests; defaulted to the real DB Worker + EngineRuntime. */
@@ -61,6 +77,19 @@ export interface WorkstationHandle extends WorkstationServices {
 	/** Re-fetch + re-verify the signed watchlist and swap it into the running
 	 * engine (reuses the warm embedder — no second model download). */
 	readonly reloadWatchlist: () => Promise<void>;
+	/** Every list `{id, title}` in the signed catalog — the selectable set the
+	 * Watchlists settings section renders a toggle for. */
+	readonly catalogLists: () => Promise<ReadonlyArray<CatalogListInfo>>;
+	/** The currently enabled watchlist ids (stored selection ∩ live catalog;
+	 * defaults to all catalog ids when never configured). */
+	readonly getEnabledLists: () => Promise<ReadonlyArray<string>>;
+	/** Persist a new enabled-watchlist set, re-bootstrap the engine over it (reuses
+	 * the warm embedder), and re-screen every customer when the set actually changed
+	 * (a disabled list's matches drop out → logged SUPPRESSED by the rescan). Returns
+	 * the rescan summary; an unchanged set is a clean no-op (all-zero summary). */
+	readonly setEnabledLists: (
+		ids: ReadonlyArray<string>,
+	) => Promise<RescanSummary>;
 }
 
 const defaultDeps: WorkstationDeps = {
@@ -91,17 +120,47 @@ export function resetWorkstationForTests(): void {
 async function build(deps: WorkstationDeps): Promise<WorkstationHandle> {
 	const store = deps.spawnStore();
 	await store.open();
-	const bootEngine = (onStage?: OnStage): Promise<EngineHandle> =>
-		deps.runtime.bootstrap(configFromEnv(import.meta.env), onStage);
+
+	// The persisted selection (raw stored enabled ids) + thresholds the engine is
+	// loaded with. `enabledLists` is the RAW stored set — the runtime intersects it
+	// with the catalog (and silently skips ids the catalog doesn't have); an UNSET
+	// selection is `undefined` → load every list (today's default). Thresholds map
+	// the global sensitivity + per-list overrides onto the engine's score floors.
+	const currentSelection = async (
+		enabledOverride?: ReadonlyArray<string>,
+	): Promise<RuntimeSelection> => {
+		const [rawEnabled, config] = await Promise.all([
+			store.getSetting("enabled_watchlists"),
+			loadScreeningConfig(store),
+		]);
+		// An explicit set (just-applied by setEnabledLists) wins over the persisted
+		// value, so a re-bootstrap doesn't depend on a read-after-write round-trip.
+		const enabledLists = enabledOverride ?? parseEnabledLists(rawEnabled);
+		// The override map is small; scoping perList to the loaded ids is the
+		// runtime's job (it only applies a floor to a list that loaded). Passing the
+		// override keys is harmless, so the catalog ids aren't needed here.
+		const thresholds = toListThresholds(config, Object.keys(config.overrides));
+		return enabledLists === undefined
+			? { thresholds }
+			: { enabledLists, thresholds };
+	};
+
+	const bootEngine = async (onStage?: OnStage): Promise<EngineHandle> =>
+		deps.runtime.bootstrap(
+			configFromEnv(import.meta.env),
+			onStage,
+			await currentSelection(),
+		);
 	const screener: NameScreener = {
 		screen: async (query: ScreenQuery): Promise<ScreenResponse> =>
 			(await bootEngine()).screen(query),
 	};
+	const rescan = new RescanService(store, screener);
 	return {
 		store,
 		tracker: new LocalMatchTracker(store),
 		onboarding: new LocalOnboardingService(store, screener),
-		rescan: new RescanService(store, screener),
+		rescan,
 		watchlistVersion: (): string | null => deps.runtime.version(),
 		engineBoot: async (onStage?: OnStage): Promise<void> => {
 			await bootEngine(onStage);
@@ -109,9 +168,71 @@ async function build(deps: WorkstationDeps): Promise<WorkstationHandle> {
 		fetchPublishedVersion: (): Promise<string> =>
 			deps.runtime.fetchPublishedVersion(),
 		reloadWatchlist: async (): Promise<void> => {
-			await deps.runtime.reload();
+			// Plain new-publish reload: keep the active selection + thresholds.
+			await deps.runtime.reload(await currentSelection());
+		},
+		catalogLists: async (): Promise<ReadonlyArray<CatalogListInfo>> => {
+			// catalogLists()/reload() need the pinned-key config captured at bootstrap;
+			// join the (memoized) engine boot first so a Settings visit before the
+			// background boot finishes doesn't throw "requires a successful bootstrap".
+			await bootEngine();
+			return deps.runtime.catalogLists();
+		},
+		getEnabledLists: async (): Promise<ReadonlyArray<string>> => {
+			await bootEngine();
+			return loadEnabledLists(store, await deps.runtime.catalogListIds());
+		},
+		setEnabledLists: async (
+			ids: ReadonlyArray<string>,
+		): Promise<RescanSummary> => {
+			await bootEngine();
+			const catalogIds = await deps.runtime.catalogListIds();
+			const before = await loadEnabledLists(store, catalogIds);
+			// Intersect the requested set with the catalog so the change check and the
+			// persisted value match what the runtime will actually load.
+			const after = catalogIds.filter((id) => ids.includes(id));
+			if (sameIdSet(before, after)) {
+				return { customersScanned: 0, newHits: 0, clearedHits: 0 };
+			}
+			await saveEnabledLists(store, after);
+			// Re-bootstrap over the new set (reuses the warm embedder), then re-screen:
+			// a now-disabled list's matches vanish from the result and are SUPPRESSED.
+			await deps.runtime.reload(await currentSelection(after));
+			return rescan.rescanAll();
 		},
 	};
+}
+
+/** Order-insensitive equality of two id sets. */
+function sameIdSet(
+	a: ReadonlyArray<string>,
+	b: ReadonlyArray<string>,
+): boolean {
+	if (a.length !== b.length) {
+		return false;
+	}
+	const set = new Set(a);
+	return b.every((id) => set.has(id));
+}
+
+/** Parse the persisted `enabled_watchlists` value: a JSON string array, or
+ * `undefined` for an unset/malformed value (→ the runtime loads every list). A
+ * persisted empty array is honored as "disable everything". */
+function parseEnabledLists(
+	raw: string | null,
+): ReadonlyArray<string> | undefined {
+	if (raw === null) {
+		return undefined;
+	}
+	try {
+		const parsed: unknown = JSON.parse(raw);
+		if (Array.isArray(parsed) && parsed.every((v) => typeof v === "string")) {
+			return parsed as ReadonlyArray<string>;
+		}
+	} catch {
+		// Fall through to the all-lists default.
+	}
+	return undefined;
 }
 
 /** The provider the apiClient singleton is constructed with. */

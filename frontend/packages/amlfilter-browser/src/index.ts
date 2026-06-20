@@ -45,6 +45,7 @@ export { canonicalize } from "./engine/normalize";
 // --- runtime: bootstrap the multi-list engine over the signed catalog + lists ---
 export {
 	type BootStage,
+	type CatalogListInfo,
 	compositeVersion,
 	configFromEnv,
 	createEmbedder,
@@ -55,6 +56,7 @@ export {
 	type OnStage,
 	type RuntimeConfig,
 	type RuntimeDeps,
+	type RuntimeSelection,
 } from "./engine/runtime";
 // --- the scoring port: preset weights/threshold + the explainable signals ---
 export {

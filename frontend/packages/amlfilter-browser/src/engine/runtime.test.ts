@@ -333,6 +333,163 @@ describe("EngineRuntime.reload", () => {
 	});
 });
 
+describe("EngineRuntime enabledLists selection + thresholds", () => {
+	function loadedAt(
+		version: string,
+		entityId: string,
+		listId: string,
+	): LoadedWatchlist {
+		return {
+			index: new VectorIndex(new Float32Array(1), [entityId], 1),
+			entities: new Map([
+				[
+					entityId,
+					{
+						entity_id: entityId,
+						entity_type: "PERSON",
+						primary_name: entityId,
+						name_canonical: entityId,
+						aliases: [],
+						dob: [],
+						countries: [],
+						risk_category: "SANCTION",
+						source_list: listId,
+						list_version: version,
+					},
+				],
+			]),
+			version,
+			listId,
+		};
+	}
+
+	function instantEmbedder(): Embedder {
+		return { embed: () => Promise.resolve(new Float32Array(1)) };
+	}
+
+	/** Deps over a static multi-list catalog; loadList tracks which ids loaded. */
+	function depsFor(catalog: WatchlistCatalog): {
+		deps: RuntimeDeps;
+		loadedIds: string[];
+		makeEmbedder: ReturnType<typeof vi.fn>;
+	} {
+		const loadedIds: string[] = [];
+		const makeEmbedder = vi.fn(() => instantEmbedder());
+		const deps: RuntimeDeps = {
+			loadCatalog: () => Promise.resolve(catalog),
+			loadList: (_pubkey, entry) => {
+				loadedIds.push(entry.id);
+				return Promise.resolve(
+					loadedAt(entry.version, `${entry.id}:E`, entry.id),
+				);
+			},
+			makeEmbedder,
+		};
+		return { deps, loadedIds, makeEmbedder };
+	}
+
+	const MULTI = catalogOf([
+		["EU_CONSOLIDATED", "demo-1"],
+		["OFAC_SDN", "demo-1"],
+		["UN_CONSOLIDATED", "demo-1"],
+	]);
+
+	it("loads only the enabled subset of catalog lists", async () => {
+		const { deps, loadedIds } = depsFor(MULTI);
+		const runtime = new EngineRuntime(deps);
+		const engine = await runtime.bootstrap(CONFIG, () => {}, {
+			enabledLists: ["OFAC_SDN", "UN_CONSOLIDATED"],
+		});
+		expect(loadedIds.sort()).toEqual(["OFAC_SDN", "UN_CONSOLIDATED"]);
+		expect(
+			engine
+				.allEntities()
+				.map((e) => e.entity_id)
+				.sort(),
+		).toEqual(["OFAC_SDN:E", "UN_CONSOLIDATED:E"]);
+		expect(runtime.version()).toBe("OFAC_SDN@demo-1|UN_CONSOLIDATED@demo-1");
+	});
+
+	it("loads every list when enabledLists is absent (today's behavior)", async () => {
+		const { deps, loadedIds } = depsFor(MULTI);
+		const runtime = new EngineRuntime(deps);
+		await runtime.bootstrap(CONFIG);
+		expect(loadedIds.sort()).toEqual([
+			"EU_CONSOLIDATED",
+			"OFAC_SDN",
+			"UN_CONSOLIDATED",
+		]);
+	});
+
+	it("silently skips an enabled id that is absent from the catalog", async () => {
+		const { deps, loadedIds } = depsFor(MULTI);
+		const runtime = new EngineRuntime(deps);
+		await runtime.bootstrap(CONFIG, () => {}, {
+			enabledLists: ["OFAC_SDN", "NOT_IN_CATALOG"],
+		});
+		expect(loadedIds).toEqual(["OFAC_SDN"]);
+	});
+
+	it("loads nothing and screens to no matches for an empty enabled set", async () => {
+		const { deps, loadedIds, makeEmbedder } = depsFor(MULTI);
+		const runtime = new EngineRuntime(deps);
+		const engine = await runtime.bootstrap(CONFIG, () => {}, {
+			enabledLists: [],
+		});
+		expect(loadedIds).toEqual([]);
+		expect(engine.allEntities()).toEqual([]);
+		// The embedder still warms (model load is selection-independent).
+		expect(makeEmbedder).toHaveBeenCalledTimes(1);
+		const res = await engine.screen({ name: "anyone" });
+		expect(res.matches).toEqual([]);
+	});
+
+	it("exposes the catalog list ids (the real selectable set)", async () => {
+		const { deps } = depsFor(MULTI);
+		const runtime = new EngineRuntime(deps);
+		await runtime.bootstrap(CONFIG);
+		expect([...(await runtime.catalogListIds())].sort()).toEqual([
+			"EU_CONSOLIDATED",
+			"OFAC_SDN",
+			"UN_CONSOLIDATED",
+		]);
+	});
+
+	it("re-bootstrap reloads a new enabled set, reusing the warm embedder", async () => {
+		const { deps, loadedIds, makeEmbedder } = depsFor(MULTI);
+		const runtime = new EngineRuntime(deps);
+		await runtime.bootstrap(CONFIG, () => {}, {
+			enabledLists: ["OFAC_SDN"],
+		});
+		expect(loadedIds).toEqual(["OFAC_SDN"]);
+
+		const re = await runtime.reload({
+			enabledLists: ["EU_CONSOLIDATED", "OFAC_SDN"],
+		});
+		expect(re.listVersions()).toEqual({
+			EU_CONSOLIDATED: "demo-1",
+			OFAC_SDN: "demo-1",
+		});
+		expect(runtime.engine()).toBe(re);
+		// The embedder was built ONCE — re-bootstrap did NOT re-download the model.
+		expect(makeEmbedder).toHaveBeenCalledTimes(1);
+	});
+
+	it("passes thresholds through to the engine (a strict per-list bar suppresses)", async () => {
+		const { deps } = depsFor(MULTI);
+		const runtime = new EngineRuntime(deps);
+		// Every list's entity vector is identical to the (axis) embed; only the
+		// per-list bar differs. OFAC's impossibly-high bar suppresses its hit.
+		const engine = await runtime.bootstrap(CONFIG, () => {}, {
+			thresholds: { default: 0, perList: { OFAC_SDN: 1.0001 } },
+		});
+		const ids = (
+			await engine.screen({ name: "EU_CONSOLIDATED:E" })
+		).matches.map((m) => m.entity_id);
+		expect(ids).not.toContain("OFAC_SDN:E");
+	});
+});
+
 describe("compositeVersion", () => {
 	it("sorts by id and joins id@version with a pipe", () => {
 		expect(

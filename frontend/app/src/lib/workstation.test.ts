@@ -11,15 +11,15 @@ function makeStore(): WorkstationStore {
 	return {
 		open: vi.fn().mockResolvedValue(1),
 		createCustomer: vi.fn(),
-		listCustomers: vi.fn(),
 		getCustomer: vi.fn(),
 		updateCustomer: vi.fn(),
 		deleteCustomer: vi.fn(),
 		recordMatches: vi.fn(),
-		listReviewMatches: vi.fn(),
+		listReviewMatches: vi.fn().mockResolvedValue([]),
 		resolveMatch: vi.fn(),
-		getSetting: vi.fn(),
-		setSetting: vi.fn(),
+		listCustomers: vi.fn().mockResolvedValue([]),
+		getSetting: vi.fn().mockResolvedValue(null),
+		setSetting: vi.fn().mockResolvedValue(undefined),
 	} as unknown as WorkstationStore;
 }
 
@@ -41,6 +41,13 @@ function makeDeps(store: WorkstationStore): WorkstationDeps {
 			reload: vi.fn().mockResolvedValue({
 				screen: vi.fn().mockResolvedValue(response),
 			}),
+			catalogLists: vi.fn().mockResolvedValue([
+				{ id: "OFAC_SDN", title: "OFAC SDN" },
+				{ id: "EU_CONSOLIDATED", title: "EU Consolidated" },
+			]),
+			catalogListIds: vi
+				.fn()
+				.mockResolvedValue(["OFAC_SDN", "EU_CONSOLIDATED"]),
 		},
 	};
 }
@@ -94,6 +101,88 @@ describe("workstation boot", () => {
 		expect(deps.runtime.fetchPublishedVersion).toHaveBeenCalledTimes(1);
 		await handle.reloadWatchlist();
 		expect(deps.runtime.reload).toHaveBeenCalledTimes(1);
+	});
+
+	it("bootstrap reads the stored enabled set + screening config and passes them through", async () => {
+		const store = makeStore();
+		vi.mocked(store.getSetting).mockImplementation((key: string) => {
+			if (key === "enabled_watchlists") {
+				return Promise.resolve(JSON.stringify(["OFAC_SDN"]));
+			}
+			if (key === "screening_sensitivity") return Promise.resolve("strict");
+			if (key === "screening_threshold_overrides") {
+				return Promise.resolve(JSON.stringify({ OFAC_SDN: "lenient" }));
+			}
+			return Promise.resolve(null);
+		});
+		const deps = makeDeps(store);
+		const handle = await workstation(deps);
+		await handle.engineBoot();
+		const [, , selection] = vi.mocked(deps.runtime.bootstrap).mock.calls[0];
+		expect(selection?.enabledLists).toEqual(["OFAC_SDN"]);
+		// strict default = 0.75; OFAC override lenient = 0.55.
+		expect(selection?.thresholds).toEqual({
+			default: 0.75,
+			perList: { OFAC_SDN: 0.55 },
+		});
+	});
+
+	it("getEnabledLists returns the stored selection intersected with the catalog", async () => {
+		const store = makeStore();
+		vi.mocked(store.getSetting).mockImplementation((key: string) =>
+			Promise.resolve(
+				key === "enabled_watchlists"
+					? JSON.stringify(["OFAC_SDN", "GONE"])
+					: null,
+			),
+		);
+		const handle = await workstation(makeDeps(store));
+		await handle.engineBoot(); // catalog ids become known after a boot
+		expect(await handle.getEnabledLists()).toEqual(["OFAC_SDN"]);
+	});
+
+	it("catalogLists delegates to the runtime (id + title)", async () => {
+		const deps = makeDeps(makeStore());
+		const handle = await workstation(deps);
+		await handle.engineBoot();
+		expect(await handle.catalogLists()).toEqual([
+			{ id: "OFAC_SDN", title: "OFAC SDN" },
+			{ id: "EU_CONSOLIDATED", title: "EU Consolidated" },
+		]);
+	});
+
+	it("setEnabledLists persists the selection, re-bootstraps, and rescans on a real change", async () => {
+		const store = makeStore();
+		const deps = makeDeps(store);
+		const handle = await workstation(deps);
+		await handle.engineBoot();
+		// Default (unset) = all catalog ids; disabling EU_CONSOLIDATED is a change.
+		const summary = await handle.setEnabledLists(["OFAC_SDN"]);
+		expect(store.setSetting).toHaveBeenCalledWith(
+			"enabled_watchlists",
+			JSON.stringify(["OFAC_SDN"]),
+		);
+		// Re-bootstrap goes through the runtime reload (reuses the warm embedder).
+		expect(deps.runtime.reload).toHaveBeenCalledTimes(1);
+		const [selection] = vi.mocked(deps.runtime.reload).mock.calls[0];
+		expect(selection?.enabledLists).toEqual(["OFAC_SDN"]);
+		// A real selection change triggers a re-screen (no customers → all zeros).
+		expect(summary).toEqual({
+			customersScanned: 0,
+			newHits: 0,
+			clearedHits: 0,
+		});
+	});
+
+	it("setEnabledLists is a clean no-op when the set is unchanged", async () => {
+		const store = makeStore();
+		const deps = makeDeps(store);
+		const handle = await workstation(deps);
+		await handle.engineBoot();
+		// Re-selecting all catalog ids matches the default → no reload, no rescan.
+		await handle.setEnabledLists(["EU_CONSOLIDATED", "OFAC_SDN"]);
+		expect(deps.runtime.reload).not.toHaveBeenCalled();
+		expect(store.setSetting).not.toHaveBeenCalled();
 	});
 
 	it("a failed DB open clears the memo so the next call retries", async () => {

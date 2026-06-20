@@ -15,11 +15,24 @@ vi.mock("../lib/api", () => ({
 
 const mockGetSetting = vi.fn();
 const mockSetSetting = vi.fn().mockResolvedValue(undefined);
+const mockCatalogLists = vi.fn();
+const mockGetEnabledLists = vi.fn();
+const mockSetEnabledLists = vi.fn();
 vi.mock("../lib/workstation", () => ({
 	workstation: vi.fn(async () => ({
 		store: { getSetting: mockGetSetting, setSetting: mockSetSetting },
+		catalogLists: mockCatalogLists,
+		getEnabledLists: mockGetEnabledLists,
+		setEnabledLists: mockSetEnabledLists,
 	})),
 }));
+
+const FOUR_LISTS = [
+	{ id: "OFAC_SDN", title: "OFAC SDN" },
+	{ id: "EU_CONSOLIDATED", title: "EU Consolidated" },
+	{ id: "UN_CONSOLIDATED", title: "UN Consolidated" },
+	{ id: "UK_OFSI", title: "UK OFSI" },
+];
 
 const mockClient = vi.mocked(apiClient);
 
@@ -36,6 +49,13 @@ describe("SettingsPage", () => {
 			clearedHits: 0,
 		});
 		mockGetSetting.mockResolvedValue(null);
+		mockCatalogLists.mockResolvedValue(FOUR_LISTS);
+		mockGetEnabledLists.mockResolvedValue(FOUR_LISTS.map((l) => l.id));
+		mockSetEnabledLists.mockResolvedValue({
+			customersScanned: 0,
+			newHits: 0,
+			clearedHits: 0,
+		});
 	});
 
 	it("loads the screening config on mount and reflects the sensitivity in the control", async () => {
@@ -104,6 +124,66 @@ describe("SettingsPage", () => {
 			expect(mockClient.setScreeningConfig).toHaveBeenCalledWith(
 				expect.objectContaining({ overrides: { OFAC_SDN: "strict" } }),
 			),
+		);
+	});
+
+	it("renders a checkbox per catalog list, all checked by default", async () => {
+		render(<SettingsPage />);
+		await waitFor(() => expect(mockCatalogLists).toHaveBeenCalled());
+		for (const list of FOUR_LISTS) {
+			const checkbox = await screen.findByRole("checkbox", {
+				name: list.title,
+			});
+			expect(checkbox).toBeChecked();
+		}
+	});
+
+	it("renders one override row per ENABLED list (not just OFAC)", async () => {
+		mockGetEnabledLists.mockResolvedValue(["OFAC_SDN", "UN_CONSOLIDATED"]);
+		render(<SettingsPage />);
+		await waitFor(() => expect(mockGetEnabledLists).toHaveBeenCalled());
+		expect(
+			await screen.findByLabelText(/override for OFAC SDN/i),
+		).toBeInTheDocument();
+		expect(
+			await screen.findByLabelText(/override for UN Consolidated/i),
+		).toBeInTheDocument();
+		// EU is NOT enabled → no override row for it.
+		expect(screen.queryByLabelText(/override for EU Consolidated/i)).toBeNull();
+	});
+
+	it("unchecking a list then Apply calls setEnabledLists without that id", async () => {
+		render(<SettingsPage />);
+		await waitFor(() => expect(mockCatalogLists).toHaveBeenCalled());
+		const euCheckbox = await screen.findByRole("checkbox", {
+			name: "EU Consolidated",
+		});
+		fireEvent.click(euCheckbox); // disable EU
+		fireEvent.click(screen.getByRole("button", { name: /apply/i }));
+		await waitFor(() =>
+			expect(mockSetEnabledLists).toHaveBeenCalledWith([
+				"OFAC_SDN",
+				"UN_CONSOLIDATED",
+				"UK_OFSI",
+			]),
+		);
+	});
+
+	it("a selection-only change still shows the rescan summary banner", async () => {
+		mockSetEnabledLists.mockResolvedValue({
+			customersScanned: 5,
+			newHits: 0,
+			clearedHits: 2,
+		});
+		render(<SettingsPage />);
+		await waitFor(() => expect(mockCatalogLists).toHaveBeenCalled());
+		const euCheckbox = await screen.findByRole("checkbox", {
+			name: "EU Consolidated",
+		});
+		fireEvent.click(euCheckbox);
+		fireEvent.click(screen.getByRole("button", { name: /apply/i }));
+		await waitFor(() =>
+			expect(screen.getByText(/Re-screened 5 customers/)).toBeInTheDocument(),
 		);
 	});
 });

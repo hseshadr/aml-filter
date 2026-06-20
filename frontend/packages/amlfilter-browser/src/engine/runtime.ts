@@ -130,6 +130,26 @@ export interface RuntimeConfig {
 	readonly pubkeyUrl: string;
 }
 
+/**
+ * Optional selection + scoring knobs for a bootstrap / re-bootstrap. `enabledLists`,
+ * when present, restricts the load to catalog lists whose id is in the set (a stored
+ * id absent from the catalog is silently skipped — the catalog is the source of truth
+ * for existence; an empty set loads nothing and screens to no matches, which is valid).
+ * When absent, EVERY catalog list loads (today's behavior). `thresholds`, when present,
+ * feeds the per-list score floors into the engine; when absent the balanced default
+ * applies to every list.
+ */
+export interface RuntimeSelection {
+	readonly enabledLists?: ReadonlyArray<string>;
+	readonly thresholds?: ListThresholds;
+}
+
+/** A selectable catalog list, surfaced to the settings UI for toggling. */
+export interface CatalogListInfo {
+	readonly id: string;
+	readonly title: string;
+}
+
 /** Fetch + verify the signed catalog (the manifest of every published list). */
 export type LoadCatalog = (pubkey: Uint8Array) => Promise<WatchlistCatalog>;
 
@@ -220,6 +240,9 @@ export class EngineRuntime {
 	// (no second ~23 MB model download).
 	#embedder: Embedder | null = null;
 	#config: RuntimeConfig | null = null;
+	// The active selection + thresholds, carried across reload so a re-bootstrap
+	// with no override reuses the last enabled set / score floors.
+	#selection: RuntimeSelection = {};
 
 	public constructor(deps: RuntimeDeps = defaultDeps) {
 		this.#deps = deps;
@@ -236,12 +259,20 @@ export class EngineRuntime {
 		return this.#version;
 	}
 
-	/** Build (or reuse) the engine over the synced bundle, reporting progress. */
+	/**
+	 * Build (or reuse) the engine over the synced bundle, reporting progress. An
+	 * optional {@link RuntimeSelection} restricts the loaded lists (`enabledLists`)
+	 * and sets the per-list score floors (`thresholds`); both default to "all lists,
+	 * balanced floor". Idempotent — the first call wins and its result is cached; a
+	 * later enabled-set/threshold change goes through {@link reload}.
+	 */
 	public bootstrap(
 		config: RuntimeConfig,
 		onStage: OnStage = () => {},
+		selection: RuntimeSelection = {},
 	): Promise<MultiListScreeningEngine> {
 		if (this.#enginePromise === null) {
+			this.#selection = selection;
 			this.#enginePromise = this.#build(config, onStage).catch((error) => {
 				// Let a failed bootstrap be retried by clearing the memo.
 				this.#enginePromise = null;
@@ -249,6 +280,23 @@ export class EngineRuntime {
 			});
 		}
 		return this.#enginePromise;
+	}
+
+	/** EVERY list in the signed catalog as `{id, title}` — the real selectable set
+	 * the UI offers (the catalog is the source of truth for which lists exist).
+	 * Requires a prior successful bootstrap (the pinned-key config is captured then). */
+	public async catalogLists(): Promise<ReadonlyArray<CatalogListInfo>> {
+		if (this.#config === null) {
+			throw new Error("catalogLists() requires a successful bootstrap first");
+		}
+		const pubkey = await fetchPubkey(this.#config.pubkeyUrl);
+		const catalog = await this.#deps.loadCatalog(pubkey);
+		return catalog.lists.map((entry) => ({ id: entry.id, title: entry.title }));
+	}
+
+	/** Just the ids of every catalog list (the selectable set, sans titles). */
+	public async catalogListIds(): Promise<ReadonlyArray<string>> {
+		return (await this.catalogLists()).map((list) => list.id);
 	}
 
 	/**
@@ -260,16 +308,23 @@ export class EngineRuntime {
 	 * prior successful bootstrap (the embedder + pinned-key config are captured
 	 * then); calling reload before that throws.
 	 */
-	public async reload(): Promise<MultiListScreeningEngine> {
+	public async reload(
+		selection?: RuntimeSelection,
+	): Promise<MultiListScreeningEngine> {
 		if (this.#embedder === null || this.#config === null) {
 			throw new Error("reload() requires a successful bootstrap first");
 		}
+		// A new selection replaces the active one; omitting it reuses the last
+		// enabled set + thresholds (a plain "new publish" reload).
+		if (selection !== undefined) {
+			this.#selection = selection;
+		}
 		const pubkey = await fetchPubkey(this.#config.pubkeyUrl);
-		const loaded = await this.#loadAllLists(pubkey);
+		const loaded = await this.#loadEnabledLists(pubkey);
 		const engine = createMultiListScreeningEngine(
 			loaded,
 			this.#embedder,
-			DEFAULT_THRESHOLDS,
+			this.#thresholds(),
 		);
 		this.#ready = engine;
 		this.#version = compositeVersion(engine.listVersions());
@@ -304,15 +359,30 @@ export class EngineRuntime {
 		return compositeVersion(versions);
 	}
 
+	/** The active per-list score floors: the configured thresholds, or the
+	 * balanced default for every list when no selection thresholds were given. */
+	#thresholds(): ListThresholds {
+		return this.#selection.thresholds ?? DEFAULT_THRESHOLDS;
+	}
+
 	/**
-	 * Load + verify EVERY catalog list, fail-closed: a verify/load failure on any
-	 * single list rejects the whole load (a verify failure is a security event,
-	 * not degraded mode — no catch-and-skip).
+	 * Load + verify the ENABLED catalog lists, fail-closed: a verify/load failure
+	 * on any single enabled list rejects the whole load (a verify failure is a
+	 * security event, not degraded mode — no catch-and-skip). When the active
+	 * selection has no `enabledLists`, every catalog list loads (today's behavior);
+	 * an id in `enabledLists` that is absent from the catalog is silently skipped
+	 * (the catalog is the source of truth for existence); an empty enabled set
+	 * loads nothing.
 	 */
-	async #loadAllLists(pubkey: Uint8Array): Promise<LoadedWatchlist[]> {
+	async #loadEnabledLists(pubkey: Uint8Array): Promise<LoadedWatchlist[]> {
 		const catalog = await this.#deps.loadCatalog(pubkey);
+		const enabled = this.#selection.enabledLists;
+		const entries =
+			enabled === undefined
+				? catalog.lists
+				: catalog.lists.filter((entry) => enabled.includes(entry.id));
 		const loaded: LoadedWatchlist[] = [];
-		for (const entry of catalog.lists) {
+		for (const entry of entries) {
 			loaded.push(await this.#deps.loadList(pubkey, entry));
 		}
 		return loaded;
@@ -324,7 +394,7 @@ export class EngineRuntime {
 	): Promise<MultiListScreeningEngine> {
 		onStage({ kind: "downloading" });
 		const pubkey = await fetchPubkey(config.pubkeyUrl);
-		const loaded = await this.#loadAllLists(pubkey);
+		const loaded = await this.#loadEnabledLists(pubkey);
 		const versions: Record<string, string> = {};
 		for (const l of loaded) {
 			versions[l.listId] = l.version;
@@ -360,7 +430,7 @@ export class EngineRuntime {
 		const engine = createMultiListScreeningEngine(
 			loaded,
 			embedder,
-			DEFAULT_THRESHOLDS,
+			this.#thresholds(),
 		);
 		this.#ready = engine;
 		onStage({ kind: "ready" });
