@@ -6,11 +6,12 @@ import { defineConfig, devices } from "@playwright/test";
  * exercises (it runs `vite dev`, which is unminified and so hid the production
  * `Ke(...).call is not a function` model-load crash).
  *
- * ONE webServer: `vite preview` over a freshly built dist/. The v3 signed
- * watchlist (watchlist.json + .sig + manifest, in app/public/watchlist/) is a
- * plain static asset served same-origin by `vite preview` — no separate catalog
- * server, no VITE_BUNDLE_BASE_URL. The pinned ed25519 public key
- * (app/public/public.key) ships in the same build and is read same-origin.
+ * ONE webServer: `vite preview` over a freshly built dist/. The signed catalog
+ * + per-list dirs (watchlist/catalog.json + watchlist/<id>/… in
+ * app/public/watchlist/) are plain static assets served same-origin by
+ * `vite preview` — no separate catalog server, no VITE_BUNDLE_BASE_URL. The
+ * pinned ed25519 public key (app/public/public.key) ships in the same build and
+ * is read same-origin.
  *
  * The spec drives a real headless Chromium: it waits for the full
  * download → ed25519-verify → ~23 MB model download → screen pipeline, then
@@ -39,8 +40,8 @@ export default defineConfig({
 	projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
 	webServer: [
 		{
-			// Build the minified SPA (which bundles the committed signed watchlist
-			// + pinned pubkey as static public/ assets), then preview it.
+			// Build the minified SPA (which bundles the committed signed catalog
+			// + per-list dirs + pinned pubkey as static public/ assets), then preview it.
 			command: `pnpm build && pnpm exec vite preview --port ${SPA_PORT} --strictPort`,
 			url: `http://localhost:${SPA_PORT}/screen`,
 			reuseExistingServer: !process.env.CI,

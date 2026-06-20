@@ -20,11 +20,18 @@ import {
 	type OnEmbedProgress,
 } from "./embedder";
 import { createWorkerEmbedder, spawnEmbedderWorker } from "./embedderClient";
-import { createScreeningEngine, type ScreeningEngine } from "./screeningEngine";
 import {
-	fetchWatchlistVersion,
+	createMultiListScreeningEngine,
+	type ListThresholds,
+	type MultiListScreeningEngine,
+} from "./multiEngine";
+import { PRESETS } from "./scoring";
+import {
+	fetchVerifiedCatalog,
 	type LoadedWatchlist,
-	loadWatchlist,
+	loadList,
+	type WatchlistCatalog,
+	type WatchlistCatalogEntry,
 } from "./watchlist";
 
 /** Any non-empty string warms the ONNX session; content is discarded. */
@@ -123,26 +130,57 @@ export interface RuntimeConfig {
 	readonly pubkeyUrl: string;
 }
 
-/** The watchlist-load surface bootstrap needs: fetch + verify + decode + build. */
-export type LoadWatchlist = (pubkey: Uint8Array) => Promise<LoadedWatchlist>;
+/** Fetch + verify the signed catalog (the manifest of every published list). */
+export type LoadCatalog = (pubkey: Uint8Array) => Promise<WatchlistCatalog>;
 
-/** The seams bootstrap depends on; defaulted to the real loader + embedder Worker.
+/** Fetch + verify + decode + build ONE per-list watchlist under its catalog entry. */
+export type LoadList = (
+	pubkey: Uint8Array,
+	entry: WatchlistCatalogEntry,
+) => Promise<LoadedWatchlist>;
+
+/** The seams bootstrap depends on; defaulted to the real loaders + embedder Worker.
  * `makeEmbedder` receives an `onProgress` sink the runtime wires to the boot
  * banner so model-download progress reaches the UI. */
 export interface RuntimeDeps {
-	readonly loadWatchlist: LoadWatchlist;
+	readonly loadCatalog: LoadCatalog;
+	readonly loadList: LoadList;
 	readonly makeEmbedder: (onProgress: OnEmbedProgress) => Embedder;
 }
 
 const defaultDeps: RuntimeDeps = {
-	loadWatchlist,
+	loadCatalog: fetchVerifiedCatalog,
+	loadList,
 	makeEmbedder: (onProgress) =>
 		createWorkerEmbedder(spawnEmbedderWorker(), onProgress),
 };
 
-/** Build the production runtime deps (real watchlist loader + embedder Worker). */
+/** Build the production runtime deps (real catalog + list loaders + embedder Worker). */
 export function defaultRuntimeDeps(): RuntimeDeps {
 	return defaultDeps;
+}
+
+/** The default per-list score floors: the balanced preset threshold for every
+ * list. Settings-driven per-list overrides are the next wave; the mechanism
+ * exists now (see {@link MultiListScreeningEngine}) but the default has none. */
+const DEFAULT_THRESHOLDS: ListThresholds = {
+	default: PRESETS.balanced.threshold,
+};
+
+/**
+ * The composite version stamp: each list's `id@version`, sorted by id and
+ * joined with `|`. Derived from the per-list LOADED versions (not the catalog's
+ * generatedAt) so a no-op republish that only bumps generatedAt does NOT churn
+ * the stamp; a bumped per-list version or a list add/remove DOES. Pure +
+ * exported so the app can compare fetchPublishedVersion() against version().
+ */
+export function compositeVersion(
+	versions: Readonly<Record<string, string>>,
+): string {
+	return Object.keys(versions)
+		.sort()
+		.map((id) => `${id}@${versions[id]}`)
+		.join("|");
 }
 
 /** Fetch the pinned ed25519 public key same-origin (no-store), as raw bytes. */
@@ -174,8 +212,8 @@ export { createEmbedder };
  */
 export class EngineRuntime {
 	readonly #deps: RuntimeDeps;
-	#enginePromise: Promise<ScreeningEngine> | null = null;
-	#ready: ScreeningEngine | null = null;
+	#enginePromise: Promise<MultiListScreeningEngine> | null = null;
+	#ready: MultiListScreeningEngine | null = null;
 	#version: string | null = null;
 	// Captured on the first successful bootstrap so reload() can re-fetch the
 	// watchlist with the same pinned key and reuse the already-warm embedder
@@ -188,12 +226,12 @@ export class EngineRuntime {
 	}
 
 	/** The ready engine, or null before the first successful bootstrap. */
-	public engine(): ScreeningEngine | null {
+	public engine(): MultiListScreeningEngine | null {
 		return this.#ready;
 	}
 
-	/** The loaded watchlist version, or null before bootstrap — for step-5
-	 * rescan to compare against a cheap manifest poll. */
+	/** The composite version stamp (sorted `id@version` join), or null before
+	 * bootstrap — for the rescan path to compare against a cheap manifest poll. */
 	public version(): string | null {
 		return this.#version;
 	}
@@ -202,7 +240,7 @@ export class EngineRuntime {
 	public bootstrap(
 		config: RuntimeConfig,
 		onStage: OnStage = () => {},
-	): Promise<ScreeningEngine> {
+	): Promise<MultiListScreeningEngine> {
 		if (this.#enginePromise === null) {
 			this.#enginePromise = this.#build(config, onStage).catch((error) => {
 				// Let a failed bootstrap be retried by clearing the memo.
@@ -214,32 +252,37 @@ export class EngineRuntime {
 	}
 
 	/**
-	 * Re-fetch + re-verify (fail-closed) the signed watchlist, swap the in-memory
-	 * cosine index + entities + version, and rebuild the ScreeningEngine over the
-	 * SAME already-warm embedder (no second model download). Used by the app's
-	 * "Check for updates" path once a cheap manifest poll detects a new publish.
-	 * Requires a prior successful bootstrap — the embedder + pinned-key config are
-	 * captured then; calling reload before that throws.
+	 * Re-fetch + re-verify (fail-closed) the catalog and EVERY list, rebuild the
+	 * MultiListScreeningEngine over the SAME already-warm embedder (no second
+	 * model download), and swap the ready engine + composite version. A verify
+	 * failure on the catalog OR any list rejects — no partial swap. Used by the
+	 * app's "Check for updates" path once a poll detects a new publish. Requires a
+	 * prior successful bootstrap (the embedder + pinned-key config are captured
+	 * then); calling reload before that throws.
 	 */
-	public async reload(): Promise<ScreeningEngine> {
+	public async reload(): Promise<MultiListScreeningEngine> {
 		if (this.#embedder === null || this.#config === null) {
 			throw new Error("reload() requires a successful bootstrap first");
 		}
 		const pubkey = await fetchPubkey(this.#config.pubkeyUrl);
-		const loaded = await this.#deps.loadWatchlist(pubkey);
-		const engine = createScreeningEngine(loaded, this.#embedder);
+		const loaded = await this.#loadAllLists(pubkey);
+		const engine = createMultiListScreeningEngine(
+			loaded,
+			this.#embedder,
+			DEFAULT_THRESHOLDS,
+		);
 		this.#ready = engine;
-		this.#version = loaded.version;
+		this.#version = compositeVersion(engine.listVersions());
 		this.#enginePromise = Promise.resolve(engine);
 		return engine;
 	}
 
 	/**
-	 * Cheap new-publish poll: fetch + verify (fail-closed) ONLY the tiny signed
-	 * manifest and return its version — no full list, no vectors, no model. The
-	 * "Check for updates" path compares this against {@link version} to decide
-	 * whether a {@link reload} + re-screen is needed. Requires a prior bootstrap
-	 * (the pinned-key config is captured then).
+	 * Cheap new-publish poll: fetch + verify (fail-closed) the catalog + EACH
+	 * list's tiny manifest (no vectors, no model) and return the SAME composite
+	 * stamp shape as {@link version}. The "Check for updates" path compares the
+	 * two; a bumped per-list version OR a list add/remove changes the stamp.
+	 * Requires a prior bootstrap (the pinned-key config is captured then).
 	 */
 	public async fetchPublishedVersion(): Promise<string> {
 		if (this.#config === null) {
@@ -248,18 +291,46 @@ export class EngineRuntime {
 			);
 		}
 		const pubkey = await fetchPubkey(this.#config.pubkeyUrl);
-		return fetchWatchlistVersion(pubkey);
+		// The catalog is itself signed + verified (fail-closed) and carries each
+		// list's authoritative version; the per-entry version is cross-checked
+		// against the manifest + watchlist at load time. For a cheap poll the
+		// signed catalog's entry versions are sufficient to detect a bumped
+		// per-list version OR a list add/remove — no N extra manifest fetches.
+		const catalog = await this.#deps.loadCatalog(pubkey);
+		const versions: Record<string, string> = {};
+		for (const entry of catalog.lists) {
+			versions[entry.id] = entry.version;
+		}
+		return compositeVersion(versions);
+	}
+
+	/**
+	 * Load + verify EVERY catalog list, fail-closed: a verify/load failure on any
+	 * single list rejects the whole load (a verify failure is a security event,
+	 * not degraded mode — no catch-and-skip).
+	 */
+	async #loadAllLists(pubkey: Uint8Array): Promise<LoadedWatchlist[]> {
+		const catalog = await this.#deps.loadCatalog(pubkey);
+		const loaded: LoadedWatchlist[] = [];
+		for (const entry of catalog.lists) {
+			loaded.push(await this.#deps.loadList(pubkey, entry));
+		}
+		return loaded;
 	}
 
 	async #build(
 		config: RuntimeConfig,
 		onStage: OnStage,
-	): Promise<ScreeningEngine> {
+	): Promise<MultiListScreeningEngine> {
 		onStage({ kind: "downloading" });
 		const pubkey = await fetchPubkey(config.pubkeyUrl);
-		const loaded = await this.#deps.loadWatchlist(pubkey);
-		this.#version = loaded.version;
-		onStage({ kind: "verified", version: loaded.version });
+		const loaded = await this.#loadAllLists(pubkey);
+		const versions: Record<string, string> = {};
+		for (const l of loaded) {
+			versions[l.listId] = l.version;
+		}
+		this.#version = compositeVersion(versions);
+		onStage({ kind: "verified", version: this.#version });
 
 		onStage({ kind: "loading-model" });
 		// Re-fire the stage with each download tick so the banner shows a percent,
@@ -286,7 +357,11 @@ export class EngineRuntime {
 			`loading the name-matching model timed out after ${timeoutMs}ms`,
 		);
 
-		const engine = createScreeningEngine(loaded, embedder);
+		const engine = createMultiListScreeningEngine(
+			loaded,
+			embedder,
+			DEFAULT_THRESHOLDS,
+		);
 		this.#ready = engine;
 		onStage({ kind: "ready" });
 		return engine;

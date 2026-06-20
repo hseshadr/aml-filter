@@ -3,13 +3,14 @@ import { defineConfig, devices } from "@playwright/test";
 /**
  * e2e-kyc — the LOCAL-FIRST KYC workstation journey, proven END-TO-END in a
  * real headless Chromium against the MINIFIED production build with ZERO
- * application backend: the OFAC list is the committed signed v3 watchlist
- * (app/public/watchlist/watchlist.json) verified against the pinned key, and
- * KYC records live in SQLite-WASM persisted to OPFS via the DB Worker.
+ * application backend: the watchlists are the committed signed multi-list
+ * catalog (app/public/watchlist/catalog.json + per-list dirs) verified against
+ * the pinned key, and KYC records live in SQLite-WASM persisted to OPFS via the
+ * DB Worker.
  *
  * ONE Playwright-managed webServer: `vite preview` over a freshly built dist/.
- * The signed watchlist + pinned pubkey are static public/ assets served
- * same-origin — no separate catalog server, no VITE_BUNDLE_BASE_URL.
+ * The signed catalog + per-list dirs + pinned pubkey are static public/ assets
+ * served same-origin — no separate catalog server, no VITE_BUNDLE_BASE_URL.
  *
  * `http://localhost` is a secure context — REQUIRED for OPFS (the sahpool
  * database) and WebCrypto verification. A LAN IP or host.docker.internal is NOT
@@ -37,8 +38,8 @@ export default defineConfig({
 	projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
 	webServer: [
 		{
-			// Minified SPA (bundling the committed signed watchlist + pinned pubkey
-			// as static public/ assets). The model-load ceiling is bounded so a
+			// Minified SPA (bundling the committed signed catalog + per-list dirs +
+			// pinned pubkey as static public/ assets). The model-load ceiling is bounded so a
 			// blocked weights path fails loudly in seconds (same as the C1 config).
 			command: `pnpm build && pnpm exec vite preview --port ${SPA_PORT} --strictPort`,
 			url: `http://localhost:${SPA_PORT}/`,

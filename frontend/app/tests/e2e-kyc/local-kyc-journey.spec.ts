@@ -16,18 +16,21 @@ import { expect, type Route, test } from "@playwright/test";
  *
  * Asserts REAL outcomes (rendered tiers, persisted rows, dup-rejection,
  * console hygiene), against the REAL minified build + the REAL committed signed
- * v3 watchlist (app/public/watchlist/watchlist.json) + the REAL pinned key — per
- * the CLAUDE.md browser-validation mandate.
+ * multi-list catalog (app/public/watchlist/catalog.json + per-list dirs) + the
+ * REAL pinned key — per the CLAUDE.md browser-validation mandate.
  *
  * The new-publish step is driven the REAL way (no test seam): a SECOND signed
- * artifact (version "demo-2", built by @amlfilter/publisher with the same demo
- * key — see packages/amlfilter-publisher/src/buildDemoV2.ts) lives under
- * fixtures/watchlist-v2/. A Playwright route serves the boot watchlist normally,
- * then — once `servePublishV2` flips — serves the v2 manifest+watchlist+sigs so
- * the running tab's manifest poll sees a genuinely newer, validly-signed list.
+ * CATALOG with the OFAC list bumped to version "demo-2" (EU/UN/UK stay demo-1),
+ * built by @amlfilter/publisher with the same demo key — see
+ * packages/amlfilter-publisher/src/buildDemoCatalogV2.ts) lives under
+ * fixtures/watchlist-v2-catalog/. A Playwright route serves the committed demo-1
+ * catalog normally, then — once `servePublishV2` flips — serves the v2 catalog
+ * (catalog.json(.sig) + each list's watchlist.json/.sig/.manifest.json(.sig)) so
+ * the running tab's manifest/catalog poll sees a genuinely newer, validly-signed
+ * catalog whose COMPOSITE version stamp now carries OFAC_SDN@demo-2.
  */
 
-// "Ivan Fakovich" is entity DEMO_SDN:0001 in the committed signed watchlist
+// "Ivan Fakovich" is entity OFAC_SDN:0001 in the committed signed OFAC list
 // (countries: RU) — the same name the C1 /screen e2e matches against.
 const SANCTIONED_NAME = "Ivan Fakovich";
 const CUSTOMER_REF = "CUST-LOCAL-001";
@@ -35,29 +38,35 @@ const ANALYST = "Avery Analyst";
 const REVIEW_NOTES = "Resolved as noise in the local-first e2e journey.";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const V2_DIR = join(HERE, "fixtures", "watchlist-v2");
+const V2_CATALOG_DIR = join(HERE, "fixtures", "watchlist-v2-catalog");
 
-/** The four signed v2 artifact files, read once as raw bytes for route fulfilment. */
-const V2_FILES: Readonly<
-	Record<string, { body: Buffer; contentType: string }>
-> = {
-	"watchlist.manifest.json": {
-		body: readFileSync(join(V2_DIR, "watchlist.manifest.json")),
-		contentType: "application/json",
-	},
-	"watchlist.manifest.json.sig": {
-		body: readFileSync(join(V2_DIR, "watchlist.manifest.json.sig")),
-		contentType: "text/plain",
-	},
-	"watchlist.json": {
-		body: readFileSync(join(V2_DIR, "watchlist.json")),
-		contentType: "application/json",
-	},
-	"watchlist.json.sig": {
-		body: readFileSync(join(V2_DIR, "watchlist.json.sig")),
-		contentType: "text/plain",
-	},
-};
+/** Content type for a fixture file, keyed off its extension. */
+function contentTypeFor(relPath: string): string {
+	return relPath.endsWith(".sig") ? "text/plain" : "application/json";
+}
+
+/**
+ * Read a v2-catalog fixture file by its path relative to `watchlist/` (e.g.
+ * "catalog.json", "ofac/watchlist.json.sig"). Returns null when the requested
+ * path is not part of the fixture, so the route can fall through to the real
+ * (committed demo-1) catalog instead of fabricating an artifact.
+ */
+function readV2CatalogFile(
+	relPath: string,
+): { body: Buffer; contentType: string } | null {
+	const absPath = join(V2_CATALOG_DIR, relPath);
+	if (!absPath.startsWith(`${V2_CATALOG_DIR}/`)) {
+		return null; // guard against path traversal out of the fixture dir
+	}
+	try {
+		return {
+			body: readFileSync(absPath),
+			contentType: contentTypeFor(relPath),
+		};
+	} catch {
+		return null; // not a file in this fixture → let the real catalog serve
+	}
+}
 
 test.describe.configure({ mode: "serial" });
 
@@ -76,18 +85,21 @@ test("local-first journey: no login → onboard → tiered match → resolve →
 			consoleErrors.push(`console.error: ${msg.text()}`);
 	});
 
-	// --- New-publish route: serve the committed demo-1 watchlist until the
-	//     test flips `servePublishV2`, then serve the validly-signed demo-2
-	//     artifact so the tab's manifest poll detects a real new publish. -----
+	// --- New-publish route: serve the committed demo-1 catalog until the test
+	//     flips `servePublishV2`, then serve the validly-signed demo-2 catalog
+	//     (OFAC bumped) so the tab's catalog/manifest poll detects a real new
+	//     publish. The fixture mirrors the watchlist/ layout, so each intercepted
+	//     request path under /watchlist/ maps 1:1 to a fixture file. -----------
 	let servePublishV2 = false;
-	await page.route("**/watchlist/watchlist*", async (route: Route) => {
+	await page.route("**/watchlist/**", async (route: Route) => {
 		if (!servePublishV2) {
 			await route.continue();
 			return;
 		}
-		const name = new URL(route.request().url()).pathname.split("/").pop() ?? "";
-		const file = V2_FILES[name];
-		if (file === undefined) {
+		const pathname = new URL(route.request().url()).pathname;
+		const relPath = pathname.slice(pathname.indexOf("/watchlist/") + 11);
+		const file = readV2CatalogFile(relPath);
+		if (file === null) {
 			await route.continue();
 			return;
 		}
@@ -202,14 +214,16 @@ test("local-first journey: no login → onboard → tiered match → resolve →
 	).toBeVisible();
 
 	// =======================================================================
-	// 6b. LIVE new-publish detection (the headline feature): a newer watchlist
-	//     ("demo-2") goes live AFTER this tab booted on "demo-1". Flip the route
-	//     to serve the validly-signed v2 artifact, then drive "Check for
-	//     updates". The tab's cheap signed-manifest poll must see demo-2 ≠
-	//     demo-1, RELOAD the watchlist into the running engine (fail-closed
-	//     verify), then re-screen every customer. The previously-resolved match
-	//     MUST survive with its FALSE_POSITIVE disposition (proof replaceMatches
-	//     carries the audit trail forward across a real reload + rescan).
+	// 6b. LIVE new-publish detection (the headline feature): a newer CATALOG
+	//     (OFAC bumped to "demo-2", EU/UN/UK still "demo-1") goes live AFTER this
+	//     tab booted on the all-demo-1 catalog. Flip the route to serve the
+	//     validly-signed v2 catalog, then drive "Check for updates". The tab's
+	//     cheap signed catalog/manifest poll must see the composite stamp advance
+	//     (…|OFAC_SDN@demo-2|… ≠ …|OFAC_SDN@demo-1|…), RELOAD every list into the
+	//     running engine (fail-closed verify), then re-screen every customer. The
+	//     previously-resolved match MUST survive with its FALSE_POSITIVE
+	//     disposition (proof replaceMatches carries the audit trail forward across
+	//     a real reload + rescan).
 	// =======================================================================
 	servePublishV2 = true;
 	await page.getByRole("button", { name: "Check for updates" }).click();
@@ -217,9 +231,12 @@ test("local-first journey: no login → onboard → tiered match → resolve →
 	await expect(page.getByText(/Re-screened \d+ customer\(s\)/)).toBeVisible({
 		timeout: 120_000,
 	});
-	// The UI now reports demo-2 as the last-synced version — the new publish was
-	// genuinely detected and loaded, not the frozen boot-time version.
-	await expect(page.getByText(/Last synced: demo-2/)).toBeVisible();
+	// The UI now reports the advanced composite stamp as the last-synced version:
+	// the OFAC list moved to demo-2 (EU/UN/UK stay demo-1), so the composite
+	// "Last synced: …|OFAC_SDN@demo-2|…" carries OFAC_SDN@demo-2. Matching that
+	// substring proves the new publish was genuinely detected and loaded, not the
+	// frozen boot-time version.
+	await expect(page.getByText(/OFAC_SDN@demo-2/)).toBeVisible();
 
 	// The resolved match survived the rescan with its disposition preserved.
 	await page.goto("/review");

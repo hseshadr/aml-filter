@@ -21,6 +21,8 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 // src/engine -> amlfilter-browser -> packages -> frontend -> repo root.
 const REPO_ROOT = join(HERE, "..", "..", "..", "..", "..");
 const WATCHLIST = join(REPO_ROOT, "frontend", "app", "public", "watchlist");
+// The flat single-list files are gone; the OFAC per-list dir is the test target.
+const WATCHLIST_OFAC = join(WATCHLIST, "ofac");
 const PINNED_PUBKEY = join(
 	REPO_ROOT,
 	"frontend",
@@ -72,28 +74,40 @@ export function pubkeyRaw(): Uint8Array {
 	return new Uint8Array(readFileSync(PINNED_PUBKEY));
 }
 
-/** Raw bytes of the committed signed watchlist.json. */
-export function watchlistBytes(): Uint8Array {
-	return new Uint8Array(readFileSync(join(WATCHLIST, "watchlist.json")));
+/** Raw bytes of the committed signed catalog.json (the multi-list manifest). */
+export function catalogBytes(): Uint8Array {
+	return new Uint8Array(readFileSync(join(WATCHLIST, "catalog.json")));
 }
 
-/** The detached base64 signature over watchlist.json. */
-export function watchlistSig(): string {
+/** The detached base64 signature over catalog.json. */
+export function catalogSig(): string {
 	return DECODER.decode(
-		readFileSync(join(WATCHLIST, "watchlist.json.sig")),
+		readFileSync(join(WATCHLIST, "catalog.json.sig")),
 	).trim();
 }
 
-/** Raw bytes of the committed signed watchlist.manifest.json. */
+/** Raw bytes of the committed signed OFAC per-list watchlist.json. */
+export function watchlistBytes(): Uint8Array {
+	return new Uint8Array(readFileSync(join(WATCHLIST_OFAC, "watchlist.json")));
+}
+
+/** The detached base64 signature over the OFAC watchlist.json. */
+export function watchlistSig(): string {
+	return DECODER.decode(
+		readFileSync(join(WATCHLIST_OFAC, "watchlist.json.sig")),
+	).trim();
+}
+
+/** Raw bytes of the committed signed OFAC watchlist.manifest.json. */
 export function watchlistManifestBytes(): Uint8Array {
 	return new Uint8Array(
-		readFileSync(join(WATCHLIST, "watchlist.manifest.json")),
+		readFileSync(join(WATCHLIST_OFAC, "watchlist.manifest.json")),
 	);
 }
 
-/** The detached base64 signature over watchlist.manifest.json. */
+/** The detached base64 signature over the OFAC watchlist.manifest.json. */
 export function watchlistManifestSig(): string {
 	return DECODER.decode(
-		readFileSync(join(WATCHLIST, "watchlist.manifest.json.sig")),
+		readFileSync(join(WATCHLIST_OFAC, "watchlist.manifest.json.sig")),
 	).trim();
 }

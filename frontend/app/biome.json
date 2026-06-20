@@ -11,7 +11,8 @@
 			"**",
 			"!public/watchlist",
 			"!tests/e2e-kyc/fixtures/watchlist-v2/*.json",
-			"!tests/e2e-kyc/fixtures/watchlist-v2/*.sig"
+			"!tests/e2e-kyc/fixtures/watchlist-v2/*.sig",
+			"!tests/e2e-kyc/fixtures/watchlist-v2-catalog"
 		]
 	},
 	"formatter": {

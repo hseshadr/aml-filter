@@ -12,7 +12,7 @@
 // signal order) — so an in-browser match reproduces the server's score and
 // explanation.
 //
-// Primary entry point: EngineRuntime.bootstrap() → ScreeningEngine.
+// Primary entry point: EngineRuntime.bootstrap() → MultiListScreeningEngine.
 
 // --- the domain contract (single source of truth, mirrors the backend) ---
 export {
@@ -34,16 +34,24 @@ export {
 	EMBEDDING_MODEL,
 	type Embedder,
 } from "./engine/embedder";
+// --- the multi-list screen: one warm embedder, N signed lists, one contract ---
+export {
+	createMultiListScreeningEngine,
+	type ListThresholds,
+	MultiListScreeningEngine,
+} from "./engine/multiEngine";
 // --- the canonical-name pipeline (shared by the engine and the UI's gates) ---
 export { canonicalize } from "./engine/normalize";
-// --- runtime: bootstrap the engine over the signed watchlist ---
+// --- runtime: bootstrap the multi-list engine over the signed catalog + lists ---
 export {
 	type BootStage,
+	compositeVersion,
 	configFromEnv,
 	createEmbedder,
 	defaultRuntimeDeps,
 	EngineRuntime,
-	type LoadWatchlist,
+	type LoadCatalog,
+	type LoadList,
 	type OnStage,
 	type RuntimeConfig,
 	type RuntimeDeps,
@@ -64,13 +72,17 @@ export {
 	ScreeningEngine,
 	type ScreenOptions,
 } from "./engine/screeningEngine";
-// --- the signed-watchlist loader + its loaded shape ---
+// --- the signed-catalog + per-list loaders + their loaded shapes ---
 export {
+	assertCatalogShape,
 	buildLoadedWatchlist,
-	fetchWatchlistVersion,
+	fetchListVersion,
+	fetchVerifiedCatalog,
 	type LoadedWatchlist,
-	loadWatchlist,
+	loadList,
 	type Watchlist,
+	type WatchlistCatalog,
+	type WatchlistCatalogEntry,
 	type WatchlistEntity,
 	WatchlistFormatError,
 	type WatchlistManifest,

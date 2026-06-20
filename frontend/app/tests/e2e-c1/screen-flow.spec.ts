@@ -10,17 +10,18 @@ import { expect, test } from "@playwright/test";
  * both run unminified and so never caught it. This spec exercises the exact path
  * a real visitor hits:
  *
- *   fetch the signed watchlist.json (same-origin) → ed25519-verify fail-closed
- *   → decode the precomputed vectors → download + compile the ~23 MB MiniLM
- *   model in the Worker → search the list in-tab as you type.
+ *   fetch the signed catalog (watchlist/catalog.json, same-origin) →
+ *   ed25519-verify fail-closed → load every per-list dir it points at
+ *   (watchlist/<id>/…) → decode the precomputed vectors → download + compile
+ *   the ~23 MB MiniLM model in the Worker → search the lists in-tab as you type.
  *
  * It is also the embedding-parity end-to-end proof + the real-artifact guard:
- * it drives the COMMITTED signed watchlist.json against the COMMITTED pinned
- * key and asserts the known demo entity "Ivan Fakovich" (DEMO_SDN:0001) surfaces
- * as a strong, explainable hit. It asserts: the empty box browses the whole
- * list; an exact name and a TYPO both surface a real, explainable, scored hit
- * with the watchlist's DOB; nonsense returns no match — all with NO in-page
- * errors.
+ * it drives the COMMITTED signed catalog + per-list dirs against the COMMITTED
+ * pinned key and asserts the known demo entity "Ivan Fakovich" (OFAC_SDN:0001)
+ * surfaces as a strong, explainable hit. It asserts: the empty box browses the
+ * whole list (now the union of all catalog lists); an exact name and a TYPO both
+ * surface a real, explainable, scored hit with the watchlist's DOB; nonsense
+ * returns no match — all with NO in-page errors.
  */
 
 const MODEL_LOAD_TIMEOUT_MS = 160_000;

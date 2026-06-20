@@ -67,6 +67,23 @@ export interface WatchlistManifest {
 	readonly entitiesCount: number;
 }
 
+/** One list entry in the signed catalog: id, title, version, count + dir path. */
+export interface WatchlistCatalogEntry {
+	readonly id: string;
+	readonly title: string;
+	readonly version: string;
+	readonly entitiesCount: number;
+	/** Dir prefix under `watchlist/`, e.g. "ofac/" (trailing slash included). */
+	readonly path: string;
+}
+
+/** The signed `catalog.json`: the manifest of every published list. */
+export interface WatchlistCatalog {
+	readonly schema: 1;
+	readonly generatedAt: string;
+	readonly lists: ReadonlyArray<WatchlistCatalogEntry>;
+}
+
 /** Raised when a watchlist document is structurally invalid (fail-closed). */
 export class WatchlistFormatError extends Error {
 	public constructor(message: string) {
@@ -228,42 +245,105 @@ function buildLoaded(watchlist: Watchlist): LoadedWatchlist {
 	};
 }
 
-/**
- * Fetch + verify (fail-closed) ONLY the tiny manifest and return its version.
- * Cheap version poll for the step-5 rescan: no full list, no vectors decoded.
- */
-export async function fetchWatchlistVersion(
-	pubkey: Uint8Array,
-): Promise<string> {
-	const manifest = await fetchVerifiedJson<WatchlistManifest>(
-		"watchlist/watchlist.manifest.json",
-		pubkey,
+/** True when `value` is a structurally valid catalog entry (fail-closed). */
+function isCatalogEntry(value: unknown): value is WatchlistCatalogEntry {
+	if (typeof value !== "object" || value === null) {
+		return false;
+	}
+	const e = value as Record<string, unknown>;
+	return (
+		typeof e.id === "string" &&
+		typeof e.title === "string" &&
+		typeof e.version === "string" &&
+		typeof e.path === "string" &&
+		typeof e.entitiesCount === "number" &&
+		Number.isFinite(e.entitiesCount)
 	);
-	return manifest.version;
+}
+
+/** Validate a parsed catalog fail-closed; throw WatchlistFormatError on any
+ * violation (schema!==1, non-array lists, or a malformed entry). Exported so the
+ * fail-closed shape contract is unit-testable directly on parsed objects, not
+ * only through the (verify-gated) fetch path. */
+export function assertCatalogShape(catalog: WatchlistCatalog): void {
+	if (catalog.schema !== 1) {
+		throw new WatchlistFormatError(
+			`catalog schema is ${catalog.schema}; expected 1`,
+		);
+	}
+	if (!Array.isArray(catalog.lists)) {
+		throw new WatchlistFormatError("catalog is missing a lists[] array");
+	}
+	for (const entry of catalog.lists) {
+		if (!isCatalogEntry(entry)) {
+			throw new WatchlistFormatError(
+				`catalog has a malformed list entry: ${JSON.stringify(entry)}`,
+			);
+		}
+	}
 }
 
 /**
- * Fetch + verify (fail-closed) the watchlist + its manifest, decode the vectors,
- * and build the cosine index + entity map. Any signature/format failure aborts
- * with no fallback. The manifest is verified too so a manifest/list version
- * skew (or a forged manifest) is caught on load, not only at poll time.
+ * Fetch + verify (fail-closed) the signed catalog, then validate its shape.
+ * Verification runs inside fetchVerifiedJson BEFORE parse; the shape check runs
+ * after so a forged-but-signed-shape mismatch (wrong schema, non-array lists,
+ * missing fields) still aborts the load with no fallback.
  */
-export async function loadWatchlist(
+export async function fetchVerifiedCatalog(
 	pubkey: Uint8Array,
+): Promise<WatchlistCatalog> {
+	const catalog = await fetchVerifiedJson<WatchlistCatalog>(
+		"watchlist/catalog.json",
+		pubkey,
+	);
+	assertCatalogShape(catalog);
+	return catalog;
+}
+
+/**
+ * Fetch + verify (fail-closed) a per-list watchlist + its manifest under the
+ * catalog entry's dir, cross-check the catalog/manifest/watchlist versions, and
+ * build the cosine index + entity map. Any signature/format/skew failure aborts
+ * with no fallback.
+ */
+export async function loadList(
+	pubkey: Uint8Array,
+	entry: WatchlistCatalogEntry,
 ): Promise<LoadedWatchlist> {
 	const [manifest, watchlist] = await Promise.all([
 		fetchVerifiedJson<WatchlistManifest>(
-			"watchlist/watchlist.manifest.json",
+			`watchlist/${entry.path}watchlist.manifest.json`,
 			pubkey,
 		),
-		fetchVerifiedJson<Watchlist>("watchlist/watchlist.json", pubkey),
+		fetchVerifiedJson<Watchlist>(
+			`watchlist/${entry.path}watchlist.json`,
+			pubkey,
+		),
 	]);
-	if (manifest.version !== watchlist.version) {
+	if (
+		entry.version !== manifest.version ||
+		manifest.version !== watchlist.version
+	) {
 		throw new WatchlistFormatError(
-			`manifest version ${manifest.version} != watchlist version ${watchlist.version}`,
+			`list ${entry.id} version skew: catalog ${entry.version}, manifest ${manifest.version}, watchlist ${watchlist.version}`,
 		);
 	}
 	return buildLoaded(watchlist);
+}
+
+/**
+ * Fetch + verify (fail-closed) ONLY a per-list manifest and return its version.
+ * Cheap version poll for the rescan path: no full list, no vectors decoded.
+ */
+export async function fetchListVersion(
+	pubkey: Uint8Array,
+	entry: WatchlistCatalogEntry,
+): Promise<string> {
+	const manifest = await fetchVerifiedJson<WatchlistManifest>(
+		`watchlist/${entry.path}watchlist.manifest.json`,
+		pubkey,
+	);
+	return manifest.version;
 }
 
 /** Build a LoadedWatchlist from already-verified, parsed JSON (test seam). */

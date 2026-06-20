@@ -4,12 +4,25 @@
 // fail-closed contract the runtime drives in the tab, minus the fetch transport
 // (the fetch/same-origin wiring is exercised by the C1 browser e2e).
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { verifyEd25519 } from "./crypto";
-import { pubkeyRaw, watchlistBytes, watchlistSig } from "./fixtures";
 import {
+	catalogBytes,
+	catalogSig,
+	pubkeyRaw,
+	watchlistBytes,
+	watchlistManifestBytes,
+	watchlistManifestSig,
+	watchlistSig,
+} from "./fixtures";
+import {
+	assertCatalogShape,
 	buildLoadedWatchlist,
+	fetchVerifiedCatalog,
+	loadList,
 	type Watchlist,
+	type WatchlistCatalog,
+	type WatchlistCatalogEntry,
 	type WatchlistEntity,
 	WatchlistFormatError,
 } from "./watchlist";
@@ -158,8 +171,8 @@ describe("signed-JSON load — verify then build over the REAL committed artifac
 		const loaded = buildLoadedWatchlist(watchlist);
 		expect(loaded.index.ntotal).toBe(watchlist.entities.length);
 		expect(loaded.index.dim).toBe(DIM);
-		// The committed demo includes Ivan Fakovich (DEMO_SDN:0001).
-		expect(loaded.entities.get("DEMO_SDN:0001")?.primary_name).toBe(
+		// The committed OFAC per-list demo includes Ivan Fakovich (OFAC_SDN:0001).
+		expect(loaded.entities.get("OFAC_SDN:0001")?.primary_name).toBe(
 			"Ivan Fakovich",
 		);
 	});
@@ -170,5 +183,156 @@ describe("signed-JSON load — verify then build over the REAL committed artifac
 		await expect(
 			verifyEd25519(pubkeyRaw(), tampered, watchlistSig()),
 		).rejects.toThrow();
+	});
+});
+
+/** A valid catalog object for mutating in the fail-closed shape tests. */
+function validCatalog(): WatchlistCatalog {
+	return {
+		schema: 1,
+		generatedAt: "2026-06-19T00:00:00Z",
+		lists: [
+			{
+				id: "OFAC_SDN",
+				title: "OFAC SDN",
+				version: "demo-1",
+				entitiesCount: 3,
+				path: "ofac/",
+			},
+		],
+	};
+}
+
+describe("assertCatalogShape — fail-closed validation", () => {
+	it("accepts a well-formed catalog", () => {
+		expect(() => assertCatalogShape(validCatalog())).not.toThrow();
+	});
+
+	it("rejects a catalog whose schema is not 1", () => {
+		const bad = { ...validCatalog(), schema: 2 } as unknown as WatchlistCatalog;
+		expect(() => assertCatalogShape(bad)).toThrow(WatchlistFormatError);
+	});
+
+	it("rejects a catalog whose lists is not an array", () => {
+		const bad = {
+			...validCatalog(),
+			lists: "nope",
+		} as unknown as WatchlistCatalog;
+		expect(() => assertCatalogShape(bad)).toThrow(WatchlistFormatError);
+	});
+
+	it("rejects a list entry missing required string fields", () => {
+		const bad = {
+			...validCatalog(),
+			lists: [{ id: "X", title: "X", version: "1", path: "x/" }],
+		} as unknown as WatchlistCatalog;
+		// entitiesCount is absent → not a finite number → reject.
+		expect(() => assertCatalogShape(bad)).toThrow(WatchlistFormatError);
+	});
+
+	it("rejects a list entry whose entitiesCount is not finite", () => {
+		const bad = {
+			...validCatalog(),
+			lists: [
+				{
+					id: "X",
+					title: "X",
+					version: "1",
+					path: "x/",
+					entitiesCount: Number.NaN,
+				},
+			],
+		} as unknown as WatchlistCatalog;
+		expect(() => assertCatalogShape(bad)).toThrow(WatchlistFormatError);
+	});
+});
+
+/** A Response over raw bytes (copied into a fresh ArrayBuffer for BodyInit). */
+function bytesResponse(bytes: Uint8Array): Response {
+	const copy = new Uint8Array(bytes.length);
+	copy.set(bytes);
+	return new Response(copy.buffer);
+}
+
+/** Map a fetched URL to the committed bytes/sig for the per-list OFAC files. */
+function ofacFetch(url: string): Response {
+	if (url.endsWith("catalog.json.sig")) return new Response(catalogSig());
+	if (url.endsWith("catalog.json")) return bytesResponse(catalogBytes());
+	if (url.endsWith("watchlist.manifest.json.sig"))
+		return new Response(watchlistManifestSig());
+	if (url.endsWith("watchlist.manifest.json"))
+		return bytesResponse(watchlistManifestBytes());
+	if (url.endsWith("watchlist.json.sig")) return new Response(watchlistSig());
+	if (url.endsWith("watchlist.json")) return bytesResponse(watchlistBytes());
+	throw new Error(`unexpected fetch ${url}`);
+}
+
+describe("fetchVerifiedCatalog + loadList — verify-gated fetch path", () => {
+	afterEach(() => {
+		vi.unstubAllGlobals();
+		vi.restoreAllMocks();
+	});
+
+	it("fetches + verifies + validates the REAL committed catalog", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn((u: string) => Promise.resolve(ofacFetch(u))),
+		);
+		const catalog = await fetchVerifiedCatalog(pubkeyRaw());
+		expect(catalog.schema).toBe(1);
+		expect(catalog.lists.map((l) => l.id)).toContain("OFAC_SDN");
+	});
+
+	it("rejects a tampered catalog body (verify fail-closed, no validate)", async () => {
+		const tampered = catalogBytes().slice();
+		tampered[8] = (tampered[8] ?? 0) ^ 0xff;
+		vi.stubGlobal(
+			"fetch",
+			vi.fn((u: string) =>
+				Promise.resolve(
+					u.endsWith("catalog.json.sig")
+						? new Response(catalogSig())
+						: bytesResponse(tampered),
+				),
+			),
+		);
+		await expect(fetchVerifiedCatalog(pubkeyRaw())).rejects.toThrow();
+	});
+
+	it("loadList rejects a catalog/manifest version skew (fail-closed)", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn((u: string) => Promise.resolve(ofacFetch(u))),
+		);
+		// The committed OFAC list is version "demo-1"; claim "demo-2" in the entry.
+		const skewed: WatchlistCatalogEntry = {
+			id: "OFAC_SDN",
+			title: "OFAC SDN",
+			version: "demo-2",
+			entitiesCount: 3,
+			path: "ofac/",
+		};
+		await expect(loadList(pubkeyRaw(), skewed)).rejects.toThrow(
+			WatchlistFormatError,
+		);
+	});
+
+	it("loadList loads + verifies the OFAC list when versions agree", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn((u: string) => Promise.resolve(ofacFetch(u))),
+		);
+		const entry: WatchlistCatalogEntry = {
+			id: "OFAC_SDN",
+			title: "OFAC SDN",
+			version: "demo-1",
+			entitiesCount: 3,
+			path: "ofac/",
+		};
+		const loaded = await loadList(pubkeyRaw(), entry);
+		expect(loaded.listId).toBe("OFAC_SDN");
+		expect(loaded.entities.get("OFAC_SDN:0001")?.primary_name).toBe(
+			"Ivan Fakovich",
+		);
 	});
 });
