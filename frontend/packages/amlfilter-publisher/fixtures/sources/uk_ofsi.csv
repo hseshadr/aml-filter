@@ -1,5 +1,7 @@
-Name 6,Name 1,Name 2,Name 3,DOB,Nationality,Group Type,Alias Type,Group ID
-Notreal,Sergei,Petrovich,,12/04/1980,Russia,Individual,Primary name,1001
-Notreal,Seryozha,,,12/04/1980,Russia,Individual,AKA,1001
-Imaginary Logistics Ltd,,,,,,Entity,Primary name,1002
-ImagLog,,,,,,Entity,AKA,1002
+Last Updated,03/06/2026
+Name 6,Name 1,Name 2,Name 3,Name 4,Name 5,Title,Name Non-Latin Script,Non-Latin Script Type,Non-Latin Script Language,DOB,Town of Birth,Country of Birth,Nationality,Passport Number,Passport Details,National Identification Number,National Identification Details,Position,Address 1,Address 2,Address 3,Address 4,Address 5,Address 6,Post/Zip Code,Country,Other Information,Group Type,Alias Type,Alias Quality,Regime,Listed On,UK Sanctions List Date Designated,Last Updated,Group ID
+Notreal,Sergei,Petrovich,,,,Mr,,,,12/04/1980,Moscow,Russia,Russia,,,,,,"1 Imaginary Street, Flat 2",,,,,,,Russia,Sanctioned person,Individual,Primary name,Good,Russia,01/01/2022,01/01/2022,03/06/2026,1001
+Notreal,Seryozha,,,,,,,,,12/04/1980,Moscow,Russia,Russia,,,,,,,,,,,,,Russia,,Individual,AKA,Good,Russia,01/01/2022,01/01/2022,03/06/2026,1001
+Imaginary Logistics Ltd,,,,,,,,,,,,,,,,,,,"10 Nowhere Road, Unit 5",,,,,,,United Kingdom,Front company,Entity,Primary name,Good,Russia,01/01/2022,01/01/2022,03/06/2026,1002
+ImagLog,,,,,,,,,,,,,,,,,,,,,,,,,,United Kingdom,,Entity,AKA,Good,Russia,01/01/2022,01/01/2022,03/06/2026,1002
+"""ACME"" TRADING LLC",,,,,,,,,,,,,,,,,,,"Office 3, Somewhere Tower",,,,,,,Cyprus,Designated entity,Entity,Primary name,Good,Russia,01/01/2022,01/01/2022,03/06/2026,1003

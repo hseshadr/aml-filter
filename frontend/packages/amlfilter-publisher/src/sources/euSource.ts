@@ -1,8 +1,8 @@
 // EU consolidated sanctions adapter.
 //
-// fetchRaw: SCAFFOLDED — the EU FSD feed is served behind a rotating access
-//   token (xmlFullSanctionsList_1_1?token=...). The real endpoint is wired with a
-//   TODO to inject the token; parse() below is the real, fixture-tested part.
+// fetchRaw: LIVE — the EU FSD public feed (xmlFullSanctionsList_1_1) is served
+//   with a static public access token (see EU_URL); no secret/token plumbing is
+//   needed. parse() below is the real, fixture-tested part.
 // parse:    REAL — maps <sanctionEntity> (logicalId, subjectType, nameAlias,
 //   birthdate, citizenship/address country) into namespaced SourceLines.
 
@@ -18,9 +18,16 @@ import { elements } from "./xml.ts";
 /** The logical raw-file key for the single EU XML document. */
 export const EU_RAW_FILE = "eu_consolidated.xml";
 
-/** TODO(token): the real feed requires a rotating access token query param. */
-const EU_URL =
-	"https://webgate.ec.europa.eu/fsd/fsf/public/files/xmlFullSanctionsList_1_1/content?token=";
+/**
+ * The EU consolidated sanctions download URL.
+ *
+ * The `token=dG9rZW4tMjAxNw` param is the EU webgate's static public access
+ * token (base64 of "token-2017"): required by the endpoint but NOT a secret and
+ * NOT rotating, so it is simply hard-coded. This is distinct from the
+ * registered/rotating FSD token used by the authenticated feed.
+ */
+export const EU_URL =
+	"https://webgate.ec.europa.eu/fsd/fsf/public/files/xmlFullSanctionsList_1_1/content?token=dG9rZW4tMjAxNw";
 
 function entityType(code: string): "PERSON" | "ORGANIZATION" {
 	return code.toLowerCase() === "person" ? "PERSON" : "ORGANIZATION";
@@ -84,7 +91,6 @@ export const euSource: WatchlistSource = {
 	id: EU_LIST_ID,
 	title: "EU Consolidated",
 	async fetchRaw(): Promise<RawListBytes> {
-		// TODO(token): append the rotating access token before fetching.
 		const res = await fetch(EU_URL);
 		if (!res.ok) {
 			throw new Error(`fetch EU list failed: ${res.status} ${res.statusText}`);

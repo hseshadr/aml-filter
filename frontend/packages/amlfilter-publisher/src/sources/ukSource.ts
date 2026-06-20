@@ -1,11 +1,11 @@
 // UK OFSI consolidated sanctions adapter (the "ConList" CSV).
 //
-// fetchRaw: SCAFFOLDED — OFSI publishes the consolidated list as a CSV (and an
-//   XML) at a stable gov.uk path, but the exact asset URL is occasionally
-//   re-pathed; the real CSV endpoint is wired with a TODO to confirm the asset id.
-// parse:    REAL — a header-aware CSV reader groups rows by "Group ID" (the
-//   primary-name row + AKA rows of one entity share an id) into namespaced
-//   SourceLines. Fixture-tested in ukSource.test.ts.
+// fetchRaw: REAL — pulls the maintained OFSI ConList blob (a single CSV).
+// parse:    REAL — an RFC-4180 CSV reader skips the leading `Last Updated,<date>`
+//   metadata line, reads the header from the first line that actually carries the
+//   known columns, then groups data rows by "Group ID" (the primary-name row +
+//   AKA rows of one entity share an id) into namespaced SourceLines.
+//   Fixture-tested in ukSource.test.ts.
 
 import {
 	namespacedId,
@@ -18,29 +18,69 @@ import {
 /** The logical raw-file key for the single UK CSV document. */
 export const UK_RAW_FILE = "uk_ofsi.csv";
 
-/** TODO(asset): confirm the current consolidated-list CSV asset path. */
+// The maintained OFSI ConList blob. The gov.uk ConList page was officially
+// Withdrawn 2026-01-28 in favor of the UK Sanctions List (UKSL), but this blob is
+// still being updated, so we ship it now; migrating the adapter to UKSL is a
+// tracked future increment. (The bare `.../publishlive/ConList.csv` and the
+// `assets.publishing.service.gov.uk/...` paths now 404 — do not use them.)
 const UK_URL =
-	"https://assets.publishing.service.gov.uk/media/uk-sanctions-list/ConList.csv";
+	"https://ofsistorage.blob.core.windows.net/publishlive/2022format/ConList.csv";
+
+/** The column that uniquely keys a real ConList header row. */
+const HEADER_MARKER_COL = "Group ID";
 
 const FORENAME_COLS = ["Name 1", "Name 2", "Name 3", "Name 4", "Name 5"];
 
-/** Split one CSV line into fields, honoring simple double-quoted fields. */
+/** Split one CSV line into fields per RFC 4180: double-quoted fields may contain
+ * commas and embedded quotes are escaped by doubling (`""` -> `"`). */
 function splitCsv(line: string): string[] {
 	const fields: string[] = [];
-	const re = /(?:^|,)(?:"([^"]*)"|([^,]*))/g;
-	for (let m = re.exec(line); m !== null; m = re.exec(line)) {
-		fields.push((m[1] ?? m[2] ?? "").trim());
+	let field = "";
+	let inQuotes = false;
+	for (let i = 0; i < line.length; i++) {
+		const ch = line[i];
+		if (inQuotes) {
+			if (ch === '"') {
+				if (line[i + 1] === '"') {
+					field += '"';
+					i++; // consume the escaped quote
+				} else {
+					inQuotes = false;
+				}
+			} else {
+				field += ch;
+			}
+		} else if (ch === '"') {
+			inQuotes = true;
+		} else if (ch === ",") {
+			fields.push(field.trim());
+			field = "";
+		} else {
+			field += ch;
+		}
 	}
+	fields.push(field.trim());
 	return fields;
 }
 
 /** A single source CSV row, keyed by header name. */
 type Row = Record<string, string>;
 
+/** Find the header line: the first line that carries the known marker column.
+ * This robustly skips the leading `Last Updated,<date>` metadata line, which has
+ * only two fields and lacks the `Group ID` column. */
+function findHeaderIndex(lines: readonly string[]): number {
+	return lines.findIndex((line) => splitCsv(line).includes(HEADER_MARKER_COL));
+}
+
 function parseRows(csv: string): Row[] {
 	const lines = csv.split(/\r?\n/).filter((l) => l.trim() !== "");
-	const header = splitCsv(lines[0] ?? "");
-	return lines.slice(1).map((line) => {
+	const headerIdx = findHeaderIndex(lines);
+	if (headerIdx < 0) {
+		return [];
+	}
+	const header = splitCsv(lines[headerIdx] ?? "");
+	return lines.slice(headerIdx + 1).map((line) => {
 		const fields = splitCsv(line);
 		const row: Row = {};
 		header.forEach((h, i) => {
@@ -105,7 +145,6 @@ export const ukSource: WatchlistSource = {
 	id: UK_LIST_ID,
 	title: "UK OFSI",
 	async fetchRaw(): Promise<RawListBytes> {
-		// TODO(asset): confirm/lock the current consolidated CSV asset path.
 		const res = await fetch(UK_URL);
 		if (!res.ok) {
 			throw new Error(`fetch UK list failed: ${res.status} ${res.statusText}`);
