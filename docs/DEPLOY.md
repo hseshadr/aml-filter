@@ -3,7 +3,7 @@
 > aml-filter is a portfolio demo, **not** a compliance product. Do not deploy it as a
 > production sanctions-screening control. See [`../NOTICE`](../NOTICE).
 
-**TL;DR.** aml-filter is a **static single-page app** plus a set of **signed static
+**TL;DR.** aml-filter is a **static single-page app** plus a **signed catalog of static
 watchlist files**. There is nothing to provision — no server, no database, no
 containers. Build it, then host the output directory on any static host or CDN
 (Netlify, Vercel, GitHub Pages, S3 + CloudFront, Cloudflare Pages, …). The only hard
@@ -29,8 +29,8 @@ everything the app needs at runtime:
 | Bundled into `dist/` | What it is |
 | --- | --- |
 | the SPA (HTML/JS/CSS) | the React app and the in-tab screening/scorer code |
-| `watchlist/` (4 files) | the committed **signed** OFAC watchlist artifact |
-| `public.key` | the pinned Ed25519 public key the app verifies the watchlist against |
+| `watchlist/` | the committed **signed** demo catalog: `catalog.json(.sig)` + per-list dirs (`ofac/ eu/ un/ uk/`) |
+| `public.key` | the pinned Ed25519 public key the app verifies the catalog + lists against |
 | `models/` | the MiniLM embedding-model weights (loaded once, in-tab) |
 
 ## 2. Serve it (secure context required)
@@ -46,11 +46,13 @@ Serve `dist/` as plain static files over **HTTPS**. A secure context is required
 lanes rely on; a LAN IP does **not** and will fail differently. Any static host that
 serves over HTTPS works without further configuration.
 
-## 3. Refreshing the OFAC list
+## 3. Refreshing the lists
 
-The OFAC SDN list changes frequently; screening against a stale copy can miss
-newly-listed entities. The watchlist is regenerated and re-signed by the
-**`publish-watchlist` GitHub Action**
+The sanctions lists change frequently; screening against a stale copy can miss
+newly-listed entities. The OFAC list is regenerated and re-signed by the
+**`publish-watchlist` GitHub Action** (the workflow runs the single-list `publish` CLI
+for OFAC SDN; the committed multi-list demo catalog is rebuilt locally with
+`build-demo-multilist`)
 ([`../.github/workflows/publish-watchlist.yml`](../.github/workflows/publish-watchlist.yml)).
 
 **Trigger.** It runs **daily on a cron** (`0 6 * * *`, 06:00 UTC) and on manual
@@ -68,7 +70,8 @@ exactly 32 bytes**. The key's public half is the `public.key` pinned in the app 
 that pairing is what makes in-tab verification meaningful, so never rotate one without
 the other.
 
-**The signed artifact.** The publisher emits four static files into the out directory:
+**The signed artifact.** For a single list, the publisher emits four static files into
+the out directory:
 
 ```
 watchlist.json
@@ -77,7 +80,11 @@ watchlist.manifest.json
 watchlist.manifest.json.sig
 ```
 
-Running the publisher directly (the same CLI the Action invokes):
+For the multi-list catalog (`build-demo-multilist`), those four files live under a
+per-list directory (`ofac/`, `eu/`, `un/`, `uk/`), and a signed `catalog.json` +
+`catalog.json.sig` registers them one level up. See [`WATCHLIST_FORMAT.md`](WATCHLIST_FORMAT.md).
+
+Running the single-list publisher directly (the same CLI the Action invokes):
 
 ```bash
 cd frontend
@@ -99,10 +106,12 @@ deployment choice**; wire that step to match wherever you host `dist/`.
 
 ## 4. How clients pick up a refresh
 
-Once new watchlist files are live, browser clients **auto-detect the new `version` via
-the manifest poll**, then re-sync and **re-verify fail-closed** against the pinned
-`public.key`. So the refresh flow is: re-sign the list (the Action) → publish the new
-files to your host → clients converge on their own.
+Once new list files are live, browser clients **auto-detect the new `version`** (the
+catalog and the per-list manifest carry it), then re-sync and **re-verify fail-closed**
+against the pinned `public.key`, re-screening every customer. The durable IndexedDB cache
+only serves a row whose version matches the signed catalog entry, so a version bump
+invalidates it. So the refresh flow is: re-sign the lists (the Action / `build-demo-multilist`)
+→ publish the new files to your host → clients converge on their own.
 
 ## Operational caveats
 

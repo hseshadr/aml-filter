@@ -1,6 +1,6 @@
 # aml-filter
 
-> **A free, zero-server AML/sanctions screening app that runs entirely in your browser — and shows exactly why each customer matched.**
+> **A free, zero-server watchlist-filtering and KYC-review app that runs entirely in your browser — screens your customers against multiple sanctions lists, shows exactly why each one matched, and gives reviewers an auditable workflow.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue.svg)](https://www.typescriptlang.org/)
@@ -15,18 +15,26 @@ alphabets; one typo can hide a real match.
 **aml-filter does that fuzzy name-matching, shows its work, and does all of it in a
 browser tab — no server, no signup, no database to run.** Open the app and it:
 
-1. **Downloads a signed OFAC watchlist** and verifies it *in the tab* (Ed25519,
-   fail-closed — any bad signature or hash aborts the load).
+1. **Downloads a signed catalog of watchlists** — OFAC SDN plus EU, UN, and UK/OFSI —
+   and verifies every one *in the tab* (Ed25519, fail-closed — any bad signature or hash
+   aborts the load). You choose which lists are active in **Settings**.
 2. **Holds your customers locally** — your *whitelist* lives in SQLite-WASM on OPFS,
    inside your own browser. Customer data never leaves your machine.
-3. **Screens every customer against the watchlist entirely in the browser**, scoring
+3. **Screens every customer across all enabled lists entirely in the browser**, scoring
    each candidate and handing back a number *plus a plain-English reason* — "strong
-   name-vector similarity, country match." No black box; a reviewer can always see why.
-4. **Keeps both sides in sync.** A new watchlist version re-screens all your
-   customers; editing a customer re-screens that one customer.
+   name-vector similarity, country match" — tagged with which list it came from. No
+   black box; a reviewer can always see why.
+4. **Gives reviewers an auditable workflow.** Each match is reviewed once; a re-screen
+   only re-flags it (**CHANGED — needs re-review**) when the underlying data materially
+   changes. Every disposition is written to an append-only audit trail you can open per
+   match. Sensitivity (Strict / Balanced / Lenient) and per-list thresholds are
+   configurable.
+5. **Keeps both sides in sync.** A new list version re-screens all your customers;
+   editing a customer re-screens that one customer.
 
-Lean and mean: the whole thing is TypeScript that runs client-side. The watchlist is
-just signed static files served from any host or CDN.
+Lean and mean: the whole thing is TypeScript that runs client-side. The lists are just
+signed static files served from any host or CDN, cached durably in your browser
+(IndexedDB) so the app works **offline** — and re-verified fail-closed on every load.
 
 > _aml-filter is an engineering-portfolio demo, **not** a compliance product. Do not
 > use it to meet any legal or regulatory obligation. See the
@@ -48,14 +56,19 @@ pnpm --filter aml-filter-app dev   # Vite dev server; prints a localhost URL (de
 
 Open the printed URL, then:
 
-- **`/screen`** — the in-tab OFAC screening demo. Type a name and watch it match as
-  you type, with a scored, explained match card. (A made-up name returns nothing; a
-  name on the watchlist returns a ranked, reason-by-reason result.)
+- **`/screen`** — the in-tab screening demo. Type a name and watch it match as you type,
+  across every enabled list, with a scored, explained match card that names its source
+  list. (A made-up name returns nothing; a name on a watchlist returns a ranked,
+  reason-by-reason result.)
 - **`/customers`** — load your own customers (the local whitelist) and let the app
-  auto-screen them against the same signed watchlist.
+  auto-screen them against all enabled lists.
+- **`/review`** — work the resulting matches: tiered, filterable (All / Needs review /
+  Changed only), with a per-match History drawer. Resolve each one with a reviewer note.
+- **`/settings`** — choose which lists are active, set sensitivity and per-list
+  thresholds, name the analyst, and clear the durable list cache.
 
-On first run the demo watchlist is already built and committed, so it works on a cold
-clone with no extra steps.
+On first run the demo catalog (four small fictional lists) is already built and
+committed, so everything works on a cold clone with no extra steps.
 
 ### Production build & preview
 
@@ -81,7 +94,7 @@ pnpm -r run build       # production build across the workspace
 
 Plus the two Playwright end-to-end lanes (run from `frontend/app`): the in-tab
 screening lane and the backend-free KYC journey (onboard → auto-screen → review →
-resolve) against the minified build and the committed signed demo watchlist.
+resolve) against the minified build and the committed signed demo catalog.
 
 ## Architecture — three TypeScript units
 
@@ -91,16 +104,26 @@ under `frontend/`.
 ### 1. Publisher — `@amlfilter/publisher`
 
 [`frontend/packages/amlfilter-publisher`](frontend/packages/amlfilter-publisher) is the
-build-time tool that produces the signed watchlist. It fetches OFAC SDN → normalizes
-the entities → embeds the names with **transformers.js in Node** (no torch, no Python)
-→ Ed25519-signs → emits **four static files**: `watchlist.json` + `watchlist.json.sig`
-and `watchlist.manifest.json` + `watchlist.manifest.json.sig`. The wire format is
-documented in [`docs/WATCHLIST_FORMAT.md`](docs/WATCHLIST_FORMAT.md).
+build-time tool that produces the signed lists. Each watchlist source is a
+**`WatchlistSource` adapter** (`src/sources/`) that knows how to `fetchRaw()` and
+`parse()` one list into a neutral entity shape; the publisher then normalizes →
+embeds names with **transformers.js in Node** (no torch, no Python) → Ed25519-signs.
+For each list it emits the v3 four-file set (`watchlist.json` + `.sig`,
+`watchlist.manifest.json` + `.sig`) under a per-list directory, and one level up it
+emits a **signed `catalog.json` + `catalog.json.sig`** registry of all the lists.
+Entity IDs are namespaced per list (`OFAC_SDN:…`, `EU_CONSOLIDATED:…`). The wire format
+is documented in [`docs/WATCHLIST_FORMAT.md`](docs/WATCHLIST_FORMAT.md).
+
+Four adapters ship: **OFAC SDN** and **UN** fetch live (`fetchRaw` is real); **EU** and
+**UK/OFSI** have their real endpoint URLs wired but `fetchRaw` is **scaffolded** (EU
+needs a rotating access token, UK needs its asset path confirmed — each has a `TODO`).
+All four `parse()` implementations are real and fixture-tested.
 
 ```bash
 # from frontend/
-pnpm build-demo-list   # builds the committed demo watchlist (alias for @amlfilter/publisher build-demo)
-pnpm publish-list      # the production publish CLI (alias for @amlfilter/publisher publish)
+pnpm build-demo-list                                        # builds the legacy single-list demo (alias for @amlfilter/publisher build-demo)
+pnpm --filter @amlfilter/publisher run build-demo-multilist # builds the committed multi-list demo catalog the app loads
+pnpm publish-list                                           # the production single-list publish CLI (alias for @amlfilter/publisher publish)
 ```
 
 The production publish CLI takes flags:
@@ -112,22 +135,31 @@ The production publish CLI takes flags:
 In CI, [`.github/workflows/publish-watchlist.yml`](.github/workflows/publish-watchlist.yml)
 runs daily (cron `0 6 * * *`) and on manual dispatch: it fetches OFAC SDN, builds
 `entities.jsonl`, signs with the `WATCHLIST_SIGNING_KEY` repo secret (a base64-encoded
-raw 32-byte Ed25519 seed), and emits the four signed static files.
+raw 32-byte Ed25519 seed), and emits the signed static files.
 
 ### 2. Browser engine — `@amlfilter/browser`
 
 [`frontend/packages/amlfilter-browser`](frontend/packages/amlfilter-browser) is the
-in-tab screening engine. It fetches the signed watchlist same-origin → verifies it
+in-tab screening engine. It fetches the signed `catalog.json` same-origin → verifies it
 **fail-closed** (Ed25519 against the pinned public key
 [`frontend/app/public/public.key`](frontend/app/public/public.key); any signature or
-hash mismatch aborts) → decodes the precomputed name vectors → embeds the query or
-customer name in-tab (transformers.js MiniLM, `Xenova/all-MiniLM-L6-v2`, 384-dim) →
-runs a brute-force cosine search → scores each candidate with an explainable weighted
-scorer.
+hash mismatch aborts) → then fetches and verifies each enabled list the catalog points
+at → decodes the precomputed name vectors → embeds the query or customer name in-tab
+(transformers.js MiniLM, `Xenova/all-MiniLM-L6-v2`, 384-dim) → runs a brute-force cosine
+search → scores each candidate with an explainable weighted scorer.
+
+The `MultiListScreeningEngine` (`engine/multiEngine.ts`) holds **one vector index per
+list over a single shared embedder**: it embeds the query once, screens each enabled
+list, applies its threshold (`perList[id] ?? query.threshold ?? default`), then merges
+and re-ranks — a strong hit in *any* list surfaces.
 
 The scorer (`computeScore` / `PRESETS`: `strict` / `balanced` / `lenient`) sums five
 signals — `name_vector`, `name_trigram`, `alias_match`, `dob_match`, `country_match` —
 and every match carries the per-signal breakdown plus a plain-language summary.
+
+Verified list bytes are cached durably in **IndexedDB** (`engine/listCache.ts`, a store
+separate from the customer DB), re-verified fail-closed on every load, so the app works
+**offline** on a cold network.
 
 Entry point: `EngineRuntime.bootstrap()` → `ScreeningEngine.screen({ name })`.
 
@@ -135,17 +167,28 @@ Entry point: `EngineRuntime.bootstrap()` → `ScreeningEngine.screen({ name })`.
 
 [`frontend/packages/amlfilter-workstation`](frontend/packages/amlfilter-workstation) is
 the local-first KYC tier, and [`frontend/app`](frontend/app) is the React SPA on top of
-it. A SQLite-WASM/OPFS DB Web Worker holds your customers and match history (tables
-`customers`, `kyc_matches`, `settings`). The package owns onboarding, review, tiering,
-and the **bidirectional rescan** (`rescan.ts`: `screenCustomer`, `rescanAll`,
-`syncWatchlist`).
+it. A SQLite-WASM/OPFS DB Web Worker holds your customers and match history (schema v2:
+`customers`, `kyc_matches` — now with `material_fingerprint` + `review_state` columns —
+the append-only `match_events` audit trail, and `settings`). The package owns
+onboarding, review, tiering, and the **bidirectional rescan** (`rescan.ts`:
+`screenCustomer`, `rescanAll`, `syncWatchlist`).
+
+**Review once, re-review on material change.** Each match stores a `material_fingerprint`
+(`fingerprint.ts`) hashed over the customer's identity fields and the matched entity's
+identity fields. On a rescan, an unchanged match keeps its prior disposition and stays
+suppressed; a materially-changed one is flagged **CHANGED** (keeping the prior
+disposition) and an event is appended. `match_events` is insert-only — `DETECTED`,
+`DISPOSITIONED`, `REOPENED`, `CHANGED`, `SUPPRESSED` — and is the audit trail the History
+drawer reads.
 
 React routes:
 
 - `/` — marketing landing
-- `/screen` — the in-tab screening demo
+- `/screen` — the in-tab screening demo (across enabled lists)
 - `/customers` — your local customer whitelist (auto-screened)
-- `/review` — triage and resolve matches
+- `/review` — the review board: tiered, View filter (All / Needs review / Changed only),
+  Source column, per-match History drawer
+- `/settings` — sensitivity + per-list thresholds, list selection, analyst name, clear cache
 
 No login, no API key.
 
@@ -154,15 +197,19 @@ Full write-up and diagrams: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md),
 
 ## Trust model
 
-The watchlist is distributed as plain **signed static files** on any host or CDN — no
+The lists are distributed as plain **signed static files** on any host or CDN — no
 application server in the path. In the browser:
 
-- The engine polls the small `watchlist.manifest.json` for the current version.
-- If the version changed, it fetches the full `watchlist.json`.
-- **Both files are verified with detached Ed25519 signatures, fail-closed, against the
-  pinned [`public.key`](frontend/app/public/public.key)** baked into the app build. Any
+- The engine fetches the signed **`catalog.json`** (the registry of lists) and verifies
+  it first.
+- For each enabled list, it fetches that list's `watchlist.manifest.json` /
+  `watchlist.json` and verifies them too.
+- **Every file is verified with a detached Ed25519 signature, fail-closed, against the
+  pinned [`public.key`](frontend/app/public/public.key)** baked into the app build (the
+  catalog and all lists share one trust anchor — verify-before-parse, top to bottom). Any
   signature or hash mismatch aborts the load — there is no silent fallback to an
-  unverified list.
+  unverified list. The same fail-closed check runs over bytes served from the IndexedDB
+  cache, so a poisoned cache entry can never be trusted.
 
 The signing private key never leaves CI: it lives only as the `WATCHLIST_SIGNING_KEY`
 GitHub Actions secret used by the publish workflow.
@@ -179,15 +226,15 @@ source of truth. (The generators that once produced these goldens were removed i
 pivot to a pure-TypeScript app.) Any drift in score, reasons, or tier classification
 fails the test suite.
 
-## The OFAC list (data)
+## The sanctions lists (data)
 
-aml-filter never bundles or redistributes the official sanctions list as part of the
-app. The signed watchlist is built from the **SDN List** published by the U.S.
-Treasury's Office of Foreign Assets Control
-(<https://sanctionslist.ofac.treasury.gov>) — a U.S. Government work in the public
-domain. The committed demo watchlist is built from a small set of **fictional**
-entities so the demo is turnkey from a cold clone. Always screen against the current
-official list; it changes often. Attribution and the full data note are in
+aml-filter never bundles or redistributes any official sanctions list as part of the
+app. The signed lists are built from public sources via per-list adapters — the U.S.
+Treasury OFAC **SDN List** (<https://sanctionslist.ofac.treasury.gov>, a U.S. Government
+work in the public domain), the EU Consolidated list, the UN Consolidated list, and the
+UK/OFSI consolidated list. The committed demo catalog is built from small sets of
+**fictional** entities so the demo is turnkey from a cold clone. Always screen against
+the current official lists; they change often. Attribution and the full data note are in
 [`NOTICE`](NOTICE).
 
 ## Docs
@@ -197,9 +244,9 @@ This README is the canonical index.
 - [`docs/QUICKSTART.md`](docs/QUICKSTART.md) — clone → run → screen a name.
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — the in-browser pipeline, the three
   units, the scoring contract.
-- [`docs/WATCHLIST_FORMAT.md`](docs/WATCHLIST_FORMAT.md) — the signed watchlist wire
-  format.
-- [`docs/DEPLOY.md`](docs/DEPLOY.md) — publishing and hosting the signed watchlist files.
+- [`docs/WATCHLIST_FORMAT.md`](docs/WATCHLIST_FORMAT.md) — the signed catalog + per-list
+  wire format.
+- [`docs/DEPLOY.md`](docs/DEPLOY.md) — publishing and hosting the signed catalog + list files.
 - [`docs/diagrams/`](docs/diagrams/) — d2 sources + rendered SVGs.
 
 ## Repo layout
@@ -208,13 +255,14 @@ This README is the canonical index.
 aml-filter/
 ├── frontend/                            # pnpm workspace (Node 22.13, pnpm, Biome, Vitest, Playwright)
 │   ├── .nvmrc                           #   pinned Node version
-│   ├── app/                             #   React + Vite SPA — landing · /screen · /customers · /review
-│   │   └── public/public.key            #   pinned Ed25519 verify key
+│   ├── app/                             #   React + Vite SPA — landing · /screen · /customers · /review · /settings
+│   │   ├── public/public.key            #   pinned Ed25519 verify key
+│   │   └── public/watchlist/            #   committed signed demo catalog: catalog.json(.sig) + ofac/ eu/ un/ uk/
 │   └── packages/
-│       ├── amlfilter-publisher/         #   @amlfilter/publisher — fetch OFAC → embed → sign → emit static files
-│       ├── amlfilter-browser/           #   @amlfilter/browser — in-tab verify + embed + cosine search + scorer
-│       └── amlfilter-workstation/       #   @amlfilter/workstation — SQLite-WASM/OPFS DB worker + rescan
-├── .github/workflows/publish-watchlist.yml  # daily signed-watchlist publish
+│       ├── amlfilter-publisher/         #   @amlfilter/publisher — list adapters → embed → sign → catalog + per-list files
+│       ├── amlfilter-browser/           #   @amlfilter/browser — multi-list verify + embed + cosine search + scorer + IndexedDB cache
+│       └── amlfilter-workstation/       #   @amlfilter/workstation — SQLite-WASM/OPFS DB worker + rescan + audit trail
+├── .github/workflows/publish-watchlist.yml  # daily signed-list publish
 ├── docs/                                # ARCHITECTURE · QUICKSTART · DEPLOY · WATCHLIST_FORMAT · diagrams/
 ├── LICENSE  NOTICE  CHANGELOG.md  CONTRIBUTING.md
 ```

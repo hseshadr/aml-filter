@@ -4,6 +4,53 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.0.0] — 2026-06-20
+
+**From a single-list screener to a watchlist-filtering + KYC-review product.** aml-filter
+still runs entirely in the browser tab — zero-server, pure-TypeScript — but it now screens
+against **multiple sanctions lists** you select, wraps the matches in an **enterprise
+review workflow** with an immutable audit trail, and **caches the lists durably** so it
+works offline. Shipped on branch `feat/review-tool-v4`.
+
+### Added
+
+- **Multi-list screening.** A `WatchlistSource` adapter (`@amlfilter/publisher`
+  `src/sources/`) per list — **OFAC SDN, EU, UN, UK/OFSI** — each with `fetchRaw()` +
+  `parse()`. The publisher emits a **signed `catalog.json`** registry plus per-list signed
+  artifacts under `watchlist/<id>/`, and the browser's `MultiListScreeningEngine`
+  (`engine/multiEngine.ts`) holds one vector index per list over a single shared embedder,
+  screening across all enabled lists and merging the results. _(OFAC/UN `fetchRaw` are live;
+  EU/UK `fetchRaw` are scaffolded — real endpoint URL + a `TODO` for the access token /
+  asset path — while all four `parse()` are real and fixture-tested.)_
+- **List selection + per-list thresholds.** `/settings` lets you enable/disable lists and
+  set a per-list sensitivity override; the engine applies
+  `perList[id] ?? query.threshold ?? default`.
+- **Enterprise review tool.** A `/settings` page (sensitivity Strict/Balanced/Lenient,
+  per-list overrides, watchlist selection, analyst name) and a review board with a **View
+  filter** (All / Needs review / Changed only), a **Source** column, a **"CHANGED — needs
+  re-review"** badge, and a per-match **History drawer** backed by an append-only
+  `match_events` audit trail (`DETECTED` / `DISPOSITIONED` / `REOPENED` / `CHANGED` /
+  `SUPPRESSED`).
+- **Review-once / re-review-on-material-change.** A `material_fingerprint`
+  (`@amlfilter/workstation` `fingerprint.ts`) hashed over the customer's and matched
+  entity's identity fields: an unchanged match stays suppressed with its prior disposition;
+  a materially-changed one is flagged `CHANGED` while keeping the prior disposition.
+- **Durable IndexedDB list cache** (`@amlfilter/browser` `engine/listCache.ts`,
+  `watchlistCache.ts`) — verified list bytes cached in a store separate from the customer
+  DB, **re-verified fail-closed on every load**, enabling **offline** screening. "Clear
+  cached lists" lives in `/settings`.
+
+### Changed
+
+- **Single signed watchlist → signed catalog + per-list artifacts.** The browser now loads
+  `watchlist/catalog.json` (verified first) and then each enabled list, instead of one flat
+  `watchlist.json`. The v3 per-list file format is unchanged — it is exactly the N=1 case.
+- **Namespaced entity ids.** Every adapter stamps `entity_id = "<source_list>:<rawId>"`
+  (e.g. `OFAC_SDN:12345`) so ids stay unique once lists are merged into one engine.
+- **SQLite schema bumped to v2** (`SCHEMA_VERSION = 2`): `kyc_matches` gains
+  `material_fingerprint` and `review_state`; a new append-only `match_events` table records
+  the audit trail.
+
 ## [3.0.0] — 2026-06-19
 
 **The pivot to zero-server.** aml-filter is now a free, **pure-TypeScript, in-browser**

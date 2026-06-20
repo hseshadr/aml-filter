@@ -1,12 +1,12 @@
 # Quickstart
 
-aml-filter is a **zero-server, in-browser** AML / sanctions screening app: a static
-React SPA that syncs a **signed OFAC watchlist** into the tab and screens names
-locally — embedding, search, and the explainable scorer all run in the browser. No
-server, no database, nothing to provision.
+aml-filter is a **zero-server, in-browser** watchlist-filtering and KYC-review app: a
+static React SPA that syncs a **signed catalog of sanctions lists** (OFAC, EU, UN,
+UK/OFSI) into the tab and screens names locally — embedding, search, and the explainable
+scorer all run in the browser. No server, no database, nothing to provision.
 
-Clone → install → run → screen a name. About **ten minutes**, mostly the first build
-fetching the embedding-model weights.
+Clone → install → run → screen a name → work it in the review board. About **ten
+minutes**, mostly the first build fetching the embedding-model weights.
 
 > Reminder: aml-filter is a portfolio demo, **not** a compliance product. See
 > [`../NOTICE`](../NOTICE).
@@ -38,48 +38,74 @@ storage.
 Go to **`/screen`**. On first visit the page:
 
 1. boots the **MiniLM** embedder once (cached after the first load),
-2. syncs the committed **signed watchlist** into the tab and **verifies it**
-   (Ed25519 + SHA-256, fail-closed — a tampered or unsigned list aborts the load),
-3. is then ready to screen names entirely in-tab.
+2. syncs the committed **signed catalog** into the tab — it verifies `catalog.json`
+   first, then each enabled list it points at (Ed25519 + SHA-256, fail-closed — a
+   tampered or unsigned file aborts the load),
+3. is then ready to screen names across all enabled lists entirely in-tab.
 
-Type a sanctioned-ish name (something close to a real SDN entry) and submit. You get a
+Type a sanctioned-ish name (something close to a demo entry) and submit. You get a
 **scored result with a `reasons[]` breakdown and a plain-language explanation** —
-which name signals fired (name similarity, alias, country, DOB) and how they rolled up
-into the score. Adjust the strictness slider (Lenient / Balanced / Strict) to see the
-match threshold tighten. See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the scoring
-contract.
+which name signals fired (name similarity, alias, country, DOB), how they rolled up
+into the score, and which **source list** the match came from. Adjust the strictness
+slider (Lenient / Balanced / Strict) to see the match threshold tighten. See
+[`ARCHITECTURE.md`](ARCHITECTURE.md) for the scoring contract.
 
-## 3. Onboard a customer and work a match (`/customers` → `/review`)
+## 3. Choose lists and sensitivity (`/settings`)
+
+Go to **`/settings`** to configure the screening run. It persists to the local SQLite
+`settings` table (not the server — there is no server):
+
+- **Screening sensitivity** — Strict / Balanced / Lenient. This is the global match
+  threshold; Strict surfaces fewer, higher-confidence matches.
+- **Watchlists** — tick the lists to screen against (OFAC SDN, EU, UN, UK/OFSI). A list
+  you disable drops out of future screens; its matches become `SUPPRESSED` on the next
+  rescan.
+- **Per-list overrides** — tighten or loosen the threshold for one list independently.
+- **Analyst name** — stamped on the dispositions you record.
+- **Clear cached lists** — drops the durable IndexedDB list cache; the next load
+  re-fetches and re-verifies fail-closed.
+
+## 4. Onboard a customer and work a match (`/customers` → `/review`)
 
 The app is a small **local-first KYC workstation** on top of screening. Its store is a
 SQLite-WASM database persisted in your browser's OPFS — local to the tab, no server.
 
 1. Go to **`/customers`** and onboard a customer (name, and optionally country / DOB).
-   The customer is **auto-screened on the spot** against the signed watchlist; any hits
-   are saved with the customer.
+   The customer is **auto-screened on the spot** across all enabled lists; any hits are
+   saved with the customer.
 2. Go to **`/review`** to work the resulting matches. They are tiered
-   (STRONG / POSSIBLE / WEAK); open one, read its reasons, and **resolve** it with a
-   reviewer note (e.g. true positive / false positive).
+   (STRONG / POSSIBLE / WEAK) and carry a **Source** column naming the list. Use the
+   **View filter** (All / Needs review / Changed only) to focus; open the per-match
+   **History drawer** to read the audit trail; open a match, read its reasons, and
+   **resolve** it with a reviewer note (e.g. true positive / false positive).
+3. **Re-screen behavior.** When a list version advances (or you edit the customer), the
+   match is re-screened. If nothing material changed, the match keeps your prior
+   disposition and stays suppressed — you don't re-review it. If the matched entity's
+   identity data changed, the match is flagged **CHANGED — needs re-review** (keeping the
+   prior disposition) and shows up under "Needs review" / "Changed only". Every
+   transition is appended to the immutable `match_events` audit trail.
 
 Everything — onboarding, screening, and the review decision — happens in the browser
-against the in-tab database and the signed watchlist.
+against the in-tab database and the signed lists.
 
-## 4. Build a demo watchlist
+## 5. Build a demo catalog
 
-The repo already ships a committed **demo** watchlist (signed, under
-`frontend/app/public/watchlist/`) so `/screen` works on a cold clone. To rebuild it:
+The repo already ships a committed **demo** catalog (signed, under
+`frontend/app/public/watchlist/` — `catalog.json` + the `ofac/ eu/ un/ uk/` per-list
+dirs) so `/screen` works on a cold clone. To rebuild it:
 
 ```bash
 cd frontend
-pnpm build-demo-list      # alias for: pnpm --filter @amlfilter/publisher run build-demo
+pnpm --filter @amlfilter/publisher run build-demo-multilist
 ```
 
-This regenerates the four signed static files (`watchlist.json`, `watchlist.json.sig`,
-`watchlist.manifest.json`, `watchlist.manifest.json.sig`). For building a watchlist from
-your own OFAC export, and for refreshing the live list, see [`DEPLOY.md`](DEPLOY.md) and
-the wire format in [`WATCHLIST_FORMAT.md`](WATCHLIST_FORMAT.md).
+This regenerates `catalog.json(.sig)` plus, for each list, the four signed static files
+(`watchlist.json`, `watchlist.json.sig`, `watchlist.manifest.json`,
+`watchlist.manifest.json.sig`). For building lists from your own exports, and for
+refreshing the live data, see [`DEPLOY.md`](DEPLOY.md) and the wire format in
+[`WATCHLIST_FORMAT.md`](WATCHLIST_FORMAT.md).
 
-## 5. Run the gate
+## 6. Run the gate
 
 There is no single `gate` script — run these four commands from `frontend/`, in order:
 
@@ -98,7 +124,7 @@ scorer and tier classifier stay byte-for-byte faithful to their reference output
 ### End-to-end browser lanes
 
 Two Playwright lanes drive the **real minified build** against the **committed signed
-demo watchlist** in real Chromium (from `frontend/app`):
+demo catalog** in real Chromium (from `frontend/app`):
 
 ```bash
 cd frontend/app
@@ -124,10 +150,12 @@ pnpm --filter aml-filter-app preview    # serves the dist/ build; open the print
 ## Troubleshooting
 
 - **`/screen` never becomes ready** — it boots the embedder and verifies the signed
-  watchlist on first load; give the model fetch a moment on a cold cache, and confirm a
-  clean browser console.
+  catalog and its lists on first load; give the model fetch a moment on a cold cache, and
+  confirm a clean browser console.
 - **"signature verification failed"** — verification is fail-closed by design. Make sure
-  you're serving the committed `watchlist/` files and the pinned `public.key` together,
-  over a secure context (`localhost` or HTTPS) — not a LAN IP.
-- **No matches ever** — screen a name that's actually close to one on the loaded
-  watchlist (the committed demo list is small).
+  you're serving the committed `watchlist/` tree (`catalog.json` + the per-list dirs) and
+  the pinned `public.key` together, over a secure context (`localhost` or HTTPS) — not a
+  LAN IP. The same check runs over cached bytes, so a stale/corrupt cache also fails
+  closed; use **Clear cached lists** in `/settings` to force a re-fetch.
+- **No matches ever** — screen a name that's actually close to one on an enabled list
+  (the committed demo lists are small), and confirm the list is enabled in `/settings`.
