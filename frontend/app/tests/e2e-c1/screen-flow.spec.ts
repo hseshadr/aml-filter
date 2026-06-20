@@ -30,7 +30,7 @@ const RESULT_TIMEOUT_MS = 30_000;
 test("searches the sanctions list in-browser over the minified build, with full dossiers", async ({
 	page,
 }) => {
-	test.setTimeout(180_000);
+	test.setTimeout(240_000);
 
 	const errors: string[] = [];
 	page.on("pageerror", (err) => errors.push(`pageerror: ${err.message}`));

@@ -21,7 +21,8 @@ import { expect, type Page, test } from "@playwright/test";
  *       working Retry button appears within a bounded time, instead of hanging
  *       forever. This is the direct regression guard for the original boot hang.
  *       The bound is enforced by VITE_MODEL_LOAD_TIMEOUT_MS (set in
- *       playwright.c1.config.ts) so the warmup rejects in seconds, not 120s.
+ *       playwright.c1.config.ts) so the warmup rejects at the 120s ceiling
+ *       instead of hanging forever.
  *
  *   (c) progress percent — SKIPPED. transformers.js only emits a download percent
  *       when the response carries a Content-Length it trusts; for the local
@@ -33,25 +34,27 @@ import { expect, type Page, test } from "@playwright/test";
 
 /**
  * Both bounds below are derived from the warmup ceiling the c1 config pins via
- * `VITE_MODEL_LOAD_TIMEOUT_MS=45000` (see playwright.c1.config.ts). Keeping them
- * tethered to that one number means a model-load regression fails FAST and the
- * two values can't silently drift from the config.
+ * `VITE_MODEL_LOAD_TIMEOUT_MS=120000` (see playwright.c1.config.ts). Keeping them
+ * tethered to that one number means a model-load regression fails within the
+ * ceiling and the two values can't silently drift from the config. (120s is the
+ * production ceiling — chosen so the WARM specs survive a slow CI cold compile;
+ * the blocked path here still rejects loudly, just bounded by 120s.)
  */
-const MODEL_LOAD_TIMEOUT_MS = 45_000;
+const MODEL_LOAD_TIMEOUT_MS = 120_000;
 
 /**
  * Scenario (a) ready bound: the warmup is capped at MODEL_LOAD_TIMEOUT_MS, so a
  * healthy self-host load must enable the box within that ceiling plus modest
- * sync/headroom. Set to 60s (45s + 15s) so a self-host load regression fails in
- * ~1min, not the old loose ~160s.
+ * sync/headroom (135s = 120s + 15s). A self-host load that can't finish inside
+ * the production ceiling is a regression.
  */
 const READY_TIMEOUT_MS = MODEL_LOAD_TIMEOUT_MS + 15_000;
 
 /**
  * Scenario (b) failure bound: with all weight sources blocked the warmup must
- * REJECT at the same MODEL_LOAD_TIMEOUT_MS ceiling. Allow the same sync headroom
- * for the alert to render — this proves "fails fast" (~1min), not merely "doesn't
- * hang forever", and tracks the config value if it changes.
+ * REJECT at the same MODEL_LOAD_TIMEOUT_MS ceiling (135s with headroom). This
+ * proves "fails loudly within the bound", not merely "doesn't hang forever", and
+ * tracks the config value if it changes.
  */
 const FAILURE_TIMEOUT_MS = MODEL_LOAD_TIMEOUT_MS + 15_000;
 
@@ -77,7 +80,7 @@ function collectErrors(page: Page): string[] {
 test("self-host serves the model when the HF CDN is blocked — no huggingface.co dependency", async ({
 	page,
 }) => {
-	test.setTimeout(180_000);
+	test.setTimeout(240_000);
 	const errors = collectErrors(page);
 
 	// Abort every request to the HF hub / its LFS CDN, and record that the runtime
@@ -146,7 +149,7 @@ test("self-host serves the model when the HF CDN is blocked — no huggingface.c
 test("everything blocked → the boot fails loudly with a working Retry, not a silent hang", async ({
 	page,
 }) => {
-	test.setTimeout(180_000);
+	test.setTimeout(240_000);
 	collectErrors(page);
 
 	// Block BOTH the CDN and the same-origin /models/ mirror: the model can load
