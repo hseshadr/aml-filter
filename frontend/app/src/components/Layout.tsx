@@ -30,6 +30,9 @@ export default function Layout({ children }: LayoutProps) {
 						<Link to="/review" className="nav-link">
 							Review
 						</Link>
+						<Link to="/settings" className="nav-link">
+							Settings
+						</Link>
 					</div>
 				</nav>
 			</header>

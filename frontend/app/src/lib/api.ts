@@ -13,6 +13,7 @@
  * been pruned.
  */
 
+import type { RescanSummary, ScreeningConfig } from "@amlfilter/workstation";
 import { LocalApiClient } from "./localApi";
 import { workstationProvider } from "./workstation";
 
@@ -51,6 +52,14 @@ export interface ApiClient {
 		resolution_status: ReviewResolutionStatus,
 		body?: ReviewResolveBody,
 	): Promise<ReviewMatch>;
+	/** The append-only audit trail for a match, oldest-first. */
+	getMatchEvents(matchId: string): Promise<MatchEvent[]>;
+
+	// Screening-config tier: getScreeningConfig reads the persisted sensitivity;
+	// setScreeningConfig persists it THEN re-screens every customer (returns the
+	// rescan summary). It is a no-op — no persist, no rescan — when unchanged.
+	getScreeningConfig(): Promise<ScreeningConfig>;
+	setScreeningConfig(config: ScreeningConfig): Promise<RescanSummary>;
 }
 
 // ---------------------------------------------------------------------------
@@ -129,6 +138,39 @@ export type ReviewResolutionStatus =
 /** A disposition a reviewer can apply (every status except PENDING). */
 export type ReviewDisposition = Exclude<ReviewResolutionStatus, "PENDING">;
 
+/**
+ * Whether a match still reflects the facts a reviewer last saw. CURRENT = the
+ * disposition (if any) is still valid; CHANGED = the watchlist entity moved
+ * materially since it was last dispositioned and needs a fresh look.
+ */
+export type ReviewState = "CURRENT" | "CHANGED";
+
+/** The lifecycle event types recorded on a match's append-only audit trail. */
+export type MatchEventType =
+	| "DETECTED"
+	| "DISPOSITIONED"
+	| "REOPENED"
+	| "CHANGED"
+	| "SUPPRESSED";
+
+/**
+ * One append-only audit entry on a match's lifecycle (a match_events row). The
+ * history survives match_id rotation, so the full story of a screened pair is
+ * preserved even when its underlying match row is replaced by a rescan.
+ */
+export interface MatchEvent {
+	event_id: string;
+	match_id: string | null; // null for SUPPRESSED
+	customer_id: string;
+	ofac_entity_id: string;
+	event_type: MatchEventType;
+	from_status: string | null;
+	to_status: string | null;
+	reviewer_id: string | null;
+	notes: string | null;
+	at: string; // ISO-8601
+}
+
 /** An enriched sanctions match awaiting / under analyst review. */
 export interface ReviewMatch {
 	match_id: string;
@@ -144,11 +186,14 @@ export interface ReviewMatch {
 	customer_name: string | null;
 	sanctioned_name: string;
 	source_list: string;
+	review_state: ReviewState;
 }
 
 export interface ReviewMatchListParams {
 	tier?: MatchTier;
 	resolution_status?: ReviewResolutionStatus;
+	reviewState?: ReviewState;
+	needsReview?: boolean; // PENDING OR CHANGED
 	limit?: number;
 	offset?: number;
 }

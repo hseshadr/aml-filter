@@ -10,8 +10,16 @@ import type {
 	CustomerRow,
 	LocalMatchTracker,
 	LocalOnboardingService,
+	MatchEvent,
+	RescanService,
+	RescanSummary,
 	ReviewRow,
+	ScreeningConfig,
 	WorkstationStore,
+} from "@amlfilter/workstation";
+import {
+	loadScreeningConfig,
+	saveScreeningConfig,
 } from "@amlfilter/workstation";
 import type {
 	ApiClient,
@@ -31,6 +39,7 @@ export interface WorkstationServices {
 	readonly store: WorkstationStore;
 	readonly onboarding: LocalOnboardingService;
 	readonly tracker: LocalMatchTracker;
+	readonly rescan: RescanService;
 }
 
 /** Lazy provider — construction stays side-effect free (no Worker spawn). */
@@ -73,7 +82,21 @@ function toReviewMatch(row: ReviewRow): ReviewMatch {
 		customer_name: row.customer_name,
 		sanctioned_name: row.sanctioned_name,
 		source_list: row.source_list,
+		review_state: row.review_state,
 	};
+}
+
+/** Deep-equal two screening configs: same sensitivity and same overrides. */
+function configsEqual(a: ScreeningConfig, b: ScreeningConfig): boolean {
+	if (a.sensitivity !== b.sensitivity) {
+		return false;
+	}
+	const aKeys = Object.keys(a.overrides);
+	const bKeys = Object.keys(b.overrides);
+	if (aKeys.length !== bKeys.length) {
+		return false;
+	}
+	return aKeys.every((key) => a.overrides[key] === b.overrides[key]);
 }
 
 export class LocalApiClient implements Pick<ApiClient, keyof ApiClient> {
@@ -144,6 +167,8 @@ export class LocalApiClient implements Pick<ApiClient, keyof ApiClient> {
 		const rows = await store.listReviewMatches({
 			tier: params?.tier,
 			resolutionStatus: params?.resolution_status,
+			reviewState: params?.reviewState,
+			needsReview: params?.needsReview,
 			limit: params?.limit,
 			offset: params?.offset,
 		});
@@ -161,5 +186,29 @@ export class LocalApiClient implements Pick<ApiClient, keyof ApiClient> {
 			notes: body?.review_notes,
 		});
 		return toReviewMatch(row);
+	}
+
+	public async getMatchEvents(matchId: string): Promise<MatchEvent[]> {
+		const { store } = await this.#services();
+		return [...(await store.getMatchEvents(matchId))];
+	}
+
+	// --- slice: screening config ---------------------------------------------
+	public async getScreeningConfig(): Promise<ScreeningConfig> {
+		const { store } = await this.#services();
+		return loadScreeningConfig(store);
+	}
+
+	public async setScreeningConfig(
+		config: ScreeningConfig,
+	): Promise<RescanSummary> {
+		const { store, rescan } = await this.#services();
+		// Only re-screen if the config actually changed: persist + rescan are
+		// expensive, so an idempotent save is a clean no-op.
+		if (configsEqual(await loadScreeningConfig(store), config)) {
+			return { customersScanned: 0, newHits: 0, clearedHits: 0 };
+		}
+		await saveScreeningConfig(store, config);
+		return rescan.rescanAll();
 	}
 }
