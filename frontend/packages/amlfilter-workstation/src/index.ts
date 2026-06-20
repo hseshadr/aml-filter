@@ -15,6 +15,11 @@ export {
 	NotFoundError,
 } from "./errors";
 export {
+	type FingerprintEntity,
+	type FingerprintProfile,
+	materialFingerprint,
+} from "./fingerprint";
+export {
 	LocalOnboardingService,
 	type NameScreener,
 	ONBOARDING_THRESHOLD,
@@ -32,18 +37,35 @@ export {
 	LocalMatchTracker,
 	type ResolveOptions,
 } from "./review";
-export { tierMatch } from "./tier_match";
+export {
+	loadScreeningConfig,
+	resolveThreshold,
+	SCREENING_SENSITIVITY_KEY,
+	SCREENING_THRESHOLD_OVERRIDES_KEY,
+	type ScreeningConfig,
+	type SettingsStore,
+	saveScreeningConfig,
+	type ThresholdOverrides,
+} from "./screening_config";
+export {
+	type CustomerProfile,
+	canonicalProfile,
+	tierMatch,
+} from "./tier_match";
 export { classifyTier, STRONG_TIER_FLOOR } from "./tiering";
 export type {
 	CreateCustomerPayload,
 	CustomerPatch,
 	CustomerRow,
 	IdDocument,
+	MatchEvent,
+	MatchEventType,
 	MatchReasonJson,
 	MatchTier,
 	ResolutionStatus,
 	ReviewFilters,
 	ReviewRow,
+	ReviewState,
 	TieredMatch,
 	WorkstationStore,
 } from "./types";

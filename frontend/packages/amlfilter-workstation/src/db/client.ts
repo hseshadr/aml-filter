@@ -8,6 +8,7 @@ import type {
 	CreateCustomerPayload,
 	CustomerPatch,
 	CustomerRow,
+	MatchEvent,
 	ReviewFilters,
 	ReviewRow,
 	TieredMatch,
@@ -140,6 +141,10 @@ export class DbClient implements WorkstationStore {
 			reviewerId,
 			notes,
 		});
+	}
+
+	public getMatchEvents(matchId: string): Promise<ReadonlyArray<MatchEvent>> {
+		return this.#call({ kind: "getMatchEvents", id: this.#allocId(), matchId });
 	}
 
 	public getSetting(key: string): Promise<string | null> {

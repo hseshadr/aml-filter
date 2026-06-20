@@ -12,16 +12,53 @@ import type {
 	CustomerPatch,
 	CustomerRow,
 	IdDocument,
+	MatchEvent,
+	MatchEventType,
 	MatchTier,
 	ResolutionStatus,
 	ReviewFilters,
 	ReviewRow,
+	ReviewState,
 	TieredMatch,
 } from "../types";
 import type { SqlDatabase, SqlValue } from "./sqlite";
 
 function nowIso(): string {
 	return new Date().toISOString();
+}
+
+/** All fields for one append-only match_events row. */
+interface MatchEventInput {
+	readonly matchId: string | null;
+	readonly customerId: string;
+	readonly ofacEntityId: string;
+	readonly eventType: MatchEventType;
+	readonly fromStatus: string | null;
+	readonly toStatus: string | null;
+	readonly reviewerId: string | null;
+	readonly notes: string | null;
+	readonly at: string;
+}
+
+/** Append one audit event. INSERT-only: match_events is never updated/deleted. */
+function appendEvent(db: SqlDatabase, event: MatchEventInput): void {
+	db.exec(
+		`INSERT INTO match_events (event_id, match_id, customer_id, ofac_entity_id,
+		   event_type, from_status, to_status, reviewer_id, notes, at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		[
+			crypto.randomUUID(),
+			event.matchId,
+			event.customerId,
+			event.ofacEntityId,
+			event.eventType,
+			event.fromStatus,
+			event.toStatus,
+			event.reviewerId,
+			event.notes,
+			event.at,
+		],
+	);
 }
 
 function asString(value: SqlValue | undefined): string {
@@ -77,6 +114,19 @@ function isUniqueReferenceViolation(error: unknown): boolean {
 			"UNIQUE constraint failed: customers.customer_reference",
 		)
 	);
+}
+
+/** The current match_id for a (customer, entity) pair — null if no row exists. */
+function matchIdFor(
+	db: SqlDatabase,
+	customerId: string,
+	ofacEntityId: string,
+): string | null {
+	const rows = db.selectObjects(
+		"SELECT match_id FROM kyc_matches WHERE customer_id = ? AND ofac_entity_id = ?",
+		[customerId, ofacEntityId],
+	);
+	return asNullableString(rows[0]?.match_id);
 }
 
 function requireCustomer(db: SqlDatabase, customerId: string): CustomerRow {
@@ -198,7 +248,7 @@ const REVIEW_SELECT = `
 	SELECT m.match_id, m.ofac_entity_id, m.match_score, m.match_tier,
 	       m.resolution_status, m.reviewer_id, m.review_notes, m.detected_at,
 	       m.reasons, m.explanation, m.sanctioned_name, m.source_list,
-	       m.list_version,
+	       m.list_version, m.review_state,
 	       c.customer_id AS customer_id,
 	       c.customer_reference AS customer_reference,
 	       c.name AS customer_name
@@ -223,6 +273,7 @@ function toReviewRow(record: Record<string, SqlValue>): ReviewRow {
 		list_version: asNullableString(record.list_version),
 		reasons: JSON.parse(asString(record.reasons)) as ReviewRow["reasons"],
 		explanation: asString(record.explanation),
+		review_state: asString(record.review_state) as ReviewState,
 	};
 }
 
@@ -243,11 +294,12 @@ export function recordMatches(
 	// compliance hazard, so a mid-batch failure rolls back the whole set.
 	db.transaction(() => {
 		for (const match of matches) {
+			const matchId = crypto.randomUUID();
 			db.exec(
 				`INSERT INTO kyc_matches (match_id, customer_id, ofac_entity_id, match_score,
 			   match_tier, list_version, sanctioned_name, source_list, reasons,
-			   explanation, detected_at, resolution_status)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING')
+			   explanation, detected_at, resolution_status, material_fingerprint, review_state)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, 'CURRENT')
 			 ON CONFLICT (customer_id, ofac_entity_id) DO UPDATE SET
 			   match_score = excluded.match_score,
 			   match_tier = excluded.match_tier,
@@ -257,9 +309,11 @@ export function recordMatches(
 			   reasons = excluded.reasons,
 			   explanation = excluded.explanation,
 			   detected_at = excluded.detected_at,
-			   resolution_status = 'PENDING'`,
+			   resolution_status = 'PENDING',
+			   material_fingerprint = excluded.material_fingerprint,
+			   review_state = 'CURRENT'`,
 				[
-					crypto.randomUUID(),
+					matchId,
 					customerId,
 					match.ofac_entity_id,
 					match.score,
@@ -270,8 +324,22 @@ export function recordMatches(
 					JSON.stringify(match.reasons),
 					match.explanation,
 					detectedAt,
+					match.material_fingerprint,
 				],
 			);
+			// DETECTED carries the row's CURRENT match_id; on an upsert collision
+			// the inserted matchId is unused, so re-read the surviving id.
+			appendEvent(db, {
+				matchId: matchIdFor(db, customerId, match.ofac_entity_id),
+				customerId,
+				ofacEntityId: match.ofac_entity_id,
+				eventType: "DETECTED",
+				fromStatus: null,
+				toStatus: "PENDING",
+				reviewerId: null,
+				notes: null,
+				at: detectedAt,
+			});
 		}
 	});
 	// Re-read scoped to the customer (no board pagination): the LIMIT 100
@@ -292,15 +360,18 @@ interface PriorDisposition {
 	readonly resolved_at: string | null;
 	readonly reviewer_id: string | null;
 	readonly review_notes: string | null;
+	readonly material_fingerprint: string | null;
+	readonly review_state: ReviewState;
 }
 
-/** Snapshot each existing match's disposition, keyed by ofac_entity_id. */
+/** Snapshot each existing match's disposition + fingerprint, keyed by entity id. */
 function existingDispositions(
 	db: SqlDatabase,
 	customerId: string,
 ): Map<string, PriorDisposition> {
 	const rows = db.selectObjects(
-		`SELECT ofac_entity_id, resolution_status, resolved_at, reviewer_id, review_notes
+		`SELECT ofac_entity_id, resolution_status, resolved_at, reviewer_id,
+		        review_notes, material_fingerprint, review_state
 		 FROM kyc_matches WHERE customer_id = ?`,
 		[customerId],
 	);
@@ -311,32 +382,73 @@ function existingDispositions(
 			resolved_at: asNullableString(row.resolved_at),
 			reviewer_id: asNullableString(row.reviewer_id),
 			review_notes: asNullableString(row.review_notes),
+			material_fingerprint: asNullableString(row.material_fingerprint),
+			review_state: asString(row.review_state) as ReviewState,
 		});
 	}
 	return prior;
 }
 
-/** Insert one match, carrying a prior disposition forward when the entity survived. */
-function insertReplacedMatch(
+const FRESH_DISPOSITION: PriorDisposition = {
+	resolution_status: "PENDING",
+	resolved_at: null,
+	reviewer_id: null,
+	review_notes: null,
+	material_fingerprint: null,
+	review_state: "CURRENT",
+};
+
+/**
+ * Decide the carried disposition + the event (if any) for one replaced match.
+ * Branches on the prior fingerprint (spec §6):
+ *  - no prior            -> PENDING/CURRENT,  emit DETECTED
+ *  - unchanged           -> carry forward,    suppress (no event)
+ *  - changed             -> carry disposition, review_state=CHANGED, emit CHANGED
+ *  - prior fp was NULL    -> adopt silently,   no event (first-time backfill)
+ */
+function planReplacement(
+	prior: PriorDisposition | undefined,
+	fingerprint: string,
+): {
+	readonly carried: PriorDisposition;
+	readonly event: MatchEventType | null;
+} {
+	if (prior === undefined) {
+		return {
+			carried: { ...FRESH_DISPOSITION, material_fingerprint: fingerprint },
+			event: "DETECTED",
+		};
+	}
+	const base = { ...prior, material_fingerprint: fingerprint };
+	if (prior.material_fingerprint === null) {
+		return {
+			carried: { ...base, review_state: prior.review_state },
+			event: null,
+		};
+	}
+	if (prior.material_fingerprint === fingerprint) {
+		return { carried: prior, event: null };
+	}
+	return { carried: { ...base, review_state: "CHANGED" }, event: "CHANGED" };
+}
+
+/** Insert one replaced match with its carried disposition + fingerprint. */
+function insertReplacedRow(
 	db: SqlDatabase,
 	customerId: string,
 	match: TieredMatch,
 	detectedAt: string,
-	prior: PriorDisposition | undefined,
+	carried: PriorDisposition,
+	matchId: string,
 ): void {
-	const carried = prior ?? {
-		resolution_status: "PENDING",
-		resolved_at: null,
-		reviewer_id: null,
-		review_notes: null,
-	};
 	db.exec(
 		`INSERT INTO kyc_matches (match_id, customer_id, ofac_entity_id, match_score,
 		   match_tier, list_version, sanctioned_name, source_list, reasons,
-		   explanation, detected_at, resolution_status, resolved_at, reviewer_id, review_notes)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		   explanation, detected_at, resolution_status, resolved_at, reviewer_id,
+		   review_notes, material_fingerprint, review_state)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		[
-			crypto.randomUUID(),
+			matchId,
 			customerId,
 			match.ofac_entity_id,
 			match.score,
@@ -351,8 +463,62 @@ function insertReplacedMatch(
 			carried.resolved_at,
 			carried.reviewer_id,
 			carried.review_notes,
+			carried.material_fingerprint,
+			carried.review_state,
 		],
 	);
+}
+
+/** Insert one replaced match and append its lifecycle event per planReplacement. */
+function insertReplacedMatch(
+	db: SqlDatabase,
+	customerId: string,
+	match: TieredMatch,
+	detectedAt: string,
+	prior: PriorDisposition | undefined,
+): void {
+	const { carried, event } = planReplacement(prior, match.material_fingerprint);
+	const matchId = crypto.randomUUID();
+	insertReplacedRow(db, customerId, match, detectedAt, carried, matchId);
+	if (event !== null) {
+		appendEvent(db, {
+			matchId,
+			customerId,
+			ofacEntityId: match.ofac_entity_id,
+			eventType: event,
+			fromStatus: prior?.resolution_status ?? null,
+			toStatus: carried.resolution_status,
+			reviewerId: null,
+			notes: null,
+			at: detectedAt,
+		});
+	}
+}
+
+/** Emit a SUPPRESSED event for each prior entity absent from the new set. */
+function emitSuppressions(
+	db: SqlDatabase,
+	customerId: string,
+	prior: Map<string, PriorDisposition>,
+	next: ReadonlySet<string>,
+	at: string,
+): void {
+	for (const [entityId, disposition] of prior) {
+		if (next.has(entityId)) {
+			continue;
+		}
+		appendEvent(db, {
+			matchId: null,
+			customerId,
+			ofacEntityId: entityId,
+			eventType: "SUPPRESSED",
+			fromStatus: disposition.resolution_status,
+			toStatus: null,
+			reviewerId: null,
+			notes: null,
+			at,
+		});
+	}
 }
 
 /**
@@ -372,6 +538,7 @@ export function replaceMatches(
 ): ReviewRow[] {
 	requireCustomer(db, customerId);
 	const detectedAt = nowIso();
+	const nextEntities = new Set(matches.map((m) => m.ofac_entity_id));
 	db.transaction(() => {
 		const prior = existingDispositions(db, customerId);
 		db.exec("DELETE FROM kyc_matches WHERE customer_id = ?", [customerId]);
@@ -384,6 +551,8 @@ export function replaceMatches(
 				prior.get(match.ofac_entity_id),
 			);
 		}
+		// Prior entities that dropped out of the new set are SUPPRESSED.
+		emitSuppressions(db, customerId, prior, nextEntities, detectedAt);
 	});
 	return db
 		.selectObjects(
@@ -407,6 +576,16 @@ export function listReviewMatches(
 	if (filters.resolutionStatus !== undefined) {
 		clauses.push("m.resolution_status = ?");
 		bind.push(filters.resolutionStatus);
+	}
+	if (filters.reviewState !== undefined) {
+		clauses.push("m.review_state = ?");
+		bind.push(filters.reviewState);
+	}
+	if (filters.needsReview === true) {
+		// Needs attention: still PENDING OR materially CHANGED since disposition.
+		clauses.push(
+			"(m.resolution_status = 'PENDING' OR m.review_state = 'CHANGED')",
+		);
 	}
 	const where = clauses.length > 0 ? ` WHERE ${clauses.join(" AND ")}` : "";
 	// Strongest first, paginated — mirrors review.py:139.
@@ -449,17 +628,75 @@ export function resolveMatch(
 			`invalid resolution_status '${resolution}'`,
 		);
 	}
-	reviewRowById(db, matchId);
+	// Read BEFORE the UPDATE so the event records the true prior status.
+	const before = reviewRowById(db, matchId);
+	const at = nowIso();
+	// Re-dispositioning a CHANGED match clears the re-review flag (CURRENT): the
+	// reviewer has now looked at the changed facts.
 	db.exec(
 		`UPDATE kyc_matches SET
 		   resolution_status = ?,
 		   resolved_at = ?,
 		   reviewer_id = COALESCE(?, reviewer_id),
-		   review_notes = COALESCE(?, review_notes)
+		   review_notes = COALESCE(?, review_notes),
+		   review_state = 'CURRENT'
 		 WHERE match_id = ?`,
-		[resolution, nowIso(), reviewerId ?? null, notes ?? null, matchId],
+		[resolution, at, reviewerId ?? null, notes ?? null, matchId],
 	);
+	appendEvent(db, {
+		matchId,
+		customerId: before.customer_id,
+		ofacEntityId: before.ofac_entity_id,
+		eventType: resolution === "PENDING" ? "REOPENED" : "DISPOSITIONED",
+		fromStatus: before.resolution_status,
+		toStatus: resolution,
+		reviewerId: reviewerId ?? null,
+		notes: notes ?? null,
+		at,
+	});
 	return reviewRowById(db, matchId);
+}
+
+/** The append-only audit trail for a match, surviving match_id rotation. */
+export function getMatchEvents(
+	db: SqlDatabase,
+	matchId: string,
+): ReadonlyArray<MatchEvent> {
+	// Resolve the (customer, entity) pair from the current row so history before
+	// a replaceMatches rotation (recorded against the now-deleted match_id) is
+	// still returned. If the row is gone, fall back to match_id-only lookup.
+	const pair = db.selectObjects(
+		"SELECT customer_id, ofac_entity_id FROM kyc_matches WHERE match_id = ?",
+		[matchId],
+	)[0];
+	const rows =
+		pair === undefined
+			? db.selectObjects(
+					"SELECT * FROM match_events WHERE match_id = ? ORDER BY at, rowid",
+					[matchId],
+				)
+			: db.selectObjects(
+					`SELECT * FROM match_events
+					 WHERE match_id = ? OR (customer_id = ? AND ofac_entity_id = ?)
+					 ORDER BY at, rowid`,
+					[matchId, asString(pair.customer_id), asString(pair.ofac_entity_id)],
+				);
+	return rows.map(toMatchEvent);
+}
+
+function toMatchEvent(record: Record<string, SqlValue>): MatchEvent {
+	return {
+		event_id: asString(record.event_id),
+		match_id: asNullableString(record.match_id),
+		customer_id: asString(record.customer_id),
+		ofac_entity_id: asString(record.ofac_entity_id),
+		event_type: asString(record.event_type) as MatchEventType,
+		from_status: asNullableString(record.from_status),
+		to_status: asNullableString(record.to_status),
+		reviewer_id: asNullableString(record.reviewer_id),
+		notes: asNullableString(record.notes),
+		at: asString(record.at),
+	};
 }
 
 export function getSetting(db: SqlDatabase, key: string): string | null {

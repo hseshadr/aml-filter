@@ -7,6 +7,7 @@ import {
 	createCustomer,
 	deleteCustomer,
 	getCustomer,
+	getMatchEvents,
 	getSetting,
 	listCustomers,
 	listReviewMatches,
@@ -139,6 +140,13 @@ async function execute(request: DbRequest): Promise<DbResponse> {
 					request.reviewerId,
 					request.notes,
 				),
+			};
+		case "getMatchEvents":
+			return {
+				ok: true,
+				id: request.id,
+				kind: "getMatchEvents",
+				result: getMatchEvents(requireDb(), request.matchId),
 			};
 		case "getSetting":
 			return {

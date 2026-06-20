@@ -5,6 +5,42 @@
 /** Review tier for a match, ordered by descending strength (scoring/tiers.py:20). */
 export type MatchTier = "STRONG" | "POSSIBLE" | "WEAK";
 
+/**
+ * Whether a match still reflects the facts a reviewer last saw. CURRENT = the
+ * disposition (if any) is still valid; CHANGED = the watchlist entity moved
+ * materially since it was last dispositioned and needs a fresh look. Set by
+ * replaceMatches on a fingerprint change; reset to CURRENT on re-disposition.
+ */
+export type ReviewState = "CURRENT" | "CHANGED";
+
+/**
+ * One append-only audit entry on a match's lifecycle. The match_events table is
+ * insert-only (no UPDATE/DELETE), so the full history of a screened pair
+ * survives even when its kyc_matches row is rotated by a replaceMatches.
+ */
+export type MatchEventType =
+	| "DETECTED"
+	| "DISPOSITIONED"
+	| "REOPENED"
+	| "CHANGED"
+	| "SUPPRESSED";
+
+/** A single append-only match-lifecycle event (match_events row). */
+export interface MatchEvent {
+	readonly event_id: string;
+	/** The match row this event was recorded against; null for SUPPRESSED. */
+	readonly match_id: string | null;
+	readonly customer_id: string;
+	readonly ofac_entity_id: string;
+	readonly event_type: MatchEventType;
+	readonly from_status: string | null;
+	readonly to_status: string | null;
+	readonly reviewer_id: string | null;
+	readonly notes: string | null;
+	/** ISO-8601 timestamp. */
+	readonly at: string;
+}
+
 /** Disposition lifecycle (db/models.py:336 column comment). */
 export type ResolutionStatus =
 	| "PENDING"
@@ -73,6 +109,13 @@ export interface TieredMatch {
 	readonly list_version: string | null;
 	readonly reasons: ReadonlyArray<MatchReasonJson>;
 	readonly explanation: string;
+	/**
+	 * Stable hash of the screened identity pair (customer profile + entity
+	 * identity-bearing fields). Lets a rescan tell "the same hit, re-seen" from
+	 * "the hit materially changed" so a reviewer's disposition is only
+	 * re-surfaced when the underlying facts actually moved. See fingerprint.ts.
+	 */
+	readonly material_fingerprint: string;
 }
 
 /** A review-board row: match + denormalized customer fields (review.py:31). */
@@ -93,12 +136,21 @@ export interface ReviewRow {
 	readonly list_version: string | null;
 	readonly reasons: ReadonlyArray<MatchReasonJson>;
 	readonly explanation: string;
+	/** Whether this match changed materially since it was last dispositioned. */
+	readonly review_state: ReviewState;
 }
 
 /** Review-board filters (review.py:128–139 query params, camelCased). */
 export interface ReviewFilters {
 	readonly tier?: MatchTier;
 	readonly resolutionStatus?: ResolutionStatus;
+	/** Filter to matches in a given review state (CURRENT vs CHANGED). */
+	readonly reviewState?: ReviewState;
+	/**
+	 * When true, return only matches that need attention: still PENDING OR
+	 * materially CHANGED since their last disposition.
+	 */
+	readonly needsReview?: boolean;
 	readonly limit?: number;
 	readonly offset?: number;
 }
@@ -132,6 +184,13 @@ export interface WorkstationStore {
 		reviewerId?: string,
 		notes?: string,
 	): Promise<ReviewRow>;
+	/**
+	 * The append-only audit trail for a match, ordered oldest-first. History
+	 * survives match_id rotation: events are found by the current match_id OR by
+	 * the (customer_id, ofac_entity_id) pair, so a replaceMatches that re-issues
+	 * the row does not orphan its prior events.
+	 */
+	getMatchEvents(matchId: string): Promise<ReadonlyArray<MatchEvent>>;
 	getSetting(key: string): Promise<string | null>;
 	setSetting(key: string, value: string): Promise<void>;
 }

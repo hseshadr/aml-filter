@@ -20,6 +20,7 @@ function makeReviewRow(): ReviewRow {
 		list_version: "2026-05-01",
 		reasons: [],
 		explanation: "x",
+		review_state: "CURRENT",
 	};
 }
 

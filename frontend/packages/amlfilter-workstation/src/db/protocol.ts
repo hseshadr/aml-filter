@@ -7,6 +7,7 @@ import type {
 	CreateCustomerPayload,
 	CustomerPatch,
 	CustomerRow,
+	MatchEvent,
 	ReviewFilters,
 	ReviewRow,
 	TieredMatch,
@@ -61,6 +62,11 @@ export type DbRequest =
 			readonly reviewerId?: string;
 			readonly notes?: string;
 	  }
+	| {
+			readonly kind: "getMatchEvents";
+			readonly id: number;
+			readonly matchId: string;
+	  }
 	| { readonly kind: "getSetting"; readonly id: number; readonly key: string }
 	| {
 			readonly kind: "setSetting";
@@ -94,6 +100,7 @@ export type DbResponse =
 	| DbOk<"replaceMatches", ReadonlyArray<ReviewRow>>
 	| DbOk<"listReviewMatches", ReadonlyArray<ReviewRow>>
 	| DbOk<"resolveMatch", ReviewRow>
+	| DbOk<"getMatchEvents", ReadonlyArray<MatchEvent>>
 	| DbOk<"getSetting", string | null>
 	| DbOk<"setSetting", null>
 	| DbErr;
