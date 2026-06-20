@@ -317,59 +317,69 @@ export default function SettingsPage() {
 		<div className="page-content">
 			<h1>Settings</h1>
 
-			<section className="card">
-				<h2>Screening sensitivity</h2>
-				<p className="text-muted">
-					How closely a customer name must match a sanctioned name to flag.
-				</p>
-				<SensitivityControl value={sensitivity} onChange={setSensitivity} />
-			</section>
+			{!loaded ? (
+				<section className="card">
+					<p className="text-muted" role="status">
+						Loading settings…
+					</p>
+				</section>
+			) : (
+				<>
+					<section className="card">
+						<h2>Screening sensitivity</h2>
+						<p className="text-muted">
+							How closely a customer name must match a sanctioned name to flag.
+						</p>
+						<SensitivityControl value={sensitivity} onChange={setSensitivity} />
+					</section>
 
-			<section className="card">
-				<h2>Watchlists</h2>
-				<p className="text-muted">
-					Which sanctions lists to screen against. Disabling a list removes its
-					matches on the next re-screen.
-				</p>
-				{catalog.map((list) => (
-					<WatchlistToggle
-						key={list.id}
-						id={list.id}
-						title={list.title}
-						enabled={enabled.has(list.id)}
-						onToggle={toggleWatchlist}
-					/>
-				))}
-			</section>
+					<section className="card">
+						<h2>Watchlists</h2>
+						<p className="text-muted">
+							Which sanctions lists to screen against. Disabling a list removes
+							its matches on the next re-screen.
+						</p>
+						{catalog.map((list) => (
+							<WatchlistToggle
+								key={list.id}
+								id={list.id}
+								title={list.title}
+								enabled={enabled.has(list.id)}
+								onToggle={toggleWatchlist}
+							/>
+						))}
+					</section>
 
-			<section className="card">
-				<h2>Per-list overrides</h2>
-				{overrideRows.map((list) => (
-					<OverrideSelect
-						key={list.id}
-						id={list.id}
-						label={list.title}
-						value={overrides[list.id] ?? ""}
-						onChange={(value) =>
-							setOverrides((prev) => setOverride(prev, list.id, value))
-						}
-					/>
-				))}
-			</section>
+					<section className="card">
+						<h2>Per-list overrides</h2>
+						{overrideRows.map((list) => (
+							<OverrideSelect
+								key={list.id}
+								id={list.id}
+								label={list.title}
+								value={overrides[list.id] ?? ""}
+								onChange={(value) =>
+									setOverrides((prev) => setOverride(prev, list.id, value))
+								}
+							/>
+						))}
+					</section>
 
-			<section className="card">
-				<h2>Analyst name</h2>
-				<label className="form-label" htmlFor="analyst-name">
-					Analyst name
-				</label>
-				<input
-					id="analyst-name"
-					type="text"
-					className="form-input"
-					value={analystName}
-					onChange={(e) => setAnalystName(e.target.value)}
-				/>
-			</section>
+					<section className="card">
+						<h2>Analyst name</h2>
+						<label className="form-label" htmlFor="analyst-name">
+							Analyst name
+						</label>
+						<input
+							id="analyst-name"
+							type="text"
+							className="form-input"
+							value={analystName}
+							onChange={(e) => setAnalystName(e.target.value)}
+						/>
+					</section>
+				</>
+			)}
 
 			<section className="card">
 				<h2>Cached lists</h2>
