@@ -91,15 +91,20 @@ function currentVersion(db: SqlDatabase): number {
 	return typeof v === "number" ? v : 0;
 }
 
-/** Apply one ordered migration step and record it in the ledger. */
+/** Apply one ordered migration step and record it in the ledger — atomically.
+ * The version's DDL statements and the ledger insert run inside a single
+ * transaction, so a crash mid-step rolls back every partial statement and
+ * leaves the ledger un-incremented (a clean re-run, no "duplicate column"). */
 function applyVersion(db: SqlDatabase, version: number): void {
-	for (const sql of MIGRATIONS[version - 1] ?? []) {
-		db.exec(sql);
-	}
-	db.exec("INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)", [
-		version,
-		new Date().toISOString(),
-	]);
+	db.transaction(() => {
+		for (const sql of MIGRATIONS[version - 1] ?? []) {
+			db.exec(sql);
+		}
+		db.exec(
+			"INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+			[version, new Date().toISOString()],
+		);
+	});
 }
 
 /**

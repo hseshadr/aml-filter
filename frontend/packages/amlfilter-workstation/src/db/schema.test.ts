@@ -122,4 +122,35 @@ describe("schema migrations", () => {
 			),
 		).toThrow(/FOREIGN KEY/i);
 	});
+
+	it("applies a version atomically — a failing v2 step rolls back its partial DDL", () => {
+		// Stand up a v1 DB recorded at version 1, but pre-create a `match_events`
+		// table so v2's `CREATE TABLE match_events` throws AFTER its two
+		// `ALTER TABLE ... ADD COLUMN` statements have run. Without a transaction
+		// around applyVersion, those ALTERs land while the ledger stays at 1 — a
+		// re-run would then hit "duplicate column". With a transaction, the whole
+		// v2 step rolls back: no new columns, no match_events shape change, no
+		// ledger row, leaving the DB cleanly at v1.
+		seedV1(db);
+		db.exec("CREATE TABLE match_events (event_id TEXT PRIMARY KEY)");
+
+		expect(() => migrate(db)).toThrow();
+
+		// Ledger still at v1 — the v2 step did not record.
+		const maxVersion = db.selectObjects(
+			"SELECT MAX(version) AS v FROM schema_migrations",
+		);
+		expect(maxVersion[0]?.v).toBe(1);
+		// No partial columns from the rolled-back ALTERs.
+		const columns = db
+			.selectObjects("SELECT name FROM pragma_table_info('kyc_matches')")
+			.map((row) => row.name);
+		expect(columns).not.toContain("material_fingerprint");
+		expect(columns).not.toContain("review_state");
+		// The conflicting pre-existing table is untouched by the rollback.
+		const eventCols = db
+			.selectObjects("SELECT name FROM pragma_table_info('match_events')")
+			.map((row) => row.name);
+		expect(eventCols).toEqual(["event_id"]);
+	});
 });

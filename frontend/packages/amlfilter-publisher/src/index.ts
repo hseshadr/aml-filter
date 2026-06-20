@@ -18,6 +18,11 @@ export {
 export { fetchOfacJsonl, OFAC_BASE, parseSdn } from "./fetchOfac.ts";
 export { createNodeEmbedder } from "./nodeEmbedder.ts";
 export {
+	type CatalogSourceSpec,
+	type PublishCatalogInput,
+	publishCatalog,
+} from "./publishCatalog.ts";
+export {
 	type PublishFromJsonl,
 	type PublishFromLines,
 	type PublishInput,
