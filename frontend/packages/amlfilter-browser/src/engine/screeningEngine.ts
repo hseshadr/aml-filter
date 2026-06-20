@@ -91,13 +91,26 @@ export class ScreeningEngine {
 		query: ScreenQuery,
 		options: ScreenOptions = {},
 	): Promise<ScreenResponse> {
+		const queryVec = await this.#embedder.embed(query.name);
+		return this.screenWithVector(query, queryVec, options);
+	}
+
+	/**
+	 * Screen with an ALREADY-embedded query vector (synchronous). This is the
+	 * post-embed half of {@link screen}; the multi-list engine embeds the query
+	 * ONCE and screens N lists by calling this per list with the shared vector.
+	 */
+	public screenWithVector(
+		query: ScreenQuery,
+		queryVec: Float32Array,
+		options: ScreenOptions = {},
+	): ScreenResponse {
 		const start = Date.now();
 		const preset = PRESETS[options.preset ?? "balanced"];
 		const threshold = query.threshold ?? preset.threshold;
 		const k = query.k ?? 20;
 		const queryCanonical = canonicalize(query.name);
 
-		const queryVec = await this.#embedder.embed(query.name);
 		const candidates = this.#index.search(queryVec, k * 2);
 		const scored = this.#scoreCandidates(
 			candidates,

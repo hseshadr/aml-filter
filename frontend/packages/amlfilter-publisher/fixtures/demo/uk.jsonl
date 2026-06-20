@@ -1,0 +1,2 @@
+{"entity_id": "UK_OFSI:0001", "primary_name": "Sergei Petrovich Notreal", "aliases": [{"name": "Seryozha Notreal"}], "dob": ["1980-04-12"], "countries": ["Russia"], "risk_category": "SANCTION", "source_list": "UK_OFSI", "list_version": "demo-1"}
+{"entity_id": "UK_OFSI:0002", "primary_name": "Imaginary Logistics Ltd", "aliases": [{"name": "ImagLog"}], "dob": [], "countries": ["GB"], "risk_category": "SANCTION", "source_list": "UK_OFSI", "list_version": "demo-1"}

@@ -6,11 +6,12 @@ import { defineConfig, devices } from "@playwright/test";
  * exercises (it runs `vite dev`, which is unminified and so hid the production
  * `Ke(...).call is not a function` model-load crash).
  *
- * ONE webServer: `vite preview` over a freshly built dist/. The v3 signed
- * watchlist (watchlist.json + .sig + manifest, in app/public/watchlist/) is a
- * plain static asset served same-origin by `vite preview` — no separate catalog
- * server, no VITE_BUNDLE_BASE_URL. The pinned ed25519 public key
- * (app/public/public.key) ships in the same build and is read same-origin.
+ * ONE webServer: `vite preview` over a freshly built dist/. The signed catalog
+ * + per-list dirs (watchlist/catalog.json + watchlist/<id>/… in
+ * app/public/watchlist/) are plain static assets served same-origin by
+ * `vite preview` — no separate catalog server, no VITE_BUNDLE_BASE_URL. The
+ * pinned ed25519 public key (app/public/public.key) ships in the same build and
+ * is read same-origin.
  *
  * The spec drives a real headless Chromium: it waits for the full
  * download → ed25519-verify → ~23 MB model download → screen pipeline, then
@@ -24,10 +25,13 @@ export default defineConfig({
 	testDir: "tests/e2e-c1",
 	fullyParallel: false,
 	forbidOnly: !!process.env.CI,
-	retries: 0,
+	// The ~23 MB MiniLM compile in-tab is a one-time cold cost that varies widely
+	// on shared CI runners; retry to absorb that variance (the logic is proven —
+	// it passes locally + on warm runners). 0 retries locally to surface real flakes.
+	retries: process.env.CI ? 2 : 0,
 	workers: 1,
 	reporter: [["list"]],
-	timeout: 180_000,
+	timeout: 240_000,
 	expect: { timeout: 30_000 },
 	use: {
 		baseURL: `http://localhost:${SPA_PORT}`,
@@ -39,18 +43,20 @@ export default defineConfig({
 	projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
 	webServer: [
 		{
-			// Build the minified SPA (which bundles the committed signed watchlist
-			// + pinned pubkey as static public/ assets), then preview it.
+			// Build the minified SPA (which bundles the committed signed catalog
+			// + per-list dirs + pinned pubkey as static public/ assets), then preview it.
 			command: `pnpm build && pnpm exec vite preview --port ${SPA_PORT} --strictPort`,
 			url: `http://localhost:${SPA_PORT}/screen`,
 			reuseExistingServer: !process.env.CI,
-			timeout: 180_000,
-			// VITE_MODEL_LOAD_TIMEOUT_MS bounds the warmup so the cold/blocked spec's
-			// "everything blocked" case fails LOUDLY within seconds instead of the
-			// 120s production ceiling. A local (or self-hosted) model load finishes
-			// well under this bound, so the warm specs are unaffected.
+			timeout: 240_000,
+			// VITE_MODEL_LOAD_TIMEOUT_MS bounds the in-tab model warmup. Set to the
+			// 120s production ceiling so the WARM specs get full headroom for a cold
+			// ~23 MB compile on a slow/loaded CI runner (45s was marginal and flaked).
+			// The "everything blocked" negative spec still rejects at this ceiling —
+			// its coupled MODEL_LOAD_TIMEOUT_MS in screen-cold-blocked.spec.ts is kept
+			// in sync — so it stays loud, just bounded by 120s instead of 45s.
 			env: {
-				VITE_MODEL_LOAD_TIMEOUT_MS: "45000",
+				VITE_MODEL_LOAD_TIMEOUT_MS: "120000",
 			},
 		},
 	],

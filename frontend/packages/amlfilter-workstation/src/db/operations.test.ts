@@ -9,6 +9,7 @@ import {
 	createCustomer,
 	deleteCustomer,
 	getCustomer,
+	getMatchEvents,
 	getSetting,
 	listCustomers,
 	listReviewMatches,
@@ -142,6 +143,7 @@ function makeTiered(overrides: Partial<TieredMatch> = {}): TieredMatch {
 			},
 		],
 		explanation: "Match due to: strong vector similarity",
+		material_fingerprint: "fp-default",
 		...overrides,
 	};
 }
@@ -466,6 +468,242 @@ describe("replaceMatches", () => {
 		expect(listReviewMatches(db, {}).map((r) => r.ofac_entity_id)).toEqual([
 			"e-existing",
 		]);
+	});
+});
+
+describe("match_events audit trail", () => {
+	it("records a DETECTED event per new match in recordMatches", () => {
+		const customer = createCustomer(db, {
+			customer_reference: "R",
+			name: "Ann",
+		});
+		const [row] = recordMatches(db, customer.customer_id, [
+			makeTiered({ ofac_entity_id: "e-a" }),
+		]);
+		if (row === undefined) throw new Error("row missing");
+		const events = getMatchEvents(db, row.match_id);
+		expect(events.map((e) => e.event_type)).toEqual(["DETECTED"]);
+		expect(events[0]?.to_status).toBe("PENDING");
+		expect(events[0]?.match_id).toBe(row.match_id);
+	});
+
+	it("records DISPOSITIONED with from/to status on resolveMatch", () => {
+		const customer = createCustomer(db, {
+			customer_reference: "R",
+			name: "Ann",
+		});
+		const [row] = recordMatches(db, customer.customer_id, [
+			makeTiered({ ofac_entity_id: "e-a" }),
+		]);
+		if (row === undefined) throw new Error("row missing");
+		resolveMatch(db, row.match_id, "FALSE_POSITIVE", "alice", "noise");
+		const events = getMatchEvents(db, row.match_id);
+		expect(events.map((e) => e.event_type)).toEqual([
+			"DETECTED",
+			"DISPOSITIONED",
+		]);
+		const dispo = events[1];
+		expect(dispo?.from_status).toBe("PENDING");
+		expect(dispo?.to_status).toBe("FALSE_POSITIVE");
+		expect(dispo?.reviewer_id).toBe("alice");
+		expect(dispo?.notes).toBe("noise");
+	});
+
+	it("returns history from BEFORE and AFTER a replaceMatches match_id rotation", () => {
+		const customer = createCustomer(db, {
+			customer_reference: "R",
+			name: "Ann",
+		});
+		const [first] = recordMatches(db, customer.customer_id, [
+			makeTiered({ ofac_entity_id: "e-a", material_fingerprint: "fp1" }),
+		]);
+		if (first === undefined) throw new Error("row missing");
+		resolveMatch(db, first.match_id, "FALSE_POSITIVE", "alice");
+		// A rescan with a CHANGED fingerprint rotates the match_id and emits CHANGED.
+		const [second] = replaceMatches(db, customer.customer_id, [
+			makeTiered({ ofac_entity_id: "e-a", material_fingerprint: "fp2" }),
+		]);
+		if (second === undefined) throw new Error("row missing");
+		expect(second.match_id).not.toBe(first.match_id);
+		// Querying by the CURRENT match_id surfaces the full pair history, including
+		// the events recorded against the now-deleted prior row.
+		const events = getMatchEvents(db, second.match_id);
+		expect(events.map((e) => e.event_type)).toEqual([
+			"DETECTED",
+			"DISPOSITIONED",
+			"CHANGED",
+		]);
+	});
+});
+
+describe("replaceMatches re-review (material fingerprint)", () => {
+	function seed(reference: string): string {
+		const customer = createCustomer(db, {
+			customer_reference: reference,
+			name: "Ann",
+		});
+		return customer.customer_id;
+	}
+
+	it("NO prior -> PENDING/CURRENT, stores the fingerprint, emits DETECTED", () => {
+		const id = seed("R");
+		const [row] = replaceMatches(db, id, [
+			makeTiered({ ofac_entity_id: "e-a", material_fingerprint: "fp1" }),
+		]);
+		if (row === undefined) throw new Error("row missing");
+		expect(row.resolution_status).toBe("PENDING");
+		expect(row.review_state).toBe("CURRENT");
+		expect(getMatchEvents(db, row.match_id).map((e) => e.event_type)).toEqual([
+			"DETECTED",
+		]);
+	});
+
+	it("UNCHANGED fingerprint -> carry disposition + state, suppress (no event)", () => {
+		const id = seed("R");
+		const [first] = recordMatches(db, id, [
+			makeTiered({ ofac_entity_id: "e-a", material_fingerprint: "fp1" }),
+		]);
+		if (first === undefined) throw new Error("row missing");
+		resolveMatch(db, first.match_id, "FALSE_POSITIVE", "alice");
+		const eventsBefore = getMatchEvents(db, first.match_id).length;
+		const [again] = replaceMatches(db, id, [
+			makeTiered({ ofac_entity_id: "e-a", material_fingerprint: "fp1" }),
+		]);
+		if (again === undefined) throw new Error("row missing");
+		expect(again.resolution_status).toBe("FALSE_POSITIVE");
+		expect(again.review_state).toBe("CURRENT");
+		// No new event was appended for the unchanged, suppressed hit.
+		expect(getMatchEvents(db, again.match_id).length).toBe(eventsBefore);
+	});
+
+	it("CHANGED fingerprint -> carry disposition, set CHANGED, emit CHANGED", () => {
+		const id = seed("R");
+		const [first] = recordMatches(db, id, [
+			makeTiered({ ofac_entity_id: "e-a", material_fingerprint: "fp1" }),
+		]);
+		if (first === undefined) throw new Error("row missing");
+		resolveMatch(db, first.match_id, "FALSE_POSITIVE", "alice", "noise");
+		const [again] = replaceMatches(db, id, [
+			makeTiered({ ofac_entity_id: "e-a", material_fingerprint: "fp2" }),
+		]);
+		if (again === undefined) throw new Error("row missing");
+		// Disposition NEVER cleared; review_state flips to CHANGED.
+		expect(again.resolution_status).toBe("FALSE_POSITIVE");
+		expect(again.reviewer_id).toBe("alice");
+		expect(again.review_notes).toBe("noise");
+		expect(again.review_state).toBe("CHANGED");
+		expect(getMatchEvents(db, again.match_id).at(-1)?.event_type).toBe(
+			"CHANGED",
+		);
+	});
+
+	it("NULL prior fingerprint (migrated row) -> adopt silently, NO CHANGED event", () => {
+		const id = seed("R");
+		// Simulate a migrated row: insert with a NULL material_fingerprint directly.
+		const matchId = crypto.randomUUID();
+		db.exec(
+			`INSERT INTO kyc_matches (match_id, customer_id, ofac_entity_id, match_score,
+			   match_tier, sanctioned_name, source_list, reasons, explanation, detected_at,
+			   resolution_status, review_state)
+			 VALUES (?, ?, 'e-a', 0.9, 'STRONG', 'X', 'OFAC_SDN', '[]', 'x', 't', 'PENDING', 'CURRENT')`,
+			[matchId, id],
+		);
+		const [again] = replaceMatches(db, id, [
+			makeTiered({ ofac_entity_id: "e-a", material_fingerprint: "fp-new" }),
+		]);
+		if (again === undefined) throw new Error("row missing");
+		expect(again.review_state).toBe("CURRENT");
+		const stored = db.selectObjects(
+			"SELECT material_fingerprint FROM kyc_matches WHERE customer_id = ?",
+			[id],
+		)[0]?.material_fingerprint;
+		expect(stored).toBe("fp-new");
+		// No CHANGED event: the backfill is silent.
+		expect(
+			getMatchEvents(db, again.match_id).map((e) => e.event_type),
+		).not.toContain("CHANGED");
+	});
+
+	it("entity absent from the new set -> SUPPRESSED event (match_id null)", () => {
+		const id = seed("R");
+		recordMatches(db, id, [
+			makeTiered({ ofac_entity_id: "e-gone", material_fingerprint: "fp1" }),
+			makeTiered({ ofac_entity_id: "e-stay", material_fingerprint: "fp2" }),
+		]);
+		replaceMatches(db, id, [
+			makeTiered({ ofac_entity_id: "e-stay", material_fingerprint: "fp2" }),
+		]);
+		// History for the suppressed entity survives (queried by entity pair).
+		const suppressed = db
+			.selectObjects(
+				"SELECT event_type, match_id FROM match_events WHERE ofac_entity_id = 'e-gone' ORDER BY at",
+			)
+			.map((r) => r.event_type);
+		expect(suppressed).toContain("SUPPRESSED");
+	});
+
+	it("re-dispositioning a CHANGED match resets review_state to CURRENT", () => {
+		const id = seed("R");
+		const [first] = recordMatches(db, id, [
+			makeTiered({ ofac_entity_id: "e-a", material_fingerprint: "fp1" }),
+		]);
+		if (first === undefined) throw new Error("row missing");
+		resolveMatch(db, first.match_id, "FALSE_POSITIVE", "alice");
+		const [changed] = replaceMatches(db, id, [
+			makeTiered({ ofac_entity_id: "e-a", material_fingerprint: "fp2" }),
+		]);
+		if (changed === undefined) throw new Error("row missing");
+		expect(changed.review_state).toBe("CHANGED");
+		const after = resolveMatch(db, changed.match_id, "TRUE_POSITIVE", "bob");
+		expect(after.review_state).toBe("CURRENT");
+	});
+});
+
+describe("listReviewMatches filters (review_state + needsReview)", () => {
+	function seedTwo(): string {
+		const customer = createCustomer(db, {
+			customer_reference: "R",
+			name: "Ann",
+		});
+		const id = customer.customer_id;
+		const [a] = recordMatches(db, id, [
+			makeTiered({ ofac_entity_id: "e-a", material_fingerprint: "fp1" }),
+		]);
+		if (a === undefined) throw new Error("row missing");
+		// Dispose e-a, then CHANGE its fingerprint so it becomes CHANGED.
+		resolveMatch(db, a.match_id, "FALSE_POSITIVE", "alice");
+		replaceMatches(db, id, [
+			makeTiered({ ofac_entity_id: "e-a", material_fingerprint: "fp2" }),
+			makeTiered({ ofac_entity_id: "e-b", material_fingerprint: "fp3" }),
+		]);
+		return id;
+	}
+
+	it("filters to review_state = CHANGED", () => {
+		seedTwo();
+		const rows = listReviewMatches(db, { reviewState: "CHANGED" });
+		expect(rows.map((r) => r.ofac_entity_id)).toEqual(["e-a"]);
+		expect(rows[0]?.review_state).toBe("CHANGED");
+	});
+
+	it("needsReview returns PENDING OR CHANGED matches", () => {
+		seedTwo();
+		// e-a: dispositioned FALSE_POSITIVE but CHANGED; e-b: PENDING. Both qualify.
+		const rows = listReviewMatches(db, { needsReview: true });
+		expect(new Set(rows.map((r) => r.ofac_entity_id))).toEqual(
+			new Set(["e-a", "e-b"]),
+		);
+	});
+
+	it("exposes review_state on every ReviewRow", () => {
+		const customer = createCustomer(db, {
+			customer_reference: "R",
+			name: "Ann",
+		});
+		recordMatches(db, customer.customer_id, [
+			makeTiered({ ofac_entity_id: "e" }),
+		]);
+		expect(listReviewMatches(db, {})[0]?.review_state).toBe("CURRENT");
 	});
 });
 

@@ -3,13 +3,14 @@ import { defineConfig, devices } from "@playwright/test";
 /**
  * e2e-kyc — the LOCAL-FIRST KYC workstation journey, proven END-TO-END in a
  * real headless Chromium against the MINIFIED production build with ZERO
- * application backend: the OFAC list is the committed signed v3 watchlist
- * (app/public/watchlist/watchlist.json) verified against the pinned key, and
- * KYC records live in SQLite-WASM persisted to OPFS via the DB Worker.
+ * application backend: the watchlists are the committed signed multi-list
+ * catalog (app/public/watchlist/catalog.json + per-list dirs) verified against
+ * the pinned key, and KYC records live in SQLite-WASM persisted to OPFS via the
+ * DB Worker.
  *
  * ONE Playwright-managed webServer: `vite preview` over a freshly built dist/.
- * The signed watchlist + pinned pubkey are static public/ assets served
- * same-origin — no separate catalog server, no VITE_BUNDLE_BASE_URL.
+ * The signed catalog + per-list dirs + pinned pubkey are static public/ assets
+ * served same-origin — no separate catalog server, no VITE_BUNDLE_BASE_URL.
  *
  * `http://localhost` is a secure context — REQUIRED for OPFS (the sahpool
  * database) and WebCrypto verification. A LAN IP or host.docker.internal is NOT
@@ -22,10 +23,12 @@ export default defineConfig({
 	testDir: "tests/e2e-kyc",
 	fullyParallel: false,
 	forbidOnly: !!process.env.CI,
-	retries: 0,
+	// One-time ~23 MB MiniLM compile in-tab varies on shared CI runners; retry to
+	// absorb that variance. 0 retries locally to surface real flakes.
+	retries: process.env.CI ? 2 : 0,
 	workers: 1,
 	reporter: [["list"]],
-	timeout: 180_000,
+	timeout: 240_000,
 	expect: { timeout: 30_000 },
 	use: {
 		baseURL: `http://localhost:${SPA_PORT}`,
@@ -37,15 +40,17 @@ export default defineConfig({
 	projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
 	webServer: [
 		{
-			// Minified SPA (bundling the committed signed watchlist + pinned pubkey
-			// as static public/ assets). The model-load ceiling is bounded so a
+			// Minified SPA (bundling the committed signed catalog + per-list dirs +
+			// pinned pubkey as static public/ assets). The model-load ceiling is bounded so a
 			// blocked weights path fails loudly in seconds (same as the C1 config).
 			command: `pnpm build && pnpm exec vite preview --port ${SPA_PORT} --strictPort`,
 			url: `http://localhost:${SPA_PORT}/`,
 			reuseExistingServer: !process.env.CI,
-			timeout: 180_000,
+			timeout: 240_000,
+			// 120s production ceiling — full headroom for a cold in-tab model compile
+			// on a slow CI runner (45s was marginal and flaked).
 			env: {
-				VITE_MODEL_LOAD_TIMEOUT_MS: "45000",
+				VITE_MODEL_LOAD_TIMEOUT_MS: "120000",
 			},
 		},
 	],

@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Embedder, EmbedProgress } from "./embedder";
 import {
 	type BootStage,
+	compositeVersion,
+	defaultRuntimeDeps,
 	EngineRuntime,
 	MODEL_LOAD_TIMEOUT_MS,
 	modelLoadTimeoutMs,
@@ -12,9 +14,35 @@ import {
 	withTimeout,
 } from "./runtime";
 import { VectorIndex } from "./vectorIndex";
-import type { LoadedWatchlist } from "./watchlist";
+import type {
+	LoadedWatchlist,
+	WatchlistCatalog,
+	WatchlistCatalogEntry,
+} from "./watchlist";
 
 const PUBKEY = new Uint8Array(32);
+
+/** A catalog entry for `listId`, dir prefix derived from a lowercased id. */
+function entryFor(listId: string, version: string): WatchlistCatalogEntry {
+	return {
+		id: listId,
+		title: listId,
+		version,
+		entitiesCount: 1,
+		path: `${listId.toLowerCase()}/`,
+	};
+}
+
+/** A catalog over the given (listId, version) pairs. */
+function catalogOf(
+	pairs: ReadonlyArray<readonly [string, string]>,
+): WatchlistCatalog {
+	return {
+		schema: 1,
+		generatedAt: "2026-06-19T00:00:00Z",
+		lists: pairs.map(([id, v]) => entryFor(id, v)),
+	};
+}
 
 beforeEach(() => {
 	// The runtime fetches the pinned pubkey same-origin before loading the
@@ -117,8 +145,10 @@ describe("withTimeout", () => {
 describe("EngineRuntime bootstrap timeout", () => {
 	function deps(embedder: Embedder): RuntimeDeps {
 		return {
-			loadWatchlist: () => Promise.resolve(fakeLoaded()),
+			loadCatalog: () => Promise.resolve(catalogOf([["OFAC_SDN", "test"]])),
+			loadList: () => Promise.resolve(fakeLoaded()),
 			makeEmbedder: () => embedder,
+			clearCache: () => Promise.resolve(),
 		};
 	}
 
@@ -156,8 +186,12 @@ describe("EngineRuntime bootstrap timeout", () => {
 });
 
 describe("EngineRuntime.reload", () => {
-	/** A loaded watchlist tagged with a version + a single entity id. */
-	function loadedAt(version: string, entityId: string): LoadedWatchlist {
+	/** A loaded watchlist tagged with a listId + version + a single entity id. */
+	function loadedAt(
+		version: string,
+		entityId: string,
+		listId = "OFAC_SDN",
+	): LoadedWatchlist {
 		return {
 			index: new VectorIndex(new Float32Array(1), [entityId], 1),
 			entities: new Map([
@@ -172,13 +206,13 @@ describe("EngineRuntime.reload", () => {
 						dob: [],
 						countries: [],
 						risk_category: "SANCTION",
-						source_list: "OFAC_SDN",
+						source_list: listId,
 						list_version: version,
 					},
 				],
 			]),
 			version,
-			listId: "OFAC_SDN",
+			listId,
 		};
 	}
 
@@ -187,50 +221,289 @@ describe("EngineRuntime.reload", () => {
 		return { embed: () => Promise.resolve(new Float32Array(1)) };
 	}
 
-	it("swaps the watchlist + version and reuses the warm embedder (no re-download)", async () => {
-		const loads = [loadedAt("demo-1", "E1"), loadedAt("demo-2", "E2")];
+	/** Deps whose loadList returns a `<listId>:E@<version>` loaded watchlist per
+	 * catalog entry, with the catalog drawn from a queue (boot then reload). */
+	function depsForCatalogs(catalogs: ReadonlyArray<WatchlistCatalog>): {
+		deps: RuntimeDeps;
+		makeEmbedder: ReturnType<typeof vi.fn>;
+	} {
 		let calls = 0;
 		const makeEmbedder = vi.fn(() => instantEmbedder());
-		const runtime = new EngineRuntime({
-			loadWatchlist: () => {
-				const next = loads[calls] ?? loads[loads.length - 1];
+		const deps: RuntimeDeps = {
+			loadCatalog: () => {
+				const c = catalogs[Math.min(calls, catalogs.length - 1)];
 				calls += 1;
-				if (next === undefined) throw new Error("no load");
-				return Promise.resolve(next);
+				return Promise.resolve(c as WatchlistCatalog);
 			},
+			loadList: (_pubkey, entry) =>
+				Promise.resolve(loadedAt(entry.version, `${entry.id}:E`, entry.id)),
 			makeEmbedder,
+			clearCache: () => Promise.resolve(),
+		};
+		return { deps, makeEmbedder };
+	}
+
+	it("loads EVERY catalog list and stamps the composite version", async () => {
+		const { deps } = depsForCatalogs([
+			catalogOf([
+				["EU_CONSOLIDATED", "demo-1"],
+				["OFAC_SDN", "demo-1"],
+			]),
+		]);
+		const runtime = new EngineRuntime(deps);
+		const engine = await runtime.bootstrap(CONFIG);
+		// Both lists' entities are present (browse view spans lists).
+		expect(
+			engine
+				.allEntities()
+				.map((e) => e.entity_id)
+				.sort(),
+		).toEqual(["EU_CONSOLIDATED:E", "OFAC_SDN:E"]);
+		// Composite stamp: sorted id@version join.
+		expect(runtime.version()).toBe("EU_CONSOLIDATED@demo-1|OFAC_SDN@demo-1");
+	});
+
+	it("rejects the WHOLE bootstrap if ANY single list fails to load (fail-closed)", async () => {
+		const makeEmbedder = vi.fn(() => instantEmbedder());
+		const runtime = new EngineRuntime({
+			loadCatalog: () =>
+				Promise.resolve(
+					catalogOf([
+						["EU_CONSOLIDATED", "demo-1"],
+						["OFAC_SDN", "demo-1"],
+					]),
+				),
+			loadList: (_pubkey, entry) =>
+				entry.id === "OFAC_SDN"
+					? Promise.reject(new Error("signature verification failed"))
+					: Promise.resolve(loadedAt(entry.version, `${entry.id}:E`)),
+			makeEmbedder,
+			clearCache: () => Promise.resolve(),
 		});
+		await expect(runtime.bootstrap(CONFIG)).rejects.toThrow(/verification/);
+		// No partial engine was published.
+		expect(runtime.engine()).toBeNull();
+		// A bad list must NOT have reached the (~23 MB) model warmup.
+		expect(makeEmbedder).not.toHaveBeenCalled();
+	});
+
+	it("reload re-loads every list, reuses the warm embedder, and advances the composite", async () => {
+		const { deps, makeEmbedder } = depsForCatalogs([
+			catalogOf([["OFAC_SDN", "demo-1"]]),
+			catalogOf([["OFAC_SDN", "demo-2"]]),
+		]);
+		const runtime = new EngineRuntime(deps);
 
 		const first = await runtime.bootstrap(CONFIG);
-		expect(runtime.version()).toBe("demo-1");
-		expect(first.meta.version).toBe("demo-1");
+		expect(runtime.version()).toBe("OFAC_SDN@demo-1");
 
 		const reloaded = await runtime.reload();
-		// Version + entities advanced to the second watchlist.
-		expect(runtime.version()).toBe("demo-2");
-		expect(reloaded.meta.version).toBe("demo-2");
-		expect(reloaded.allEntities().map((e) => e.entity_id)).toEqual(["E2"]);
-		// engine() now returns the reloaded engine, not the boot-time one.
+		expect(runtime.version()).toBe("OFAC_SDN@demo-2");
+		expect(reloaded.listVersions()).toEqual({ OFAC_SDN: "demo-2" });
 		expect(runtime.engine()).toBe(reloaded);
 		expect(runtime.engine()).not.toBe(first);
 		// The embedder was built ONCE (at bootstrap) — reload did NOT re-download.
 		expect(makeEmbedder).toHaveBeenCalledTimes(1);
 	});
 
-	it("throws if reload is called before a successful bootstrap", async () => {
+	it("fetchPublishedVersion returns a DIFFERENT composite when a list version bumps", async () => {
+		const { deps } = depsForCatalogs([catalogOf([["OFAC_SDN", "demo-1"]])]);
+		// After bootstrap, the catalog poll reports a bumped list version.
+		const polled = catalogOf([["OFAC_SDN", "demo-2"]]);
 		const runtime = new EngineRuntime({
-			loadWatchlist: () => Promise.resolve(loadedAt("demo-1", "E1")),
-			makeEmbedder: () => instantEmbedder(),
+			...deps,
+			loadCatalog: vi
+				.fn<RuntimeDeps["loadCatalog"]>()
+				.mockResolvedValueOnce(catalogOf([["OFAC_SDN", "demo-1"]]))
+				.mockResolvedValue(polled),
 		});
+		await runtime.bootstrap(CONFIG);
+		const published = await runtime.fetchPublishedVersion();
+		expect(runtime.version()).toBe("OFAC_SDN@demo-1");
+		expect(published).toBe("OFAC_SDN@demo-2");
+		expect(published).not.toBe(runtime.version());
+	});
+
+	it("throws if reload is called before a successful bootstrap", async () => {
+		const { deps } = depsForCatalogs([catalogOf([["OFAC_SDN", "demo-1"]])]);
+		const runtime = new EngineRuntime(deps);
 		await expect(runtime.reload()).rejects.toThrow();
 	});
 
 	it("throws if fetchPublishedVersion is called before a successful bootstrap", async () => {
-		const runtime = new EngineRuntime({
-			loadWatchlist: () => Promise.resolve(loadedAt("demo-1", "E1")),
-			makeEmbedder: () => instantEmbedder(),
-		});
+		const { deps } = depsForCatalogs([catalogOf([["OFAC_SDN", "demo-1"]])]);
+		const runtime = new EngineRuntime(deps);
 		await expect(runtime.fetchPublishedVersion()).rejects.toThrow();
+	});
+});
+
+describe("EngineRuntime enabledLists selection + thresholds", () => {
+	function loadedAt(
+		version: string,
+		entityId: string,
+		listId: string,
+	): LoadedWatchlist {
+		return {
+			index: new VectorIndex(new Float32Array(1), [entityId], 1),
+			entities: new Map([
+				[
+					entityId,
+					{
+						entity_id: entityId,
+						entity_type: "PERSON",
+						primary_name: entityId,
+						name_canonical: entityId,
+						aliases: [],
+						dob: [],
+						countries: [],
+						risk_category: "SANCTION",
+						source_list: listId,
+						list_version: version,
+					},
+				],
+			]),
+			version,
+			listId,
+		};
+	}
+
+	function instantEmbedder(): Embedder {
+		return { embed: () => Promise.resolve(new Float32Array(1)) };
+	}
+
+	/** Deps over a static multi-list catalog; loadList tracks which ids loaded. */
+	function depsFor(catalog: WatchlistCatalog): {
+		deps: RuntimeDeps;
+		loadedIds: string[];
+		makeEmbedder: ReturnType<typeof vi.fn>;
+	} {
+		const loadedIds: string[] = [];
+		const makeEmbedder = vi.fn(() => instantEmbedder());
+		const deps: RuntimeDeps = {
+			loadCatalog: () => Promise.resolve(catalog),
+			loadList: (_pubkey, entry) => {
+				loadedIds.push(entry.id);
+				return Promise.resolve(
+					loadedAt(entry.version, `${entry.id}:E`, entry.id),
+				);
+			},
+			makeEmbedder,
+			clearCache: () => Promise.resolve(),
+		};
+		return { deps, loadedIds, makeEmbedder };
+	}
+
+	const MULTI = catalogOf([
+		["EU_CONSOLIDATED", "demo-1"],
+		["OFAC_SDN", "demo-1"],
+		["UN_CONSOLIDATED", "demo-1"],
+	]);
+
+	it("loads only the enabled subset of catalog lists", async () => {
+		const { deps, loadedIds } = depsFor(MULTI);
+		const runtime = new EngineRuntime(deps);
+		const engine = await runtime.bootstrap(CONFIG, () => {}, {
+			enabledLists: ["OFAC_SDN", "UN_CONSOLIDATED"],
+		});
+		expect(loadedIds.sort()).toEqual(["OFAC_SDN", "UN_CONSOLIDATED"]);
+		expect(
+			engine
+				.allEntities()
+				.map((e) => e.entity_id)
+				.sort(),
+		).toEqual(["OFAC_SDN:E", "UN_CONSOLIDATED:E"]);
+		expect(runtime.version()).toBe("OFAC_SDN@demo-1|UN_CONSOLIDATED@demo-1");
+	});
+
+	it("loads every list when enabledLists is absent (today's behavior)", async () => {
+		const { deps, loadedIds } = depsFor(MULTI);
+		const runtime = new EngineRuntime(deps);
+		await runtime.bootstrap(CONFIG);
+		expect(loadedIds.sort()).toEqual([
+			"EU_CONSOLIDATED",
+			"OFAC_SDN",
+			"UN_CONSOLIDATED",
+		]);
+	});
+
+	it("silently skips an enabled id that is absent from the catalog", async () => {
+		const { deps, loadedIds } = depsFor(MULTI);
+		const runtime = new EngineRuntime(deps);
+		await runtime.bootstrap(CONFIG, () => {}, {
+			enabledLists: ["OFAC_SDN", "NOT_IN_CATALOG"],
+		});
+		expect(loadedIds).toEqual(["OFAC_SDN"]);
+	});
+
+	it("loads nothing and screens to no matches for an empty enabled set", async () => {
+		const { deps, loadedIds, makeEmbedder } = depsFor(MULTI);
+		const runtime = new EngineRuntime(deps);
+		const engine = await runtime.bootstrap(CONFIG, () => {}, {
+			enabledLists: [],
+		});
+		expect(loadedIds).toEqual([]);
+		expect(engine.allEntities()).toEqual([]);
+		// The embedder still warms (model load is selection-independent).
+		expect(makeEmbedder).toHaveBeenCalledTimes(1);
+		const res = await engine.screen({ name: "anyone" });
+		expect(res.matches).toEqual([]);
+	});
+
+	it("exposes the catalog list ids (the real selectable set)", async () => {
+		const { deps } = depsFor(MULTI);
+		const runtime = new EngineRuntime(deps);
+		await runtime.bootstrap(CONFIG);
+		expect([...(await runtime.catalogListIds())].sort()).toEqual([
+			"EU_CONSOLIDATED",
+			"OFAC_SDN",
+			"UN_CONSOLIDATED",
+		]);
+	});
+
+	it("re-bootstrap reloads a new enabled set, reusing the warm embedder", async () => {
+		const { deps, loadedIds, makeEmbedder } = depsFor(MULTI);
+		const runtime = new EngineRuntime(deps);
+		await runtime.bootstrap(CONFIG, () => {}, {
+			enabledLists: ["OFAC_SDN"],
+		});
+		expect(loadedIds).toEqual(["OFAC_SDN"]);
+
+		const re = await runtime.reload({
+			enabledLists: ["EU_CONSOLIDATED", "OFAC_SDN"],
+		});
+		expect(re.listVersions()).toEqual({
+			EU_CONSOLIDATED: "demo-1",
+			OFAC_SDN: "demo-1",
+		});
+		expect(runtime.engine()).toBe(re);
+		// The embedder was built ONCE — re-bootstrap did NOT re-download the model.
+		expect(makeEmbedder).toHaveBeenCalledTimes(1);
+	});
+
+	it("passes thresholds through to the engine (a strict per-list bar suppresses)", async () => {
+		const { deps } = depsFor(MULTI);
+		const runtime = new EngineRuntime(deps);
+		// Every list's entity vector is identical to the (axis) embed; only the
+		// per-list bar differs. OFAC's impossibly-high bar suppresses its hit.
+		const engine = await runtime.bootstrap(CONFIG, () => {}, {
+			thresholds: { default: 0, perList: { OFAC_SDN: 1.0001 } },
+		});
+		const ids = (
+			await engine.screen({ name: "EU_CONSOLIDATED:E" })
+		).matches.map((m) => m.entity_id);
+		expect(ids).not.toContain("OFAC_SDN:E");
+	});
+});
+
+describe("compositeVersion", () => {
+	it("sorts by id and joins id@version with a pipe", () => {
+		expect(
+			compositeVersion({ OFAC_SDN: "demo-1", EU_CONSOLIDATED: "demo-1" }),
+		).toBe("EU_CONSOLIDATED@demo-1|OFAC_SDN@demo-1");
+	});
+
+	it("is empty for no lists", () => {
+		expect(compositeVersion({})).toBe("");
 	});
 });
 
@@ -274,8 +547,10 @@ describe("throttleByRoundedPct", () => {
 describe("EngineRuntime boot stages", () => {
 	it("emits downloading then verified(version) before loading the model", async () => {
 		const deps: RuntimeDeps = {
-			loadWatchlist: () => Promise.resolve(fakeLoaded()),
+			loadCatalog: () => Promise.resolve(catalogOf([["OFAC_SDN", "test"]])),
+			loadList: () => Promise.resolve(fakeLoaded()),
 			makeEmbedder: () => neverEmbedder(),
+			clearCache: () => Promise.resolve(),
 		};
 		const runtime = new EngineRuntime(deps);
 		const stages: BootStage[] = [];
@@ -286,7 +561,11 @@ describe("EngineRuntime boot stages", () => {
 		await vi.advanceTimersByTimeAsync(MODEL_LOAD_TIMEOUT_MS);
 		await assertion;
 		expect(stages[0]).toEqual({ kind: "downloading" });
-		expect(stages).toContainEqual({ kind: "verified", version: "test" });
+		// The verified stage carries the COMPOSITE stamp, not a bare version.
+		expect(stages).toContainEqual({
+			kind: "verified",
+			version: "OFAC_SDN@test",
+		});
 	});
 
 	it("threads an embedder progress event into a loading-model stage", async () => {
@@ -294,7 +573,8 @@ describe("EngineRuntime boot stages", () => {
 		// progress event during warmup, which the runtime must surface as a
 		// loading-model BootStage carrying that progress.
 		const deps: RuntimeDeps = {
-			loadWatchlist: () => Promise.resolve(fakeLoaded()),
+			loadCatalog: () => Promise.resolve(catalogOf([["OFAC_SDN", "test"]])),
+			loadList: () => Promise.resolve(fakeLoaded()),
 			makeEmbedder: (onProgress) => ({
 				// Fire one progress tick, then reject — that halts #build before the
 				// (out-of-scope) screening-engine assembly while still proving the
@@ -304,6 +584,7 @@ describe("EngineRuntime boot stages", () => {
 					return Promise.reject(new Error("warmup halted after progress"));
 				},
 			}),
+			clearCache: () => Promise.resolve(),
 		};
 		const runtime = new EngineRuntime(deps);
 		const stages: BootStage[] = [];
@@ -317,5 +598,27 @@ describe("EngineRuntime boot stages", () => {
 		});
 		// The plain (progress-less) loading-model stage still fires first.
 		expect(stages).toContainEqual({ kind: "loading-model" });
+	});
+});
+
+describe("EngineRuntime.clearListCache + cache-aware deps", () => {
+	function instantEmbedder(): Embedder {
+		return { embed: () => Promise.resolve(new Float32Array(1)) };
+	}
+
+	it("clearListCache delegates to the injected cache-clear seam", async () => {
+		const clearCache = vi.fn(() => Promise.resolve());
+		const runtime = new EngineRuntime({
+			loadCatalog: () => Promise.resolve(catalogOf([["OFAC_SDN", "v"]])),
+			loadList: () => Promise.resolve(fakeLoaded()),
+			makeEmbedder: () => instantEmbedder(),
+			clearCache,
+		});
+		await runtime.clearListCache();
+		expect(clearCache).toHaveBeenCalledTimes(1);
+	});
+
+	it("defaultRuntimeDeps exposes a clearCache seam (cache-aware by default)", () => {
+		expect(typeof defaultRuntimeDeps().clearCache).toBe("function");
 	});
 });

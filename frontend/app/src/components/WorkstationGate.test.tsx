@@ -221,6 +221,10 @@ describe("EngineStatusStrip (rendered inside WorkstationGate once ready)", () =>
 			</WorkstationGate>,
 		);
 		await screen.findByText("WORKSTATION CONTENT");
+		// engineBoot is invoked in a mount effect; wait for it so the captured
+		// reject is assigned before we call it (otherwise rejectBoot() is undefined
+		// under parallel-worker scheduling — a latent race, not a behavior bug).
+		await waitFor(() => expect(handle.engineBoot).toHaveBeenCalled());
 
 		// Simulate the engine boot rejecting.
 		act(() => rejectBoot()(new Error("FAISS index failed to load")));

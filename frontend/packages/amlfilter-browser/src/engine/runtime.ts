@@ -20,12 +20,19 @@ import {
 	type OnEmbedProgress,
 } from "./embedder";
 import { createWorkerEmbedder, spawnEmbedderWorker } from "./embedderClient";
-import { createScreeningEngine, type ScreeningEngine } from "./screeningEngine";
+import { clearAll } from "./listCache";
 import {
-	fetchWatchlistVersion,
-	type LoadedWatchlist,
-	loadWatchlist,
+	createMultiListScreeningEngine,
+	type ListThresholds,
+	type MultiListScreeningEngine,
+} from "./multiEngine";
+import { PRESETS } from "./scoring";
+import type {
+	LoadedWatchlist,
+	WatchlistCatalog,
+	WatchlistCatalogEntry,
 } from "./watchlist";
+import { loadCatalogCached, loadListCached } from "./watchlistCache";
 
 /** Any non-empty string warms the ONNX session; content is discarded. */
 const WARMUP_PROMPT = "warm up the model";
@@ -123,26 +130,100 @@ export interface RuntimeConfig {
 	readonly pubkeyUrl: string;
 }
 
-/** The watchlist-load surface bootstrap needs: fetch + verify + decode + build. */
-export type LoadWatchlist = (pubkey: Uint8Array) => Promise<LoadedWatchlist>;
+/**
+ * Optional selection + scoring knobs for a bootstrap / re-bootstrap. `enabledLists`,
+ * when present, restricts the load to catalog lists whose id is in the set (a stored
+ * id absent from the catalog is silently skipped — the catalog is the source of truth
+ * for existence; an empty set loads nothing and screens to no matches, which is valid).
+ * When absent, EVERY catalog list loads (today's behavior). `thresholds`, when present,
+ * feeds the per-list score floors into the engine; when absent the balanced default
+ * applies to every list.
+ */
+export interface RuntimeSelection {
+	readonly enabledLists?: ReadonlyArray<string>;
+	readonly thresholds?: ListThresholds;
+}
 
-/** The seams bootstrap depends on; defaulted to the real loader + embedder Worker.
+/** A selectable catalog list, surfaced to the settings UI for toggling. */
+export interface CatalogListInfo {
+	readonly id: string;
+	readonly title: string;
+}
+
+/** Fetch + verify the signed catalog (the manifest of every published list). */
+export type LoadCatalog = (pubkey: Uint8Array) => Promise<WatchlistCatalog>;
+
+/** Fetch + verify + decode + build ONE per-list watchlist under its catalog entry. */
+export type LoadList = (
+	pubkey: Uint8Array,
+	entry: WatchlistCatalogEntry,
+) => Promise<LoadedWatchlist>;
+
+/** The seams bootstrap depends on; defaulted to the real loaders + embedder Worker.
  * `makeEmbedder` receives an `onProgress` sink the runtime wires to the boot
- * banner so model-download progress reaches the UI. */
+ * banner so model-download progress reaches the UI. `loadCatalog`/`loadList` are
+ * the CACHE-AWARE loaders by default (durable IndexedDB byte cache + offline
+ * fallback, fail-closed re-verify on every load); `clearCache` drops every
+ * cached blob (the "Clear cached lists" affordance). */
 export interface RuntimeDeps {
-	readonly loadWatchlist: LoadWatchlist;
+	readonly loadCatalog: LoadCatalog;
+	readonly loadList: LoadList;
 	readonly makeEmbedder: (onProgress: OnEmbedProgress) => Embedder;
+	readonly clearCache: () => Promise<void>;
 }
 
 const defaultDeps: RuntimeDeps = {
-	loadWatchlist,
+	// Cache-aware: try the network (no-store) + cache the verified bytes; reuse a
+	// version-matching cached row (re-verified fail-closed) to skip the network;
+	// fall back to the cached catalog when offline. The cache is a byte store —
+	// verifyEd25519 runs over the served bytes (cached OR fetched) every load.
+	loadCatalog: (pubkey) => loadCatalogCached(pubkey),
+	loadList: (pubkey, entry) => loadListCached(pubkey, entry),
 	makeEmbedder: (onProgress) =>
 		createWorkerEmbedder(spawnEmbedderWorker(), onProgress),
+	clearCache: clearAll,
 };
 
-/** Build the production runtime deps (real watchlist loader + embedder Worker). */
+/**
+ * Best-effort request that the browser keep the list cache + OPFS durable
+ * (not evicted under storage pressure). Guarded: a browser without the
+ * Storage API, or a denied request, is a no-op — durability is an
+ * optimization, never a correctness requirement (every load re-verifies).
+ */
+async function requestPersistentStorage(): Promise<void> {
+	try {
+		await navigator.storage?.persist?.();
+	} catch {
+		// Persistence is best-effort; a failure must not abort bootstrap.
+	}
+}
+
+/** Build the production runtime deps (real catalog + list loaders + embedder Worker). */
 export function defaultRuntimeDeps(): RuntimeDeps {
 	return defaultDeps;
+}
+
+/** The default per-list score floors: the balanced preset threshold for every
+ * list. Settings-driven per-list overrides are the next wave; the mechanism
+ * exists now (see {@link MultiListScreeningEngine}) but the default has none. */
+const DEFAULT_THRESHOLDS: ListThresholds = {
+	default: PRESETS.balanced.threshold,
+};
+
+/**
+ * The composite version stamp: each list's `id@version`, sorted by id and
+ * joined with `|`. Derived from the per-list LOADED versions (not the catalog's
+ * generatedAt) so a no-op republish that only bumps generatedAt does NOT churn
+ * the stamp; a bumped per-list version or a list add/remove DOES. Pure +
+ * exported so the app can compare fetchPublishedVersion() against version().
+ */
+export function compositeVersion(
+	versions: Readonly<Record<string, string>>,
+): string {
+	return Object.keys(versions)
+		.sort()
+		.map((id) => `${id}@${versions[id]}`)
+		.join("|");
 }
 
 /** Fetch the pinned ed25519 public key same-origin (no-store), as raw bytes. */
@@ -174,36 +255,56 @@ export { createEmbedder };
  */
 export class EngineRuntime {
 	readonly #deps: RuntimeDeps;
-	#enginePromise: Promise<ScreeningEngine> | null = null;
-	#ready: ScreeningEngine | null = null;
+	#enginePromise: Promise<MultiListScreeningEngine> | null = null;
+	#ready: MultiListScreeningEngine | null = null;
 	#version: string | null = null;
 	// Captured on the first successful bootstrap so reload() can re-fetch the
 	// watchlist with the same pinned key and reuse the already-warm embedder
 	// (no second ~23 MB model download).
 	#embedder: Embedder | null = null;
 	#config: RuntimeConfig | null = null;
+	// The active selection + thresholds, carried across reload so a re-bootstrap
+	// with no override reuses the last enabled set / score floors.
+	#selection: RuntimeSelection = {};
 
 	public constructor(deps: RuntimeDeps = defaultDeps) {
 		this.#deps = deps;
 	}
 
 	/** The ready engine, or null before the first successful bootstrap. */
-	public engine(): ScreeningEngine | null {
+	public engine(): MultiListScreeningEngine | null {
 		return this.#ready;
 	}
 
-	/** The loaded watchlist version, or null before bootstrap — for step-5
-	 * rescan to compare against a cheap manifest poll. */
+	/** The composite version stamp (sorted `id@version` join), or null before
+	 * bootstrap — for the rescan path to compare against a cheap manifest poll. */
 	public version(): string | null {
 		return this.#version;
 	}
 
-	/** Build (or reuse) the engine over the synced bundle, reporting progress. */
+	/**
+	 * Drop every durably-cached list blob (the "Clear cached lists" affordance).
+	 * Safe to call any time — the next load simply re-fetches + re-verifies. The
+	 * running engine is untouched; the cache is a load-time optimization only.
+	 */
+	public clearListCache(): Promise<void> {
+		return this.#deps.clearCache();
+	}
+
+	/**
+	 * Build (or reuse) the engine over the synced bundle, reporting progress. An
+	 * optional {@link RuntimeSelection} restricts the loaded lists (`enabledLists`)
+	 * and sets the per-list score floors (`thresholds`); both default to "all lists,
+	 * balanced floor". Idempotent — the first call wins and its result is cached; a
+	 * later enabled-set/threshold change goes through {@link reload}.
+	 */
 	public bootstrap(
 		config: RuntimeConfig,
 		onStage: OnStage = () => {},
-	): Promise<ScreeningEngine> {
+		selection: RuntimeSelection = {},
+	): Promise<MultiListScreeningEngine> {
 		if (this.#enginePromise === null) {
+			this.#selection = selection;
 			this.#enginePromise = this.#build(config, onStage).catch((error) => {
 				// Let a failed bootstrap be retried by clearing the memo.
 				this.#enginePromise = null;
@@ -213,33 +314,62 @@ export class EngineRuntime {
 		return this.#enginePromise;
 	}
 
+	/** EVERY list in the signed catalog as `{id, title}` — the real selectable set
+	 * the UI offers (the catalog is the source of truth for which lists exist).
+	 * Requires a prior successful bootstrap (the pinned-key config is captured then). */
+	public async catalogLists(): Promise<ReadonlyArray<CatalogListInfo>> {
+		if (this.#config === null) {
+			throw new Error("catalogLists() requires a successful bootstrap first");
+		}
+		const pubkey = await fetchPubkey(this.#config.pubkeyUrl);
+		const catalog = await this.#deps.loadCatalog(pubkey);
+		return catalog.lists.map((entry) => ({ id: entry.id, title: entry.title }));
+	}
+
+	/** Just the ids of every catalog list (the selectable set, sans titles). */
+	public async catalogListIds(): Promise<ReadonlyArray<string>> {
+		return (await this.catalogLists()).map((list) => list.id);
+	}
+
 	/**
-	 * Re-fetch + re-verify (fail-closed) the signed watchlist, swap the in-memory
-	 * cosine index + entities + version, and rebuild the ScreeningEngine over the
-	 * SAME already-warm embedder (no second model download). Used by the app's
-	 * "Check for updates" path once a cheap manifest poll detects a new publish.
-	 * Requires a prior successful bootstrap — the embedder + pinned-key config are
-	 * captured then; calling reload before that throws.
+	 * Re-fetch + re-verify (fail-closed) the catalog and EVERY list, rebuild the
+	 * MultiListScreeningEngine over the SAME already-warm embedder (no second
+	 * model download), and swap the ready engine + composite version. A verify
+	 * failure on the catalog OR any list rejects — no partial swap. Used by the
+	 * app's "Check for updates" path once a poll detects a new publish. Requires a
+	 * prior successful bootstrap (the embedder + pinned-key config are captured
+	 * then); calling reload before that throws.
 	 */
-	public async reload(): Promise<ScreeningEngine> {
+	public async reload(
+		selection?: RuntimeSelection,
+	): Promise<MultiListScreeningEngine> {
 		if (this.#embedder === null || this.#config === null) {
 			throw new Error("reload() requires a successful bootstrap first");
 		}
+		// A new selection replaces the active one; omitting it reuses the last
+		// enabled set + thresholds (a plain "new publish" reload).
+		if (selection !== undefined) {
+			this.#selection = selection;
+		}
 		const pubkey = await fetchPubkey(this.#config.pubkeyUrl);
-		const loaded = await this.#deps.loadWatchlist(pubkey);
-		const engine = createScreeningEngine(loaded, this.#embedder);
+		const loaded = await this.#loadEnabledLists(pubkey);
+		const engine = createMultiListScreeningEngine(
+			loaded,
+			this.#embedder,
+			this.#thresholds(),
+		);
 		this.#ready = engine;
-		this.#version = loaded.version;
+		this.#version = compositeVersion(engine.listVersions());
 		this.#enginePromise = Promise.resolve(engine);
 		return engine;
 	}
 
 	/**
-	 * Cheap new-publish poll: fetch + verify (fail-closed) ONLY the tiny signed
-	 * manifest and return its version — no full list, no vectors, no model. The
-	 * "Check for updates" path compares this against {@link version} to decide
-	 * whether a {@link reload} + re-screen is needed. Requires a prior bootstrap
-	 * (the pinned-key config is captured then).
+	 * Cheap new-publish poll: fetch + verify (fail-closed) the catalog + EACH
+	 * list's tiny manifest (no vectors, no model) and return the SAME composite
+	 * stamp shape as {@link version}. The "Check for updates" path compares the
+	 * two; a bumped per-list version OR a list add/remove changes the stamp.
+	 * Requires a prior bootstrap (the pinned-key config is captured then).
 	 */
 	public async fetchPublishedVersion(): Promise<string> {
 		if (this.#config === null) {
@@ -248,18 +378,65 @@ export class EngineRuntime {
 			);
 		}
 		const pubkey = await fetchPubkey(this.#config.pubkeyUrl);
-		return fetchWatchlistVersion(pubkey);
+		// The catalog is itself signed + verified (fail-closed) and carries each
+		// list's authoritative version; the per-entry version is cross-checked
+		// against the manifest + watchlist at load time. For a cheap poll the
+		// signed catalog's entry versions are sufficient to detect a bumped
+		// per-list version OR a list add/remove — no N extra manifest fetches.
+		const catalog = await this.#deps.loadCatalog(pubkey);
+		const versions: Record<string, string> = {};
+		for (const entry of catalog.lists) {
+			versions[entry.id] = entry.version;
+		}
+		return compositeVersion(versions);
+	}
+
+	/** The active per-list score floors: the configured thresholds, or the
+	 * balanced default for every list when no selection thresholds were given. */
+	#thresholds(): ListThresholds {
+		return this.#selection.thresholds ?? DEFAULT_THRESHOLDS;
+	}
+
+	/**
+	 * Load + verify the ENABLED catalog lists, fail-closed: a verify/load failure
+	 * on any single enabled list rejects the whole load (a verify failure is a
+	 * security event, not degraded mode — no catch-and-skip). When the active
+	 * selection has no `enabledLists`, every catalog list loads (today's behavior);
+	 * an id in `enabledLists` that is absent from the catalog is silently skipped
+	 * (the catalog is the source of truth for existence); an empty enabled set
+	 * loads nothing.
+	 */
+	async #loadEnabledLists(pubkey: Uint8Array): Promise<LoadedWatchlist[]> {
+		const catalog = await this.#deps.loadCatalog(pubkey);
+		const enabled = this.#selection.enabledLists;
+		const entries =
+			enabled === undefined
+				? catalog.lists
+				: catalog.lists.filter((entry) => enabled.includes(entry.id));
+		const loaded: LoadedWatchlist[] = [];
+		for (const entry of entries) {
+			loaded.push(await this.#deps.loadList(pubkey, entry));
+		}
+		return loaded;
 	}
 
 	async #build(
 		config: RuntimeConfig,
 		onStage: OnStage,
-	): Promise<ScreeningEngine> {
+	): Promise<MultiListScreeningEngine> {
 		onStage({ kind: "downloading" });
+		// Ask the browser to keep the cache + OPFS durable ONCE up front
+		// (best-effort, guarded — a no-op where unsupported). The cache-aware
+		// loaders open their own short IndexedDB transactions on demand.
+		await requestPersistentStorage();
 		const pubkey = await fetchPubkey(config.pubkeyUrl);
-		const loaded = await this.#deps.loadWatchlist(pubkey);
-		this.#version = loaded.version;
-		onStage({ kind: "verified", version: loaded.version });
+		const loaded = await this.#loadEnabledLists(pubkey);
+		const versions: Record<string, string> = {};
+		for (const l of loaded) {
+			versions[l.listId] = l.version;
+		}
+		this.#version = compositeVersion(versions);
+		onStage({ kind: "verified", version: this.#version });
 
 		onStage({ kind: "loading-model" });
 		// Re-fire the stage with each download tick so the banner shows a percent,
@@ -286,7 +463,11 @@ export class EngineRuntime {
 			`loading the name-matching model timed out after ${timeoutMs}ms`,
 		);
 
-		const engine = createScreeningEngine(loaded, embedder);
+		const engine = createMultiListScreeningEngine(
+			loaded,
+			embedder,
+			this.#thresholds(),
+		);
 		this.#ready = engine;
 		onStage({ kind: "ready" });
 		return engine;

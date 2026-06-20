@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CONSOLIDATED_LIST dateGenerated="2026-05-01">
+  <INDIVIDUALS>
+    <INDIVIDUAL>
+      <DATAID>6908000</DATAID>
+      <FIRST_NAME>Qasim</FIRST_NAME>
+      <SECOND_NAME>Al-Fictiti</SECOND_NAME>
+      <UN_LIST_TYPE>Al-Qaida</UN_LIST_TYPE>
+      <NATIONALITY>
+        <VALUE>Yemen</VALUE>
+      </NATIONALITY>
+      <INDIVIDUAL_ALIAS>
+        <QUALITY>Good</QUALITY>
+        <ALIAS_NAME>Abu Qasim</ALIAS_NAME>
+      </INDIVIDUAL_ALIAS>
+      <INDIVIDUAL_DATE_OF_BIRTH>
+        <TYPE>EXACT</TYPE>
+        <DATE>1965-08-01</DATE>
+      </INDIVIDUAL_DATE_OF_BIRTH>
+    </INDIVIDUAL>
+  </INDIVIDUALS>
+  <ENTITIES>
+    <ENTITY>
+      <DATAID>6908100</DATAID>
+      <FIRST_NAME>Invented Charity Foundation</FIRST_NAME>
+      <UN_LIST_TYPE>Al-Qaida</UN_LIST_TYPE>
+      <ENTITY_ALIAS>
+        <QUALITY>a.k.a.</QUALITY>
+        <ALIAS_NAME>ICF</ALIAS_NAME>
+      </ENTITY_ALIAS>
+    </ENTITY>
+  </ENTITIES>
+</CONSOLIDATED_LIST>

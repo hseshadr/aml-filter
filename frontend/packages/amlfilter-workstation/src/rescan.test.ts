@@ -8,6 +8,7 @@ import type {
 	CreateCustomerPayload,
 	CustomerPatch,
 	CustomerRow,
+	MatchEvent,
 	ReviewFilters,
 	ReviewRow,
 	TieredMatch,
@@ -120,6 +121,10 @@ class FakeStore implements WorkstationStore {
 		throw new Error("not used");
 	}
 
+	getMatchEvents(_matchId: string): Promise<ReadonlyArray<MatchEvent>> {
+		throw new Error("not used");
+	}
+
 	getSetting(key: string): Promise<string | null> {
 		return Promise.resolve(this.settings.get(key) ?? null);
 	}
@@ -161,6 +166,7 @@ class FakeStore implements WorkstationStore {
 			list_version: m.list_version,
 			reasons: m.reasons,
 			explanation: m.explanation,
+			review_state: "CURRENT",
 		};
 	}
 }
@@ -226,7 +232,7 @@ describe("RescanService.syncWatchlist", () => {
 		store.seedCustomer(customerRow("c-1", "Ivan Fakovich"));
 		await store.setSetting(LAST_SYNCED_VERSION_KEY, "v1");
 		const screener = screenerFor({ "Ivan Fakovich": [makeMatch()] });
-		const service = new RescanService(store, screener, 0.65);
+		const service = new RescanService(store, screener);
 
 		const result = await service.syncWatchlist("v1");
 
@@ -242,7 +248,7 @@ describe("RescanService.syncWatchlist", () => {
 		store.seedCustomer(customerRow("c-2", "Anna Other"));
 		await store.setSetting(LAST_SYNCED_VERSION_KEY, "v1");
 		const screener = screenerFor({ "Ivan Fakovich": [makeMatch()] });
-		const service = new RescanService(store, screener, 0.65);
+		const service = new RescanService(store, screener);
 
 		const result = await service.syncWatchlist("v2");
 
@@ -261,7 +267,7 @@ describe("RescanService.syncWatchlist", () => {
 		const { screener, release } = gatedScreenerFor({
 			"Ivan Fakovich": [makeMatch()],
 		});
-		const service = new RescanService(store, screener, 0.65);
+		const service = new RescanService(store, screener);
 
 		// Fire both BEFORE either can finish — both straddle the version guard.
 		const first = service.syncWatchlist("v2");
@@ -283,7 +289,7 @@ describe("RescanService.syncWatchlist", () => {
 		store.seedCustomer(customerRow("c-1", "Ivan Fakovich"));
 		// No prior matches; the rescan surfaces one => one new hit.
 		const screener = screenerFor({ "Ivan Fakovich": [makeMatch()] });
-		const service = new RescanService(store, screener, 0.65);
+		const service = new RescanService(store, screener);
 
 		const result = await service.syncWatchlist("v1");
 
@@ -295,11 +301,15 @@ describe("RescanService.syncWatchlist", () => {
 		const store = new FakeStore();
 		store.seedCustomer(customerRow("c-1", "Ivan Fakovich"));
 		await store.recordMatches("c-1", [
-			tierMatch(makeMatch({ entity_id: "stale" }), 0.65),
+			tierMatch(
+				makeMatch({ entity_id: "stale" }),
+				{ name_canonical: "ivan fakovich", country: "RU" },
+				0.65,
+			),
 		]);
 		// The new watchlist no longer matches this customer at all.
 		const screener = screenerFor({ "Ivan Fakovich": [] });
-		const service = new RescanService(store, screener, 0.65);
+		const service = new RescanService(store, screener);
 
 		const result = await service.syncWatchlist("v2");
 
@@ -315,12 +325,16 @@ describe("RescanService.screenCustomer", () => {
 		store.seedCustomer(customerRow("c-1", "Ivan Fakovich"));
 		store.seedCustomer(customerRow("c-2", "Anna Other"));
 		await store.recordMatches("c-2", [
-			tierMatch(makeMatch({ entity_id: "other" }), 0.65),
+			tierMatch(
+				makeMatch({ entity_id: "other" }),
+				{ name_canonical: "ivan fakovich", country: "RU" },
+				0.65,
+			),
 		]);
 		const screener = screenerFor({
 			"Ivan Fakovich": [makeMatch({ entity_id: "new-one" })],
 		});
-		const service = new RescanService(store, screener, 0.65);
+		const service = new RescanService(store, screener);
 
 		const rows = await service.screenCustomer("c-1");
 
@@ -336,7 +350,7 @@ describe("RescanService.screenCustomer", () => {
 		const { screener, release } = gatedScreenerFor({
 			"Ivan Fakovich": [makeMatch({ entity_id: "new-one" })],
 		});
-		const service = new RescanService(store, screener, 0.65);
+		const service = new RescanService(store, screener);
 
 		// Both calls overlap inside the screen() gate for the SAME customer.
 		const first = service.screenCustomer("c-1");
@@ -351,7 +365,7 @@ describe("RescanService.screenCustomer", () => {
 
 	it("throws for an unknown customer", async () => {
 		const store = new FakeStore();
-		const service = new RescanService(store, screenerFor({}), 0.65);
+		const service = new RescanService(store, screenerFor({}));
 		await expect(service.screenCustomer("nope")).rejects.toThrow(/nope/);
 	});
 });

@@ -83,14 +83,15 @@ function makeScreener(matches: ReadonlyArray<Match>): NameScreener {
 }
 
 describe("LocalOnboardingService", () => {
-	it("creates the customer, screens with the onboarding threshold, tiers, persists", async () => {
+	it("creates the customer, screens with the resolved threshold, tiers, persists", async () => {
 		const store = makeStore();
 		const screener = makeScreener([
 			makeMatch({ entity_id: "e-strong", score: 0.95 }),
 			makeMatch({ entity_id: "e-possible", score: 0.72 }),
 		]);
-		// possibleThreshold injected — tiers must derive from it, not a constant.
-		const service = new LocalOnboardingService(store, screener, 0.7);
+		// No screening config set => default balanced (0.65) drives both the
+		// screen floor and the tier floor (resolved threshold, not a constant).
+		const service = new LocalOnboardingService(store, screener);
 		await service.onboard({
 			customer_reference: "R-1",
 			name: "Ivan Fakovich",
@@ -113,11 +114,31 @@ describe("LocalOnboardingService", () => {
 		]);
 		expect(tiered[0]?.sanctioned_name).toBe("Ivan Fakovich");
 		expect(tiered[0]?.reasons[0]?.signal).toBe("name_vector");
+		expect(tiered[0]?.material_fingerprint).toMatch(/^[0-9a-f]+$/);
+	});
+
+	it("honors a persisted 'strict' sensitivity for the screen floor", async () => {
+		const store = makeStore();
+		vi.mocked(store.getSetting).mockImplementation((key: string) =>
+			Promise.resolve(key === "screening_sensitivity" ? "strict" : null),
+		);
+		const screener = makeScreener([]);
+		const service = new LocalOnboardingService(store, screener);
+		await service.onboard({
+			customer_reference: "R-1",
+			name: "Ann",
+			country: "US",
+		});
+		expect(screener.screen).toHaveBeenCalledWith({
+			name: "Ann",
+			country: "US",
+			threshold: 0.75,
+		});
 	});
 
 	it("defaults onboarded_by to 'local' and id_documents to []", async () => {
 		const store = makeStore();
-		const service = new LocalOnboardingService(store, makeScreener([]), 0.65);
+		const service = new LocalOnboardingService(store, makeScreener([]));
 		await service.onboard({ customer_reference: "R-1", name: "Ann" });
 		expect(store.createCustomer).toHaveBeenCalledWith({
 			customer_reference: "R-1",
@@ -130,7 +151,7 @@ describe("LocalOnboardingService", () => {
 
 	it("does not call recordMatches when screening returns no matches", async () => {
 		const store = makeStore();
-		const service = new LocalOnboardingService(store, makeScreener([]), 0.65);
+		const service = new LocalOnboardingService(store, makeScreener([]));
 		const result = await service.onboard({
 			customer_reference: "R-1",
 			name: "Ann",
@@ -145,7 +166,7 @@ describe("LocalOnboardingService", () => {
 			new DuplicateReferenceError("customer_reference 'R-1' already exists"),
 		);
 		const screener = makeScreener([makeMatch()]);
-		const service = new LocalOnboardingService(store, screener, 0.65);
+		const service = new LocalOnboardingService(store, screener);
 		await expect(
 			service.onboard({ customer_reference: "R-1", name: "Ann" }),
 		).rejects.toBeInstanceOf(DuplicateReferenceError);

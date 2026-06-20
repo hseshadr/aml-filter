@@ -1,0 +1,2 @@
+{"entity_id": "UN_CONSOLIDATED:0001", "primary_name": "Qasim Al-Fictiti", "aliases": [{"name": "Abu Qasim"}], "dob": ["1965-08-01"], "countries": ["Yemen"], "risk_category": "SANCTION", "source_list": "UN_CONSOLIDATED", "list_version": "demo-1"}
+{"entity_id": "UN_CONSOLIDATED:0002", "primary_name": "Invented Charity Foundation", "aliases": [{"name": "ICF"}], "dob": [], "countries": [], "risk_category": "SANCTION", "source_list": "UN_CONSOLIDATED", "list_version": "demo-1"}

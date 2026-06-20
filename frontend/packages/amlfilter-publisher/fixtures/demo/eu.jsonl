@@ -1,0 +1,2 @@
+{"entity_id": "EU_CONSOLIDATED:0001", "primary_name": "Boris Vymyshlyenny", "aliases": [{"name": "Borya Vymyshlyenny"}], "dob": ["1972-06-15"], "countries": ["RU"], "risk_category": "SANCTION", "source_list": "EU_CONSOLIDATED", "list_version": "demo-1"}
+{"entity_id": "EU_CONSOLIDATED:0002", "primary_name": "Phantom Trading OOO", "aliases": [], "dob": [], "countries": ["BY"], "risk_category": "SANCTION", "source_list": "EU_CONSOLIDATED", "list_version": "demo-1"}

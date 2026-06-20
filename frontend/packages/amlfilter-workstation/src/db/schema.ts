@@ -8,7 +8,7 @@
 
 import type { SqlDatabase } from "./sqlite";
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 const MIGRATION_V1: ReadonlyArray<string> = [
 	`CREATE TABLE customers (
@@ -45,6 +45,38 @@ const MIGRATION_V1: ReadonlyArray<string> = [
 	"CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
 ];
 
+// v2 — additive only (no data loss): the material-change fingerprint + a
+// re-review flag on each match, plus an append-only match_events audit ledger.
+// review_state defaults CURRENT so every pre-existing row backfills to "clean";
+// material_fingerprint is nullable so migrated rows are flagged "never seen a
+// fingerprint" and adopt one silently on the first replaceMatches (no false
+// CHANGED event). match_id is nullable on an event so a SUPPRESSED entity (which
+// has no surviving row) can still be recorded.
+const MIGRATION_V2: ReadonlyArray<string> = [
+	"ALTER TABLE kyc_matches ADD COLUMN material_fingerprint TEXT",
+	"ALTER TABLE kyc_matches ADD COLUMN review_state TEXT NOT NULL DEFAULT 'CURRENT'",
+	`CREATE TABLE match_events (
+		event_id       TEXT PRIMARY KEY,
+		match_id       TEXT,
+		customer_id    TEXT NOT NULL,
+		ofac_entity_id TEXT NOT NULL,
+		event_type     TEXT NOT NULL,
+		from_status    TEXT,
+		to_status      TEXT,
+		reviewer_id    TEXT,
+		notes          TEXT,
+		at             TEXT NOT NULL
+	)`,
+	"CREATE INDEX idx_match_events_match ON match_events(match_id)",
+	"CREATE INDEX idx_match_events_entity ON match_events(customer_id, ofac_entity_id)",
+];
+
+/** Ordered migration ledger: index i holds the step that takes vi → v(i+1). */
+const MIGRATIONS: ReadonlyArray<ReadonlyArray<string>> = [
+	MIGRATION_V1,
+	MIGRATION_V2,
+];
+
 function currentVersion(db: SqlDatabase): number {
 	db.exec(
 		`CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -59,21 +91,33 @@ function currentVersion(db: SqlDatabase): number {
 	return typeof v === "number" ? v : 0;
 }
 
-/**
- * Bring the database to schema HEAD; per-connection pragmas included.
- * Upgrade path is single-step (v0→v1) today — a future v2 must turn the apply
- * logic into an ordered per-version list; this body does not loop.
- */
-export function migrate(db: SqlDatabase): number {
-	db.exec("PRAGMA foreign_keys = ON");
-	if (currentVersion(db) < 1) {
-		for (const sql of MIGRATION_V1) {
+/** Apply one ordered migration step and record it in the ledger — atomically.
+ * The version's DDL statements and the ledger insert run inside a single
+ * transaction, so a crash mid-step rolls back every partial statement and
+ * leaves the ledger un-incremented (a clean re-run, no "duplicate column"). */
+function applyVersion(db: SqlDatabase, version: number): void {
+	db.transaction(() => {
+		for (const sql of MIGRATIONS[version - 1] ?? []) {
 			db.exec(sql);
 		}
 		db.exec(
-			"INSERT INTO schema_migrations (version, applied_at) VALUES (1, ?)",
-			[new Date().toISOString()],
+			"INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+			[version, new Date().toISOString()],
 		);
+	});
+}
+
+/**
+ * Bring the database to schema HEAD; per-connection pragmas included. Applies
+ * every migration whose version is greater than the recorded current version,
+ * in order, recording each in schema_migrations — so a v1 DB upgrades to v2
+ * by running only the additive v2 step. Idempotent: a HEAD DB applies nothing.
+ */
+export function migrate(db: SqlDatabase): number {
+	db.exec("PRAGMA foreign_keys = ON");
+	const from = currentVersion(db);
+	for (let version = from + 1; version <= SCHEMA_VERSION; version += 1) {
+		applyVersion(db, version);
 	}
 	return SCHEMA_VERSION;
 }

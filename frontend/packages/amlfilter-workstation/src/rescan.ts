@@ -6,10 +6,10 @@
 // + tiering path is the SAME one onboarding uses (tierMatch), so a re-screen and
 // an onboard tier identically.
 
-import { PRESETS } from "@amlfilter/browser";
 import { NotFoundError } from "./errors";
-import { type NameScreener, ONBOARDING_THRESHOLD } from "./onboarding";
-import { tierMatch } from "./tier_match";
+import type { NameScreener } from "./onboarding";
+import { loadScreeningConfig, resolveThreshold } from "./screening_config";
+import { canonicalProfile, tierMatch } from "./tier_match";
 import type { CustomerRow, ReviewRow, WorkstationStore } from "./types";
 
 /** The settings key under which the last fully-synced watchlist version lives. */
@@ -37,7 +37,6 @@ const EMPTY_SUMMARY: RescanSummary = {
 export class RescanService {
 	readonly #store: WorkstationStore;
 	readonly #screener: NameScreener;
-	readonly #possibleThreshold: number;
 	/** Dedupes concurrent syncWatchlist so one rescan runs, not N. */
 	#syncInFlight: Promise<SyncResult> | null = null;
 	/** Per-customer in-flight screen+replace, so overlaps share one write. */
@@ -46,14 +45,9 @@ export class RescanService {
 		Promise<ReadonlyArray<ReviewRow>>
 	>();
 
-	public constructor(
-		store: WorkstationStore,
-		screener: NameScreener,
-		possibleThreshold: number = PRESETS.balanced.threshold,
-	) {
+	public constructor(store: WorkstationStore, screener: NameScreener) {
 		this.#store = store;
 		this.#screener = screener;
-		this.#possibleThreshold = possibleThreshold;
 	}
 
 	/** Re-screen one customer and replace their complete match set. */
@@ -127,13 +121,18 @@ export class RescanService {
 	}
 
 	async #replaceFor(customer: CustomerRow): Promise<ReadonlyArray<ReviewRow>> {
+		// Same resolved-sensitivity contract as onboarding: one threshold drives
+		// both the screen floor and the tier floor; default = balanced (0.65).
+		const config = await loadScreeningConfig(this.#store);
+		const threshold = resolveThreshold(config.sensitivity, config.overrides);
 		const response = await this.#screener.screen({
 			name: customer.name,
 			country: customer.country,
-			threshold: ONBOARDING_THRESHOLD,
+			threshold,
 		});
+		const profile = canonicalProfile(customer.name, customer.country);
 		const tiered = response.matches.map((match) =>
-			tierMatch(match, this.#possibleThreshold),
+			tierMatch(match, profile, threshold),
 		);
 		return this.#store.replaceMatches(customer.customer_id, tiered);
 	}

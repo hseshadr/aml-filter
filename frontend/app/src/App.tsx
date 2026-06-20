@@ -17,6 +17,7 @@ import { ScreenPage } from "./pages/ScreenPage";
 // is nothing to log into).
 const CustomersPage = lazy(() => import("./pages/CustomersPage"));
 const ReviewBoardPage = lazy(() => import("./pages/ReviewBoardPage"));
+const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 
 function RouteFallback() {
 	return (
@@ -50,6 +51,14 @@ function App() {
 								element={
 									<WorkstationGate>
 										<ReviewBoardPage />
+									</WorkstationGate>
+								}
+							/>
+							<Route
+								path="/settings"
+								element={
+									<WorkstationGate>
+										<SettingsPage />
 									</WorkstationGate>
 								}
 							/>
