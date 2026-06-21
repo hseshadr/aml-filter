@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
-import { EU_RAW_FILE, euSource } from "./euSource.ts";
+import { EU_RAW_FILE, EU_URL, euSource } from "./euSource.ts";
 
 const HERE = resolve(fileURLToPath(import.meta.url), "..");
 const FIXTURES = resolve(HERE, "../../fixtures/sources");
@@ -54,5 +54,15 @@ describe("euSource.parse against a real EU consolidated XML fixture", () => {
 			expect(l.risk_category).toBe("SANCTION");
 			expect(l.list_version).toBe("2026-05-01");
 		}
+	});
+});
+
+describe("EU_URL download endpoint", () => {
+	test("is an absolute EU webgate https URL with a non-empty token param", () => {
+		const url = new URL(EU_URL);
+		expect(url.protocol).toBe("https:");
+		expect(url.host).toBe("webgate.ec.europa.eu");
+		// Guard against silently shipping an empty list by dropping the token.
+		expect(url.searchParams.get("token")).toBeTruthy();
 	});
 });
