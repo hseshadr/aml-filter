@@ -18,6 +18,12 @@ export {
 export { fetchOfacJsonl, OFAC_BASE, parseSdn } from "./fetchOfac.ts";
 export { createNodeEmbedder } from "./nodeEmbedder.ts";
 export {
+	type EdgeprocCommand,
+	edgeprocPublishArgs,
+	type PublishBundleInput,
+	publishBundle,
+} from "./publishBundle.ts";
+export {
 	type CatalogSourceSpec,
 	type PublishCatalogInput,
 	publishCatalog,
@@ -45,5 +51,6 @@ export {
 } from "./sources/source.ts";
 export { ukSource } from "./sources/ukSource.ts";
 export { unSource } from "./sources/unSource.ts";
+export { type StagedList, stageBundle } from "./stageBundle.ts";
 export type { Watchlist, WatchlistEntity, WatchlistManifest } from "./types.ts";
-export { packVectors, vectorsToBase64 } from "./vectors.ts";
+export { packVectors, vectorsToBase64, vectorsToBytes } from "./vectors.ts";

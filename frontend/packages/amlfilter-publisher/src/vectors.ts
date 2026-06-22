@@ -30,14 +30,26 @@ export async function packVectors(
 
 /** Base64-encode a Float32Array as its raw little-endian byte buffer. */
 export function vectorsToBase64(packed: Float32Array): string {
+	return Buffer.from(vectorsToBytes(packed)).toString("base64");
+}
+
+/**
+ * The raw little-endian Float32 bytes of a packed vectors array, row-major
+ * (`entities*dim`). This is the binary `vectors.f32` payload the content-addressed
+ * bundle stages; the in-tab consumer reinterprets the same byte order via
+ * `new Float32Array(bytes.buffer)`. Asserts host endianness so a (hypothetical)
+ * big-endian publisher fails loud rather than emitting a byte-swapped list.
+ */
+export function vectorsToBytes(packed: Float32Array): Uint8Array {
 	if (endianness() !== "LE") {
 		throw new Error(
 			"publisher requires a little-endian host (vectors are emitted LE)",
 		);
 	}
-	return Buffer.from(
-		packed.buffer,
-		packed.byteOffset,
-		packed.byteLength,
-	).toString("base64");
+	return new Uint8Array(
+		packed.buffer.slice(
+			packed.byteOffset,
+			packed.byteOffset + packed.byteLength,
+		),
+	);
 }
