@@ -138,6 +138,65 @@ describe("CustomersPage", () => {
 		);
 	});
 
+	it("renders an optional Date-of-birth input in the onboarding form", async () => {
+		render(<CustomersPage />);
+		await waitFor(() => expect(mockClient.listCustomers).toHaveBeenCalled());
+
+		const dobInput = screen.getByLabelText(
+			/date of birth/i,
+		) as HTMLInputElement;
+		expect(dobInput).toBeInTheDocument();
+		expect(dobInput.type).toBe("date");
+		expect(dobInput.value).toBe("");
+	});
+
+	it("includes the entered DOB in the onboardCustomer call", async () => {
+		mockClient.onboardCustomer.mockResolvedValue(makeOnboardResponse());
+
+		render(<CustomersPage />);
+		await waitFor(() => expect(mockClient.listCustomers).toHaveBeenCalled());
+
+		fireEvent.change(screen.getByLabelText(/customer reference/i), {
+			target: { value: "REF-DOB" },
+		});
+		fireEvent.change(screen.getByLabelText(/^name/i), {
+			target: { value: "Ivan Fakovich" },
+		});
+		fireEvent.change(screen.getByLabelText(/date of birth/i), {
+			target: { value: "1971-03-14" },
+		});
+		fireEvent.submit(screen.getByRole("form", { name: /onboard a customer/i }));
+
+		await waitFor(() =>
+			expect(mockClient.onboardCustomer).toHaveBeenCalledWith(
+				expect.objectContaining({
+					customer_reference: "REF-DOB",
+					name: "Ivan Fakovich",
+					dob: "1971-03-14",
+				}),
+			),
+		);
+	});
+
+	it("omits dob from onboardCustomer when the DOB input is left empty", async () => {
+		mockClient.onboardCustomer.mockResolvedValue(makeOnboardResponse());
+
+		render(<CustomersPage />);
+		await waitFor(() => expect(mockClient.listCustomers).toHaveBeenCalled());
+
+		fireEvent.change(screen.getByLabelText(/customer reference/i), {
+			target: { value: "REF-NODOB" },
+		});
+		fireEvent.change(screen.getByLabelText(/^name/i), {
+			target: { value: "Jon Q. Fakename" },
+		});
+		fireEvent.submit(screen.getByRole("form", { name: /onboard a customer/i }));
+
+		await waitFor(() => expect(mockClient.onboardCustomer).toHaveBeenCalled());
+		const arg = mockClient.onboardCustomer.mock.calls[0]?.[0];
+		expect(arg?.dob).toBeUndefined();
+	});
+
 	it("surfaces a sanctions-match warning when match_entity_ids is non-empty", async () => {
 		mockClient.onboardCustomer.mockResolvedValue(
 			makeOnboardResponse({ match_entity_ids: ["sdn-123", "sdn-456"] }),

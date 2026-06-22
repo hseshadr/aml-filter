@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Entity, OfacBundleMeta } from "./domain";
+import type { Entity, MatchReason, OfacBundleMeta } from "./domain";
 import type { Embedder } from "./embedder";
 import { createScreeningEngine, ScreeningEngine } from "./screeningEngine";
 import { VectorIndex } from "./vectorIndex";
@@ -202,5 +202,62 @@ describe("ScreeningEngine — match carries the full dossier", () => {
 		expect(top?.identifiers.passport).toEqual(["FAKE0001"]);
 		// aliases still flattened to display names
 		expect(top?.aliases).toEqual(["Vanya Fakovich"]);
+	});
+});
+
+// The rich entity's DOB is the ISO "1971-03-14". A human-typed query DOB in any
+// of the source shapes must be canonicalized at the engine boundary BEFORE it
+// reaches the scorer (which assumes ISO + slices [0,4] for the year), so it
+// scores a dob_match instead of failing a raw-string compare.
+describe("ScreeningEngine — query DOB is normalized at the scorer boundary", () => {
+	function dobReason(
+		reasons: ReadonlyArray<MatchReason> | undefined,
+	): MatchReason | undefined {
+		return reasons?.find((r) => r.signal === "dob_match");
+	}
+
+	it("day-first dd/mm/yyyy yields an exact DOB match against the ISO entity DOB", async () => {
+		const res = await richEngine().screen({
+			name: "Ivan Fakovich",
+			dob: "14/03/1971",
+			threshold: 0,
+		});
+		const reason = dobReason(res.matches[0]?.reasons);
+		expect(reason).toBeDefined();
+		expect(reason?.value).toBe(1);
+		expect(reason?.description).toBe("Exact DOB match: 1971-03-14");
+	});
+
+	it("day month-name year yields an exact DOB match against the ISO entity DOB", async () => {
+		const res = await richEngine().screen({
+			name: "Ivan Fakovich",
+			dob: "14 Mar 1971",
+			threshold: 0,
+		});
+		const reason = dobReason(res.matches[0]?.reasons);
+		expect(reason?.value).toBe(1);
+		expect(reason?.description).toBe("Exact DOB match: 1971-03-14");
+	});
+
+	it("a bare year yields a year-level DOB match against the ISO entity DOB", async () => {
+		const res = await richEngine().screen({
+			name: "Ivan Fakovich",
+			dob: "1971",
+			threshold: 0,
+		});
+		const reason = dobReason(res.matches[0]?.reasons);
+		expect(reason?.value).toBe(0.5);
+		expect(reason?.description).toBe("Year match: 1971");
+	});
+
+	it("an unparseable query DOB is treated as no DOB (no junk year slice)", async () => {
+		const res = await richEngine().screen({
+			name: "Ivan Fakovich",
+			dob: "not a date",
+			threshold: 0,
+		});
+		const reason = dobReason(res.matches[0]?.reasons);
+		// query.dob normalizes to null → scorer omits the dob_match reason entirely.
+		expect(reason).toBeUndefined();
 	});
 });

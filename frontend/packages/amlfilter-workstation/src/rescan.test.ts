@@ -171,12 +171,17 @@ class FakeStore implements WorkstationStore {
 	}
 }
 
-function customerRow(id: string, name: string): CustomerRow {
+function customerRow(
+	id: string,
+	name: string,
+	dob: string | null = null,
+): CustomerRow {
 	return {
 		customer_id: id,
 		customer_reference: `REF-${id}`,
 		name,
 		country: "RU",
+		dob,
 		onboarding_status: "PENDING_REVIEW",
 		kyc_risk_rating: null,
 		id_documents: [],
@@ -367,5 +372,22 @@ describe("RescanService.screenCustomer", () => {
 		const store = new FakeStore();
 		const service = new RescanService(store, screenerFor({}));
 		await expect(service.screenCustomer("nope")).rejects.toThrow(/nope/);
+	});
+
+	it("passes the stored customer's dob into the screen call", async () => {
+		const store = new FakeStore();
+		store.seedCustomer(customerRow("c-1", "Ivan Fakovich", "1975-03-02"));
+		const screener = screenerFor({ "Ivan Fakovich": [] });
+		const service = new RescanService(store, screener);
+
+		await service.screenCustomer("c-1");
+
+		expect(screener.screen).toHaveBeenCalledWith(
+			expect.objectContaining({
+				name: "Ivan Fakovich",
+				country: "RU",
+				dob: "1975-03-02",
+			}),
+		);
 	});
 });

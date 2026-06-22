@@ -52,7 +52,7 @@ export {
 	MultiListScreeningEngine,
 } from "./engine/multiEngine";
 // --- the canonical-name pipeline (shared by the engine and the UI's gates) ---
-export { canonicalize } from "./engine/normalize";
+export { canonicalize, normalizeDob } from "./engine/normalize";
 // --- runtime: bootstrap the multi-list engine over the signed catalog + lists ---
 export {
 	type BootStage,

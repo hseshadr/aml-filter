@@ -181,6 +181,10 @@ export function ScreenPage() {
 		stage: { kind: "downloading" },
 	});
 	const [query, setQuery] = useState("");
+	// Optional date-of-birth filter. A native date input's value is already
+	// `YYYY-MM-DD`, which flows straight into the engine's `dob` (normalized to
+	// ISO before the parity-locked dob_match scorer). Empty = no dob supplied.
+	const [dob, setDob] = useState("");
 	const [strictness, setStrictness] = useState<Strictness>("balanced");
 	const [entities, setEntities] = useState<ReadonlyArray<Entity>>([]);
 	const [search, setSearch] = useState<SearchState | null>(null);
@@ -245,7 +249,7 @@ export function ScreenPage() {
 	}, []);
 
 	const runSearch = useCallback(
-		async (text: string) => {
+		async (text: string, dobIso: string) => {
 			const engine = runtime.engine();
 			if (engine === null) {
 				return;
@@ -254,6 +258,9 @@ export function ScreenPage() {
 			const mine = ++seq.current;
 			const result = await engine.screen({
 				name: text,
+				// A native date input is already ISO `YYYY-MM-DD`; omit when empty so
+				// the scorer never sees a blank dob (which it would treat as null).
+				...(dobIso.length > 0 ? { dob: dobIso } : {}),
 				threshold: level.floor,
 				k: SEARCH_K,
 			});
@@ -277,9 +284,9 @@ export function ScreenPage() {
 			setSearch(null);
 			return;
 		}
-		const timer = setTimeout(() => void runSearch(trimmed), DEBOUNCE_MS);
+		const timer = setTimeout(() => void runSearch(trimmed, dob), DEBOUNCE_MS);
 		return () => clearTimeout(timer);
-	}, [query, phase.kind, runSearch]);
+	}, [query, dob, phase.kind, runSearch]);
 
 	return (
 		<div className="screen-page">
@@ -300,6 +307,20 @@ export function ScreenPage() {
 				onChange={(event) => setQuery(event.target.value)}
 				disabled={phase.kind !== "ready"}
 			/>
+
+			<div className="screen-dob">
+				<label className="screen-dob__label" htmlFor="screen-dob-input">
+					Date of birth (optional)
+				</label>
+				<input
+					id="screen-dob-input"
+					className="screen-dob__input"
+					type="date"
+					value={dob}
+					onChange={(event) => setDob(event.target.value)}
+					disabled={phase.kind !== "ready"}
+				/>
+			</div>
 
 			<StrictnessControl
 				value={strictness}

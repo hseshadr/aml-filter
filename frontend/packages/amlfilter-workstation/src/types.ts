@@ -62,6 +62,8 @@ export interface CustomerRow {
 	readonly customer_reference: string;
 	readonly name: string;
 	readonly country: string | null;
+	/** ISO date string (YYYY-MM-DD), or null when not supplied. */
+	readonly dob: string | null;
 	readonly onboarding_status: string;
 	readonly kyc_risk_rating: string | null;
 	readonly id_documents: ReadonlyArray<IdDocument>;
@@ -75,6 +77,8 @@ export interface CreateCustomerPayload {
 	readonly customer_reference: string;
 	readonly name: string;
 	readonly country?: string | null;
+	/** ISO date string (YYYY-MM-DD), or null/absent when not supplied. */
+	readonly dob?: string | null;
 	readonly onboarded_by?: string;
 	readonly id_documents?: ReadonlyArray<IdDocument>;
 }

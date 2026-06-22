@@ -69,7 +69,7 @@ describe("schema migrations", () => {
 	});
 
 	it("applies v2 — review-state columns, match_events, and its indexes", () => {
-		expect(migrate(db)).toBe(2);
+		expect(migrate(db)).toBe(SCHEMA_VERSION);
 		const columns = db
 			.selectObjects("SELECT name FROM pragma_table_info('kyc_matches')")
 			.map((row) => row.name);
@@ -104,12 +104,42 @@ describe("schema migrations", () => {
 			   match_tier, sanctioned_name, source_list, reasons, explanation, detected_at)
 			 VALUES ('m1', 'c1', 'e1', 0.9, 'STRONG', 'X', 'OFAC_SDN', '[]', 'x', 't')`,
 		);
-		expect(migrate(db)).toBe(2);
+		expect(migrate(db)).toBe(SCHEMA_VERSION);
 		const rows = db.selectObjects(
 			"SELECT match_id, review_state, material_fingerprint FROM kyc_matches WHERE match_id = 'm1'",
 		);
 		expect(rows[0]?.review_state).toBe("CURRENT");
 		expect(rows[0]?.material_fingerprint).toBeNull();
+	});
+
+	it("applies v3 — a nullable dob column on customers", () => {
+		expect(migrate(db)).toBe(SCHEMA_VERSION);
+		const columns = db
+			.selectObjects("SELECT name FROM pragma_table_info('customers')")
+			.map((row) => row.name);
+		expect(columns).toContain("dob");
+	});
+
+	it("upgrades a v2-shaped DB to v3 additively, backfilling dob = NULL", () => {
+		// Stand up a v1 DB by hand and run migrate, landing it at v2 with a row,
+		// then re-record it at v2 and migrate again so only the additive v3 step
+		// runs. The pre-existing customer must survive with dob backfilled NULL,
+		// and the ledger must record v3.
+		seedV1(db);
+		db.exec(
+			`INSERT INTO customers (customer_id, customer_reference, name, created_at, updated_at)
+			 VALUES ('c1', 'REF-1', 'Ivan', 't', 't')`,
+		);
+		expect(migrate(db)).toBe(SCHEMA_VERSION);
+		const rows = db.selectObjects(
+			"SELECT customer_id, dob FROM customers WHERE customer_id = 'c1'",
+		);
+		expect(rows[0]?.customer_id).toBe("c1");
+		expect(rows[0]?.dob).toBeNull();
+		const maxVersion = db.selectObjects(
+			"SELECT MAX(version) AS v FROM schema_migrations",
+		);
+		expect(maxVersion[0]?.v).toBe(3);
 	});
 
 	it("enforces foreign keys — a match for an unknown customer is rejected", () => {

@@ -128,6 +128,44 @@ describe("buildLoadedWatchlist — decode + project", () => {
 		expect(entity?.dob).toEqual([]);
 	});
 
+	it("normalizes a non-ISO wire dob to its ISO prefix (older/cached catalogs)", () => {
+		// A catalog whose entity DOB was NOT canonicalized at publish time (e.g. an
+		// older bundle or a source-shaped value) must still land ISO so dob_match
+		// can slice the year — buildLoaded defends the entity-DOB boundary.
+		const messy = singleEntityWatchlist("SANCTION");
+		const wire = messy.entities[0];
+		expect(wire).toBeDefined();
+		const dirty: Watchlist = {
+			...messy,
+			entities: [{ ...(wire as WatchlistEntity), dob: "12/04/1980" }],
+		};
+		const entity = buildLoadedWatchlist(dirty).entities.get("DEMO:1");
+		expect(entity?.dob).toEqual(["1980-04-12"]);
+	});
+
+	it("leaves an already-ISO wire dob unchanged (idempotent)", () => {
+		// normalizeDob is idempotent on ISO input — the common already-canonical
+		// catalog path must not move.
+		const entity = buildLoadedWatchlist(fixtureWatchlist()).entities.get(
+			"DEMO:1",
+		);
+		expect(entity?.dob).toEqual(["1971-03-14"]);
+	});
+
+	it("drops an unparseable wire dob to an empty array", () => {
+		// An entity DOB that cannot be canonicalized must not reach the scorer as a
+		// junk string (which would slice a meaningless year); it becomes no-DOB.
+		const messy = singleEntityWatchlist("SANCTION");
+		const wire = messy.entities[0];
+		expect(wire).toBeDefined();
+		const dirty: Watchlist = {
+			...messy,
+			entities: [{ ...(wire as WatchlistEntity), dob: "not a date" }],
+		};
+		const entity = buildLoadedWatchlist(dirty).entities.get("DEMO:1");
+		expect(entity?.dob).toEqual([]);
+	});
+
 	it("the exact-hit query ranks its entity first via cosine", () => {
 		const loaded = buildLoadedWatchlist(fixtureWatchlist());
 		const q = new Float32Array(DIM);

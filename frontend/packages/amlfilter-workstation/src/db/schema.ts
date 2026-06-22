@@ -8,7 +8,7 @@
 
 import type { SqlDatabase } from "./sqlite";
 
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 const MIGRATION_V1: ReadonlyArray<string> = [
 	`CREATE TABLE customers (
@@ -71,10 +71,18 @@ const MIGRATION_V2: ReadonlyArray<string> = [
 	"CREATE INDEX idx_match_events_entity ON match_events(customer_id, ofac_entity_id)",
 ];
 
+// v3 — additive only: a nullable date-of-birth on the customer, so DOB-based
+// screening can run end to end (the browser engine's ScreenQuery already accepts
+// `dob`). Migrated rows backfill to NULL (DOB unknown).
+const MIGRATION_V3: ReadonlyArray<string> = [
+	"ALTER TABLE customers ADD COLUMN dob TEXT",
+];
+
 /** Ordered migration ledger: index i holds the step that takes vi → v(i+1). */
 const MIGRATIONS: ReadonlyArray<ReadonlyArray<string>> = [
 	MIGRATION_V1,
 	MIGRATION_V2,
+	MIGRATION_V3,
 ];
 
 function currentVersion(db: SqlDatabase): number {

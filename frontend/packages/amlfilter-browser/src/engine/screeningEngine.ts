@@ -24,7 +24,7 @@ import {
 } from "./domain";
 import type { Embedder } from "./embedder";
 import { EMBEDDING_MODEL } from "./embedder";
-import { canonicalize } from "./normalize";
+import { canonicalize, normalizeDob } from "./normalize";
 import {
 	computeScore,
 	PRESETS,
@@ -168,7 +168,14 @@ export class ScreeningEngine {
 			entity,
 			{
 				nameCanonical: queryCanonical,
-				dob: query.dob ?? null,
+				// The scorer's dob_match assumes ISO (it slices [0,4] for the year), so
+				// canonicalize a human-typed query DOB ("12/04/1980", "10 Dec 1948") to
+				// its ISO prefix here; null/empty/unparseable stays null. Idempotent on
+				// already-ISO input, so the scoring golden is unaffected.
+				dob:
+					query.dob !== undefined && query.dob !== null
+						? normalizeDob(query.dob)
+						: null,
 				country: query.country ?? null,
 				entityType: query.entityType ?? null,
 				vectorSimilarity,
