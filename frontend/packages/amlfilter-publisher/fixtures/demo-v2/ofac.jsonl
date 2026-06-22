@@ -1,0 +1,4 @@
+{"entity_id": "OFAC_SDN:0001", "primary_name": "Ivan Fakovich", "aliases": [{"name": "Vanya Fakovich"}], "dob": ["1971-03-14"], "countries": ["RU"], "risk_category": "SANCTION", "source_list": "OFAC_SDN", "list_version": "demo-2"}
+{"entity_id": "OFAC_SDN:0002", "primary_name": "Olga Notrealova", "aliases": [{"name": "Olya Notrealova"}], "dob": ["1985-11-02"], "countries": ["RU"], "risk_category": "SANCTION", "source_list": "OFAC_SDN", "list_version": "demo-2"}
+{"entity_id": "OFAC_SDN:0003", "primary_name": "Madeupistan Imaginary Bank", "aliases": [{"name": "MIB"}], "dob": [], "countries": ["XX"], "risk_category": "SANCTION", "source_list": "OFAC_SDN", "list_version": "demo-2"}
+{"entity_id": "OFAC_SDN:0004", "primary_name": "Testor Newlysanctioned", "aliases": [{"name": "Testy Newlysanctioned"}], "dob": ["1990-12-25"], "countries": ["XX"], "risk_category": "SANCTION", "source_list": "OFAC_SDN", "list_version": "demo-2"}
