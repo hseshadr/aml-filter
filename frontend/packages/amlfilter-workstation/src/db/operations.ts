@@ -85,6 +85,7 @@ function toCustomerRow(record: Record<string, SqlValue>): CustomerRow {
 		customer_reference: asString(record.customer_reference),
 		name: asString(record.name),
 		country: asNullableString(record.country),
+		dob: asNullableString(record.dob),
 		onboarding_status: asString(record.onboarding_status),
 		kyc_risk_rating: asNullableString(record.kyc_risk_rating),
 		id_documents: JSON.parse(asString(record.id_documents)) as IdDocument[],
@@ -147,14 +148,15 @@ export function createCustomer(
 	const customerId = crypto.randomUUID();
 	try {
 		db.exec(
-			`INSERT INTO customers (customer_id, customer_reference, name, country,
+			`INSERT INTO customers (customer_id, customer_reference, name, country, dob,
 			   onboarding_status, kyc_risk_rating, id_documents, onboarded_by, created_at, updated_at)
-			 VALUES (?, ?, ?, ?, 'PENDING_REVIEW', NULL, ?, ?, ?, ?)`,
+			 VALUES (?, ?, ?, ?, ?, 'PENDING_REVIEW', NULL, ?, ?, ?, ?)`,
 			[
 				customerId,
 				payload.customer_reference,
 				payload.name,
 				payload.country ?? null,
+				payload.dob ?? null,
 				JSON.stringify(payload.id_documents ?? []),
 				payload.onboarded_by ?? "local",
 				now,

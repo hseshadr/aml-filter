@@ -123,6 +123,10 @@ const fastMatch = {
 // assert the strictness level maps to the documented floor.
 const observedThresholds: Array<number | undefined> = [];
 
+// The dob the page passed to engine.screen, in call order — lets a test assert
+// the Date-of-birth input threads its YYYY-MM-DD value through to screening.
+const observedDobs: Array<string | undefined> = [];
+
 // The page builds its own EngineRuntime; mock the module so the test drives a
 // deterministic engine with no Worker/bundle/model.
 vi.mock("@amlfilter/browser", async (importActual) => {
@@ -136,11 +140,46 @@ vi.mock("@amlfilter/browser", async (importActual) => {
 		engine() {
 			return {
 				allEntities: () => [ivanEntity, olgaEntity],
-				screen: ({ name, threshold }: { name: string; threshold?: number }) => {
+				screen: ({
+					name,
+					threshold,
+					dob,
+				}: {
+					name: string;
+					threshold?: number;
+					dob?: string;
+				}) => {
 					const lower = name.toLowerCase();
 					// Record the floor the page passed per call so a test can assert
 					// the strictness level actually changes the engine threshold.
 					observedThresholds.push(threshold);
+					// Record the dob so a test can assert the Date-of-birth input
+					// threads its value straight into the engine.screen call.
+					observedDobs.push(dob);
+					// A dob alongside an "ivan" query surfaces the exact-DOB-match
+					// reason the parity-locked scorer emits, so the dossier renders it.
+					if (lower.includes("ivan") && dob === "1971-03-14") {
+						return Promise.resolve({
+							request_id: "ivandob",
+							list_versions_used: {},
+							execution_time_ms: 4,
+							matches: [
+								{
+									...ivanMatch,
+									reasons: [
+										...ivanMatch.reasons,
+										{
+											signal: "dob_match",
+											value: 1,
+											weight: 0.1,
+											contribution: 0.1,
+											description: "Exact DOB match: 1971-03-14",
+										},
+									],
+								},
+							],
+						});
+					}
 					// "ivan fal": the engine returns the close hit AND the vector
 					// noise; the page's lexical gate decides which survive.
 					if (lower.includes("ivan fal")) {
@@ -212,6 +251,7 @@ import { ScreenPage } from "./ScreenPage";
 afterEach(() => {
 	cleanup();
 	observedThresholds.length = 0;
+	observedDobs.length = 0;
 });
 
 // Wait until the search box is enabled (boot resolved) and return it.
@@ -382,5 +422,54 @@ describe("ScreenPage — in-browser search", () => {
 				}),
 			).toBeTruthy(),
 		);
+	});
+
+	it("renders an optional Date-of-birth input alongside the search box", async () => {
+		render(<ScreenPage />);
+		await readyBox();
+		const dobInput = screen.getByLabelText(
+			/date of birth/i,
+		) as HTMLInputElement;
+		expect(dobInput).toBeTruthy();
+		expect(dobInput.type).toBe("date");
+		// Optional: starts empty.
+		expect(dobInput.value).toBe("");
+	});
+
+	it("threads the entered DOB into the engine.screen call", async () => {
+		render(<ScreenPage />);
+		const box = await readyBox();
+		const dobInput = screen.getByLabelText(/date of birth/i);
+		fireEvent.change(dobInput, { target: { value: "1971-03-14" } });
+		fireEvent.change(box, { target: { value: "ivan" } });
+		await waitFor(() =>
+			expect(screen.getByText(/1 potential match/)).toBeTruthy(),
+		);
+		// The page passed the date input's YYYY-MM-DD value straight through.
+		expect(observedDobs).toContain("1971-03-14");
+	});
+
+	it("surfaces the dob_match reason in the dossier when a matching DOB is entered", async () => {
+		render(<ScreenPage />);
+		const box = await readyBox();
+		const dobInput = screen.getByLabelText(/date of birth/i);
+		fireEvent.change(dobInput, { target: { value: "1971-03-14" } });
+		fireEvent.change(box, { target: { value: "ivan" } });
+		await waitFor(() =>
+			expect(screen.getByText(/1 potential match/)).toBeTruthy(),
+		);
+		// The reasons[] detail block now carries the exact-DOB-match line.
+		expect(screen.getByText("Exact DOB match: 1971-03-14")).toBeTruthy();
+	});
+
+	it("omits dob from the engine.screen call when the DOB input is left empty", async () => {
+		render(<ScreenPage />);
+		const box = await readyBox();
+		fireEvent.change(box, { target: { value: "ivan" } });
+		await waitFor(() =>
+			expect(screen.getByText(/1 potential match/)).toBeTruthy(),
+		);
+		// Empty date input must not pass an empty string — it is omitted entirely.
+		expect(observedDobs.every((d) => d === undefined)).toBe(true);
 	});
 });

@@ -122,6 +122,7 @@ export class LocalApiClient implements Pick<ApiClient, keyof ApiClient> {
 			name: payload.name,
 			onboarded_by: payload.onboarded_by,
 			country: payload.country ?? null,
+			dob: payload.dob ?? null,
 			id_documents: payload.id_documents ?? [],
 		});
 		return {

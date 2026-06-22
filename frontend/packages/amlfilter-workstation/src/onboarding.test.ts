@@ -15,6 +15,7 @@ function makeCustomerRow(): CustomerRow {
 		customer_reference: "R-1",
 		name: "Ivan Fakovich",
 		country: "RU",
+		dob: null,
 		onboarding_status: "PENDING_REVIEW",
 		kyc_risk_rating: null,
 		id_documents: [],
@@ -101,6 +102,7 @@ describe("LocalOnboardingService", () => {
 		expect(screener.screen).toHaveBeenCalledWith({
 			name: "Ivan Fakovich",
 			country: "RU",
+			dob: null,
 			threshold: ONBOARDING_THRESHOLD,
 		});
 		expect(store.recordMatches).toHaveBeenCalledTimes(1);
@@ -115,6 +117,34 @@ describe("LocalOnboardingService", () => {
 		expect(tiered[0]?.sanctioned_name).toBe("Ivan Fakovich");
 		expect(tiered[0]?.reasons[0]?.signal).toBe("name_vector");
 		expect(tiered[0]?.material_fingerprint).toMatch(/^[0-9a-f]+$/);
+	});
+
+	it("persists a supplied dob and carries it into the ScreenQuery", async () => {
+		const store = makeStore();
+		const screener = makeScreener([]);
+		const service = new LocalOnboardingService(store, screener);
+		await service.onboard({
+			customer_reference: "R-1",
+			name: "Ivan Fakovich",
+			country: "RU",
+			dob: "1975-03-02",
+		});
+		// The customer row carries the dob through to the store.
+		expect(store.createCustomer).toHaveBeenCalledWith({
+			customer_reference: "R-1",
+			name: "Ivan Fakovich",
+			country: "RU",
+			dob: "1975-03-02",
+			onboarded_by: "local",
+			id_documents: [],
+		});
+		// And the screen query is built with that dob so DOB-based scoring runs.
+		expect(screener.screen).toHaveBeenCalledWith({
+			name: "Ivan Fakovich",
+			country: "RU",
+			dob: "1975-03-02",
+			threshold: ONBOARDING_THRESHOLD,
+		});
 	});
 
 	it("honors a persisted 'strict' sensitivity for the screen floor", async () => {
@@ -132,6 +162,7 @@ describe("LocalOnboardingService", () => {
 		expect(screener.screen).toHaveBeenCalledWith({
 			name: "Ann",
 			country: "US",
+			dob: null,
 			threshold: 0.75,
 		});
 	});
@@ -144,6 +175,7 @@ describe("LocalOnboardingService", () => {
 			customer_reference: "R-1",
 			name: "Ann",
 			country: null,
+			dob: null,
 			onboarded_by: "local",
 			id_documents: [],
 		});

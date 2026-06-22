@@ -3,8 +3,24 @@
 // project the fields the v3 contract needs and RECOMPUTE name_canonical via the
 // shared canonicalize so the browser's normalizer and the published list agree.
 
-import { canonicalize } from "@amlfilter/browser";
+import { canonicalize, normalizeDob } from "@amlfilter/browser";
 import type { WatchlistEntity } from "./types.ts";
+
+/** Canonicalize the raw per-source DOBs and return the first that parses to an
+ * ISO prefix the scorer can use, or null when none do. The scorer ASSUMES ISO,
+ * so normalization happens here at publish time rather than at screen time. */
+function firstNormalizedDob(dob: unknown): string | null {
+	if (!isStringArray(dob)) {
+		return null;
+	}
+	for (const raw of dob) {
+		const iso = normalizeDob(raw);
+		if (iso !== null) {
+			return iso;
+		}
+	}
+	return null;
+}
 
 /** One alias as it appears in a source line. */
 interface SourceAlias {
@@ -57,8 +73,9 @@ function asSourceEntity(value: unknown, lineNo: number): SourceEntity {
 	return r as unknown as SourceEntity;
 }
 
-/** Map one source record to the wire shape: recompute name_canonical, take the
- * first DOB (or null), sort countries, and flatten aliases to display names. */
+/** Map one source record to the wire shape: recompute name_canonical, normalize
+ * the DOBs to the first ISO-prefix value (or null), sort countries, and flatten
+ * aliases to display names. */
 export function toWatchlistEntity(
 	value: unknown,
 	lineNo: number,
@@ -71,10 +88,7 @@ export function toWatchlistEntity(
 		entity_id: src.entity_id,
 		name_canonical: canonicalize(src.primary_name),
 		aliases: readAliasNames(src.aliases),
-		dob:
-			isStringArray(src.dob) && src.dob.length > 0
-				? (src.dob[0] ?? null)
-				: null,
+		dob: firstNormalizedDob(src.dob),
 		countries,
 		risk_category: src.risk_category,
 		source_list: src.source_list,

@@ -17,7 +17,7 @@
 
 import { verifyEd25519 } from "./crypto";
 import type { Alias, Entity, EntityType, RiskCategory } from "./domain";
-import { canonicalize } from "./normalize";
+import { canonicalize, normalizeDob } from "./normalize";
 import { VectorIndex } from "./vectorIndex";
 
 /** all-MiniLM-L6-v2 embedding dimension; the only dim the engine accepts. */
@@ -220,6 +220,20 @@ function toAlias(name: string): Alias {
 	return { name, name_canonical: canonicalize(name), source: "" };
 }
 
+/**
+ * Lift a single wire dob string into the domain Entity's `dob: string[]`,
+ * canonicalized to an ISO prefix. An absent or unparseable dob yields [] (no
+ * DOB) so the scorer never sees a non-ISO string it would slice a junk year
+ * from. Idempotent on already-ISO values.
+ */
+function normalizeEntityDob(dob: string | null): string[] {
+	if (dob === null) {
+		return [];
+	}
+	const iso = normalizeDob(dob);
+	return iso !== null ? [iso] : [];
+}
+
 /** Narrow a wire risk_category to the domain union fail-closed, else throw. */
 function assertRiskCategory(value: string, entityId: string): RiskCategory {
 	if (RISK_CATEGORIES.has(value as RiskCategory)) {
@@ -234,7 +248,11 @@ function assertRiskCategory(value: string, entityId: string): RiskCategory {
  * Project a lean watchlist entity onto the domain Entity the scorer + UI use.
  * The wire shape omits entity_type and a display primary_name and carries a
  * single dob string; we default the type, title-case the canonical for display,
- * and lift the dob into the array shape the scorer's dob signal expects.
+ * and lift the dob into the array shape the scorer's dob signal expects. The dob
+ * is canonicalized to an ISO prefix via normalizeDob so even a cached/older
+ * catalog whose value was not ISO at publish time still matches (the scorer's
+ * dob_match assumes ISO + slices [0,4]); idempotent on already-ISO values, and
+ * an unparseable value drops to no-DOB rather than reaching the scorer as junk.
  */
 function toEntity(wire: WatchlistEntity): Entity {
 	return {
@@ -243,7 +261,7 @@ function toEntity(wire: WatchlistEntity): Entity {
 		primary_name: displayName(wire.name_canonical),
 		name_canonical: wire.name_canonical,
 		aliases: wire.aliases.map(toAlias),
-		dob: wire.dob !== null ? [wire.dob] : [],
+		dob: normalizeEntityDob(wire.dob),
 		countries: wire.countries,
 		nationalities: [],
 		addresses: [],

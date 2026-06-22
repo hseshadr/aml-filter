@@ -17,6 +17,7 @@ function makeCustomerRow(): CustomerRow {
 		customer_reference: "R-1",
 		name: "Ann",
 		country: "RU",
+		dob: null,
 		onboarding_status: "PENDING_REVIEW",
 		kyc_risk_rating: null,
 		id_documents: [],

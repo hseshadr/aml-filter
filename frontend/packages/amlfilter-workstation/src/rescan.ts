@@ -128,6 +128,7 @@ export class RescanService {
 		const response = await this.#screener.screen({
 			name: customer.name,
 			country: customer.country,
+			dob: customer.dob,
 			threshold,
 		});
 		const profile = canonicalProfile(customer.name, customer.country);

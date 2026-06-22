@@ -59,6 +59,22 @@ describe("createCustomer", () => {
 		expect(listCustomers(db)).toHaveLength(1);
 	});
 
+	it("persists and reads back a nullable dob", () => {
+		const withDob = createCustomer(db, {
+			customer_reference: "REF-DOB",
+			name: "Ivan Fakovich",
+			dob: "1975-03-02",
+		});
+		expect(withDob.dob).toBe("1975-03-02");
+		expect(getCustomer(db, withDob.customer_id)?.dob).toBe("1975-03-02");
+
+		const withoutDob = createCustomer(db, {
+			customer_reference: "REF-NODOB",
+			name: "Ann",
+		});
+		expect(withoutDob.dob).toBeNull();
+	});
+
 	it("round-trips id_documents as structured data", () => {
 		const docs = [
 			{

@@ -28,6 +28,8 @@ export interface OnboardRequest {
 	readonly name: string;
 	readonly onboarded_by?: string;
 	readonly country?: string | null;
+	/** ISO date string (YYYY-MM-DD), or null/absent when not supplied. */
+	readonly dob?: string | null;
 	readonly id_documents?: ReadonlyArray<IdDocument>;
 }
 
@@ -53,10 +55,12 @@ export class LocalOnboardingService {
 			customer_reference: request.customer_reference,
 			name: request.name,
 			country: request.country ?? null,
+			dob: request.dob ?? null,
 			onboarded_by: request.onboarded_by ?? "local",
 			id_documents: request.id_documents ?? [],
 		});
 		const country = request.country ?? null;
+		const dob = request.dob ?? null;
 		// The configured sensitivity drives BOTH the screen floor and the tier
 		// floor so screening and tiering stay consistent; default = balanced
 		// (0.65), preserving the legacy ONBOARDING_THRESHOLD exactly.
@@ -65,6 +69,7 @@ export class LocalOnboardingService {
 		const response = await this.#screener.screen({
 			name: request.name,
 			country,
+			dob,
 			threshold,
 		});
 		const profile = canonicalProfile(request.name, country);

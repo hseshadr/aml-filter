@@ -87,6 +87,7 @@ export interface CustomerOnboardRequest {
 	name: string;
 	onboarded_by?: string;
 	country?: string; // ISO2
+	dob?: string; // ISO date YYYY-MM-DD; omitted when not supplied
 	id_documents?: IdDocument[];
 }
 

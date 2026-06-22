@@ -33,6 +33,7 @@ interface NewCustomerForm {
 	name: string;
 	onboarded_by: string;
 	country: string;
+	dob: string;
 }
 
 /** Inline edit buffer for a single customer row (name / country). */
@@ -47,6 +48,7 @@ const EMPTY_FORM: NewCustomerForm = {
 	name: "",
 	onboarded_by: "",
 	country: "",
+	dob: "",
 };
 
 function statusBadgeClass(status: string): string {
@@ -121,6 +123,7 @@ export default function CustomersPage() {
 				name: form.name,
 				onboarded_by: form.onboarded_by || undefined,
 				country: form.country || undefined,
+				dob: form.dob || undefined,
 				id_documents: toIdDocuments(idDocs),
 			});
 			setLastResult(result);
@@ -332,6 +335,18 @@ export default function CustomersPage() {
 							value={form.country}
 							onChange={(e) => setForm({ ...form, country: e.target.value })}
 							maxLength={2}
+							className="form-input"
+						/>
+					</div>
+					<div>
+						<label htmlFor="customer-dob" className="form-label">
+							Date of Birth
+						</label>
+						<input
+							id="customer-dob"
+							type="date"
+							value={form.dob}
+							onChange={(e) => setForm({ ...form, dob: e.target.value })}
 							className="form-input"
 						/>
 					</div>
