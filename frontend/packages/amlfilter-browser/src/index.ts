@@ -14,6 +14,12 @@
 //
 // Primary entry point: EngineRuntime.bootstrap() → MultiListScreeningEngine.
 
+// --- the signed-bundle delta-sync path: open + materialize a signed bundle ---
+export {
+	type BundleSource,
+	type BundleSourceDeps,
+	openBundleSource,
+} from "./engine/bundleSource";
 // --- the domain contract (single source of truth, mirrors the backend) ---
 export {
 	type Alias,
@@ -88,6 +94,9 @@ export {
 // --- the signed-catalog + per-list loaders + their loaded shapes ---
 export {
 	assertCatalogShape,
+	type BundleListFiles,
+	type BundleListMeta,
+	buildLoadedFromBundleFiles,
 	buildLoadedWatchlist,
 	fetchListVersion,
 	fetchVerifiedCatalog,
