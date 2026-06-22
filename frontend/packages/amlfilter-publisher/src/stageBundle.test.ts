@@ -1,0 +1,177 @@
+// stageBundle lays out a deterministic staging tree that `edgeproc publish`
+// chunks + signs into the content-addressed bundle. The tree the in-tab sync
+// tier ultimately materializes is:
+//   catalog.json                              (top-level registry)
+//   <slug>/entities.jsonl                     (one WatchlistEntity per line)
+//   <slug>/vectors.f32                        (raw LE Float32, entities*dim)
+//   <slug>/meta.json                          (per-list metadata)
+// Determinism (stable key order, fixed generatedAt) is load-bearing: the chunk
+// + manifest hashes downstream are a pure function of these bytes.
+
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { type StagedList, stageBundle } from "./stageBundle.ts";
+import type { WatchlistEntity } from "./types.ts";
+
+const GENERATED_AT = "2026-06-19T00:00:00Z";
+const DIM = 3;
+
+function entity(id: string, name: string): WatchlistEntity {
+	return {
+		entity_id: id,
+		name_canonical: name,
+		aliases: [],
+		dob: null,
+		countries: [],
+		risk_category: "SANCTION",
+		source_list: "OFAC_SDN",
+		list_version: "demo-1",
+	};
+}
+
+function lists(): readonly StagedList[] {
+	return [
+		{
+			listId: "OFAC_SDN",
+			slug: "ofac",
+			title: "OFAC SDN",
+			version: "demo-1",
+			model: "Xenova/all-MiniLM-L6-v2",
+			dim: DIM,
+			entities: [entity("OFAC_SDN:0001", "ivan fakovich")],
+			vectors: new Float32Array([1, 2, 3]),
+		},
+		{
+			listId: "EU_CONSOLIDATED",
+			slug: "eu",
+			title: "EU Consolidated",
+			version: "demo-1",
+			model: "Xenova/all-MiniLM-L6-v2",
+			dim: DIM,
+			entities: [
+				entity("EU_CONSOLIDATED:0001", "alpha"),
+				entity("EU_CONSOLIDATED:0002", "beta"),
+			],
+			vectors: new Float32Array([1, 0, 0, 0, 1, 0]),
+		},
+	];
+}
+
+describe("stageBundle", () => {
+	let dir: string;
+	beforeEach(async () => {
+		dir = await mkdtemp(join(tmpdir(), "aml-stage-"));
+	});
+	afterEach(async () => {
+		await rm(dir, { recursive: true, force: true });
+	});
+
+	test("writes one entities.jsonl line per entity, stable key order", async () => {
+		await stageBundle(dir, lists(), GENERATED_AT);
+		const jsonl = await readFile(join(dir, "ofac", "entities.jsonl"), "utf8");
+		const rows = jsonl.split("\n").filter((l) => l.length > 0);
+		expect(rows).toHaveLength(1);
+		// Round-trips to the same entity.
+		expect(JSON.parse(rows[0] as string)).toEqual({
+			entity_id: "OFAC_SDN:0001",
+			name_canonical: "ivan fakovich",
+			aliases: [],
+			dob: null,
+			countries: [],
+			risk_category: "SANCTION",
+			source_list: "OFAC_SDN",
+			list_version: "demo-1",
+		});
+		// Stable key order: keys serialize in the fixed schema order.
+		expect((rows[0] as string).indexOf('"entity_id"')).toBeLessThan(
+			(rows[0] as string).indexOf('"name_canonical"'),
+		);
+	});
+
+	test("writes vectors.f32 as raw LE Float32 bytes", async () => {
+		await stageBundle(dir, lists(), GENERATED_AT);
+		const buf = await readFile(join(dir, "eu", "vectors.f32"));
+		expect(buf.byteLength).toBe(6 * 4); // 2 entities * dim 3 * 4 bytes
+		const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+		const expected = [1, 0, 0, 0, 1, 0];
+		for (let i = 0; i < expected.length; i += 1) {
+			expect(view.getFloat32(i * 4, true)).toBe(expected[i]);
+		}
+	});
+
+	test("writes a per-list meta.json", async () => {
+		await stageBundle(dir, lists(), GENERATED_AT);
+		const meta = JSON.parse(
+			await readFile(join(dir, "eu", "meta.json"), "utf8"),
+		);
+		expect(meta).toEqual({
+			listId: "EU_CONSOLIDATED",
+			version: "demo-1",
+			generatedAt: GENERATED_AT,
+			model: "Xenova/all-MiniLM-L6-v2",
+			dim: DIM,
+			entitiesCount: 2,
+		});
+	});
+
+	test("writes a top-level catalog.json listing every list", async () => {
+		await stageBundle(dir, lists(), GENERATED_AT);
+		const catalog = JSON.parse(
+			await readFile(join(dir, "catalog.json"), "utf8"),
+		);
+		expect(catalog).toEqual({
+			schemaVersion: 1,
+			generatedAt: GENERATED_AT,
+			lists: [
+				{
+					id: "OFAC_SDN",
+					title: "OFAC SDN",
+					slug: "ofac",
+					version: "demo-1",
+					entitiesCount: 1,
+				},
+				{
+					id: "EU_CONSOLIDATED",
+					title: "EU Consolidated",
+					slug: "eu",
+					version: "demo-1",
+					entitiesCount: 2,
+				},
+			],
+		});
+	});
+
+	test("rejects a list whose vectors length != entities*dim (fail loud)", async () => {
+		const bad: readonly StagedList[] = [
+			{
+				listId: "OFAC_SDN",
+				slug: "ofac",
+				title: "OFAC SDN",
+				version: "demo-1",
+				model: "Xenova/all-MiniLM-L6-v2",
+				dim: DIM,
+				entities: [entity("OFAC_SDN:0001", "x")],
+				vectors: new Float32Array([1, 2]), // expected dim*1 = 3
+			},
+		];
+		await expect(stageBundle(dir, bad, GENERATED_AT)).rejects.toThrow(
+			/vectors length/,
+		);
+	});
+
+	test("is byte-deterministic across two stagings", async () => {
+		await stageBundle(dir, lists(), GENERATED_AT);
+		const a = await readFile(join(dir, "catalog.json"));
+		const aMeta = await readFile(join(dir, "eu", "meta.json"));
+		const aJsonl = await readFile(join(dir, "eu", "entities.jsonl"));
+
+		const dir2 = await mkdtemp(join(tmpdir(), "aml-stage2-"));
+		await stageBundle(dir2, lists(), GENERATED_AT);
+		expect(await readFile(join(dir2, "catalog.json"))).toEqual(a);
+		expect(await readFile(join(dir2, "eu", "meta.json"))).toEqual(aMeta);
+		expect(await readFile(join(dir2, "eu", "entities.jsonl"))).toEqual(aJsonl);
+		await rm(dir2, { recursive: true, force: true });
+	});
+});
