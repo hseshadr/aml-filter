@@ -19,7 +19,13 @@ export interface ReadFileRequest {
 	readonly path: string;
 }
 
-export type EngineRequest = SyncRequest | ReadFileRequest;
+/** Drop the durable store (every chunk + manifest + the active pointer). */
+export interface ClearRequest {
+	readonly kind: "clear";
+	readonly id: number;
+}
+
+export type EngineRequest = SyncRequest | ReadFileRequest | ClearRequest;
 
 interface SyncOk {
 	readonly ok: true;
@@ -35,10 +41,16 @@ interface ReadFileOk {
 	readonly bytes: Uint8Array;
 }
 
+interface ClearOk {
+	readonly ok: true;
+	readonly id: number;
+	readonly kind: "clear";
+}
+
 interface EngineErr {
 	readonly ok: false;
 	readonly id: number;
 	readonly error: string;
 }
 
-export type EngineResponse = SyncOk | ReadFileOk | EngineErr;
+export type EngineResponse = SyncOk | ReadFileOk | ClearOk | EngineErr;

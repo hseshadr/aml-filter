@@ -16,10 +16,6 @@
 		"typecheck": "tsc -b",
 		"test": "vitest run",
 		"publish": "vite-node src/cli.ts --",
-		"build-demo": "vite-node src/buildDemo.ts",
-		"build-demo-v2": "vite-node src/buildDemoV2.ts",
-		"build-demo-multilist": "vite-node src/buildDemoMultiList.ts",
-		"build-demo-catalog-v2": "vite-node src/buildDemoCatalogV2.ts",
 		"build-demo-bundle": "vite-node src/buildDemoBundle.ts",
 		"build-demo-bundle-v2": "vite-node src/buildDemoBundleV2.ts"
 	},

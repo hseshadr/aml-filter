@@ -8,20 +8,22 @@ import { expect, test } from "@playwright/test";
  * (`Ke(...).call is not a function`, from class private fields downleveled at an
  * es2020 build target). The Node embedder path and the default `screen.spec.ts`
  * both run unminified and so never caught it. This spec exercises the exact path
- * a real visitor hits:
+ * a real visitor hits — now the SIGNED-BUNDLE boot (no JSON catalog; the c1 build
+ * sets no VITE_BUNDLE_BASE_URL, so the runtime defaults to /bundle/origin):
  *
- *   fetch the signed catalog (watchlist/catalog.json, same-origin) →
- *   ed25519-verify fail-closed → load every per-list dir it points at
- *   (watchlist/<id>/…) → decode the precomputed vectors → download + compile
+ *   fetch + verify the signed /bundle/origin/latest pointer (cache:no-store) →
+ *   content-verify the manifest + every chunk against the pinned same-origin
+ *   public.key (fail-closed) → materialize catalog.json + per-list
+ *   {entities.jsonl,vectors.f32,meta.json} into OPFS → download + compile
  *   the ~23 MB MiniLM model in the Worker → search the lists in-tab as you type.
  *
  * It is also the embedding-parity end-to-end proof + the real-artifact guard:
- * it drives the COMMITTED signed catalog + per-list dirs against the COMMITTED
- * pinned key and asserts the known demo entity "Ivan Fakovich" (OFAC_SDN:0001)
- * surfaces as a strong, explainable hit. It asserts: the empty box browses the
- * whole list (now the union of all catalog lists); an exact name and a TYPO both
- * surface a real, explainable, scored hit with the watchlist's DOB; nonsense
- * returns no match — all with NO in-page errors.
+ * it drives the COMMITTED signed bundle (app/public/bundle/origin) against the
+ * COMMITTED pinned key and asserts the known demo entity "Ivan Fakovich"
+ * (OFAC_SDN:0001) surfaces as a strong, explainable hit. It asserts: the empty
+ * box browses the whole list (now the union of all bundle lists); an exact name
+ * and a TYPO both surface a real, explainable, scored hit with the watchlist's
+ * DOB; nonsense returns no match — all with NO in-page errors.
  */
 
 const MODEL_LOAD_TIMEOUT_MS = 160_000;
@@ -45,9 +47,9 @@ test("searches the sanctions list in-browser over the minified build, with full 
 	const search = page.getByPlaceholder("Search a name, e.g. Ivan Fakovich");
 	await expect(search).toBeVisible();
 
-	// Bootstrap = fetch watchlist + ed25519-verify + ~23 MB model download +
+	// Bootstrap = sync + verify the signed bundle + ~23 MB model download +
 	// compile. The box is disabled until the runtime is "ready"; that it ENABLES
-	// proves the watchlist verified and the model loaded without the prod crash.
+	// proves the bundle verified and the model loaded without the prod crash.
 	await expect(search).toBeEnabled({ timeout: MODEL_LOAD_TIMEOUT_MS });
 
 	const alert = page.locator('[role="alert"]');

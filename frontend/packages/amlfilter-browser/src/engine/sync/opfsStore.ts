@@ -34,8 +34,10 @@ function writeHandle(
 
 export class OpfsCacheStore implements CacheStore {
 	readonly #root: FileSystemDirectoryHandle;
-	readonly #chunkDir: FileSystemDirectoryHandle;
-	readonly #manifestDir: FileSystemDirectoryHandle;
+	// Reassigned by clear(): the chunk/manifest subdirs are removed recursively and
+	// re-created, so the handles must be mutable.
+	#chunkDir: FileSystemDirectoryHandle;
+	#manifestDir: FileSystemDirectoryHandle;
 
 	private constructor(
 		root: FileSystemDirectoryHandle,
@@ -111,6 +113,35 @@ export class OpfsCacheStore implements CacheStore {
 			ACTIVE_FILE,
 			ENCODER.encode(JSON.stringify(pointer)),
 		);
+	}
+
+	/** Drop every chunk + manifest + the active pointer, then re-open empty
+	 * chunk/manifest subdirs so the store stays reusable (next sync re-fetches). */
+	public async clear(): Promise<void> {
+		await this.#removeIfPresent(CHUNK_DIR, { recursive: true });
+		await this.#removeIfPresent(MANIFEST_DIR, { recursive: true });
+		await this.#removeIfPresent(ACTIVE_FILE);
+		this.#chunkDir = await this.#root.getDirectoryHandle(CHUNK_DIR, {
+			create: true,
+		});
+		this.#manifestDir = await this.#root.getDirectoryHandle(MANIFEST_DIR, {
+			create: true,
+		});
+	}
+
+	/** Remove a root entry, swallowing a NotFoundError (a missing entry is fine). */
+	async #removeIfPresent(
+		name: string,
+		options?: FileSystemRemoveOptions,
+	): Promise<void> {
+		try {
+			await this.#root.removeEntry(name, options);
+		} catch (error) {
+			if (error instanceof DOMException && error.name === "NotFoundError") {
+				return;
+			}
+			throw error;
+		}
 	}
 
 	private async writeFile(

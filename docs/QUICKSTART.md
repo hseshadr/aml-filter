@@ -88,21 +88,21 @@ SQLite-WASM database persisted in your browser's OPFS — local to the tab, no s
 Everything — onboarding, screening, and the review decision — happens in the browser
 against the in-tab database and the signed lists.
 
-## 5. Build a demo catalog
+## 5. Build a demo bundle
 
-The repo already ships a committed **demo** catalog (signed, under
-`frontend/app/public/watchlist/` — `catalog.json` + the `ofac/ eu/ un/ uk/` per-list
-dirs) so `/screen` works on a cold clone. To rebuild it:
+The repo already ships a committed **demo** bundle (the signed, content-addressed
+distribution under `frontend/app/public/bundle/origin/` — the `latest` pointer +
+`manifest/<hash>` + `chunk/<hash>` CAS) so `/screen` works on a cold clone. To rebuild it:
 
 ```bash
 cd frontend
-pnpm --filter @amlfilter/publisher run build-demo-multilist
+pnpm --filter @amlfilter/publisher run build-demo-bundle
 ```
 
-This regenerates `catalog.json(.sig)` plus, for each list, the four signed static files
-(`watchlist.json`, `watchlist.json.sig`, `watchlist.manifest.json`,
-`watchlist.manifest.json.sig`). For building lists from your own exports, and for
-refreshing the live data, see [`DEPLOY.md`](DEPLOY.md) and the wire format in
+This regenerates the signed `latest` pointer, the content-hashed manifest, and the chunk
+store the browser delta-syncs (carrying `catalog.json` + each list's `entities.jsonl` /
+`vectors.f32` / `meta.json`). For building lists from your own exports, and for refreshing
+the live data, see [`DEPLOY.md`](DEPLOY.md) and the wire format in
 [`WATCHLIST_FORMAT.md`](WATCHLIST_FORMAT.md).
 
 ## 6. Run the gate

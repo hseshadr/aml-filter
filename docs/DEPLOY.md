@@ -51,8 +51,8 @@ serves over HTTPS works without further configuration.
 The sanctions lists change frequently; screening against a stale copy can miss
 newly-listed entities. The OFAC list is regenerated and re-signed by the
 **`publish-watchlist` GitHub Action** (the workflow runs the single-list `publish` CLI
-for OFAC SDN; the committed multi-list demo catalog is rebuilt locally with
-`build-demo-multilist`)
+for OFAC SDN; the committed demo **bundle** the app loads is rebuilt locally with
+`build-demo-bundle`)
 ([`../.github/workflows/publish-watchlist.yml`](../.github/workflows/publish-watchlist.yml)).
 
 **Trigger.** It runs **daily on a cron** (`0 6 * * *`, 06:00 UTC) and on manual
@@ -80,9 +80,10 @@ watchlist.manifest.json
 watchlist.manifest.json.sig
 ```
 
-For the multi-list catalog (`build-demo-multilist`), those four files live under a
-per-list directory (`ofac/`, `eu/`, `un/`, `uk/`), and a signed `catalog.json` +
-`catalog.json.sig` registers them one level up. See [`WATCHLIST_FORMAT.md`](WATCHLIST_FORMAT.md).
+The committed demo **bundle** (`build-demo-bundle`) packs those per-list files plus a
+`catalog.json` into the signed, content-addressed distribution the app loads at runtime:
+a signed `latest` pointer → a content-hashed `manifest` → a `chunk/` CAS, under
+`frontend/app/public/bundle/origin/`. See [`WATCHLIST_FORMAT.md`](WATCHLIST_FORMAT.md).
 
 Running the single-list publisher directly (the same CLI the Action invokes):
 
@@ -106,12 +107,13 @@ deployment choice**; wire that step to match wherever you host `dist/`.
 
 ## 4. How clients pick up a refresh
 
-Once new list files are live, browser clients **auto-detect the new `version`** (the
-catalog and the per-list manifest carry it), then re-sync and **re-verify fail-closed**
-against the pinned `public.key`, re-screening every customer. The durable IndexedDB cache
-only serves a row whose version matches the signed catalog entry, so a version bump
-invalidates it. So the refresh flow is: re-sign the lists (the Action / `build-demo-multilist`)
-→ publish the new files to your host → clients converge on their own.
+Once a new bundle is live, browser clients **auto-detect the new `version`** (the signed
+`latest` pointer carries it), then delta-sync the changed chunks and **re-verify
+fail-closed** against the pinned `public.key`, re-screening every customer. The durable
+OPFS cache is content-addressed, so unchanged chunks are reused and a new publish only
+fetches what changed. So the refresh flow is: rebuild + re-sign the bundle (the Action /
+`build-demo-bundle`) → publish the new `latest`/`manifest`/`chunk` files to your host →
+clients converge on their own.
 
 ## Operational caveats
 

@@ -8,6 +8,7 @@ import { verifyEd25519 } from "../crypto";
 import { fetchBytes } from "./fetchBytes";
 import { OpfsCacheStore } from "./opfsStore";
 import type {
+	ClearRequest,
 	EngineRequest,
 	EngineResponse,
 	ReadFileRequest,
@@ -56,6 +57,13 @@ async function handleReadFile(req: ReadFileRequest): Promise<EngineResponse> {
 	return { ok: true, id: req.id, kind: "readFile", bytes };
 }
 
+async function handleClear(req: ClearRequest): Promise<EngineResponse> {
+	await (await store()).clear();
+	// The cleared store has no active manifest; force a re-read on the next sync.
+	activeManifest = null;
+	return { ok: true, id: req.id, kind: "clear" };
+}
+
 async function loadActiveManifest(): Promise<IndexManifest> {
 	const cacheStore = await store();
 	const active: VersionPointer | null = await cacheStore.readActive();
@@ -74,6 +82,8 @@ async function handle(req: EngineRequest): Promise<EngineResponse> {
 			return handleSync(req);
 		case "readFile":
 			return handleReadFile(req);
+		case "clear":
+			return handleClear(req);
 	}
 }
 

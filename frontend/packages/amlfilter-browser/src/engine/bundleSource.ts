@@ -116,6 +116,7 @@ function slugOf(entry: WatchlistCatalogEntry): string {
 export interface BundleEngineClient {
 	sync(baseUrl: string, pubkeyUrl: string): Promise<SyncResult>;
 	readFile(path: string): Promise<Uint8Array>;
+	clear(): Promise<void>;
 	terminate?(): void;
 }
 
@@ -141,6 +142,9 @@ export interface BundleSource {
 	loadList(entry: WatchlistCatalogEntry): Promise<LoadedWatchlist>;
 	/** The promoted bundle version (the signed `/latest` pointer's version). */
 	version(): string;
+	/** Drop the durable store (every chunk + manifest + the active pointer) — the
+	 * "Clear cached lists" affordance; the next sync re-fetches + re-verifies. */
+	clear(): Promise<void>;
 }
 
 /**
@@ -190,5 +194,6 @@ export async function openBundleSource(
 		loadCatalog: () => catalog,
 		loadList,
 		version: () => result.version,
+		clear: () => client.clear(),
 	};
 }

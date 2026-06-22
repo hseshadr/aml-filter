@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { BundleSource } from "./bundleSource";
 import type { Embedder, EmbedProgress } from "./embedder";
 import {
 	type BootStage,
@@ -21,6 +22,44 @@ import type {
 } from "./watchlist";
 
 const PUBKEY = new Uint8Array(32);
+
+/** Build a list's loaded watchlist for a given catalog entry. */
+type LoadedFor = (entry: WatchlistCatalogEntry) => LoadedWatchlist;
+
+/** A fake {@link BundleSource} whose loaders resolve to the same fakes the old
+ * JSON `loadCatalog`/`loadList` deps returned — the bundle path is now the ONLY
+ * path, so the runtime is driven through `openBundleSource`. `onCatalog` (when
+ * given) lets a test track/intercept each catalog read; `clear` is a no-op. */
+function fakeBundleSource(
+	catalog: WatchlistCatalog,
+	loadedFor: LoadedFor,
+): BundleSource {
+	return {
+		loadCatalog: () => catalog,
+		loadList: (entry) => Promise.resolve(loadedFor(entry)),
+		version: () => "fake",
+		clear: () => Promise.resolve(),
+	};
+}
+
+/** An `openBundleSource` dep that opens a source over the catalog drawn from a
+ * queue (boot then each reload/poll, since the runtime re-opens after nulling
+ * its memo), building lists via `loadedFor`. Advances the queue per open. */
+function bundleSourceFromCatalogs(
+	catalogs: ReadonlyArray<WatchlistCatalog>,
+	loadedFor: LoadedFor,
+	onOpen?: () => void,
+): RuntimeDeps["openBundleSource"] {
+	let opens = 0;
+	return () => {
+		onOpen?.();
+		const catalog = catalogs[Math.min(opens, catalogs.length - 1)];
+		opens += 1;
+		return Promise.resolve(
+			fakeBundleSource(catalog as WatchlistCatalog, loadedFor),
+		);
+	};
+}
 
 /** A catalog entry for `listId`, dir prefix derived from a lowercased id. */
 function entryFor(listId: string, version: string): WatchlistCatalogEntry {
@@ -45,8 +84,10 @@ function catalogOf(
 }
 
 beforeEach(() => {
-	// The runtime fetches the pinned pubkey same-origin before loading the
-	// watchlist; stub fetch so that read succeeds with deterministic bytes.
+	// The bundle path verifies the pinned pubkey inside the (faked) bundle source,
+	// so the main thread never fetches here; stub fetch defensively so any stray
+	// same-origin read resolves with deterministic bytes rather than hitting the
+	// network in the test environment.
 	vi.stubGlobal(
 		"fetch",
 		vi.fn(() => Promise.resolve(new Response(PUBKEY, { status: 200 }))),
@@ -61,6 +102,7 @@ afterEach(() => {
 
 const CONFIG: RuntimeConfig = {
 	pubkeyUrl: "https://app.example/public.key",
+	bundleBaseUrl: "/bundle/origin",
 };
 
 /** A trivial loaded watchlist whose index/entities are never reached when
@@ -79,11 +121,14 @@ function neverEmbedder(): Embedder {
 	return { embed: () => new Promise<Float32Array>(() => {}) };
 }
 
-/** The bundle-source dep stub for the JSON-path tests: these set no
- * `bundleBaseUrl`, so bootstrap never takes the bundle path and never calls it;
- * it exists only to satisfy the RuntimeDeps shape. A call would be a test bug. */
-const stubBundleSource: RuntimeDeps["openBundleSource"] = () =>
-	Promise.reject(new Error("openBundleSource called on a JSON-path test"));
+/** A single-catalog `openBundleSource` over the given (listId, version) pairs,
+ * each list loaded as a trivial {@link fakeLoaded}. The bundle path is the ONLY
+ * path, so bootstrap is always driven through this. */
+function bundleSourceOf(
+	pairs: ReadonlyArray<readonly [string, string]>,
+): RuntimeDeps["openBundleSource"] {
+	return bundleSourceFromCatalogs([catalogOf(pairs)], () => fakeLoaded());
+}
 
 describe("parseTimeoutMs (model-load timeout override, fail-closed)", () => {
 	it("returns the production default when the override is absent", () => {
@@ -151,11 +196,9 @@ describe("withTimeout", () => {
 describe("EngineRuntime bootstrap timeout", () => {
 	function deps(embedder: Embedder): RuntimeDeps {
 		return {
-			loadCatalog: () => Promise.resolve(catalogOf([["OFAC_SDN", "test"]])),
-			loadList: () => Promise.resolve(fakeLoaded()),
 			makeEmbedder: () => embedder,
 			clearCache: () => Promise.resolve(),
-			openBundleSource: stubBundleSource,
+			openBundleSource: bundleSourceOf([["OFAC_SDN", "test"]]),
 		};
 	}
 
@@ -228,25 +271,20 @@ describe("EngineRuntime.reload", () => {
 		return { embed: () => Promise.resolve(new Float32Array(1)) };
 	}
 
-	/** Deps whose loadList returns a `<listId>:E@<version>` loaded watchlist per
-	 * catalog entry, with the catalog drawn from a queue (boot then reload). */
+	/** Deps whose bundle source loads a `<listId>:E@<version>` loaded watchlist per
+	 * catalog entry, with the catalog drawn from a queue (boot then each reopen —
+	 * reload/poll null the runtime's memo and re-open the source). */
 	function depsForCatalogs(catalogs: ReadonlyArray<WatchlistCatalog>): {
 		deps: RuntimeDeps;
 		makeEmbedder: ReturnType<typeof vi.fn>;
 	} {
-		let calls = 0;
 		const makeEmbedder = vi.fn(() => instantEmbedder());
 		const deps: RuntimeDeps = {
-			loadCatalog: () => {
-				const c = catalogs[Math.min(calls, catalogs.length - 1)];
-				calls += 1;
-				return Promise.resolve(c as WatchlistCatalog);
-			},
-			loadList: (_pubkey, entry) =>
-				Promise.resolve(loadedAt(entry.version, `${entry.id}:E`, entry.id)),
 			makeEmbedder,
 			clearCache: () => Promise.resolve(),
-			openBundleSource: stubBundleSource,
+			openBundleSource: bundleSourceFromCatalogs(catalogs, (entry) =>
+				loadedAt(entry.version, `${entry.id}:E`, entry.id),
+			),
 		};
 		return { deps, makeEmbedder };
 	}
@@ -273,21 +311,23 @@ describe("EngineRuntime.reload", () => {
 
 	it("rejects the WHOLE bootstrap if ANY single list fails to load (fail-closed)", async () => {
 		const makeEmbedder = vi.fn(() => instantEmbedder());
+		const catalog = catalogOf([
+			["EU_CONSOLIDATED", "demo-1"],
+			["OFAC_SDN", "demo-1"],
+		]);
 		const runtime = new EngineRuntime({
-			loadCatalog: () =>
-				Promise.resolve(
-					catalogOf([
-						["EU_CONSOLIDATED", "demo-1"],
-						["OFAC_SDN", "demo-1"],
-					]),
-				),
-			loadList: (_pubkey, entry) =>
-				entry.id === "OFAC_SDN"
-					? Promise.reject(new Error("signature verification failed"))
-					: Promise.resolve(loadedAt(entry.version, `${entry.id}:E`)),
 			makeEmbedder,
 			clearCache: () => Promise.resolve(),
-			openBundleSource: stubBundleSource,
+			openBundleSource: () =>
+				Promise.resolve({
+					loadCatalog: () => catalog,
+					loadList: (entry) =>
+						entry.id === "OFAC_SDN"
+							? Promise.reject(new Error("signature verification failed"))
+							: Promise.resolve(loadedAt(entry.version, `${entry.id}:E`)),
+					version: () => "fake",
+					clear: () => Promise.resolve(),
+				}),
 		});
 		await expect(runtime.bootstrap(CONFIG)).rejects.toThrow(/verification/);
 		// No partial engine was published.
@@ -316,16 +356,13 @@ describe("EngineRuntime.reload", () => {
 	});
 
 	it("fetchPublishedVersion returns a DIFFERENT composite when a list version bumps", async () => {
-		const { deps } = depsForCatalogs([catalogOf([["OFAC_SDN", "demo-1"]])]);
-		// After bootstrap, the catalog poll reports a bumped list version.
-		const polled = catalogOf([["OFAC_SDN", "demo-2"]]);
-		const runtime = new EngineRuntime({
-			...deps,
-			loadCatalog: vi
-				.fn<RuntimeDeps["loadCatalog"]>()
-				.mockResolvedValueOnce(catalogOf([["OFAC_SDN", "demo-1"]]))
-				.mockResolvedValue(polled),
-		});
+		// Boot opens the source over demo-1; fetchPublishedVersion nulls the memo
+		// and re-opens, drawing the bumped demo-2 catalog from the queue.
+		const { deps } = depsForCatalogs([
+			catalogOf([["OFAC_SDN", "demo-1"]]),
+			catalogOf([["OFAC_SDN", "demo-2"]]),
+		]);
+		const runtime = new EngineRuntime(deps);
 		await runtime.bootstrap(CONFIG);
 		const published = await runtime.fetchPublishedVersion();
 		expect(runtime.version()).toBe("OFAC_SDN@demo-1");
@@ -380,7 +417,8 @@ describe("EngineRuntime enabledLists selection + thresholds", () => {
 		return { embed: () => Promise.resolve(new Float32Array(1)) };
 	}
 
-	/** Deps over a static multi-list catalog; loadList tracks which ids loaded. */
+	/** Deps over a static multi-list catalog; the bundle source's loadList tracks
+	 * which ids loaded (the runtime filters to the enabled set before loading). */
 	function depsFor(catalog: WatchlistCatalog): {
 		deps: RuntimeDeps;
 		loadedIds: string[];
@@ -389,16 +427,12 @@ describe("EngineRuntime enabledLists selection + thresholds", () => {
 		const loadedIds: string[] = [];
 		const makeEmbedder = vi.fn(() => instantEmbedder());
 		const deps: RuntimeDeps = {
-			loadCatalog: () => Promise.resolve(catalog),
-			loadList: (_pubkey, entry) => {
-				loadedIds.push(entry.id);
-				return Promise.resolve(
-					loadedAt(entry.version, `${entry.id}:E`, entry.id),
-				);
-			},
 			makeEmbedder,
 			clearCache: () => Promise.resolve(),
-			openBundleSource: stubBundleSource,
+			openBundleSource: bundleSourceFromCatalogs([catalog], (entry) => {
+				loadedIds.push(entry.id);
+				return loadedAt(entry.version, `${entry.id}:E`, entry.id);
+			}),
 		};
 		return { deps, loadedIds, makeEmbedder };
 	}
@@ -557,11 +591,9 @@ describe("throttleByRoundedPct", () => {
 describe("EngineRuntime boot stages", () => {
 	it("emits downloading then verified(version) before loading the model", async () => {
 		const deps: RuntimeDeps = {
-			loadCatalog: () => Promise.resolve(catalogOf([["OFAC_SDN", "test"]])),
-			loadList: () => Promise.resolve(fakeLoaded()),
 			makeEmbedder: () => neverEmbedder(),
 			clearCache: () => Promise.resolve(),
-			openBundleSource: stubBundleSource,
+			openBundleSource: bundleSourceOf([["OFAC_SDN", "test"]]),
 		};
 		const runtime = new EngineRuntime(deps);
 		const stages: BootStage[] = [];
@@ -584,8 +616,6 @@ describe("EngineRuntime boot stages", () => {
 		// progress event during warmup, which the runtime must surface as a
 		// loading-model BootStage carrying that progress.
 		const deps: RuntimeDeps = {
-			loadCatalog: () => Promise.resolve(catalogOf([["OFAC_SDN", "test"]])),
-			loadList: () => Promise.resolve(fakeLoaded()),
 			makeEmbedder: (onProgress) => ({
 				// Fire one progress tick, then reject — that halts #build before the
 				// (out-of-scope) screening-engine assembly while still proving the
@@ -596,7 +626,7 @@ describe("EngineRuntime boot stages", () => {
 				},
 			}),
 			clearCache: () => Promise.resolve(),
-			openBundleSource: stubBundleSource,
+			openBundleSource: bundleSourceOf([["OFAC_SDN", "test"]]),
 		};
 		const runtime = new EngineRuntime(deps);
 		const stages: BootStage[] = [];
@@ -621,11 +651,9 @@ describe("EngineRuntime.clearListCache + cache-aware deps", () => {
 	it("clearListCache delegates to the injected cache-clear seam", async () => {
 		const clearCache = vi.fn(() => Promise.resolve());
 		const runtime = new EngineRuntime({
-			loadCatalog: () => Promise.resolve(catalogOf([["OFAC_SDN", "v"]])),
-			loadList: () => Promise.resolve(fakeLoaded()),
 			makeEmbedder: () => instantEmbedder(),
 			clearCache,
-			openBundleSource: stubBundleSource,
+			openBundleSource: bundleSourceOf([["OFAC_SDN", "v"]]),
 		});
 		await runtime.clearListCache();
 		expect(clearCache).toHaveBeenCalledTimes(1);

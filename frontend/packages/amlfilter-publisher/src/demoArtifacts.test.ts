@@ -1,79 +1,149 @@
-// Prove the COMMITTED multi-list demo artifacts verify in-tab against the
-// COMMITTED public.key (the same verifier the browser tier uses), and that a
-// flipped byte is rejected fail-closed. Guards the real shipped bytes, not a
-// synthetic stand-in — a bundle/key/verification regression is caught here.
+// Prove the COMMITTED signed BUNDLE artifacts (frontend/app/public/bundle/origin/)
+// verify against the COMMITTED public.key — the same fail-closed contract the
+// browser sync tier enforces — and that a flipped byte is rejected. Guards the
+// REAL shipped bytes, not a synthetic stand-in: a pointer-signature, manifest
+// content-address, or demo-structure regression is caught here.
+//
+// The bundle layout (content-addressed, produced by `edgeproc publish`):
+//   latest                   — VersionPointer { manifest_hash, version, signature }
+//   manifest/<manifest_hash> — IndexManifest JSON; sha256(bytes) === <manifest_hash>
+//   chunk/<plaintext_hash>   — zstd-COMPRESSED chunk; sha256(decompress(bytes)) === <name>
+//
+// This publisher-side guard covers the parts that need no zstd (pointer signature,
+// manifest content-address, demo structure/version). The FULL chunk decompression +
+// content-address + reassembly + demo-content (Ivan Fakovich) verification over the
+// SAME committed bundle is done in the browser package's
+// engine/sync/demoBundleParity.test.ts (via @hpcc-js/wasm-zstd, portable across Node
+// versions — Node's built-in node:zlib zstd is only present on Node >= 22.15).
+//
+// Verification primitives are reused from the same fail-closed crypto tier the
+// browser uses (`@amlfilter/browser/engine`: verifyEd25519 / SignatureError /
+// sha256Hex).
 
 import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { SignatureError, verifyEd25519 } from "@amlfilter/browser/engine";
+import {
+	SignatureError,
+	sha256Hex,
+	verifyEd25519,
+} from "@amlfilter/browser/engine";
 import { describe, expect, test } from "vitest";
-import type { Catalog } from "./catalog.ts";
 
 const HERE = resolve(fileURLToPath(import.meta.url), "..");
 const PUBLIC = resolve(HERE, "../../../app/public");
-const WATCHLIST = resolve(PUBLIC, "watchlist");
+const ORIGIN = resolve(PUBLIC, "bundle", "origin");
 const PUBLIC_KEY_PATH = resolve(PUBLIC, "public.key");
+
+/** The committed demo bundle's published version (read from `latest`). */
+const EXPECTED_VERSION = "demo-1";
+/** Per-list materialized files the demo bundle must cover. */
+const EXPECTED_FILES = [
+	"catalog.json",
+	"eu/entities.jsonl",
+	"eu/meta.json",
+	"eu/vectors.f32",
+	"ofac/entities.jsonl",
+	"ofac/meta.json",
+	"ofac/vectors.f32",
+	"uk/entities.jsonl",
+	"uk/meta.json",
+	"uk/vectors.f32",
+	"un/entities.jsonl",
+	"un/meta.json",
+	"un/vectors.f32",
+] as const;
+
+interface VersionPointer {
+	readonly manifest_hash: string;
+	readonly version: string;
+	readonly signature: string;
+}
+
+interface ManifestFile {
+	readonly path: string;
+	readonly file_sha256: string;
+}
+
+interface IndexManifest {
+	readonly bundle_id: string;
+	readonly schema_version: number;
+	readonly files: readonly ManifestFile[];
+}
+
+const DECODER = new TextDecoder();
 
 async function publicKey(): Promise<Uint8Array> {
 	return new Uint8Array(await readFile(PUBLIC_KEY_PATH));
 }
 
-async function verifyPair(dir: string, name: string): Promise<void> {
-	const bytes = new Uint8Array(await readFile(join(dir, name)));
-	const sig = await readFile(join(dir, `${name}.sig`), "utf8");
-	await expect(verifyEd25519(await publicKey(), bytes, sig)).resolves.toBe(
-		undefined,
-	);
+async function readPointer(): Promise<VersionPointer> {
+	return JSON.parse(
+		await readFile(join(ORIGIN, "latest"), "utf8"),
+	) as VersionPointer;
+}
+
+async function readManifest(hash: string): Promise<IndexManifest> {
+	const bytes = await readFile(join(ORIGIN, "manifest", hash));
+	return JSON.parse(DECODER.decode(bytes)) as IndexManifest;
+}
+
+function flipFirstByte(bytes: Uint8Array): Uint8Array {
 	const tampered = Uint8Array.from(bytes);
 	tampered[0] = (tampered[0] ?? 0) ^ 0xff;
-	await expect(verifyEd25519(await publicKey(), tampered, sig)).rejects.toThrow(
-		SignatureError,
-	);
+	return tampered;
 }
 
-async function readCatalog(): Promise<Catalog> {
-	return JSON.parse(
-		await readFile(join(WATCHLIST, "catalog.json"), "utf8"),
-	) as Catalog;
+/**
+ * Canonical, signature-excluded bytes of the pointer — byte-identical to the
+ * engine's `canonicalBytes(pointer, { exclude: { signature: true } })`: object
+ * keys sorted recursively, no whitespace. The pointer is a flat string-valued
+ * object, so a sorted-key `JSON.stringify` reproduces those exact bytes (the
+ * pointer signature is over precisely this message).
+ */
+function pointerSignedMessage(pointer: VersionPointer): Uint8Array {
+	const sorted: Record<string, string> = {};
+	for (const key of ["manifest_hash", "version"].sort()) {
+		sorted[key] = pointer[key as "manifest_hash" | "version"];
+	}
+	return new TextEncoder().encode(JSON.stringify(sorted));
 }
 
-describe("committed multi-list demo artifacts verify against public.key", () => {
-	test("catalog.json verifies; a flipped byte fails closed", async () => {
-		await verifyPair(WATCHLIST, "catalog.json");
+describe("committed signed demo bundle verifies against public.key", () => {
+	test("latest pointer signature verifies; a flipped message byte fails closed", async () => {
+		const pointer = await readPointer();
+		const message = pointerSignedMessage(pointer);
+		await expect(
+			verifyEd25519(await publicKey(), message, pointer.signature),
+		).resolves.toBeUndefined();
+		await expect(
+			verifyEd25519(
+				await publicKey(),
+				flipFirstByte(message),
+				pointer.signature,
+			),
+		).rejects.toThrow(SignatureError);
 	});
 
-	test("catalog lists all four lists with demo-1 versions", async () => {
-		const cat = await readCatalog();
-		expect(cat.schema).toBe(1);
-		expect(cat.lists.map((l) => l.id)).toEqual([
-			"EU_CONSOLIDATED",
-			"OFAC_SDN",
-			"UK_OFSI",
-			"UN_CONSOLIDATED",
-		]);
-		for (const l of cat.lists) {
-			expect(l.version).toBe("demo-1");
-		}
-	});
-
-	test("each list's watchlist.json + manifest verify, flips fail closed", async () => {
-		const cat = await readCatalog();
-		for (const list of cat.lists) {
-			const dir = join(WATCHLIST, list.path);
-			await verifyPair(dir, "watchlist.json");
-			await verifyPair(dir, "watchlist.manifest.json");
-		}
-	});
-
-	test("OFAC demo list keeps Ivan Fakovich (alias Vanya Fakovich)", async () => {
-		const ofac = JSON.parse(
-			await readFile(join(WATCHLIST, "ofac", "watchlist.json"), "utf8"),
-		) as { entities: { name_canonical: string; aliases: string[] }[] };
-		const ivan = ofac.entities.find(
-			(e) => e.name_canonical === "ivan fakovich",
+	test("manifest is content-addressed: sha256(bytes) === pointer.manifest_hash", async () => {
+		const pointer = await readPointer();
+		const bytes = new Uint8Array(
+			await readFile(join(ORIGIN, "manifest", pointer.manifest_hash)),
 		);
-		expect(ivan).toBeDefined();
-		expect(ivan?.aliases).toContain("Vanya Fakovich");
+		expect(await sha256Hex(bytes)).toBe(pointer.manifest_hash);
+		expect(await sha256Hex(flipFirstByte(bytes))).not.toBe(
+			pointer.manifest_hash,
+		);
+	});
+
+	test("bundle is the demo-1 version and covers the four demo lists", async () => {
+		const pointer = await readPointer();
+		expect(pointer.version).toBe(EXPECTED_VERSION);
+		const manifest = await readManifest(pointer.manifest_hash);
+		expect(manifest.bundle_id).toBe("amlfilter-watchlists");
+		expect(manifest.schema_version).toBe(2);
+		expect(manifest.files.map((f) => f.path).sort()).toEqual(
+			[...EXPECTED_FILES].sort(),
+		);
 	});
 });

@@ -10,10 +10,11 @@ across all enabled lists in-tab; the **workstation** app stores your KYC custome
 locally, keeps them re-screened, and wraps the matches in an auditable review workflow.
 One screening pipeline, one explainable scoring contract, three TypeScript units.
 
-There is no Python, no Postgres, no Docker, no HTTP screening endpoint. The lists are
-static files you can host on any CDN, cached durably in the browser (IndexedDB) so the
-app works offline; the trust comes from an Ed25519 signature the browser checks — over
-fetched *and* cached bytes — before it will load a single byte.
+There is no Python, no Postgres, no Docker, no HTTP screening endpoint. The lists ship as
+a signed, content-addressed bundle of static files you can host on any CDN, delta-synced
+and cached durably in the browser (OPFS) so the app works offline; the trust comes from
+an Ed25519 signature the browser checks — over fetched *and* cached bytes — before it
+will load a single byte.
 
 ## Why zero-server
 
@@ -28,11 +29,12 @@ you accept that, the server disappears:
 - **No backend.** Embedding the *query* name runs in the tab via transformers.js, once,
   and is reused across every list. The lists' vectors were precomputed once at publish
   time, so the tab never has to embed a list.
-- **No trusted server in the request path.** Each list is a signed static file,
-  registered in a signed catalog. The tab verifies the catalog and every list against a
-  pinned public key before loading — and re-verifies the same way over the durable
-  IndexedDB cache — so a hostile or buggy CDN (or a poisoned cache) can't slip in a
-  tampered list. Verification is **fail-closed**.
+- **No trusted server in the request path.** The lists ship as a signed,
+  content-addressed bundle: a signed pointer names a content-hashed manifest that names
+  every chunk. The tab verifies the signed pointer against a pinned public key and
+  content-verifies every chunk + reassembled file before loading — and re-verifies the
+  same way over the durable OPFS cache — so a hostile or buggy CDN (or a poisoned cache)
+  can't slip in a tampered list. Verification is **fail-closed**.
 
 What you give up is server-side scale; what you get is a screening tool that runs
 entirely on the user's machine, with the customer's KYC data never leaving the device.
@@ -105,9 +107,11 @@ with it — keep the scorer and its golden test in lockstep.
 
 ### 1. Publisher — `@amlfilter/publisher`
 
-`frontend/packages/amlfilter-publisher`. A Node tool that turns each official list into
-a signed, self-contained watchlist and registers them in a signed catalog. It runs
-offline, ahead of time — typically in CI — and **never ships a list inside the app**.
+`frontend/packages/amlfilter-publisher`. A Node tool that turns each official list into a
+self-contained watchlist, registers them in a `catalog.json`, and packs the whole set
+into a signed, content-addressed **bundle** (the `latest` pointer + chunked manifest the
+browser delta-syncs). It runs offline, ahead of time — typically in CI — and **never
+ships a list inside the app**.
 
 **The adapter interface.** Each list is a `WatchlistSource` (`src/sources/source.ts`):
 `{ id, title, fetchRaw(): Promise<RawListBytes>, parse(raw, version): SourceLine[] }`.
@@ -128,33 +132,40 @@ The per-list pipeline:
 3. **Precompute name vectors** with transformers.js in Node (`createNodeEmbedder`, on
    `@huggingface/transformers`) — **no torch, no Python**. One 384-dim vector per entity
    name. `packVectors` packs them into a single little-endian Float32 buffer.
-4. **Sign + register.** Each list is Ed25519-signed (`signBytes` / `derivePublicKey` /
-   `writeSigned`) into its own per-list directory, and a signed `catalog.json` registers
-   them all (see [Signed-list trust model](#signed-list-trust-model)).
+4. **Pack + sign the bundle.** The lists + a `catalog.json` are content-defined-chunked
+   into a content-addressed manifest, and a `latest` `VersionPointer` over that manifest
+   is Ed25519-signed (`signBytes` / `derivePublicKey`) — the signed pointer the browser
+   delta-syncs and verifies fail-closed (see
+   [Signed-list trust model](#signed-list-trust-model)).
 
 The single-list production CLI (`publish`) takes
 `--in <jsonl> --version <v> --key <privkey-file> --out <dir> [--models <dir>]`. The
-committed multi-list demo catalog is built by `build-demo-multilist`
-(`src/buildDemoMultiList.ts`), which writes to `frontend/app/public/watchlist/` — the
-tree the app actually loads at runtime.
+committed demo **bundle** is built by `build-demo-bundle` (`src/buildDemoBundle.ts`),
+which writes the signed content-addressed bundle to `frontend/app/public/bundle/origin/`
+— the tree the app actually loads at runtime. (`build-demo-bundle-v2` writes the
+OFAC-bumped `demo-2` fixture the delta-sync e2e routes in.)
 
 ### 2. Browser engine — `@amlfilter/browser`
 
 `frontend/packages/amlfilter-browser`. The in-tab screening engine. It runs the whole
-pipeline above against the signed lists, with no backend in the request path.
+pipeline above against the signed bundle, with no backend in the request path.
 
 The boot + screen flow:
 
-1. **Fetch + verify the catalog.** It fetches `watchlist/catalog.json` same-origin and
-   verifies it fail-closed (`verifyEd25519`, `engine/crypto.ts`, against the pinned
-   public key). The catalog is the trust anchor: verify it, then verify each list it
-   points at — verify-before-parse, top to bottom.
-2. **Fetch + verify each enabled list.** For every list in the runtime selection, fetch
-   its `watchlist.json` and verify the detached Ed25519 signature. Any signature or
-   SHA-256 mismatch aborts the load — there is no fallback to an unverified list.
-3. **Decode** the precomputed vectors: `buildLoadedWatchlist` (`engine/watchlist.ts`)
-   reconstructs the Float32 vector rows (failing closed on any dim ≠ 384), one index per
-   list.
+1. **Sync + verify the signed bundle.** It fetches the signed `latest` pointer
+   (`cache: "no-store"`) from the bundle base URL (default `/bundle/origin`), verifies its
+   detached Ed25519 signature fail-closed (`verifyEd25519`, `engine/crypto.ts`, against the
+   pinned public key), then fetches the content-addressed `manifest/<hash>` and verifies it
+   hashes to the signed `manifest_hash`. The signed pointer is the trust anchor:
+   verify-before-parse, top to bottom.
+2. **Delta-sync + content-verify the chunks.** It diffs the manifest's chunk set against
+   OPFS and fetches only the missing `chunk/<hash>` files, verifying each chunk hashes to
+   its name and each reassembled file hashes to its `file_sha256`. Any signature or hash
+   mismatch aborts the load — there is no fallback to unverified bytes.
+3. **Materialize + decode.** The verified bundle is materialized into `catalog.json` +
+   per-list `{entities.jsonl, vectors.f32, meta.json}` files;
+   `buildLoadedFromBundleFiles` (`engine/watchlist.ts`) reconstructs the Float32 vector
+   rows (failing closed on any dim ≠ 384), one index per enabled list.
 4. **Embed** the query name in-tab through the `Embedder` seam (`engine/embedder.ts`;
    stubbable for tests via `createEmbedder`) — **once**, then reused across all lists.
 5. **Retrieve + score + merge**: the `MultiListScreeningEngine` (`engine/multiEngine.ts`)
@@ -162,25 +173,25 @@ The boot + screen flow:
    per-list threshold (`perList[id] ?? query.threshold ?? default`), then concatenates
    and re-ranks the matches so a strong hit in *any* list surfaces.
 
-**Durable, fail-closed list cache.** Verified list bytes are cached in **IndexedDB**
-(`engine/listCache.ts`: database `amlfilter-list-cache`, store `artifacts` — a *byte*
-store, never a trust store, separate from the customer DB). On every load the bytes —
-cached or freshly fetched — are run back through `verifyEd25519`; a tampered or
-version-mismatched cache row is rejected and the loader falls through to the network. If
-the network is down, a version-matching, signature-valid cache hit serves the list with
-**no network call**, so the app screens **offline**. `clearListCache()` drops the store.
+**Durable, fail-closed bundle cache.** Verified chunks are promoted into a
+content-addressed store in **OPFS** (separate from the customer DB). On every load the
+bytes — cached or freshly fetched — are re-verified: chunks against their content hash
+and the pointer against the pinned key. A tampered or version-mismatched entry is
+rejected. If the network is down, the sync falls back to the cached active version
+(`readActive`) and re-verifies it fail-closed, so the app screens **offline** with no
+network call. ("Clear cached lists" in `/settings` drops the store.)
 
 Entry point: `EngineRuntime.bootstrap()` drives the boot stages and yields a
 `ScreeningEngine`; `ScreeningEngine.screen({ name })` runs one screen and returns the
 scored, explained matches.
 
-The package also exposes a domain-agnostic **`./engine` subpath** that is now **just the
-fail-closed crypto primitives** — `verifyEd25519`, `sha256Hex`, and `SignatureError`,
-with zero screening/embedding/OFAC coupling. (In the v3 pivot the old heavy chunked-CAS
-sync tier — content-addressed OPFS store, GearCDC chunk reassembly, zstd, the sync Web
-Worker — was **removed**. The browser now fetches **signed JSON files and verifies
-them**; there is no bundle-sync client. v4 added the signed catalog over those files and
-the durable IndexedDB cache, but the verify-before-parse model is unchanged.)
+The package also exposes a domain-agnostic **`./engine` subpath** of fail-closed crypto
+primitives — `verifyEd25519`, `sha256Hex`, and `SignatureError`. The signed
+content-addressed **bundle-sync tier** (content-addressed OPFS store, content-defined
+chunk reassembly, the signed `latest` pointer poll, delta sync — `engine/sync/`) is now
+the **single** watchlist distribution path. (It was recovered after the v3 pivot briefly
+removed it in favor of fetching flat signed JSON files; that JSON path has since been
+**retired**.) The verify-before-parse, fail-closed trust model is unchanged in spirit.
 
 ### 3. Workstation app — `@amlfilter/workstation` + the React SPA
 
@@ -192,9 +203,9 @@ is the React single-page app that drives it (entry `frontend/app/src/main.tsx`).
   via the `opfs-sahpool` VFS (`src/db/sqlite.ts` — persistent, no COOP/COEP headers
   required). The customer's data never leaves the device.
 - **Two stores, two trust models.** The reference lists come from the signed,
-  fail-closed catalog path (`@amlfilter/browser`), cached as bytes in IndexedDB; your KYC
-  records live in the local SQLite-WASM/OPFS database. The reference data is
-  verified-and-trusted; your data is yours.
+  fail-closed bundle-sync path (`@amlfilter/browser`), cached as content-addressed chunks
+  in OPFS; your KYC records live in the local SQLite-WASM/OPFS database. The reference
+  data is verified-and-trusted; your data is yours.
 
 #### Bidirectional rescan — the key behavior
 
@@ -242,35 +253,35 @@ per-list thresholds, list selection, and the analyst name (persisted in the SQLi
 
 ## Signed-list trust model
 
-The lists are distributed as **plain signed static files** — host them on any server or
-CDN, no application backend required. v4 adds a **signed catalog** over the per-list
-files. The directory layout:
+The lists are distributed as a single **signed, content-addressed bundle** of plain
+static files — host them on any server or CDN, no application backend required. The
+directory layout:
 
 ```
-watchlist/
-  catalog.json(.sig)            # the signed registry of lists (the trust anchor)
-  ofac/  watchlist.json(.sig) + watchlist.manifest.json(.sig)   # the v3 per-list files, unchanged
-  eu/    …
-  un/    …
-  uk/    …
+bundle/origin/
+  latest                        # the signed VersionPointer (JSON) — the trust anchor
+  manifest/<manifest_hash>      # the content-addressed IndexManifest, named by its own sha256
+  chunk/<chunk_hash>            # one file per content-defined chunk, named by its plaintext sha256
 ```
 
-On open, the browser fetches and verifies **`catalog.json`** first, then — for each
-enabled list — that list's manifest/`watchlist.json`. **Every** file is signature-verified
-**fail-closed**: a detached Ed25519 signature is checked against a public key pinned in
-the app and served **same-origin** from `frontend/app/public/public.key` (never from the
-untrusted list origin). The catalog and all lists share that one key. Any verification
-failure aborts the load — and the same check runs over bytes served from the IndexedDB
-cache, so a poisoned cache row is never trusted.
+On open, the browser fetches and verifies the signed **`latest`** pointer first
+(`cache: "no-store"`), then fetches the `manifest/<hash>` it names and checks the bytes
+hash to that `manifest_hash`. It delta-syncs only the missing `chunk/<hash>` files,
+verifying each chunk against its content hash and each reassembled file against its
+`file_sha256`. The pointer's detached Ed25519 signature is checked against a public key
+pinned in the app and served **same-origin** from `frontend/app/public/public.key` (never
+from the untrusted list origin). Any verification failure aborts the load — and the same
+check runs over OPFS-cached bytes, so a poisoned cache entry is never trusted. The
+bundle then materializes into `catalog.json` + the per-list files the engine reads.
 
 The signing **private** key never lives in the repo or the app — it is held only in CI
-(the `WATCHLIST_SIGNING_KEY` secret); the committed demo catalog is signed with a
+(the `WATCHLIST_SIGNING_KEY` secret); the committed demo bundle is signed with a
 clearly-labeled non-production demo key whose public half is the pinned `public.key`.
 
-The exact wire format (the catalog schema, the per-list manifest fields, the entity
-shape, the base64 Float32 vector buffer layout) is specified in
-**[`WATCHLIST_FORMAT.md`](WATCHLIST_FORMAT.md)** — that document is the single source of
-truth for the artifact and this one does not restate it.
+The exact wire format (the signed `VersionPointer`, the content-addressed `IndexManifest`
++ `FileEntry`/`ChunkRef`, the per-list materialized files, the base64/Float32 vector
+buffer layout) is specified in **[`WATCHLIST_FORMAT.md`](WATCHLIST_FORMAT.md)** — that
+document is the single source of truth for the artifact and this one does not restate it.
 
 ## Local data model (SQLite-WASM)
 

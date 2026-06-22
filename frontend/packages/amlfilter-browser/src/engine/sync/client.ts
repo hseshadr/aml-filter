@@ -60,6 +60,14 @@ export class EngineClient {
 		throw new Error(this.#errorOf(response));
 	}
 
+	/** Drop the durable store (every chunk + manifest + the active pointer). */
+	public async clear(): Promise<void> {
+		const response = await this.#send({ kind: "clear", id: this.#allocId() });
+		if (!(response.ok && response.kind === "clear")) {
+			throw new Error(this.#errorOf(response));
+		}
+	}
+
 	public terminate(): void {
 		this.#worker.terminate();
 	}

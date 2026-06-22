@@ -12,22 +12,25 @@ import { expect, type Route, test } from "@playwright/test";
  *   → resolve it (reviewer stamped from the analyst settings row) → reload:
  *   the customer, the match, and the disposition all survived (OPFS) →
  *   a NEW watchlist is published → "Check for updates" detects it (real signed
- *   manifest poll), reloads + re-screens, and the disposition carries forward.
+ *   bundle poll), reloads + re-screens, and the disposition carries forward.
  *
  * Asserts REAL outcomes (rendered tiers, persisted rows, dup-rejection,
  * console hygiene), against the REAL minified build + the REAL committed signed
- * multi-list catalog (app/public/watchlist/catalog.json + per-list dirs) + the
- * REAL pinned key — per the CLAUDE.md browser-validation mandate.
+ * BUNDLE (app/public/bundle/origin: signed `latest` → content-hashed `manifest`
+ * → `chunk/` CAS) + the REAL pinned key — per the CLAUDE.md browser-validation
+ * mandate. The kyc build sets no VITE_BUNDLE_BASE_URL, so the runtime defaults to
+ * /bundle/origin and the early steps (onboard → tier → resolve → reload-persists)
+ * boot over the committed bundle AUTOMATICALLY, with no route needed.
  *
  * The new-publish step is driven the REAL way (no test seam): a SECOND signed
- * CATALOG with the OFAC list bumped to version "demo-2" (EU/UN/UK stay demo-1),
- * built by @amlfilter/publisher with the same demo key — see
- * packages/amlfilter-publisher/src/buildDemoCatalogV2.ts) lives under
- * fixtures/watchlist-v2-catalog/. A Playwright route serves the committed demo-1
- * catalog normally, then — once `servePublishV2` flips — serves the v2 catalog
- * (catalog.json(.sig) + each list's watchlist.json/.sig/.manifest.json(.sig)) so
- * the running tab's manifest/catalog poll sees a genuinely newer, validly-signed
- * catalog whose COMPOSITE version stamp now carries OFAC_SDN@demo-2.
+ * BUNDLE with the OFAC list bumped to version "demo-2" (EU/UN/UK stay demo-1)
+ * lives under tests/e2e-bundle/fixtures/bundle-v2/origin — the SAME committed v2
+ * bundle fixture the bundle delta-sync e2e (`tests/e2e-bundle/delta-sync.spec.ts`)
+ * uses. A Playwright route serves the committed demo-1 bundle normally, then —
+ * once `servePublishV2` flips — serves the v2 bundle (signed `latest` +
+ * `manifest/<hash>` + `chunk/<hash>`) so the running tab's cheap signed `/latest`
+ * poll sees a genuinely newer, validly-signed bundle whose COMPOSITE version stamp
+ * now carries OFAC_SDN@demo-2.
  */
 
 // "Ivan Fakovich" is entity OFAC_SDN:0001 in the committed signed OFAC list
@@ -38,34 +41,19 @@ const ANALYST = "Avery Analyst";
 const REVIEW_NOTES = "Resolved as noise in the local-first e2e journey.";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const V2_CATALOG_DIR = join(HERE, "fixtures", "watchlist-v2-catalog");
+// The committed v2 bundle fixture (version "demo-2", OFAC bumped) routed in once
+// `servePublishV2` flips — the SAME fixture the bundle delta-sync e2e uses.
+const V2_ORIGIN = join(HERE, "../e2e-bundle/fixtures/bundle-v2/origin");
 
-/** Content type for a fixture file, keyed off its extension. */
-function contentTypeFor(relPath: string): string {
-	return relPath.endsWith(".sig") ? "text/plain" : "application/json";
-}
-
-/**
- * Read a v2-catalog fixture file by its path relative to `watchlist/` (e.g.
- * "catalog.json", "ofac/watchlist.json.sig"). Returns null when the requested
- * path is not part of the fixture, so the route can fall through to the real
- * (committed demo-1) catalog instead of fabricating an artifact.
- */
-function readV2CatalogFile(
-	relPath: string,
-): { body: Buffer; contentType: string } | null {
-	const absPath = join(V2_CATALOG_DIR, relPath);
-	if (!absPath.startsWith(`${V2_CATALOG_DIR}/`)) {
-		return null; // guard against path traversal out of the fixture dir
+/** Path tail after `/bundle/origin/` for a routed request, or null if not ours. */
+function bundleTail(url: string): string | null {
+	const marker = "/bundle/origin/";
+	const at = url.indexOf(marker);
+	if (at < 0) {
+		return null;
 	}
-	try {
-		return {
-			body: readFileSync(absPath),
-			contentType: contentTypeFor(relPath),
-		};
-	} catch {
-		return null; // not a file in this fixture → let the real catalog serve
-	}
+	// Strip any query string; the CAS layout has no query params.
+	return url.slice(at + marker.length).split("?")[0] ?? null;
 }
 
 test.describe.configure({ mode: "serial" });
@@ -85,28 +73,33 @@ test("local-first journey: no login → onboard → tiered match → resolve →
 			consoleErrors.push(`console.error: ${msg.text()}`);
 	});
 
-	// --- New-publish route: serve the committed demo-1 catalog until the test
-	//     flips `servePublishV2`, then serve the validly-signed demo-2 catalog
-	//     (OFAC bumped) so the tab's catalog/manifest poll detects a real new
-	//     publish. The fixture mirrors the watchlist/ layout, so each intercepted
-	//     request path under /watchlist/ maps 1:1 to a fixture file. -----------
+	// --- New-publish route: serve the committed demo-1 bundle until the test
+	//     flips `servePublishV2`, then serve the validly-signed demo-2 bundle
+	//     (OFAC bumped) from the committed v2 fixture so the tab's signed `/latest`
+	//     poll detects a real new publish. The fixture mirrors the /bundle/origin
+	//     CAS layout, so each intercepted request tail maps 1:1 to a fixture file.
+	//     (This is exactly how delta-sync.spec.ts flips to the v2 bundle.) -------
 	let servePublishV2 = false;
-	await page.route("**/watchlist/**", async (route: Route) => {
+	await page.route("**/bundle/origin/**", async (route: Route) => {
 		if (!servePublishV2) {
 			await route.continue();
 			return;
 		}
-		const pathname = new URL(route.request().url()).pathname;
-		const relPath = pathname.slice(pathname.indexOf("/watchlist/") + 11);
-		const file = readV2CatalogFile(relPath);
-		if (file === null) {
+		const tail = bundleTail(route.request().url());
+		if (tail === null) {
 			await route.continue();
 			return;
 		}
+		const body = readFileSync(join(V2_ORIGIN, tail));
+		const contentType =
+			tail === "latest" ? "application/json" : "application/octet-stream";
 		await route.fulfill({
 			status: 200,
-			contentType: file.contentType,
-			body: file.body,
+			contentType,
+			// no-store so the mutable /latest pointer is never served stale from the
+			// browser HTTP cache (mirrors the engine's own cache:"no-store" intent).
+			headers: { "cache-control": "no-store" },
+			body,
 		});
 	});
 
@@ -214,16 +207,16 @@ test("local-first journey: no login → onboard → tiered match → resolve →
 	).toBeVisible();
 
 	// =======================================================================
-	// 6b. LIVE new-publish detection (the headline feature): a newer CATALOG
+	// 6b. LIVE new-publish detection (the headline feature): a newer BUNDLE
 	//     (OFAC bumped to "demo-2", EU/UN/UK still "demo-1") goes live AFTER this
-	//     tab booted on the all-demo-1 catalog. Flip the route to serve the
-	//     validly-signed v2 catalog, then drive "Check for updates". The tab's
-	//     cheap signed catalog/manifest poll must see the composite stamp advance
-	//     (…|OFAC_SDN@demo-2|… ≠ …|OFAC_SDN@demo-1|…), RELOAD every list into the
-	//     running engine (fail-closed verify), then re-screen every customer. The
-	//     previously-resolved match MUST survive with its FALSE_POSITIVE
-	//     disposition (proof replaceMatches carries the audit trail forward across
-	//     a real reload + rescan).
+	//     tab booted on the all-demo-1 bundle. Flip the route to serve the
+	//     validly-signed v2 bundle, then drive "Check for updates". The tab's
+	//     cheap signed `/latest` poll must see the composite stamp advance
+	//     (…|OFAC_SDN@demo-2|… ≠ …|OFAC_SDN@demo-1|…), delta-sync + RELOAD every
+	//     list into the running engine (fail-closed verify), then re-screen every
+	//     customer. The previously-resolved match MUST survive with its
+	//     FALSE_POSITIVE disposition (proof replaceMatches carries the audit trail
+	//     forward across a real reload + rescan).
 	// =======================================================================
 	servePublishV2 = true;
 	await page.getByRole("button", { name: "Check for updates" }).click();
