@@ -7,13 +7,7 @@
 	},
 	"files": {
 		"ignoreUnknown": false,
-		"includes": [
-			"**",
-			"!public/watchlist",
-			"!tests/e2e-kyc/fixtures/watchlist-v2/*.json",
-			"!tests/e2e-kyc/fixtures/watchlist-v2/*.sig",
-			"!tests/e2e-kyc/fixtures/watchlist-v2-catalog"
-		]
+		"includes": ["**"]
 	},
 	"formatter": {
 		"enabled": true,

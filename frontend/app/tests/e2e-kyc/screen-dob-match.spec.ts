@@ -3,8 +3,9 @@ import { expect, test } from "@playwright/test";
 /**
  * e2e-kyc — the DOB-input reachability + dob_match regression guard, proven
  * END-TO-END in a real headless Chromium over the MINIFIED production build,
- * against the COMMITTED signed multi-list catalog verified in-tab against the
- * pinned key (no application backend).
+ * against the COMMITTED signed BUNDLE (app/public/bundle/origin) verified in-tab
+ * against the pinned key (no application backend; the kyc build sets no
+ * VITE_BUNDLE_BASE_URL, so the runtime boots over the default /bundle/origin).
  *
  * Until this slice, the parity-locked `dob_match` scorer was UNREACHABLE from
  * the UI: /screen had no date-of-birth input, so a query DOB never reached

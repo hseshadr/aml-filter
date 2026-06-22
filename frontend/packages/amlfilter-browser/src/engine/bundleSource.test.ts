@@ -103,6 +103,9 @@ function memoryClient(): {
 			}
 			return materializeFile(store, manifest, path);
 		},
+		clear() {
+			return store.clear();
+		},
 	};
 	return { deps: { createClient: () => client }, chunkRequests };
 }
@@ -177,11 +180,6 @@ function stubEmbedder(): Embedder {
 function bundleRuntimeDeps(): RuntimeDeps {
 	const { deps: bundleDeps } = memoryClient();
 	return {
-		// The JSON loaders must NEVER be called on the bundle path.
-		loadCatalog: () =>
-			Promise.reject(new Error("JSON loadCatalog called on the bundle path")),
-		loadList: () =>
-			Promise.reject(new Error("JSON loadList called on the bundle path")),
 		makeEmbedder: () => stubEmbedder(),
 		clearCache: () => Promise.resolve(),
 		openBundleSource: (baseUrl, pubkeyUrl) =>

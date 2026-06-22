@@ -1,8 +1,9 @@
 // @amlfilter/browser — the in-browser tier of aml-filter.
 //
-// Fetch a signed JSON watchlist same-origin, verify its detached ed25519
-// signature (fail-closed) against a pinned key, decode the precomputed name
-// vectors, and screen a name entirely in the tab — no backend. The publisher
+// Delta-sync a signed, content-addressed watchlist bundle (the ONLY catalog/list
+// path), verify its detached ed25519 signature (fail-closed) against a pinned
+// key, decode the precomputed name vectors, and screen a name entirely in the
+// tab — no backend. The publisher
 // (frontend/packages/amlfilter-publisher) and this browser consumer share one
 // wire format (see docs/WATCHLIST_FORMAT.md) and one explainable scoring
 // contract (see ./engine/domain + ./engine/scoring): the wire format, the
@@ -40,17 +41,6 @@ export {
 	EMBEDDING_MODEL,
 	type Embedder,
 } from "./engine/embedder";
-// --- the durable list cache (Theme C): IndexedDB byte store, never a trust store ---
-export {
-	CATALOG_CACHE_KEY,
-	type CachedArtifact,
-	clearAll as clearListCache,
-	deleteArtifact,
-	listCached,
-	openListCache,
-	readArtifact,
-	writeArtifact,
-} from "./engine/listCache";
 // --- the multi-list screen: one warm embedder, N signed lists, one contract ---
 export {
 	createMultiListScreeningEngine,
@@ -68,8 +58,6 @@ export {
 	createEmbedder,
 	defaultRuntimeDeps,
 	EngineRuntime,
-	type LoadCatalog,
-	type LoadList,
 	type OnStage,
 	type RuntimeConfig,
 	type RuntimeDeps,
@@ -91,17 +79,13 @@ export {
 	ScreeningEngine,
 	type ScreenOptions,
 } from "./engine/screeningEngine";
-// --- the signed-catalog + per-list loaders + their loaded shapes ---
+// --- the bundle-files builder + the shared watchlist/catalog shapes ---
 export {
-	assertCatalogShape,
 	type BundleListFiles,
 	type BundleListMeta,
 	buildLoadedFromBundleFiles,
 	buildLoadedWatchlist,
-	fetchListVersion,
-	fetchVerifiedCatalog,
 	type LoadedWatchlist,
-	loadList,
 	type Watchlist,
 	type WatchlistCatalog,
 	type WatchlistCatalogEntry,
@@ -109,9 +93,3 @@ export {
 	WatchlistFormatError,
 	type WatchlistManifest,
 } from "./engine/watchlist";
-// --- cache-aware loaders (Theme C): network-or-cache with fail-closed re-verify ---
-export {
-	loadCatalogCached,
-	loadListCached,
-	type NetworkLoaders,
-} from "./engine/watchlistCache";

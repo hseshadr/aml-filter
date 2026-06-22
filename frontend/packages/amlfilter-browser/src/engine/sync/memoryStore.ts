@@ -56,4 +56,11 @@ export class MemoryCacheStore implements CacheStore {
 		this.#active = pointer;
 		return Promise.resolve();
 	}
+
+	public clear(): Promise<void> {
+		this.#chunks.clear();
+		this.#manifests.clear();
+		this.#active = null;
+		return Promise.resolve();
+	}
 }

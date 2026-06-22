@@ -3,14 +3,14 @@ import { defineConfig, devices } from "@playwright/test";
 /**
  * e2e-kyc — the LOCAL-FIRST KYC workstation journey, proven END-TO-END in a
  * real headless Chromium against the MINIFIED production build with ZERO
- * application backend: the watchlists are the committed signed multi-list
- * catalog (app/public/watchlist/catalog.json + per-list dirs) verified against
- * the pinned key, and KYC records live in SQLite-WASM persisted to OPFS via the
- * DB Worker.
+ * application backend: the watchlists are the committed signed BUNDLE
+ * (app/public/bundle/origin: signed `latest` → content-hashed `manifest` →
+ * `chunk/` CAS) verified against the pinned key, and KYC records live in
+ * SQLite-WASM persisted to OPFS via the DB Worker.
  *
  * ONE Playwright-managed webServer: `vite preview` over a freshly built dist/.
- * The signed catalog + per-list dirs + pinned pubkey are static public/ assets
- * served same-origin — no separate catalog server, no VITE_BUNDLE_BASE_URL.
+ * The signed bundle + pinned pubkey are static public/ assets served same-origin.
+ * The build sets no VITE_BUNDLE_BASE_URL, so the runtime defaults to /bundle/origin.
  *
  * `http://localhost` is a secure context — REQUIRED for OPFS (the sahpool
  * database) and WebCrypto verification. A LAN IP or host.docker.internal is NOT

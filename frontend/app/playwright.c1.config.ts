@@ -6,15 +6,15 @@ import { defineConfig, devices } from "@playwright/test";
  * exercises (it runs `vite dev`, which is unminified and so hid the production
  * `Ke(...).call is not a function` model-load crash).
  *
- * ONE webServer: `vite preview` over a freshly built dist/. The signed catalog
- * + per-list dirs (watchlist/catalog.json + watchlist/<id>/… in
- * app/public/watchlist/) are plain static assets served same-origin by
- * `vite preview` — no separate catalog server, no VITE_BUNDLE_BASE_URL. The
- * pinned ed25519 public key (app/public/public.key) ships in the same build and
- * is read same-origin.
+ * ONE webServer: `vite preview` over a freshly built dist/. The signed BUNDLE
+ * (app/public/bundle/origin: `latest` + `manifest/<hash>` + `chunk/<hash>`) is a
+ * set of plain static assets served same-origin by `vite preview`. The build sets
+ * no VITE_BUNDLE_BASE_URL, so the runtime defaults to /bundle/origin (the same
+ * path the e2e-bundle lane sets explicitly). The pinned ed25519 public key
+ * (app/public/public.key) ships in the same build and is read same-origin.
  *
  * The spec drives a real headless Chromium: it waits for the full
- * download → ed25519-verify → ~23 MB model download → screen pipeline, then
+ * bundle sync → ed25519-verify → ~23 MB model download → screen pipeline, then
  * asserts a real explainable match for the committed sanctioned name and an
  * empty result for a nonsense name. `http://localhost` is a secure context, so
  * OPFS + WebCrypto work with no COOP/COEP.

@@ -61,6 +61,9 @@ export interface CacheStore {
 	getManifest(manifestHash: string): Promise<Uint8Array>;
 	readActive(): Promise<VersionPointer | null>;
 	promote(pointer: VersionPointer): Promise<void>;
+	/** Drop EVERY chunk + manifest + the active pointer, leaving an empty but
+	 * reusable store (the "Clear cached lists" affordance; next sync re-fetches). */
+	clear(): Promise<void>;
 }
 
 /** Per-fetch transport options. `cache` mirrors `RequestInit.cache`; the sync

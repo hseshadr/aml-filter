@@ -1,11 +1,12 @@
-// The browser runtime that turns the signed, verified OFAC watchlist into a
+// The browser runtime that turns the signed, verified watchlist bundle into a
 // live, in-tab ScreeningEngine — the in-browser replacement for the FastAPI
 // screen.
 //
-//   - the watchlist loader (watchlist.ts) fetches ONE signed JSON watchlist
-//     (+ manifest) same-origin, verifies its detached ed25519 signature
-//     FAIL-CLOSED against the pinned key, decodes the precomputed vectors, and
-//     builds the cosine index + entity map;
+//   - the bundle source (bundleSource.ts) delta-syncs + verifies (fail-closed)
+//     the signed, content-addressed bundle THROUGH A WORKER, materializes its
+//     catalog + each enabled list's files out of the durable OPFS store, and
+//     builds the cosine index + entity map. This is the ONLY catalog/list path:
+//     dev, e2e, and prod all run the exact same signed-bundle delta-sync;
 //   - the embedder Worker (embedderWorker.ts) owns transformers.js: the ~23 MB
 //     all-MiniLM-L6-v2 weights download + ONNX inference for the QUERY only.
 //
@@ -25,7 +26,6 @@ import {
 	type OnEmbedProgress,
 } from "./embedder";
 import { createWorkerEmbedder, spawnEmbedderWorker } from "./embedderClient";
-import { clearAll } from "./listCache";
 import {
 	createMultiListScreeningEngine,
 	type ListThresholds,
@@ -37,7 +37,6 @@ import type {
 	WatchlistCatalog,
 	WatchlistCatalogEntry,
 } from "./watchlist";
-import { loadCatalogCached, loadListCached } from "./watchlistCache";
 
 /** Any non-empty string warms the ONNX session; content is discarded. */
 const WARMUP_PROMPT = "warm up the model";
@@ -134,15 +133,14 @@ export interface RuntimeConfig {
 	/** Same-origin URL of the pinned ed25519 public key. */
 	readonly pubkeyUrl: string;
 	/**
-	 * When set, bootstrap takes the BUNDLE path: it delta-syncs + verifies the
-	 * signed, content-addressed bundle at this base URL (the recovered edge-proc
-	 * sync tier) and screens from the materialized lists, instead of fetching the
-	 * same-origin JSON catalog. When undefined (the default this release), the
-	 * existing same-origin `watchlist/` JSON path is used UNCHANGED. The pinned
-	 * pubkey is ALWAYS fetched same-origin from {@link pubkeyUrl}, never from this
-	 * bundle origin.
+	 * The base URL of the signed, content-addressed bundle. Bootstrap delta-syncs
+	 * + verifies it (fail-closed) THROUGH A WORKER and screens from the
+	 * materialized lists — this is the ONLY catalog/list path, so it is always
+	 * present (configFromEnv defaults it to `/bundle/origin`; the env var only
+	 * OVERRIDES the default origin). The pinned pubkey is ALWAYS fetched
+	 * same-origin from {@link pubkeyUrl}, never from this bundle origin.
 	 */
-	readonly bundleBaseUrl?: string;
+	readonly bundleBaseUrl: string;
 }
 
 /**
@@ -165,31 +163,19 @@ export interface CatalogListInfo {
 	readonly title: string;
 }
 
-/** Fetch + verify the signed catalog (the manifest of every published list). */
-export type LoadCatalog = (pubkey: Uint8Array) => Promise<WatchlistCatalog>;
-
-/** Fetch + verify + decode + build ONE per-list watchlist under its catalog entry. */
-export type LoadList = (
-	pubkey: Uint8Array,
-	entry: WatchlistCatalogEntry,
-) => Promise<LoadedWatchlist>;
-
-/** The seams bootstrap depends on; defaulted to the real loaders + embedder Worker.
- * `makeEmbedder` receives an `onProgress` sink the runtime wires to the boot
- * banner so model-download progress reaches the UI. `loadCatalog`/`loadList` are
- * the CACHE-AWARE loaders by default (durable IndexedDB byte cache + offline
- * fallback, fail-closed re-verify on every load); `clearCache` drops every
- * cached blob (the "Clear cached lists" affordance). */
+/** The seams bootstrap depends on; defaulted to the real embedder Worker + the
+ * signed-bundle source. `makeEmbedder` receives an `onProgress` sink the runtime
+ * wires to the boot banner so model-download progress reaches the UI;
+ * `openBundleSource` delta-syncs + verifies (fail-closed) the signed bundle (the
+ * ONLY catalog/list path); `clearCache` drops the durable OPFS bundle store (the
+ * "Clear cached lists" affordance). */
 export interface RuntimeDeps {
-	readonly loadCatalog: LoadCatalog;
-	readonly loadList: LoadList;
 	readonly makeEmbedder: (onProgress: OnEmbedProgress) => Embedder;
 	readonly clearCache: () => Promise<void>;
 	/** Open + delta-sync the signed bundle at `baseUrl`, verified fail-closed in the
 	 * Worker against the pinned same-origin key at `pubkeyUrl` (the Worker fetches it
-	 * — never the bundle origin). Used ONLY when {@link RuntimeConfig.bundleBaseUrl}
-	 * is set; the JSON path never calls it. Injectable so unit tests drive the
-	 * committed bundle over an in-memory store. */
+	 * — never the bundle origin). The ONLY catalog/list path. Injectable so unit
+	 * tests drive the committed bundle over an in-memory store. */
 	readonly openBundleSource: (
 		baseUrl: string,
 		pubkeyUrl: string,
@@ -198,15 +184,17 @@ export interface RuntimeDeps {
 }
 
 const defaultDeps: RuntimeDeps = {
-	// Cache-aware: try the network (no-store) + cache the verified bytes; reuse a
-	// version-matching cached row (re-verified fail-closed) to skip the network;
-	// fall back to the cached catalog when offline. The cache is a byte store —
-	// verifyEd25519 runs over the served bytes (cached OR fetched) every load.
-	loadCatalog: (pubkey) => loadCatalogCached(pubkey),
-	loadList: (pubkey, entry) => loadListCached(pubkey, entry),
 	makeEmbedder: (onProgress) =>
 		createWorkerEmbedder(spawnEmbedderWorker(), onProgress),
-	clearCache: clearAll,
+	// "Clear cached lists": drop the durable OPFS bundle store (every chunk +
+	// manifest + the active pointer) THROUGH THE WORKER (sync access handles are
+	// Worker-only). A transient bundle source at the default origin owns the
+	// Worker; the next load re-syncs from the now-empty store (re-fetches).
+	clearCache: () =>
+		openBundleSource(
+			DEFAULT_BUNDLE_BASE_URL,
+			new URL("public.key", document.baseURI).toString(),
+		).then((source) => source.clear()),
 	openBundleSource,
 };
 
@@ -224,7 +212,7 @@ async function requestPersistentStorage(): Promise<void> {
 	}
 }
 
-/** Build the production runtime deps (real catalog + list loaders + embedder Worker). */
+/** Build the production runtime deps (signed-bundle source + embedder Worker). */
 export function defaultRuntimeDeps(): RuntimeDeps {
 	return defaultDeps;
 }
@@ -252,14 +240,10 @@ export function compositeVersion(
 		.join("|");
 }
 
-/** Fetch the pinned ed25519 public key same-origin (no-store), as raw bytes. */
-async function fetchPubkey(pubkeyUrl: string): Promise<Uint8Array> {
-	const response = await fetch(pubkeyUrl, { cache: "no-store" });
-	if (!response.ok) {
-		throw new Error(`fetch public key failed: HTTP ${response.status}`);
-	}
-	return new Uint8Array(await response.arrayBuffer());
-}
+/** The same-origin default bundle base URL: the signed bundle the SPA ships
+ * under `public/bundle/origin/`. The signed-bundle delta-sync is the ONLY
+ * catalog/list path, so this is always the base url unless overridden. */
+const DEFAULT_BUNDLE_BASE_URL = "/bundle/origin";
 
 /** Read Vite env into a RuntimeConfig; the pubkey is pinned same-origin. */
 export function configFromEnv(
@@ -269,12 +253,15 @@ export function configFromEnv(
 	// app's OWN trusted origin. It is ALWAYS read same-origin — even on the bundle
 	// path — never from the bundle origin: it is the trust anchor.
 	const pubkeyUrl = new URL("public.key", document.baseURI).toString();
-	// VITE_BUNDLE_BASE_URL, when set to a non-empty value, switches bootstrap to
-	// the signed-bundle delta-sync path. Empty/whitespace/unset → undefined, so the
-	// default same-origin JSON path is taken (this release keeps JSON the default).
+	// The signed-bundle delta-sync is the ONLY catalog/list path, so bundleBaseUrl
+	// is ALWAYS a non-empty string: VITE_BUNDLE_BASE_URL only OVERRIDES the default
+	// origin (e.g. the bundle e2e lane points it elsewhere). Empty/whitespace/unset
+	// → the same-origin default `/bundle/origin`.
 	const rawBundle = env.VITE_BUNDLE_BASE_URL?.trim();
 	const bundleBaseUrl =
-		rawBundle !== undefined && rawBundle.length > 0 ? rawBundle : undefined;
+		rawBundle !== undefined && rawBundle.length > 0
+			? rawBundle
+			: DEFAULT_BUNDLE_BASE_URL;
 	return { pubkeyUrl, bundleBaseUrl };
 }
 
@@ -319,12 +306,19 @@ export class EngineRuntime {
 	}
 
 	/**
-	 * Drop every durably-cached list blob (the "Clear cached lists" affordance).
-	 * Safe to call any time — the next load simply re-fetches + re-verifies. The
-	 * running engine is untouched; the cache is a load-time optimization only.
+	 * Drop the durable OPFS bundle store (every chunk + manifest + the active
+	 * pointer) — the "Clear cached lists" affordance. The clear runs THROUGH THE
+	 * WORKER (sync access handles are Worker-only) via {@link RuntimeDeps.clearCache}
+	 * (whose default opens a bundle source at the same-origin default origin and
+	 * calls `.clear()`). The memoized bundle source is then dropped so the next
+	 * load re-syncs from the now-empty store (re-fetches + re-verifies). Safe to
+	 * call any time — the running engine is untouched; the store is a load-time
+	 * optimization only.
 	 */
-	public clearListCache(): Promise<void> {
-		return this.#deps.clearCache();
+	public async clearListCache(): Promise<void> {
+		await this.#deps.clearCache();
+		// Force the next load to re-sync from the cleared OPFS store.
+		this.#bundleSource = null;
 	}
 
 	/**
@@ -387,7 +381,7 @@ export class EngineRuntime {
 			this.#selection = selection;
 		}
 		// Drop the memoized bundle sync so a reload re-runs the signed delta-sync
-		// (picking up a republished `/latest`); the JSON path re-fetches anyway.
+		// (picking up a republished `/latest`).
 		this.#bundleSource = null;
 		const loaded = await this.#loadEnabledLists(this.#config);
 		const engine = createMultiListScreeningEngine(
@@ -414,16 +408,12 @@ export class EngineRuntime {
 				"fetchPublishedVersion() requires a successful bootstrap first",
 			);
 		}
-		// Bundle path: a FRESH delta-sync (no-store `/latest`) is the version
-		// signal — its signed pointer version is the authoritative published stamp,
-		// and the catalog's per-entry versions detect a bumped list or an add/remove.
-		// Drop the memo first so the poll re-fetches `/latest` rather than reusing
-		// the boot-time sync. JSON path: the signed catalog's entry versions suffice
-		// (the per-entry version is cross-checked against the manifest at load time),
-		// so no N extra manifest fetches.
-		if (this.#config.bundleBaseUrl !== undefined) {
-			this.#bundleSource = null;
-		}
+		// A FRESH delta-sync (no-store `/latest`) is the version signal — its signed
+		// pointer version is the authoritative published stamp, and the catalog's
+		// per-entry versions detect a bumped list or an add/remove. Drop the memo
+		// first so the poll re-fetches `/latest` rather than reusing the boot-time
+		// sync.
+		this.#bundleSource = null;
 		const catalog = await this.#loadCatalog(this.#config);
 		const versions: Record<string, string> = {};
 		for (const entry of catalog.lists) {
@@ -459,30 +449,22 @@ export class EngineRuntime {
 	}
 
 	/** Fetch + verify the catalog for the active config: the signed BUNDLE catalog
-	 * (delta-synced) when `bundleBaseUrl` is set, else the same-origin JSON catalog. */
+	 * (delta-synced), the ONLY catalog path. */
 	async #loadCatalog(config: RuntimeConfig): Promise<WatchlistCatalog> {
-		if (config.bundleBaseUrl !== undefined) {
-			return (
-				await this.#bundleSourceFor(config, config.bundleBaseUrl)
-			).loadCatalog();
-		}
-		const pubkey = await fetchPubkey(config.pubkeyUrl);
-		return this.#deps.loadCatalog(pubkey);
+		return (
+			await this.#bundleSourceFor(config, config.bundleBaseUrl)
+		).loadCatalog();
 	}
 
 	/** Load + verify + build ONE list for the active config: from the materialized
-	 * BUNDLE files (delta-synced) when `bundleBaseUrl` is set, else the JSON path. */
+	 * BUNDLE files (delta-synced), the ONLY list path. */
 	async #loadList(
 		config: RuntimeConfig,
 		entry: WatchlistCatalogEntry,
 	): Promise<LoadedWatchlist> {
-		if (config.bundleBaseUrl !== undefined) {
-			return (
-				await this.#bundleSourceFor(config, config.bundleBaseUrl)
-			).loadList(entry);
-		}
-		const pubkey = await fetchPubkey(config.pubkeyUrl);
-		return this.#deps.loadList(pubkey, entry);
+		return (await this.#bundleSourceFor(config, config.bundleBaseUrl)).loadList(
+			entry,
+		);
 	}
 
 	/**

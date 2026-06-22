@@ -1,126 +1,168 @@
-# Signed Watchlist Format (v3 wire contract)
+# Signed Watchlist Format (the bundle wire contract)
 
-The single source of truth for the artifact the publisher emits and the browser consumes.
-Zero-server: these are plain static files on any host/CDN. Trust is end-to-end via Ed25519.
+**TL;DR** — the app downloads its sanctions lists as a single **signed,
+content-addressed bundle** served as plain static files (any host/CDN, no backend).
+Trust is end-to-end via Ed25519: a tiny **signed pointer** names a **content-hashed
+manifest**, the manifest lists every file as **content-hashed chunks**, and the
+browser delta-syncs + verifies all of it **fail-closed** in a Web Worker before a
+single byte is parsed. This document is the single source of truth for that artifact.
 
-## Files (served as static assets)
+The legacy flat JSON wire (`watchlist.json` / `catalog.json` + detached `.sig`,
+fetched directly) has been **retired** as a distribution path — the app no longer
+fetches it. (The publisher's single-list `publish` CLI still *emits* that flat 4-file
+set for the OFAC GitHub Action; see [Legacy](#legacy-the-flat-json-wire-retired).)
 
-| File | Purpose |
+## Distribution layout (served as static assets)
+
+```
+bundle/origin/
+  latest                        # the signed VersionPointer (JSON) — the trust anchor
+  manifest/<manifest_hash>      # the content-addressed IndexManifest (JSON), named by its own sha256
+  chunk/<chunk_hash>            # one file per content-defined chunk, named by the sha256 of its plaintext
+```
+
+The app's bundle base URL defaults to **`/bundle/origin`** (overridable with
+`VITE_BUNDLE_BASE_URL`); the committed demo bundle lives at
+`frontend/app/public/bundle/origin/`. On open the browser:
+
+1. Fetches **`latest`** (`cache: "no-store"` — the only mutable file) and verifies its
+   detached Ed25519 `signature` against the pinned same-origin key
+   (`frontend/app/public/public.key`). **Fail-closed**: a bad signature aborts.
+2. Fetches **`manifest/<manifest_hash>`** and checks that the bytes hash to the
+   `manifest_hash` the verified pointer named. Authenticity flows from the signed
+   pointer → the content hash, so the manifest needs no separate `.sig`.
+3. Diffs the manifest's chunk set against what is already in OPFS and fetches **only
+   the missing `chunk/<hash>` files** — the delta sync. Each chunk is verified to hash
+   to its name, and each reassembled file is verified to hash to its `file_sha256`.
+
+Any signature or hash mismatch — over freshly fetched **or** OPFS-cached bytes —
+aborts the load with no silent empty list.
+
+## `latest` — the signed `VersionPointer`
+
+The trust anchor: a detached Ed25519 signature over the canonical bytes of the object
+**excluding** `signature`. Source of truth:
+`frontend/packages/amlfilter-browser/src/engine/sync/types.ts` (`VersionPointer`).
+
+```json
+{
+  "manifest_hash": "9ca69ce7455f04b585c2d9210ce72d2c6ed242c0baf72a067550484b4eb2e434",
+  "version": "demo-1",
+  "signature": "u9kyIPD6PLGEV6KDmZF4HTtDNbOyKCgZG8RWWfWM9BC/+cGctgZXg9zu2KmjKY4jjCbuowpxRtpxXiGsYecTDQ=="
+}
+```
+
+| Field | Meaning |
 |------|---------|
-| `watchlist.manifest.json` | tiny, for cheap version polling on app-open |
-| `watchlist.manifest.json.sig` | detached Ed25519 signature (base64) over the manifest bytes |
-| `watchlist.json` | the full list: entities + precomputed name vectors |
-| `watchlist.json.sig` | detached Ed25519 signature (base64) over the `watchlist.json` bytes |
+| `manifest_hash` | hex sha256 of the manifest's canonical bytes — the content address under `manifest/` |
+| `version` | the composite version stamp (also used for change-detection on poll) |
+| `signature` | base64 Ed25519 over `canonicalBytes(self, exclude {signature})` |
 
-The browser polls the **manifest** first (small). If `version` differs from the last-synced
-value, it fetches the full `watchlist.json`. Both are signature-verified **fail-closed**
-(reuse `engine/crypto.ts` `verifyEd25519(pubkeyRaw32, bytes, sigBase64)`; pubkey pinned
-same-origin from `public.key`).
+## `manifest/<manifest_hash>` — the `IndexManifest`
 
-## `watchlist.manifest.json`
+Authenticated by its **content hash**, not an embedded signature. Source of truth:
+`sync/types.ts` (`IndexManifest`, `FileEntry`, `ChunkRef`).
+
 ```json
 {
-  "listId": "OFAC_SDN",
-  "version": "2026-06-19",            // change-detection key (date or content hash)
-  "generatedAt": "2026-06-19T00:00:00Z",
-  "model": "Xenova/all-MiniLM-L6-v2",
-  "dim": 384,
-  "entitiesCount": 17234
-}
-```
-
-## `watchlist.json`
-```json
-{
-  "listId": "OFAC_SDN",
-  "version": "2026-06-19",
-  "generatedAt": "2026-06-19T00:00:00Z",
-  "model": "Xenova/all-MiniLM-L6-v2",
-  "dim": 384,
-  "entities": [
+  "schema_version": 2,
+  "bundle_id": "amlfilter-watchlists",
+  "version": "demo-1",
+  "files": [
     {
-      "entity_id": "OFAC-12345",
-      "name_canonical": "...",        // produced by the SAME canonicalize() the browser uses
-      "aliases": ["..."],
-      "dob": "1965" | "1965-03-02" | null,
-      "countries": ["CA", "US"],       // sorted, deterministic
-      "risk_category": "...",
-      "source_list": "OFAC_SDN",
-      "list_version": "2026-06-19"
+      "path": "catalog.json",
+      "file_type": null,
+      "size": 655,
+      "file_sha256": "ba5248fa3d6502a9...",
+      "chunks": [{ "hash": "ba5248fa3d65...", "size": 655 }]
     }
+    // … ofac/entities.jsonl, ofac/vectors.f32, ofac/meta.json, eu/…, un/…, uk/…
   ],
-  "vectors": "<base64>"               // raw little-endian Float32 buffer,
-                                       // row-major, length = entities.length * dim.
-                                       // Decoded in-tab: new Float32Array(decode(base64)).buffer
-                                       // Row i is the embedding of entities[i].name_canonical.
+  "metadata": {}
 }
 ```
+
+| Field | Meaning |
+|------|---------|
+| `schema_version` | manifest schema version (currently `2`) |
+| `bundle_id` | logical bundle identifier (e.g. `amlfilter-watchlists`) |
+| `version` | matches the pointer's `version` |
+| `files[]` | a `FileEntry` per file the bundle materializes (below) |
+| `metadata` | free-form `Record<string, string \| number \| boolean \| null>` (empty in the demo) |
+
+Each **`FileEntry`**:
+
+| Field | Meaning |
+|------|---------|
+| `path` | the file's path inside the bundle (e.g. `ofac/vectors.f32`) |
+| `file_type` | optional content hint (`null` in the demo) |
+| `size` | total uncompressed file length in bytes |
+| `file_sha256` | bare hex sha256 of the whole reassembled file (verified after reassembly) |
+| `chunks[]` | ordered `ChunkRef`s; reassembly = concatenation in this order |
+
+Each **`ChunkRef`** is `{ "hash": <bare hex sha256 of the chunk plaintext>, "size": <bytes> }`.
+The chunk plaintext lives at `chunk/<hash>`. Content-defined chunking means an unchanged
+list shares its chunks across versions, so a new publish re-fetches only changed chunks.
+
+## The materialized files (what the manifest lists)
+
+After a verified sync the browser materializes the manifest's `files` into a watchlist
+catalog + per-list files, all consumed in-tab:
+
+- **`catalog.json`** — the multi-list registry: the lists the bundle carries (OFAC, EU,
+  UN, UK …), each with `id` / `title` / `version` / `entitiesCount`, and the per-list
+  slug. The catalog is the verify-before-parse entry into the lists.
+- **`<slug>/entities.jsonl`** — one `WatchlistEntity` JSON object per line (the full
+  list rows: `entity_id`, `name_canonical`, `aliases`, `dob`, `countries`,
+  `risk_category`, `source_list`, `list_version`).
+- **`<slug>/vectors.f32`** — the precomputed name embeddings as a raw **row-major
+  little-endian Float32** buffer, `entitiesCount * dim` floats. Row *i* is the embedding
+  of `entities[i].name_canonical`. (Decoded in-tab and pinned to `dim = 384`,
+  fail-closed.)
+- **`<slug>/meta.json`** — the per-list `BundleListMeta`. Source of truth:
+  `frontend/packages/amlfilter-browser/src/engine/watchlist.ts`
+  (`BundleListMeta`, `BundleListFiles`).
+
+`BundleListMeta` (the per-list `meta.json`):
+
+```json
+{
+  "listId": "OFAC_SDN",
+  "version": "demo-1",
+  "generatedAt": "2026-06-19T00:00:00Z",
+  "model": "Xenova/all-MiniLM-L6-v2",
+  "dim": 384,
+  "entitiesCount": 3
+}
+```
+
+`BundleListFiles` is the in-tab triple the engine reassembles per list:
+`{ entitiesJsonl, vectorsF32, meta }` (raw `Uint8Array` bytes of the three files above).
 
 ### Notes
 - **Vectors are precomputed at publish time** with transformers.js in Node (the SAME
-  `EMBEDDING_MODEL` / `EMBEDDING_DIM` as the browser), so the browser never embeds the list —
-  only the query/customer name in-tab. No torch, no Python.
-- **Float32 base64** keeps it simple; gzip on the host cuts it ~3×. int8 quantization is a
-  future size optimization, deliberately deferred (YAGNI).
+  `EMBEDDING_MODEL` / `EMBEDDING_DIM` as the browser), so the browser never embeds the
+  list — only the query/customer name in-tab. No torch, no Python.
+- **Namespaced entity ids.** Every adapter stamps `entity_id = "<source_list>:<rawId>"`
+  (e.g. `OFAC_SDN:12345`, `EU_CONSOLIDATED:13`) so ids stay unique once lists are merged
+  into one engine.
 - **Determinism**: `name_canonical` via the shared `canonicalize()`; `countries` sorted —
   same rules as the committed scoring golden, so screening output stays parity-locked.
-- **Signing**: detached signature over the exact file bytes. Production signs in the GitHub
-  Action with a key held as a repo secret; the committed **demo** artifact is signed with a
-  clearly-labeled non-production demo key whose public half is `frontend/app/public/public.key`.
+- **One pinned key.** The pointer's signature is checked against
+  `frontend/app/public/public.key` (pinned, served same-origin — never from the list
+  origin). The signing **private** key never lives in the repo or the app; production
+  signs in CI (the `WATCHLIST_SIGNING_KEY` secret). The committed **demo** bundle is
+  signed with a clearly-labeled non-production demo key whose public half is
+  `public.key`. Build the committed demo bundle with
+  `pnpm --filter @amlfilter/publisher run build-demo-bundle`.
 
-## Catalog (v4) — the multi-list registry
+## Legacy: the flat JSON wire (retired)
 
-v4 keeps the per-list `watchlist.json` / `watchlist.manifest.json` format **unchanged** and
-adds, one level up, a **signed catalog** plus a **per-list directory** layout so a host can serve
-several lists (OFAC, EU, UN, UK …) side by side. The single-list v3 layout is exactly the N=1 case.
-
-### Directory layout (served as static assets)
-
-```
-watchlist/
-  catalog.json                  # the signed registry of lists (below)
-  catalog.json.sig              # detached Ed25519 signature over catalog.json bytes
-  ofac/                         # one dir per list, named by a slug of the list id
-    watchlist.json(.sig)        # the v3 files, UNCHANGED
-    watchlist.manifest.json(.sig)
-  eu/   watchlist.json(.sig) + watchlist.manifest.json(.sig)
-  un/   watchlist.json(.sig) + watchlist.manifest.json(.sig)
-  uk/   watchlist.json(.sig) + watchlist.manifest.json(.sig)
-```
-
-> During the transition, the legacy **flat** `watchlist/watchlist.json(.sig)` + manifest stay in
-> place alongside the per-list dirs; the browser wave switches to the catalog and removes them.
-
-### `catalog.json`
-
-```json
-{
-  "schema": 1,
-  "generatedAt": "2026-06-19T00:00:00Z",
-  "lists": [                          // sorted by id, deterministic
-    {
-      "id": "EU_CONSOLIDATED",
-      "title": "EU Consolidated",
-      "version": "demo-1",            // EQUALS that list's manifest version
-      "entitiesCount": 2,
-      "path": "eu/"                   // per-list dir, relative to the catalog
-    },
-    { "id": "OFAC_SDN", "title": "OFAC SDN", "version": "demo-1", "entitiesCount": 3, "path": "ofac/" }
-    // … UK_OFSI, UN_CONSOLIDATED
-  ]
-}
-```
-
-### Notes
-- **The catalog is the trust anchor.** It is signed with the SAME key as each list's
-  `watchlist.json`. The browser verifies the catalog fail-closed, then verifies each list it points
-  at fail-closed — verify-before-parse, top to bottom. `catalog.json.sig` is a detached base64
-  Ed25519 signature over the exact `catalog.json` bytes, same scheme as the list files.
-- **`version` mirrors the manifest.** Each entry's `version` is taken straight from the
-  `WatchlistManifest` the publisher returns for that list, so the catalog and the per-list manifest
-  never disagree.
-- **Namespaced entity ids.** Every adapter stamps `entity_id = "<source_list>:<rawId>"`
-  (e.g. `OFAC_SDN:12345`, `EU_CONSOLIDATED:13`) so ids stay unique once lists are merged into one
-  engine. This is the foundational cross-list-uniqueness decision.
-- **Determinism**: lists are sorted by id and serialized with the same pretty + trailing-newline
-  byte form, so identical `(lists, generatedAt)` ⇒ byte-identical `catalog.json`.
+The earlier distribution format was a directory of plain signed JSON files —
+`catalog.json(.sig)` over per-list `watchlist.json(.sig)` + `watchlist.manifest.json(.sig)`,
+each fetched and verified directly. **The browser no longer fetches this**; the bundle
+above is the only distribution path. The publisher's single-list `publish` CLI
+(`amlfilter-publish publish --in <jsonl> --version <v> --key <privkey> --out <dir>`, run
+by `.github/workflows/publish-watchlist.yml` for OFAC) still emits the flat 4-file set
+(`watchlist.json`/`.sig` + `watchlist.manifest.json`/`.sig`) as a source artifact, but it
+is not what the app loads at runtime.
