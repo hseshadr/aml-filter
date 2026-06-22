@@ -288,21 +288,51 @@ function assertWatchlistShape(watchlist: Watchlist): void {
 	}
 }
 
-/** Build the cosine index + id->Entity map from a verified, parsed watchlist. */
-function buildLoaded(watchlist: Watchlist): LoadedWatchlist {
-	assertWatchlistShape(watchlist);
-	const ids = watchlist.entities.map((e) => e.entity_id);
-	const matrix = decodeVectors(watchlist.vectors, watchlist.dim, ids.length);
+/**
+ * The shared index + id->Entity build, given the wire entities and an
+ * already-decoded Float32 matrix. Both the base64 JSON path ({@link buildLoaded})
+ * and the binary bundle path ({@link buildLoadedFromBundleFiles}) funnel through
+ * here so the projection — `toEntity`, the row↔id ordering, the VectorIndex
+ * construction — is byte-identical, and scoring is therefore identical regardless
+ * of how the bytes arrived. Row i of `matrix` is the embedding of
+ * `wireEntities[i].name_canonical`; the VectorIndex ctor enforces the same
+ * length invariant the byte-length checks already proved.
+ */
+function buildLoadedFromMatrix(
+	wireEntities: ReadonlyArray<WatchlistEntity>,
+	matrix: Float32Array,
+	dim: number,
+	version: string,
+	listId: string,
+): LoadedWatchlist {
+	const ids = wireEntities.map((e) => e.entity_id);
 	const entities = new Map<string, Entity>();
-	for (const wire of watchlist.entities) {
+	for (const wire of wireEntities) {
 		entities.set(wire.entity_id, toEntity(wire));
 	}
 	return {
-		index: new VectorIndex(matrix, ids, watchlist.dim),
+		index: new VectorIndex(matrix, ids, dim),
 		entities,
-		version: watchlist.version,
-		listId: watchlist.listId,
+		version,
+		listId,
 	};
+}
+
+/** Build the cosine index + id->Entity map from a verified, parsed watchlist. */
+function buildLoaded(watchlist: Watchlist): LoadedWatchlist {
+	assertWatchlistShape(watchlist);
+	const matrix = decodeVectors(
+		watchlist.vectors,
+		watchlist.dim,
+		watchlist.entities.length,
+	);
+	return buildLoadedFromMatrix(
+		watchlist.entities,
+		matrix,
+		watchlist.dim,
+		watchlist.version,
+		watchlist.listId,
+	);
 }
 
 /** True when `value` is a structurally valid catalog entry (fail-closed). */
@@ -427,4 +457,143 @@ export async function fetchListVersion(
 /** Build a LoadedWatchlist from already-verified, parsed JSON (test seam). */
 export function buildLoadedWatchlist(watchlist: Watchlist): LoadedWatchlist {
 	return buildLoaded(watchlist);
+}
+
+/** The per-list `meta.json` the content-addressed bundle stages (mirror of the
+ * publisher's BundleListMeta). Carries the version + dim + count the bundle path
+ * needs; the version becomes the LoadedWatchlist version (catalog cross-check
+ * happens in the runtime, against the bundle catalog entry). */
+export interface BundleListMeta {
+	readonly listId: string;
+	readonly version: string;
+	readonly generatedAt: string;
+	readonly model: string;
+	readonly dim: number;
+	readonly entitiesCount: number;
+}
+
+/** Narrow a materialized, JSON-parsed bundle meta fail-closed. */
+function assertBundleListMeta(value: unknown): asserts value is BundleListMeta {
+	if (typeof value !== "object" || value === null) {
+		throw new WatchlistFormatError("bundle meta.json is not an object");
+	}
+	const m = value as Record<string, unknown>;
+	if (
+		typeof m.listId !== "string" ||
+		typeof m.version !== "string" ||
+		typeof m.dim !== "number" ||
+		typeof m.entitiesCount !== "number" ||
+		!Number.isFinite(m.dim) ||
+		!Number.isFinite(m.entitiesCount)
+	) {
+		throw new WatchlistFormatError(
+			`bundle meta.json is malformed: ${JSON.stringify(value)}`,
+		);
+	}
+}
+
+/** Narrow a single JSON-parsed entities.jsonl line to a WatchlistEntity. */
+function assertWatchlistEntity(
+	value: unknown,
+	line: number,
+): asserts value is WatchlistEntity {
+	if (typeof value !== "object" || value === null) {
+		throw new WatchlistFormatError(
+			`entities.jsonl line ${line} is not an object`,
+		);
+	}
+	const e = value as Record<string, unknown>;
+	if (
+		typeof e.entity_id !== "string" ||
+		typeof e.name_canonical !== "string" ||
+		!Array.isArray(e.aliases) ||
+		!Array.isArray(e.countries) ||
+		typeof e.risk_category !== "string" ||
+		typeof e.source_list !== "string" ||
+		typeof e.list_version !== "string" ||
+		(e.dob !== null && typeof e.dob !== "string")
+	) {
+		throw new WatchlistFormatError(
+			`entities.jsonl line ${line} is a malformed entity`,
+		);
+	}
+}
+
+/** Parse newline-delimited entity JSON (one WatchlistEntity per line, fail-closed
+ * on any malformed line). Blank lines (incl. the trailing newline) are skipped. */
+function parseEntitiesJsonl(jsonl: string): WatchlistEntity[] {
+	const entities: WatchlistEntity[] = [];
+	const lines = jsonl.split("\n");
+	for (let i = 0; i < lines.length; i += 1) {
+		const text = lines[i]?.trim() ?? "";
+		if (text.length === 0) {
+			continue;
+		}
+		const parsed: unknown = JSON.parse(text);
+		assertWatchlistEntity(parsed, i + 1);
+		entities.push(parsed);
+	}
+	return entities;
+}
+
+/** Wrap the raw `vectors.f32` bytes as a Float32Array, validating dim + the row
+ * count against the entity count (the binary mirror of decodeVectors' base64
+ * check). Copies into a fresh 4-byte-aligned buffer (the materialized bytes may
+ * sit at an unaligned byteOffset). */
+function decodeVectorBytes(
+	bytes: Uint8Array,
+	dim: number,
+	entityCount: number,
+): Float32Array {
+	if (bytes.byteLength !== entityCount * dim * FLOAT32_BYTES) {
+		throw new WatchlistFormatError(
+			`vectors.f32 is ${bytes.byteLength} bytes; expected ${entityCount * dim * FLOAT32_BYTES} (${entityCount} entities * ${dim} dim * ${FLOAT32_BYTES})`,
+		);
+	}
+	return new Float32Array(bytes.slice().buffer);
+}
+
+/** The materialized per-list bundle files the bundle path feeds to the builder. */
+export interface BundleListFiles {
+	/** Raw bytes of `<slug>/entities.jsonl` (one WatchlistEntity JSON per line). */
+	readonly entitiesJsonl: Uint8Array;
+	/** Raw bytes of `<slug>/vectors.f32` (row-major LE Float32, entities*dim). */
+	readonly vectorsF32: Uint8Array;
+	/** Raw bytes of `<slug>/meta.json` (the per-list BundleListMeta). */
+	readonly meta: Uint8Array;
+}
+
+/**
+ * Build a LoadedWatchlist from the MATERIALIZED, already-verified per-list bundle
+ * files (the content-addressed sync tier reassembles + content-hash-verifies each
+ * file before handing the bytes here). The JSONL entities are parsed to the same
+ * WatchlistEntity[] the JSON path uses; the raw vectors.f32 bytes are wrapped as
+ * a Float32Array with the SAME exact-length check; the SAME projection + index
+ * builder runs — so scoring is byte-identical to a JSON-built list of the same
+ * data. dim is read from meta.json and pinned to EXPECTED_DIM, fail-closed.
+ */
+export function buildLoadedFromBundleFiles(
+	files: BundleListFiles,
+): LoadedWatchlist {
+	const meta: unknown = JSON.parse(DECODER.decode(files.meta));
+	assertBundleListMeta(meta);
+	if (meta.dim !== EXPECTED_DIM) {
+		throw new WatchlistFormatError(
+			`bundle list ${meta.listId} dim is ${meta.dim}; expected ${EXPECTED_DIM}`,
+		);
+	}
+	const entities = parseEntitiesJsonl(DECODER.decode(files.entitiesJsonl));
+	if (entities.length !== meta.entitiesCount) {
+		throw new WatchlistFormatError(
+			`bundle list ${meta.listId}: entities.jsonl has ${entities.length} lines; meta.json says ${meta.entitiesCount}`,
+		);
+	}
+	const matrix = decodeVectorBytes(files.vectorsF32, meta.dim, entities.length);
+	return buildLoadedFromMatrix(
+		entities,
+		matrix,
+		meta.dim,
+		meta.version,
+		meta.listId,
+	);
 }

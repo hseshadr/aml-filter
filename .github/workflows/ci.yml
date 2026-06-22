@@ -98,6 +98,17 @@ jobs:
         working-directory: frontend/app
         run: pnpm test:e2e:kyc
 
+      # The bundle config builds + previews the minified SPA with
+      # VITE_BUNDLE_BASE_URL=/bundle/origin and drives the signed, content-addressed
+      # BUNDLE delta-sync boot path in real Chromium against the committed bundle:
+      # fetch+verify the signed /latest pointer, content-verify the manifest + every
+      # chunk against the pinned same-origin public.key, promote into OPFS, screen;
+      # then prove a reload re-fetches ZERO chunks (delta reuse) and an offline
+      # reload still screens from OPFS. Guards the in-browser sync tier wiring.
+      - name: E2E — signed-bundle delta-sync boot (production build)
+        working-directory: frontend/app
+        run: pnpm test:e2e:bundle
+
       - name: Upload Playwright report on failure
         if: ${{ failure() }}
         uses: actions/upload-artifact@v4

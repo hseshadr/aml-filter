@@ -79,6 +79,12 @@ function neverEmbedder(): Embedder {
 	return { embed: () => new Promise<Float32Array>(() => {}) };
 }
 
+/** The bundle-source dep stub for the JSON-path tests: these set no
+ * `bundleBaseUrl`, so bootstrap never takes the bundle path and never calls it;
+ * it exists only to satisfy the RuntimeDeps shape. A call would be a test bug. */
+const stubBundleSource: RuntimeDeps["openBundleSource"] = () =>
+	Promise.reject(new Error("openBundleSource called on a JSON-path test"));
+
 describe("parseTimeoutMs (model-load timeout override, fail-closed)", () => {
 	it("returns the production default when the override is absent", () => {
 		expect(parseTimeoutMs(undefined)).toBe(MODEL_LOAD_TIMEOUT_MS);
@@ -149,6 +155,7 @@ describe("EngineRuntime bootstrap timeout", () => {
 			loadList: () => Promise.resolve(fakeLoaded()),
 			makeEmbedder: () => embedder,
 			clearCache: () => Promise.resolve(),
+			openBundleSource: stubBundleSource,
 		};
 	}
 
@@ -239,6 +246,7 @@ describe("EngineRuntime.reload", () => {
 				Promise.resolve(loadedAt(entry.version, `${entry.id}:E`, entry.id)),
 			makeEmbedder,
 			clearCache: () => Promise.resolve(),
+			openBundleSource: stubBundleSource,
 		};
 		return { deps, makeEmbedder };
 	}
@@ -279,6 +287,7 @@ describe("EngineRuntime.reload", () => {
 					: Promise.resolve(loadedAt(entry.version, `${entry.id}:E`)),
 			makeEmbedder,
 			clearCache: () => Promise.resolve(),
+			openBundleSource: stubBundleSource,
 		});
 		await expect(runtime.bootstrap(CONFIG)).rejects.toThrow(/verification/);
 		// No partial engine was published.
@@ -389,6 +398,7 @@ describe("EngineRuntime enabledLists selection + thresholds", () => {
 			},
 			makeEmbedder,
 			clearCache: () => Promise.resolve(),
+			openBundleSource: stubBundleSource,
 		};
 		return { deps, loadedIds, makeEmbedder };
 	}
@@ -551,6 +561,7 @@ describe("EngineRuntime boot stages", () => {
 			loadList: () => Promise.resolve(fakeLoaded()),
 			makeEmbedder: () => neverEmbedder(),
 			clearCache: () => Promise.resolve(),
+			openBundleSource: stubBundleSource,
 		};
 		const runtime = new EngineRuntime(deps);
 		const stages: BootStage[] = [];
@@ -585,6 +596,7 @@ describe("EngineRuntime boot stages", () => {
 				},
 			}),
 			clearCache: () => Promise.resolve(),
+			openBundleSource: stubBundleSource,
 		};
 		const runtime = new EngineRuntime(deps);
 		const stages: BootStage[] = [];
@@ -613,6 +625,7 @@ describe("EngineRuntime.clearListCache + cache-aware deps", () => {
 			loadList: () => Promise.resolve(fakeLoaded()),
 			makeEmbedder: () => instantEmbedder(),
 			clearCache,
+			openBundleSource: stubBundleSource,
 		});
 		await runtime.clearListCache();
 		expect(clearCache).toHaveBeenCalledTimes(1);
