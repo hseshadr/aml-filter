@@ -1,24 +1,28 @@
 // Prove the COMMITTED signed BUNDLE artifacts (frontend/app/public/bundle/origin/)
-// verify in-tab against the COMMITTED public.key — the same fail-closed contract
-// the browser sync tier enforces — and that a flipped byte is rejected. Guards
-// the REAL shipped bytes, not a synthetic stand-in: a pointer-signature, manifest
-// content-address, chunk content-address, or demo-content regression is caught here.
+// verify against the COMMITTED public.key — the same fail-closed contract the
+// browser sync tier enforces — and that a flipped byte is rejected. Guards the
+// REAL shipped bytes, not a synthetic stand-in: a pointer-signature, manifest
+// content-address, or demo-structure regression is caught here.
 //
 // The bundle layout (content-addressed, produced by `edgeproc publish`):
 //   latest                   — VersionPointer { manifest_hash, version, signature }
 //   manifest/<manifest_hash> — IndexManifest JSON; sha256(bytes) === <manifest_hash>
 //   chunk/<plaintext_hash>   — zstd-COMPRESSED chunk; sha256(decompress(bytes)) === <name>
 //
+// This publisher-side guard covers the parts that need no zstd (pointer signature,
+// manifest content-address, demo structure/version). The FULL chunk decompression +
+// content-address + reassembly + demo-content (Ivan Fakovich) verification over the
+// SAME committed bundle is done in the browser package's
+// engine/sync/demoBundleParity.test.ts (via @hpcc-js/wasm-zstd, portable across Node
+// versions — Node's built-in node:zlib zstd is only present on Node >= 22.15).
+//
 // Verification primitives are reused from the same fail-closed crypto tier the
 // browser uses (`@amlfilter/browser/engine`: verifyEd25519 / SignatureError /
-// sha256Hex). Chunks are zstd; we decompress with Node's built-in zlib (no extra
-// dep) before content-addressing — the publisher guarantees the chunk filename is
-// sha256(plaintext) (engine/sync/integrity.ts: "a chunk's name is sha256(plaintext)").
+// sha256Hex).
 
 import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { zstdDecompressSync } from "node:zlib";
 import {
 	SignatureError,
 	sha256Hex,
@@ -84,12 +88,6 @@ async function readManifest(hash: string): Promise<IndexManifest> {
 	return JSON.parse(DECODER.decode(bytes)) as IndexManifest;
 }
 
-/** Decompress a committed (zstd) origin chunk to its plaintext bytes. */
-async function readChunkPlaintext(hash: string): Promise<Uint8Array> {
-	const compressed = await readFile(join(ORIGIN, "chunk", hash));
-	return new Uint8Array(zstdDecompressSync(compressed));
-}
-
 function flipFirstByte(bytes: Uint8Array): Uint8Array {
 	const tampered = Uint8Array.from(bytes);
 	tampered[0] = (tampered[0] ?? 0) ^ 0xff;
@@ -138,26 +136,6 @@ describe("committed signed demo bundle verifies against public.key", () => {
 		);
 	});
 
-	test("every chunk is content-addressed: sha256(zstd-decompressed) === filename", async () => {
-		const pointer = await readPointer();
-		const manifest = await readManifest(pointer.manifest_hash);
-		const hashes = [...new Set(manifest.files.map((f) => f.file_sha256))];
-		expect(hashes.length).toBeGreaterThan(0);
-		for (const hash of hashes) {
-			const plaintext = await readChunkPlaintext(hash);
-			expect(await sha256Hex(plaintext)).toBe(hash);
-		}
-	});
-
-	test("a flipped decompressed-chunk byte breaks the content-address", async () => {
-		const pointer = await readPointer();
-		const manifest = await readManifest(pointer.manifest_hash);
-		const hash = manifest.files[0]?.file_sha256;
-		expect(hash).toBeDefined();
-		const plaintext = await readChunkPlaintext(hash as string);
-		expect(await sha256Hex(flipFirstByte(plaintext))).not.toBe(hash);
-	});
-
 	test("bundle is the demo-1 version and covers the four demo lists", async () => {
 		const pointer = await readPointer();
 		expect(pointer.version).toBe(EXPECTED_VERSION);
@@ -167,25 +145,5 @@ describe("committed signed demo bundle verifies against public.key", () => {
 		expect(manifest.files.map((f) => f.path).sort()).toEqual(
 			[...EXPECTED_FILES].sort(),
 		);
-	});
-
-	test("OFAC demo list keeps Ivan Fakovich (alias Vanya Fakovich)", async () => {
-		const pointer = await readPointer();
-		const manifest = await readManifest(pointer.manifest_hash);
-		const ofac = manifest.files.find((f) => f.path === "ofac/entities.jsonl");
-		expect(ofac).toBeDefined();
-		const jsonl = DECODER.decode(
-			await readChunkPlaintext(ofac?.file_sha256 as string),
-		);
-		const entities = jsonl
-			.split("\n")
-			.filter((line) => line.length > 0)
-			.map(
-				(line) =>
-					JSON.parse(line) as { name_canonical: string; aliases: string[] },
-			);
-		const ivan = entities.find((e) => e.name_canonical === "ivan fakovich");
-		expect(ivan).toBeDefined();
-		expect(ivan?.aliases).toContain("Vanya Fakovich");
 	});
 });
