@@ -8,7 +8,7 @@
 // This mirrors the scoring parity guard: the golden under __fixtures__/embedding
 // is a FROZEN, committed snapshot of the REAL Node embedder's output over a small
 // set of fixed reference names. The test re-runs the real embedder and asserts
-// every vector still matches the golden to within MAX_ABS_DIFF. Because it loads
+// every vector still matches the golden to within MAX_COS_DIST. Because it loads
 // the ~23 MB MiniLM weights, it is heavier than the fake-embedder tests and is
 // guarded to SKIP (loudly) when those weights are absent — in CI they are present
 // before `pnpm -r run test`, so the guard runs there.
@@ -37,9 +37,17 @@ const REFERENCE_NAMES = [
 	"Kim",
 ] as const;
 
-// Browser↔Node embedding parity is asserted at ~1e-3 elsewhere; the same-runtime
-// drift this guard catches should be far tighter, so 1e-3 is a generous ceiling.
-const MAX_ABS_DIFF = 1e-3;
+// We compare by COSINE DISTANCE (1 - cosθ), not per-element max-abs. q8 ONNX
+// inference is NOT bit-reproducible across platforms: the same name embedded on
+// macOS arm64 (where this golden was generated) vs linux x64 (CI) differs by up to
+// ~6e-3 in the worst single element — enough to break a tight per-element gate,
+// yet that drift is sparse (a few elements), so its whole-vector cosine distance is
+// orders of magnitude smaller. Measured separation (this machine):
+//   same-platform q8 vs golden : cosine dist ~1.5e-11 (floor)
+//   q8 -> fp32 dtype swap      : cosine dist ~7.2e-3 - 8.4e-3 (the drift we MUST catch)
+// A 4e-3 ceiling sits ~1.8x under the fp32 signal yet far above any cross-platform
+// q8 noise, so it catches a real model/dtype/export change without flaking in CI.
+const MAX_COS_DIST = 4e-3;
 // The first embed pays the one-time ~23 MB weight load + ONNX compile.
 const MODEL_LOAD_TIMEOUT_MS = 120_000;
 
@@ -63,18 +71,25 @@ function loadGolden(): readonly GoldenVector[] {
 	return JSON.parse(readFileSync(GOLDEN, "utf-8")) as GoldenVector[];
 }
 
-/** Max absolute element-wise difference between a fresh vector and the golden. */
-function maxAbsDiff(actual: Float32Array, golden: readonly number[]): number {
-	let max = 0;
+/** Cosine distance (1 - cosine similarity) between a fresh vector and the golden.
+ * Both are L2-normalized, so this measures how far they point apart in the shared
+ * embedding space — the property that must hold for precomputed list vectors and
+ * in-tab query vectors to be comparable. */
+function cosineDistance(
+	actual: Float32Array,
+	golden: readonly number[],
+): number {
+	let dot = 0;
+	let na = 0;
+	let ng = 0;
 	for (let i = 0; i < actual.length; i += 1) {
-		const diff = Math.abs(
-			(actual[i] ?? Number.NaN) - (golden[i] ?? Number.NaN),
-		);
-		if (diff > max) {
-			max = diff;
-		}
+		const a = actual[i] ?? 0;
+		const g = golden[i] ?? 0;
+		dot += a * g;
+		na += a * a;
+		ng += g * g;
 	}
-	return max;
+	return 1 - dot / (Math.sqrt(na) * Math.sqrt(ng));
 }
 
 describe("Node embedding parity — createNodeEmbedder reproduces the frozen golden", () => {
@@ -95,7 +110,9 @@ describe("Node embedding parity — createNodeEmbedder reproduces the frozen gol
 
 				const actual = await embedder.embed(name);
 				expect(actual.length).toBe(EMBEDDING_DIM);
-				expect(maxAbsDiff(actual, expected.vector)).toBeLessThan(MAX_ABS_DIFF);
+				expect(cosineDistance(actual, expected.vector)).toBeLessThan(
+					MAX_COS_DIST,
+				);
 			},
 			MODEL_LOAD_TIMEOUT_MS,
 		);
