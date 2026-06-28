@@ -56,13 +56,13 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: 11.5.0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: pnpm
@@ -76,7 +76,7 @@ jobs:
       # (which also resolves its non-PyPI shared-libs-python from its uv.lock).
       # EDGEPROC_DIR points the publisher's `uv run --project <dir> edgeproc` at it.
       - name: Install uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v8.2.0
 
       - name: Install edge-proc
         working-directory: ${{ runner.temp }}
