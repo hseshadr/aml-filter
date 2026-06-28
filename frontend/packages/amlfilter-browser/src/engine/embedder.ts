@@ -20,8 +20,12 @@ import { env, type ProgressInfo, pipeline } from "@huggingface/transformers";
 // `allowLocalModels = true` + `localModelPath = "/models/"` makes transformers.js
 // resolve each file as `/models/<modelId>/<file>` — e.g.
 // `/models/Xenova/all-MiniLM-L6-v2/onnx/model_quantized.onnx` — served same-origin
-// instead of from the HF CDN. (In the browser the ONNX device is `wasm`, whose
-// default dtype is `q8`, so the runtime requests the `_quantized` ONNX export.)
+// instead of from the HF CDN. (In the browser the ONNX device is `wasm`; we pin
+// dtype to the shared EMBEDDING_DTYPE (`q8`) EXPLICITLY rather than relying on the
+// wasm device's implicit default, so the runtime deterministically requests the
+// `_quantized` ONNX export — the SAME export the Node publisher embeds with. That
+// shared constant is what keeps the precomputed list vectors and the in-tab query
+// vectors in one embedding space; see nodeEmbedder.ts.)
 //
 // `useBrowserCache` is RE-ENABLED. The original `Ke(...).call is not a function`
 // crash that once motivated disabling it was NOT a CacheStorage bug: it was
@@ -42,6 +46,16 @@ export const EMBEDDING_MODEL = "Xenova/all-MiniLM-L6-v2";
 
 /** all-MiniLM-L6-v2 produces 384-dimensional embeddings. */
 export const EMBEDDING_DIM = 384;
+
+/**
+ * The ONNX quantization the pipeline loads — the SINGLE knob both runtimes share.
+ * The Node publisher (nodeEmbedder.ts) and this browser embedder must request the
+ * SAME ONNX export so precomputed list vectors and in-tab query vectors live in
+ * one space; `q8` is the `model_quantized.onnx` export self-hosted under
+ * app/public/models. Pinned EXPLICITLY (not left to the wasm device's implicit
+ * default) so the choice is shared, not coincidental.
+ */
+export const EMBEDDING_DTYPE = "q8";
 
 /** Embeds a query string into a normalized 384-d vector. */
 export interface Embedder {
@@ -87,9 +101,11 @@ type ExtractFn = (
 	options: { readonly pooling: "mean"; readonly normalize: boolean },
 ) => Promise<{ readonly data: ArrayLike<number> }>;
 
-/** Pipeline options this module passes through: just the progress callback,
- * which transformers.js invokes during model construction (weight download). */
+/** Pipeline options this module passes through: the shared {@link EMBEDDING_DTYPE}
+ * (always pinned), plus the progress callback transformers.js invokes during model
+ * construction (weight download). */
 interface PipelineOptions {
+	readonly dtype?: string;
 	readonly progress_callback?: (info: ProgressInfo) => void;
 }
 
@@ -129,15 +145,17 @@ class PipelineEmbedder implements Embedder {
 	}
 }
 
-/** Build the progress_callback options for `pipeline`, or undefined when no sink
- * is wired (so the un-instrumented path stays byte-identical to before). */
-function progressOptions(
+/** Build the `pipeline` options: always pin the shared {@link EMBEDDING_DTYPE} (so
+ * the browser no longer relies on the wasm device's implicit q8 default), and add
+ * the progress callback only when a sink is wired. */
+function pipelineOptions(
 	onProgress: OnEmbedProgress | undefined,
-): PipelineOptions | undefined {
+): PipelineOptions {
 	if (onProgress === undefined) {
-		return undefined;
+		return { dtype: EMBEDDING_DTYPE };
 	}
 	return {
+		dtype: EMBEDDING_DTYPE,
 		progress_callback: (info) => {
 			const mapped = mapProgress(info);
 			if (mapped !== undefined) {
@@ -147,14 +165,14 @@ function progressOptions(
 	};
 }
 
-/** Load the feature-extraction pipeline via an injected `pipeline`, threading
- * the (optional) progress sink as `progress_callback`. */
+/** Load the feature-extraction pipeline via an injected `pipeline`, pinning the
+ * shared dtype and threading the (optional) progress sink as `progress_callback`. */
 function loadWith(
 	load: LoadFeatureExtraction,
 	onProgress: OnEmbedProgress | undefined,
 ): () => Promise<ExtractFn> {
 	return () =>
-		load("feature-extraction", EMBEDDING_MODEL, progressOptions(onProgress));
+		load("feature-extraction", EMBEDDING_MODEL, pipelineOptions(onProgress));
 }
 
 /**

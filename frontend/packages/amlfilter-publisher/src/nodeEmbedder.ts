@@ -10,11 +10,14 @@
 // that CONTAINS the `Xenova/all-MiniLM-L6-v2/...` layout (i.e. public/models).
 //
 // The only ONNX export on disk is `model_quantized.onnx` (the wasm q8 build), so
-// we request `dtype: "q8"` to match it; `allowRemoteModels` is left on so a
-// missing local mirror falls back to an HF download (used by the CI lane).
+// we request the shared EMBEDDING_DTYPE (`q8`) to match it — the SAME constant the
+// browser embedder pins, so one knob drives both runtimes' ONNX export choice;
+// `allowRemoteModels` is left on so a missing local mirror falls back to an HF
+// download (used by the CI lane).
 
 import {
 	EMBEDDING_DIM,
+	EMBEDDING_DTYPE,
 	EMBEDDING_MODEL,
 	type Embedder,
 } from "@amlfilter/browser";
@@ -45,7 +48,7 @@ export function createNodeEmbedder(modelsDir: string): Embedder {
 	const load = async (): Promise<ExtractFn> => {
 		if (extract === undefined) {
 			extract = (await pipeline("feature-extraction", EMBEDDING_MODEL, {
-				dtype: "q8",
+				dtype: EMBEDDING_DTYPE,
 			})) as unknown as ExtractFn;
 		}
 		return extract;
