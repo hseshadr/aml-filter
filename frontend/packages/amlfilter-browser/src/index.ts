@@ -38,6 +38,7 @@ export {
 // --- the embedder seam (transformers.js in production, stubbable in tests) ---
 export {
 	EMBEDDING_DIM,
+	EMBEDDING_DTYPE,
 	EMBEDDING_MODEL,
 	type Embedder,
 } from "./engine/embedder";
