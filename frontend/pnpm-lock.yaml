@@ -24,8 +24,8 @@ importers:
         specifier: workspace:*
         version: link:../packages/amlfilter-workstation
       '@hpcc-js/wasm-zstd':
-        specifier: ^1.12.6
-        version: 1.13.0
+        specifier: ^1.13.2
+        version: 1.13.2
       '@huggingface/transformers':
         specifier: ^4.2.0
         version: 4.2.0
@@ -82,8 +82,8 @@ importers:
   packages/amlfilter-browser:
     dependencies:
       '@hpcc-js/wasm-zstd':
-        specifier: ^1.12.6
-        version: 1.13.0
+        specifier: ^1.13.2
+        version: 1.13.2
       '@huggingface/transformers':
         specifier: ^4.2.0
         version: 4.2.0
@@ -319,8 +319,8 @@ packages:
       '@noble/hashes':
         optional: true
 
-  '@hpcc-js/wasm-zstd@1.13.0':
-    resolution: {integrity: sha512-5pF8RWfe1p0VGXYsMLDNxy3veac7dj471y6Rv0Ab1LR5T5+lPBqlCeX2nGcPW80cXJlnMtf10BDzXNeN/tV9tA==}
+  '@hpcc-js/wasm-zstd@1.13.2':
+    resolution: {integrity: sha512-FAx+0Xrwm5FxEV0aQFY7/Asx1O0lNoYjrLGMaTmbeQS03eVMA2uU9Amx9OaXAYWKl4a6DNhClscro3UwCxE7Aw==}
 
   '@huggingface/jinja@0.5.9':
     resolution: {integrity: sha512-uWTG+l3VJRsl7EXxYizuL3P+cCPoc3cRqbWWRcQN0FhejRfbdq0RNhCmbY/YDtnTcz9icdLYuLDjsnz4d8JMuw==}
@@ -1430,7 +1430,7 @@ snapshots:
 
   '@exodus/bytes@1.15.1': {}
 
-  '@hpcc-js/wasm-zstd@1.13.0': {}
+  '@hpcc-js/wasm-zstd@1.13.2': {}
 
   '@huggingface/jinja@0.5.9': {}
 
