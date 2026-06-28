@@ -1,0 +1,57 @@
+# Dependency + secret audit — deliberately its OWN workflow, not a CI step.
+#
+# Policy: NO suppressions. `pnpm audit` runs with no ignore list — every finding is
+# fixed by upgrading the offending dependency in frontend/, not silenced. If pnpm
+# audit finds ANYTHING, this workflow is RED until upstream ships a fix — visibly,
+# on a weekly schedule (new advisories appear against unchanged code). Keeping it
+# out of the main CI gate means a known-unfixable advisory can't mask real code
+# regressions there.
+#
+# gitleaks scans the full git history for leaked secrets (API tokens, private keys).
+# The committed public.key is a PUBLIC verify key — gitleaks does not flag public keys.
+#
+# aml-filter is frontend-only: pnpm audit over the pnpm workspace, no pip-audit.
+name: Security audit
+on:
+  schedule:
+    - cron: "0 9 * * 1" # weekly, Monday 09:00 UTC — advisories move without commits
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: Dependency audit (pnpm; no suppressions)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v6
+        with:
+          package_json_file: frontend/package.json
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: frontend/.nvmrc
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install workspace deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Dependency audit (pnpm audit; no suppressions — every finding fixed by an upgrade)
+        run: pnpm audit --audit-level low
+
+  secrets:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # gitleaks scans the full history, not just HEAD
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

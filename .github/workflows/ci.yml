@@ -4,6 +4,12 @@ on:
     branches: [main]
   pull_request:
 
+# Cancel a superseded in-flight run on the same ref (a new commit / force-push on a
+# PR supersedes the previous one). Keyed by ref so main pushes don't cancel each other.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   # ---------------------------------------------------------------------------
   # frontend — the entire CI for the zero-server, pure-TypeScript, in-browser
@@ -20,10 +26,10 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           package_json_file: frontend/package.json
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version-file: frontend/.nvmrc
           cache: pnpm
@@ -39,7 +45,7 @@ jobs:
       # download cost.
       - name: Cache self-hosted model weights
         id: model-weights-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: frontend/app/public/models
           key: model-weights-${{ runner.os }}-rel1-${{ hashFiles('frontend/app/scripts/download-model.mjs') }}
@@ -73,7 +79,7 @@ jobs:
         run: pnpm -r run build
 
       - name: Cache Playwright browsers
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('frontend/pnpm-lock.yaml') }}

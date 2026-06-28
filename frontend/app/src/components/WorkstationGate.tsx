@@ -16,8 +16,15 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { runWatchlistSync } from "../lib/sync";
-import { workstation } from "../lib/workstation";
+import { checkForWatchlistUpdates, runWatchlistSync } from "../lib/sync";
+import { type WorkstationHandle, workstation } from "../lib/workstation";
+
+/**
+ * How often an open tab re-checks for a newly-published watchlist version. A
+ * nightly list refresh is then picked up without a manual reload. Exported (and
+ * a named constant, not an inline magic number) so it is tunable + testable.
+ */
+export const WATCHLIST_POLL_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
 
 type GatePhase =
 	| { kind: "booting" }
@@ -188,6 +195,45 @@ function EngineStatusStrip() {
 			cancelled = true;
 		};
 	}, [nonce]);
+
+	// Recurring poll: while the tab stays open, re-check for a newly-published
+	// watchlist version on an interval (a nightly refresh is picked up without a
+	// manual reload). Independent of the once-per-boot auto-sync above. Errors are
+	// swallowed/logged so a transient fetch failure never stops future polls, and
+	// an in-flight check is never allowed to stack (isChecking guard). The
+	// interval is torn down on unmount / handle change (no leaked timers).
+	useEffect(() => {
+		let cancelled = false;
+		let isChecking = false;
+		let timer: ReturnType<typeof setInterval> | null = null;
+		let handle: WorkstationHandle | null = null;
+
+		const poll = () => {
+			if (isChecking || handle === null) return; // skip: a poll is still running
+			isChecking = true;
+			void checkForWatchlistUpdates(handle)
+				.catch((pollError: unknown) => {
+					// Transient (e.g. offline fetch) — log, never crash or stop polling.
+					console.warn("watchlist update poll failed:", messageOf(pollError));
+				})
+				.finally(() => {
+					isChecking = false;
+				});
+		};
+
+		workstation()
+			.then((resolved) => {
+				if (cancelled) return;
+				handle = resolved;
+				timer = setInterval(poll, WATCHLIST_POLL_INTERVAL_MS);
+			})
+			.catch(() => undefined); // boot failure is surfaced by the effect above
+
+		return () => {
+			cancelled = true;
+			if (timer !== null) clearInterval(timer);
+		};
+	}, []);
 
 	if (error !== null) {
 		return (

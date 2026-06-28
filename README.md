@@ -1,10 +1,14 @@
 # aml-filter
 
-> **A free, zero-server watchlist-filtering and KYC-review app that runs entirely in your browser — screens your customers against multiple sanctions lists, shows exactly why each one matched, and gives reviewers an auditable workflow.**
+**A free, zero-server watchlist-filtering and KYC-review app that runs entirely in your browser — screens your customers against multiple sanctions lists, shows exactly why each one matched, and gives reviewers an auditable workflow.**
 
+[![CI](https://github.com/hseshadr/aml-filter/actions/workflows/ci.yml/badge.svg)](https://github.com/hseshadr/aml-filter/actions/workflows/ci.yml)
+[![Live demo](https://img.shields.io/badge/demo-aml--filter.com-brightgreen.svg)](https://aml-filter.com)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue.svg)](https://www.typescriptlang.org/)
 [![Node 22.13](https://img.shields.io/badge/node-22.13-green.svg)](frontend/.nvmrc)
+
+▶ **[Try the live demo — aml-filter.com](https://aml-filter.com)**
 
 Banks and businesses are legally required to check that the people they deal with
 aren't on government sanctions lists. The hard part isn't looking a name up — it's
@@ -96,7 +100,7 @@ Plus the two Playwright end-to-end lanes (run from `frontend/app`): the in-tab
 screening lane and the backend-free KYC journey (onboard → auto-screen → review →
 resolve) against the minified build and the committed signed demo catalog.
 
-## Architecture — three TypeScript units
+## Under the hood — the three TypeScript units
 
 There is no backend. The product is three TypeScript packages plus a React SPA, all
 under `frontend/`.
