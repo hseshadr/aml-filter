@@ -1,0 +1,5 @@
+# Cloudflare Pages SPA fallback.
+# The app has client-side routes (/screen /customers /review /settings); without
+# this catch-all 200-rewrite, a deep-link refresh (e.g. /screen) would 404 on Pages.
+# 200 = rewrite (serve index.html, keep the URL) — NOT a 301/302 redirect.
+/*    /index.html    200

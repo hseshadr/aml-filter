@@ -16,6 +16,7 @@
 		"typecheck": "tsc -b",
 		"test": "vitest run",
 		"publish": "vite-node src/cli.ts --",
+		"build-real-bundle": "vite-node src/buildRealBundleMain.ts --",
 		"build-demo-bundle": "vite-node src/buildDemoBundle.ts",
 		"build-demo-bundle-v2": "vite-node src/buildDemoBundleV2.ts"
 	},

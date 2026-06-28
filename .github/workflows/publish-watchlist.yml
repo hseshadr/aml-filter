@@ -1,22 +1,27 @@
-# Publish the signed multi-list watchlist catalog.
+# Publish the signed, content-addressed watchlist BUNDLE to Cloudflare R2.
 #
-# Runs each adapter's real fetchRaw() (OFAC + UN have a real fetch today; EU + UK
-# are scaffolded and are logged-and-skipped until their fetchRaw is wired), maps
-# each list to the publisher's wire shape, precomputes name vectors
-# (transformers.js, MiniLM), publishes each fetched list to
-# frontend/app/public/watchlist/<slug>/, and writes a single signed catalog.json
-# listing exactly the lists that fetched — all signed with the production key held
-# in the WATCHLIST_SIGNING_KEY secret. This is the shape the v4 browser bootstrap
-# requires (signed catalog.json + per-list artifacts); the old flat single-list
-# watchlist.json path was removed.
+# Runs each adapter's real fetchRaw() (OFAC + EU + UN + UK all fetch live today),
+# maps each list to the publisher's wire shape, precomputes name vectors
+# (transformers.js, MiniLM) in Node, stages a deterministic tree, and shells out
+# to `edgeproc publish` to chunk + Ed25519-sign it into the content-addressed
+# `origin/{latest, manifest/<hash>, chunk/<hash>}` layout the in-tab delta-sync
+# tier consumes — all signed with the production key held in the
+# WATCHLIST_SIGNING_KEY secret. This signed bundle is the ONLY catalog path the
+# app loads (the old JSON `catalog.json` / per-list-dir tree was retired). A
+# source whose fetchRaw throws (an upstream feed is down) is logged-and-skipped,
+# so a single down feed never aborts the publish.
 #
 # Key format: WATCHLIST_SIGNING_KEY is the raw 32-byte Ed25519 seed, base64-
 # encoded (so it round-trips cleanly through a GitHub secret). The job decodes it
-# back to 32 raw bytes before signing. The signed catalog + lists verify in-tab
+# back to 32 raw bytes before signing. The signed /latest pointer verifies in-tab
 # against the committed frontend/app/public/public.key.
 #
-# This scaffold uploads the artifacts for review; wiring an actual publish/deploy
-# step (e.g. commit-back or object-store upload) is left as the deployment choice.
+# Distribution: origin/ is uploaded to the Cloudflare R2 bucket (S3-compatible
+# API) at the bucket ROOT, so the app's VITE_BUNDLE_BASE_URL
+# (https://lists.aml-filter.com) GETs /chunk/<hash>, /manifest/<hash>, /latest
+# directly. Immutable chunks + manifests are uploaded FIRST (long max-age); the
+# `latest` pointer is uploaded LAST (no-cache) so a reader never sees a pointer
+# ahead of the chunks it names.
 
 name: publish-watchlist
 
@@ -29,6 +34,20 @@ on:
         description: "Watchlist version stamp (default: run date)"
         required: false
         type: string
+
+# Never let two publishes interleave (a half-uploaded bundle + a flipped pointer
+# would be a torn read). Queue, don't cancel.
+concurrency:
+  group: publish-watchlist
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  # edge-proc is NOT on PyPI; CI clones the public repo and `uv sync`s it.
+  EDGEPROC_REPO: https://github.com/hseshadr/edge-proc
+  EDGEPROC_REF: v0.1.1
 
 jobs:
   publish:
@@ -51,6 +70,23 @@ jobs:
 
       - name: Install workspace deps
         run: pnpm install --frozen-lockfile
+
+      # edge-proc chunks + signs the staged tree. It is not published to PyPI, so
+      # we clone the public repo at a pinned ref and `uv sync --extra bundles`
+      # (which also resolves its non-PyPI shared-libs-python from its uv.lock).
+      # EDGEPROC_DIR points the publisher's `uv run --project <dir> edgeproc` at it.
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Install edge-proc
+        working-directory: ${{ runner.temp }}
+        run: |
+          git clone --depth 1 --branch "$EDGEPROC_REF" "$EDGEPROC_REPO" edge-proc
+          cd edge-proc
+          uv sync --extra bundles
+          echo "EDGEPROC_DIR=$PWD" >> "$GITHUB_ENV"
+          # Smoke-test the exact invocation contract the publisher uses.
+          uv run --project "$PWD" edgeproc publish --help >/dev/null
 
       - name: Resolve version stamp
         env:
@@ -75,29 +111,63 @@ jobs:
           SIZE=$(wc -c < signing.key)
           [ "$SIZE" -eq 32 ] || { echo "::error::decoded key is $SIZE bytes, expected 32"; exit 1; }
 
-      - name: Publish signed watchlist catalog
-        # publish-catalog drives each adapter's real fetchRaw() itself; OFAC + UN
-        # fetch today, EU + UK are scaffolded and get logged-and-skipped, so the
-        # signed catalog contains exactly the lists that really fetched.
+      - name: Build + publish the signed bundle
+        # build-real-bundle drives each adapter's real fetchRaw() itself; a source
+        # whose feed is down is logged-and-skipped, so the signed bundle contains
+        # exactly the lists that really fetched. It stages, then shells out to
+        # `uv run --project $EDGEPROC_DIR edgeproc publish` to chunk + sign into
+        # origin/.
         run: |
-          pnpm --filter @amlfilter/publisher run publish -- publish-catalog \
+          pnpm --filter @amlfilter/publisher run build-real-bundle -- \
             --version "$VERSION" \
             --key "$GITHUB_WORKSPACE/frontend/signing.key" \
-            --out "$GITHUB_WORKSPACE/frontend/app/public/watchlist"
+            --out "$GITHUB_WORKSPACE/frontend/origin"
 
       - name: Scrub the key
         if: always()
         run: rm -f signing.key
 
-      - name: Upload watchlist catalog artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: watchlist-${{ env.VERSION }}
-          path: |
-            frontend/app/public/watchlist/catalog.json
-            frontend/app/public/watchlist/catalog.json.sig
-            frontend/app/public/watchlist/**/watchlist.json
-            frontend/app/public/watchlist/**/watchlist.json.sig
-            frontend/app/public/watchlist/**/watchlist.manifest.json
-            frontend/app/public/watchlist/**/watchlist.manifest.json.sig
-          if-no-files-found: error
+      - name: Sanity-check the bundle exists
+        run: |
+          ORIGIN="$GITHUB_WORKSPACE/frontend/origin"
+          [ -d "$ORIGIN" ] || { echo "::error::origin/ was not produced"; exit 1; }
+          [ -f "$ORIGIN/latest" ] || { echo "::error::origin/latest pointer is missing"; exit 1; }
+          [ -d "$ORIGIN/manifest" ] || { echo "::error::origin/manifest/ is missing"; exit 1; }
+          [ -d "$ORIGIN/chunk" ] || { echo "::error::origin/chunk/ is missing"; exit 1; }
+
+      # Upload to R2 (S3-compatible). Two ORDERED steps so a reader never sees a
+      # `latest` pointer ahead of the immutable chunks/manifest it references:
+      #   1) sync everything EXCEPT `latest` (immutable, long cache),
+      #   2) only on success, cp `latest` LAST (no-cache).
+      # Upload to the bucket ROOT so served paths match VITE_BUNDLE_BASE_URL:
+      # GET /chunk/<hash>, /manifest/<hash>, /latest.
+      - name: Upload immutable chunks + manifest to R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_REGION: auto
+          R2_S3_ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          # R2 / AWS-CLI-v2 checksum interop: R2 rejects the default trailing
+          # checksum headers AWS-CLI-v2 now sends, so only send/validate when required.
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+        run: |
+          aws s3 sync ./origin "s3://$R2_BUCKET" \
+            --endpoint-url "$R2_S3_ENDPOINT" \
+            --exclude "latest" \
+            --cache-control "public, max-age=31536000, immutable"
+
+      - name: Flip the latest pointer on R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_REGION: auto
+          R2_S3_ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+        run: |
+          aws s3 cp ./origin/latest "s3://$R2_BUCKET/latest" \
+            --endpoint-url "$R2_S3_ENDPOINT" \
+            --cache-control "no-cache"
