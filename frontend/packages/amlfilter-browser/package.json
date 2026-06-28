@@ -22,7 +22,7 @@
 	"devDependencies": {
 		"@biomejs/biome": "^2.4.15",
 		"@types/node": "^22.10.0",
-		"@vitejs/plugin-react": "^6.0.2",
+		"@vitejs/plugin-react": "^6.0.3",
 		"fake-indexeddb": "^6.2.5",
 		"jsdom": "^29.1.1",
 		"typescript": "^6.0.3",
