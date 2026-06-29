@@ -43,7 +43,8 @@ pnpm test:e2e:kyc  # backend-free onboard → screen → review → resolve jour
 
 - **Test-first.** Write the failing test, watch it fail for the right reason, then
   write the smallest code that turns it green.
-- **TypeScript strict, no escape hatches.** No `any`, no default exports, no
+- **TypeScript strict, no escape hatches.** No `any`, no default exports except
+  top-level entry components (routes, pages, layout, and error boundaries), no
   loosening Biome or tsconfig to make the gate pass.
 - **Explainability is non-negotiable.** Every screening match must carry its signal
   breakdown — don't add a scoring path that returns a bare number.

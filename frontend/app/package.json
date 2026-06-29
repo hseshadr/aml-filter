@@ -1,7 +1,7 @@
 {
 	"name": "aml-filter-app",
-	"version": "3.0.0",
-	"description": "AML-Filter v3 — zero-server React app: in-browser OFAC screening + local-first KYC workstation, no backend.",
+	"version": "4.0.0",
+	"description": "AML-Filter v4 — zero-server React app: in-browser OFAC screening + local-first KYC workstation, no backend.",
 	"type": "module",
 	"private": true,
 	"scripts": {

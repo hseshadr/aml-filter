@@ -3,12 +3,14 @@
 **A free, zero-server watchlist-filtering and KYC-review app that runs entirely in your browser — screens your customers against multiple sanctions lists, shows exactly why each one matched, and gives reviewers an auditable workflow.**
 
 [![CI](https://github.com/hseshadr/aml-filter/actions/workflows/ci.yml/badge.svg)](https://github.com/hseshadr/aml-filter/actions/workflows/ci.yml)
-[![Live demo](https://img.shields.io/badge/demo-aml--filter.com-brightgreen.svg)](https://aml-filter.com)
+[![Demo](https://img.shields.io/badge/demo-run%20locally-blue.svg)](#quickstart--clone-to-screening-in-10-minutes)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue.svg)](https://www.typescriptlang.org/)
 [![Node 22.13](https://img.shields.io/badge/node-22.13-green.svg)](frontend/.nvmrc)
 
-▶ **[Try the live demo — aml-filter.com](https://aml-filter.com)**
+▶ **Try it locally in ~10 minutes — [one-command Quickstart](#quickstart--clone-to-screening-in-10-minutes)** (clone, `pnpm install`, `pnpm --filter aml-filter-app dev`).
+
+> A hosted demo at `aml-filter.com` is **coming soon** — the Cloudflare deploy is pending. For now, run it locally; everything works on a cold clone with no backend.
 
 Banks and businesses are legally required to check that the people they deal with
 aren't on government sanctions lists. The hard part isn't looking a name up — it's
