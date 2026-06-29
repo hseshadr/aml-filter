@@ -1,7 +1,7 @@
 {
 	"name": "@amlfilter/workstation",
 	"private": true,
-	"version": "3.0.0",
+	"version": "4.0.0",
 	"license": "MIT",
 	"type": "module",
 	"description": "Local-first KYC workstation tier: SQLite-WASM/OPFS persistence + tiered screening services over @amlfilter/browser.",

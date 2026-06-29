@@ -18,7 +18,7 @@ export default function Layout({ children }: LayoutProps) {
 								alt="AML-Filter"
 								style={{ height: "32px", width: "32px" }}
 							/>
-							AML-Filter v2
+							AML-Filter v4
 						</Link>
 						<Link to="/screen" className="nav-link">
 							Screen (in-browser)
@@ -38,7 +38,7 @@ export default function Layout({ children }: LayoutProps) {
 			</header>
 			<main className="page-main">{children}</main>
 			<footer className="page-footer">
-				<small>AML-Filter v2 - Open Source AML Screening Engine</small>
+				<small>AML-Filter v4 - Open Source AML Screening Engine</small>
 			</footer>
 		</div>
 	);
