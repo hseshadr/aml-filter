@@ -38,7 +38,7 @@ browser tab — no server, no signup, no database to run.** Open the app and it:
 
 Lean and mean: the whole thing is TypeScript that runs client-side. The lists are just
 signed static files served from any host or CDN, cached durably in your browser
-(IndexedDB) so the app works **offline** — and re-verified fail-closed on every load.
+so the app works **offline** — and re-verified fail-closed on every load.
 
 > _aml-filter is an engineering-portfolio demo, **not** a compliance product. Do not
 > use it to meet any legal or regulatory obligation. See the
@@ -84,6 +84,11 @@ pnpm --filter aml-filter-app build     # tsc --noEmit && vite build
 pnpm --filter aml-filter-app preview   # serves the minified production build locally
 ```
 
+> **Config (optional):** the app reads build-time settings from `frontend/app/.env`
+> (Vite vars). Copy [`frontend/app/.env.example`](frontend/app/.env.example) to
+> `frontend/app/.env` to point at a hosted bundle (`VITE_BUNDLE_BASE_URL`) or tune the
+> model-load ceiling (`VITE_MODEL_LOAD_TIMEOUT_MS`). None are required for the local demo.
+
 ### Run the checks (the gate)
 
 There is no single `gate` command. The gate is the CI sequence, run from `frontend/`:
@@ -112,9 +117,10 @@ build-time tool that produces the signed lists. Each watchlist source is a
 **`WatchlistSource` adapter** (`src/sources/`) that knows how to `fetchRaw()` and
 `parse()` one list into a neutral entity shape; the publisher then normalizes →
 embeds names with **transformers.js in Node** (no torch, no Python) → Ed25519-signs.
-For each list it emits the v3 four-file set (`watchlist.json` + `.sig`,
-`watchlist.manifest.json` + `.sig`) under a per-list directory, and one level up it
-emits a **signed `catalog.json` + `catalog.json.sig`** registry of all the lists.
+It registers every list in a `catalog.json` and packs the whole set — the catalog plus
+each list's entities and precomputed name vectors — into a **signed, content-addressed
+bundle**: a signed `latest` pointer → a content-hashed `manifest` → deduplicated
+`chunk/` files the browser delta-syncs and verifies fail-closed.
 Entity IDs are namespaced per list (`OFAC_SDN:…`, `EU_CONSOLIDATED:…`). The wire format
 is documented in [`docs/WATCHLIST_FORMAT.md`](docs/WATCHLIST_FORMAT.md).
 
@@ -125,8 +131,7 @@ All four `parse()` implementations are real and fixture-tested.
 
 ```bash
 # from frontend/
-pnpm build-demo-list                                        # builds the legacy single-list demo (alias for @amlfilter/publisher build-demo)
-pnpm --filter @amlfilter/publisher run build-demo-multilist # builds the committed multi-list demo catalog the app loads
+pnpm --filter @amlfilter/publisher run build-demo-bundle    # rebuilds the committed signed demo bundle the app loads
 pnpm publish-list                                           # the production single-list publish CLI (alias for @amlfilter/publisher publish)
 ```
 
@@ -144,11 +149,12 @@ raw 32-byte Ed25519 seed), and emits the signed static files.
 ### 2. Browser engine — `@amlfilter/browser`
 
 [`frontend/packages/amlfilter-browser`](frontend/packages/amlfilter-browser) is the
-in-tab screening engine. It fetches the signed `catalog.json` same-origin → verifies it
-**fail-closed** (Ed25519 against the pinned public key
+in-tab screening engine. It syncs the signed bundle same-origin — the signed `latest`
+pointer → the content-hashed `manifest` → only the missing `chunk/` files — and verifies
+every byte **fail-closed** (Ed25519 + SHA-256 against the pinned public key
 [`frontend/app/public/public.key`](frontend/app/public/public.key); any signature or
-hash mismatch aborts) → then fetches and verifies each enabled list the catalog points
-at → decodes the precomputed name vectors → embeds the query or customer name in-tab
+hash mismatch aborts) → materializes the catalog and each enabled list → decodes the
+precomputed name vectors → embeds the query or customer name in-tab
 (transformers.js MiniLM, `Xenova/all-MiniLM-L6-v2`, 384-dim) → runs a brute-force cosine
 search → scores each candidate with an explainable weighted scorer.
 
@@ -161,9 +167,9 @@ The scorer (`computeScore` / `PRESETS`: `strict` / `balanced` / `lenient`) sums 
 signals — `name_vector`, `name_trigram`, `alias_match`, `dob_match`, `country_match` —
 and every match carries the per-signal breakdown plus a plain-language summary.
 
-Verified list bytes are cached durably in **IndexedDB** (`engine/listCache.ts`, a store
-separate from the customer DB), re-verified fail-closed on every load, so the app works
-**offline** on a cold network.
+Verified bundle bytes are cached durably in the **OPFS bundle store** (owned by the sync
+Web Worker, separate from the customer DB), re-verified fail-closed on every load, so the
+app works **offline** on a cold network.
 
 Entry point: `EngineRuntime.bootstrap()` → `ScreeningEngine.screen({ name })`.
 
@@ -204,16 +210,17 @@ Full write-up and diagrams: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md),
 The lists are distributed as plain **signed static files** on any host or CDN — no
 application server in the path. In the browser:
 
-- The engine fetches the signed **`catalog.json`** (the registry of lists) and verifies
-  it first.
-- For each enabled list, it fetches that list's `watchlist.manifest.json` /
-  `watchlist.json` and verifies them too.
-- **Every file is verified with a detached Ed25519 signature, fail-closed, against the
-  pinned [`public.key`](frontend/app/public/public.key)** baked into the app build (the
-  catalog and all lists share one trust anchor — verify-before-parse, top to bottom). Any
-  signature or hash mismatch aborts the load — there is no silent fallback to an
-  unverified list. The same fail-closed check runs over bytes served from the IndexedDB
-  cache, so a poisoned cache entry can never be trusted.
+- The engine fetches the signed **`latest` pointer** — the bundle's trust anchor — and
+  verifies its detached Ed25519 signature first.
+- It then fetches the content-addressed **`manifest`** and each **`chunk`** the manifest
+  names, verifying every byte (Ed25519 + SHA-256) before materializing the catalog and
+  lists.
+- **Verification is fail-closed against the pinned
+  [`public.key`](frontend/app/public/public.key)** baked into the app build (one trust
+  anchor for the whole bundle — verify-before-parse, top to bottom). Any signature or hash
+  mismatch aborts the load — there is no silent fallback to unverified bytes. The same
+  fail-closed check runs over bytes served from the durable OPFS cache, so a poisoned
+  cache entry can never be trusted.
 
 The signing private key never leaves CI: it lives only as the `WATCHLIST_SIGNING_KEY`
 GitHub Actions secret used by the publish workflow.
@@ -261,10 +268,10 @@ aml-filter/
 │   ├── .nvmrc                           #   pinned Node version
 │   ├── app/                             #   React + Vite SPA — landing · /screen · /customers · /review · /settings
 │   │   ├── public/public.key            #   pinned Ed25519 verify key
-│   │   └── public/watchlist/            #   committed signed demo catalog: catalog.json(.sig) + ofac/ eu/ un/ uk/
+│   │   └── public/bundle/origin/        #   committed signed content-addressed demo bundle: latest + manifest/ + chunk/
 │   └── packages/
-│       ├── amlfilter-publisher/         #   @amlfilter/publisher — list adapters → embed → sign → catalog + per-list files
-│       ├── amlfilter-browser/           #   @amlfilter/browser — multi-list verify + embed + cosine search + scorer + IndexedDB cache
+│       ├── amlfilter-publisher/         #   @amlfilter/publisher — list adapters → embed → sign → signed content-addressed bundle
+│       ├── amlfilter-browser/           #   @amlfilter/browser — bundle delta-sync + verify + embed + cosine search + scorer + OPFS cache
 │       └── amlfilter-workstation/       #   @amlfilter/workstation — SQLite-WASM/OPFS DB worker + rescan + audit trail
 ├── .github/workflows/publish-watchlist.yml  # daily signed-list publish
 ├── docs/                                # ARCHITECTURE · QUICKSTART · DEPLOY · WATCHLIST_FORMAT · diagrams/

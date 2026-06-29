@@ -4,6 +4,18 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **Signed content-addressed bundle is now the only watchlist transport.** The browser
+  delta-syncs a signed `latest` pointer → content-hashed `manifest` → deduplicated
+  `chunk/` files, verifies every byte fail-closed (Ed25519 + SHA-256) against the pinned
+  key, and materializes the catalog + per-list files into the durable OPFS store. The
+  standalone `catalog.json` / per-list `watchlist.json` fetch path was retired.
+- **OSS presentation pass** — README and docs aligned to the signed-bundle reality, plus
+  a guarded (inert-until-secrets) Cloudflare Pages deploy workflow for the static SPA.
+
 ## [4.0.0] — 2026-06-20
 
 **From a single-list screener to a watchlist-filtering + KYC-review product.** aml-filter
