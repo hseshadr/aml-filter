@@ -76,7 +76,9 @@ jobs:
       # (which also resolves its non-PyPI shared-libs-python from its uv.lock).
       # EDGEPROC_DIR points the publisher's `uv run --project <dir> edgeproc` at it.
       - name: Install uv
-        uses: astral-sh/setup-uv@v8.2.0
+        # setup-uv publishes no floating major tag — full pin required
+        # (ENGINEERING-STANDARDS §4; v8.3.2 as of 2026-07-11).
+        uses: astral-sh/setup-uv@v8.3.2
 
       - name: Install edge-proc
         working-directory: ${{ runner.temp }}
