@@ -146,6 +146,13 @@ describe("ORT wasm loader self-hosting (house standard §8.1b)", () => {
 		expect(fakeOrt.wasmPaths).toBe("/ort/");
 	});
 
+	it("disables remote model fallback so a missing local weight fails closed (no HF fetch)", () => {
+		// allowRemoteModels defaults to true in transformers.js — a missing local
+		// weight would then be fetched from an UNPINNED model on huggingface.co. For
+		// an AML tool that is unacceptable; the module-load side effect pins it off.
+		expect(env.allowRemoteModels).toBe(false);
+	});
+
 	it("importing the embedder wires the REAL env.backends.onnx.wasm knob", () => {
 		// Not a fake: this asserts the module-load side effect reached the live
 		// transformers.js env, so onnxruntime-web dynamic-imports its wasm loader

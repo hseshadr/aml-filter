@@ -40,6 +40,12 @@ import { env, type ProgressInfo, pipeline } from "@huggingface/transformers";
 env.useBrowserCache = true;
 env.allowLocalModels = true;
 env.localModelPath = "/models/";
+// FAIL CLOSED: never fall back to fetching an unpinned model from huggingface.co.
+// transformers.js defaults `allowRemoteModels` to true, so a missing/renamed local
+// weight would silently pull from the HF CDN — unacceptable for an AML tool, where
+// the scoring model must be the exact self-hosted export. Off ⇒ a missing weight
+// throws instead. The cold-blocked e2e proves boot succeeds with all CDNs aborted.
+env.allowRemoteModels = false;
 
 /** The onnxruntime-web wasm env knob the self-hosting config owns
  * (transformers.js exposes it as `env.backends.onnx.wasm`). Structural, so the
