@@ -4,27 +4,31 @@
 # (security-audit.yml "Secret scan" job). Nothing here is or ever was a live credential.
 # The production watchlist signing key has never touched git — it exists only as the
 # WATCHLIST_SIGNING_KEY GitHub Actions secret (see publish-watchlist.yml header).
+#
+# NOTE: this file deliberately uses the LEGACY singular [allowlist] table, not the
+# newer [[allowlists]] array form. gitleaks-action@v3 pins gitleaks 8.24.3, which
+# predates [[allowlists]] (added in 8.25) and silently ignores it — the config must
+# parse identically on 8.24.x (CI) and current gitleaks (local).
 
 [extend]
 useDefault = true
 
-# (1) The EU webgate consolidated-sanctions-list download URL requires a STATIC, PUBLIC
+[allowlist]
+description = "Documented false positives — no live credentials (see comments in this file)"
+
+# The EU webgate consolidated-sanctions-list download URL requires a STATIC, PUBLIC
 # access token — literally base64 of "token-2017". It is not a secret, does not rotate,
 # and is hard-coded by design (documented in-code at
 # frontend/packages/amlfilter-publisher/src/sources/euSource.ts). The same public token
 # appears in the 2021 Java-era src/main/resources/application.properties in history.
-[[allowlists]]
-description = "EU webgate PUBLIC list-download token (base64 of 'token-2017') — not a credential"
 regexes = ['''dG9rZW4tMjAxNw''']
 
-# (2) Pre-v4 history only — these paths were deleted before v4 and no longer exist:
+# Pre-v4 history only — these paths were deleted before v4 and no longer exist:
 #   - docs/API_SPEC.md: fabricated example keys in the old REST API spec
 #     ("ak_live_…", "key_xyz789", "Staging Key" — documentation placeholders).
 #   - backend/tests/…: dummy fixture keys asserted by the deleted Python-backend tests.
 #   - src/main/resources/application.properties: 2021 Java era; its only finding is the
-#     public EU token covered by (1), kept here for path-level clarity.
-[[allowlists]]
-description = "Deleted pre-v4 paths — dummy docs/test fixture keys, never live"
+#     public EU token covered by the regex above, kept here for path-level clarity.
 paths = [
     '''docs/API_SPEC\.md''',
     '''backend/tests/integration/test_auth_integration\.py''',
