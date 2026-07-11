@@ -20,8 +20,14 @@
 	--landing-muted: #8c8378;
 	--landing-line: #e5ddd0;
 
-	--landing-font-display: "Fraunces", "Times New Roman", serif;
-	--landing-font-body: "Hanken Grotesk", system-ui, sans-serif;
+	/* Fonts are NOT loaded from a web-font CDN (zero third-party egress, house
+	   standard §8.1b). Fraunces / Hanken Grotesk are used if the visitor has them
+	   installed locally; otherwise these fall back to a genuine system serif /
+	   sans (Georgia keeps a real italic for the display face). */
+	--landing-font-display: "Fraunces", Georgia, "Times New Roman", serif;
+	--landing-font-body:
+		"Hanken Grotesk", system-ui, -apple-system, "Segoe UI", Roboto,
+		"Helvetica Neue", Arial, sans-serif;
 
 	--landing-gut: clamp(16px, 3vw, 40px);
 	--landing-radius: 14px;

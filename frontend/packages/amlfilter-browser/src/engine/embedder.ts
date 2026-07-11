@@ -71,11 +71,22 @@ export function configureOrtWasmPaths(ortWasm: OrtWasmEnvLike): void {
 }
 
 /** The live onnxruntime-web wasm env, reached through transformers.js's loosely
- * typed `env.backends`; a missing node yields an inert target (the unit test on
- * the REAL env and the cold-blocked e2e both fail loudly if the knob moves). */
+ * typed `env.backends`. FAIL LOUD: if the `onnx.wasm` node is absent we throw at
+ * module load rather than configure a throwaway `{}` — a silent no-op there would
+ * leave `wasmPaths` unset and let onnxruntime-web dynamic-import its loader from
+ * the jsDelivr CDN (the exact §8.1b dependency this self-host kills). A missing
+ * knob means transformers.js moved it, and that must fail here, not in prod. */
 function ortWasmEnv(): OrtWasmEnvLike {
 	const backends = env.backends as { onnx?: { wasm?: OrtWasmEnvLike } };
-	return backends.onnx?.wasm ?? {};
+	const wasm = backends.onnx?.wasm;
+	if (wasm === undefined) {
+		throw new Error(
+			"onnxruntime-web wasm env (env.backends.onnx.wasm) is unavailable — " +
+				"cannot pin the same-origin ORT loader; refusing to boot on the " +
+				"jsDelivr CDN default (house standard §8.1b).",
+		);
+	}
+	return wasm;
 }
 
 configureOrtWasmPaths(ortWasmEnv());

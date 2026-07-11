@@ -215,17 +215,21 @@ describe("pipeline options", () => {
 	});
 });
 
-describe("ortWasmEnv fallback (missing onnx wasm backend)", () => {
-	it("importing against an env with no onnx backend is inert, not a crash", async () => {
-		// A transformers.js env whose backends tree lacks the onnx.wasm node must
-		// yield an inert configure target — the module import still succeeds.
+describe("ortWasmEnv fail-loud (missing onnx wasm backend)", () => {
+	it("importing against an env with no onnx.wasm node throws, not silently no-ops", async () => {
+		// FAIL LOUD: a transformers.js env whose backends tree lacks the onnx.wasm
+		// node must make the module-load side effect THROW — a silent inert `{}`
+		// there would leave wasmPaths unset and let onnxruntime-web dynamic-import
+		// its loader from the jsDelivr CDN (the §8.1b dependency this self-host
+		// kills). A missing knob means the library moved it; that fails here.
 		vi.resetModules();
 		vi.doMock("@huggingface/transformers", () => ({
 			env: { backends: {} },
 			pipeline: vi.fn(),
 		}));
-		const mod = await import("./embedder");
-		expect(mod.EMBEDDING_DIM).toBe(384);
+		await expect(import("./embedder")).rejects.toThrow(
+			/env\.backends\.onnx\.wasm.*unavailable/is,
+		);
 		vi.doUnmock("@huggingface/transformers");
 		vi.resetModules();
 	});

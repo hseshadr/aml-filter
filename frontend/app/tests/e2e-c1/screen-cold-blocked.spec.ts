@@ -16,10 +16,12 @@ import { expect, type Page, test } from "@playwright/test";
  *       for its dynamically imported loader module is the jsDelivr CDN, a
  *       dependency the old HF-only blocks never exercised: with jsDelivr aborted
  *       the boot silently never reached ready). This proves the runtime has ZERO
- *       CDN dependency. It doubles as the `useBrowserCache` re-enable guard: the
- *       assertion of ZERO in-page console errors re-trips if the old es2020
- *       `Ke(...).call is not a function` downlevel crash ever returns on the
- *       minified build.
+ *       CDN dependency. The same test also asserts ZERO font-CDN requests: the
+ *       marketing fonts are now local-or-system (index.html links no web-font
+ *       CDN), so no route — not even /screen — reaches fonts.googleapis.com. It
+ *       doubles as the `useBrowserCache` re-enable guard: the assertion of ZERO
+ *       in-page console errors re-trips if the old es2020 `Ke(...).call is not a
+ *       function` downlevel crash ever returns on the minified build.
  *
  *   (b) Everything blocked → loud failure + Retry — with the CDN AND the /models/
  *       mirror both blocked, the boot FAILS LOUDLY: a role="alert" banner with a
@@ -78,6 +80,13 @@ const CDN_GLOBS = [
 	"**cdn.jsdelivr.net/**",
 ];
 
+/** Google Fonts hosts — the marketing landing's Fraunces / Hanken faces used to
+ * be pulled from here via a `<link>` in index.html that fired on EVERY route,
+ * including /screen. Self-hosting to a local-or-system stack killed that; these
+ * globs prove /screen now makes ZERO font-CDN requests (same zero-egress bar as
+ * the model + ORT loader). */
+const FONT_CDN_GLOBS = ["**fonts.googleapis.com/**", "**fonts.gstatic.com/**"];
+
 /** Collect in-page errors (pageerror + console.error) for a clean-console assert. */
 function collectErrors(page: Page): string[] {
 	const errors: string[] = [];
@@ -110,6 +119,16 @@ test("self-host serves the model AND the ORT wasm loader when HF + jsDelivr are 
 		});
 	}
 
+	// Independently count any font-CDN request. Self-hosting means /screen must
+	// never reach fonts.googleapis.com / fonts.gstatic.com — this stays 0.
+	let hitFontCdn = 0;
+	for (const glob of FONT_CDN_GLOBS) {
+		await context.route(glob, (route) => {
+			hitFontCdn += 1;
+			return route.abort();
+		});
+	}
+
 	await page.goto("/screen", { waitUntil: "domcontentloaded" });
 
 	const search = page.getByPlaceholder(SEARCH_PLACEHOLDER);
@@ -132,6 +151,9 @@ test("self-host serves the model AND the ORT wasm loader when HF + jsDelivr are 
 	// (the useBrowserCache re-enable guard — a return of the es2020 crash trips
 	// this).
 	expect(hitCdn, "the runtime hit a blocked CDN host").toBe(0);
+	// Zero font egress: index.html no longer links a web-font CDN, so /screen
+	// (and every route) resolves fonts local-or-system only.
+	expect(hitFontCdn, "the page hit a blocked font-CDN host").toBe(0);
 	expect(errors, `in-browser errors:\n${errors.join("\n")}`).toEqual([]);
 
 	// useBrowserCache is ON: a successful load must have populated the CacheStorage
