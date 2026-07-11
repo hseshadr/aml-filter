@@ -6,6 +6,29 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Canonical `pnpm gate`** (`frontend/package.json`): one command fanning out to Biome
+  lint → tsc typecheck → Vitest units → production build → all three Playwright e2e
+  lanes. `ci.yml` now literally runs `pnpm run gate`, so the local gate and CI cannot
+  silently drift (ENGINEERING-STANDARDS §3/§4).
+- **`.gitleaks.toml` documented allowlist** — full upstream ruleset kept; the only
+  exceptions are verified false positives (pre-v4 dummy docs/test fixture keys on
+  deleted paths, and the EU webgate's public non-rotating list-download token). The
+  weekly full-history secret scan is green again.
+- **CLAUDE.md**: scarred "Quality Gates (Non-Negotiable)" section and the
+  ENGINEERING-STANDARDS §8 declaration (exemplar for §8.1(b) vendored/self-hosted WASM
+  runtimes + parity-tested TS and §8.1(c) sqlite-wasm-over-OPFS).
+- **README 4-part TL;DR** (what / why it works / worked example / core invariants).
+
+### Fixed
+
+- **Weekly security-audit red** — `undici` (transitive via `jsdom`) bumped 7.26.0 →
+  7.28.0 in the lockfile, clearing GHSA-hm92-r4w5-c3mj and the undici header-injection
+  advisory; `pnpm audit --audit-level low` is clean again with no suppressions.
+- **Action floors (§4)**: `gitleaks/gitleaks-action` v2 → v3; `astral-sh/setup-uv`
+  full-pinned 8.2.0 → 8.3.2 (no floating major tag exists).
+
 ### Changed
 
 - **Signed content-addressed bundle is now the only watchlist transport.** The browser
@@ -17,6 +40,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   a guarded (inert-until-secrets) Cloudflare Pages deploy workflow for the static SPA.
 
 ## [4.0.0] — 2026-06-20
+
+> _Release tags v2.2–v3.x were never cut; per the tag-forward-only rule
+> (ENGINEERING-STANDARDS §5) the `v4.0.0` tag is cut at the 2026-07 standards-alignment
+> merge commit — history is not backfilled._
 
 **From a single-list screener to a watchlist-filtering + KYC-review product.** aml-filter
 still runs entirely in the browser tab — zero-server, pure-TypeScript — but it now screens

@@ -13,9 +13,14 @@ concurrency:
 jobs:
   # ---------------------------------------------------------------------------
   # frontend — the entire CI for the zero-server, pure-TypeScript, in-browser
-  # product. Lint + typecheck + unit tests + production build across the pnpm
-  # workspace, then both real-Chromium Playwright lanes (C1 screening + KYC
-  # workstation) against the minified build and the committed signed watchlist.
+  # product. After environment setup (deps, model weights, Playwright browsers)
+  # CI LITERALLY runs the canonical gate — `pnpm run gate` from frontend/ — the
+  # same single command a developer runs locally. The gate fans out to Biome
+  # lint → tsc typecheck → Vitest units → production build across the pnpm
+  # workspace, then all three real-Chromium Playwright lanes (C1 screening, KYC
+  # workstation, signed-bundle delta-sync) against the minified build and the
+  # committed signed watchlist. One command in both places means the gate and CI
+  # cannot silently drift apart (ENGINEERING-STANDARDS §3/§4).
   # No Python, no Postgres, no application backend. All run: steps use static
   # commands only — no untrusted input is interpolated.
   # ---------------------------------------------------------------------------
@@ -65,19 +70,6 @@ jobs:
             --pattern model_quantized.onnx
           node scripts/download-model.mjs
 
-      - name: Lint (Biome)
-        working-directory: frontend
-        run: pnpm -r run lint
-      - name: Typecheck (tsc)
-        working-directory: frontend
-        run: pnpm -r run typecheck
-      - name: Unit tests (Vitest)
-        working-directory: frontend
-        run: pnpm -r run test
-      - name: Production build (pnpm workspace)
-        working-directory: frontend
-        run: pnpm -r run build
-
       - name: Cache Playwright browsers
         uses: actions/cache@v5
         with:
@@ -87,33 +79,24 @@ jobs:
         working-directory: frontend/app
         run: pnpm exec playwright install --with-deps chromium
 
-      # The C1 config builds + previews the minified SPA and serves the committed
-      # signed watchlist, then drives the in-tab screening journey (browse →
-      # query → scored, explained match) in real Chromium against the REAL
-      # committed artifacts — not a synthetic stand-in.
-      - name: E2E — C1 in-browser screening (production build)
-        working-directory: frontend/app
-        run: pnpm test:e2e:c1
-
-      # The kyc config builds + previews the minified SPA and serves the
-      # committed signed watchlist, then drives the slice journey in real
-      # Chromium: no login → analyst name → onboard → tiered match →
-      # resolve (analyst-stamped) → reload persistence → dup-rejection →
-      # clean console.
-      - name: E2E — local-first KYC workstation journey (production build)
-        working-directory: frontend/app
-        run: pnpm test:e2e:kyc
-
-      # The bundle config builds + previews the minified SPA with
-      # VITE_BUNDLE_BASE_URL=/bundle/origin and drives the signed, content-addressed
-      # BUNDLE delta-sync boot path in real Chromium against the committed bundle:
-      # fetch+verify the signed /latest pointer, content-verify the manifest + every
-      # chunk against the pinned same-origin public.key, promote into OPFS, screen;
-      # then prove a reload re-fetches ZERO chunks (delta reuse) and an offline
-      # reload still screens from OPFS. Guards the in-browser sync tier wiring.
-      - name: E2E — signed-bundle delta-sync boot (production build)
-        working-directory: frontend/app
-        run: pnpm test:e2e:bundle
+      # The canonical gate (frontend/package.json "gate"): Biome lint → tsc
+      # typecheck → Vitest units → production build across the workspace, then
+      # the three Playwright lanes, each building + previewing the minified SPA
+      # in real Chromium against the REAL committed artifacts — not synthetic
+      # stand-ins:
+      #   • C1 in-browser screening — browse → query → scored, explained match
+      #     over the committed signed watchlist.
+      #   • Local-first KYC workstation journey — no login → analyst name →
+      #     onboard → tiered match → resolve (analyst-stamped) → reload
+      #     persistence → dup-rejection → clean console.
+      #   • Signed-bundle delta-sync boot — VITE_BUNDLE_BASE_URL=/bundle/origin:
+      #     fetch+verify the signed /latest pointer, content-verify the manifest
+      #     + every chunk against the pinned same-origin public.key, promote
+      #     into OPFS, screen; then prove a reload re-fetches ZERO chunks (delta
+      #     reuse) and an offline reload still screens from OPFS.
+      - name: Run the gate (lint → typecheck → test → build → 3 e2e lanes)
+        working-directory: frontend
+        run: pnpm run gate
 
       - name: Upload Playwright report on failure
         if: ${{ failure() }}

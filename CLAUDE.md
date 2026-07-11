@@ -31,12 +31,11 @@ Required before claiming any such change works:
   — NOT the Docker browser-MCP, which cannot reach the host's secure-context localhost and
   will report misleading failures (OPFS `persist`, host-not-allowed). Prefer encoding the
   check as a Playwright spec so it becomes a permanent regression guard.
-- **Cover the REAL artifacts, not stand-ins.** The C1 e2e must (also) verify the actual
-  committed demo catalog (`frontend/app/public/watchlist/` — `catalog.json(.sig)` plus the
-  per-list dirs `ofac/ eu/ un/ uk/`, each with `watchlist.json(.sig)` +
-  `watchlist.manifest.json(.sig)`) against the actual pinned key
-  (`frontend/app/public/public.key`) in-tab — not only a synthetic test catalog — so a
-  catalog/list/key/verification regression is caught.
+- **Cover the REAL artifacts, not stand-ins.** The e2e lanes must (also) verify the
+  actual committed signed demo bundle (`frontend/app/public/bundle/origin/` — the signed
+  `latest` pointer + content-hashed `manifest/` + `chunk/` files) against the actual
+  pinned key (`frontend/app/public/public.key`) in-tab — not only a synthetic test
+  bundle — so a bundle/key/verification regression is caught.
 - If a browser pass genuinely cannot be run in the harness, **say so explicitly and state
   what remains unverified** — never imply a screen works that you did not watch work.
 
@@ -70,8 +69,8 @@ static watchlist files (served same-origin).
 
 ## Common Commands
 
-Everything is a pnpm workspace under `frontend/` — **there is no root `package.json` and
-no `gate` script**. Run all commands from `frontend/`.
+Everything is a pnpm workspace under `frontend/` — there is no root `package.json`; the
+canonical `gate` script lives in `frontend/package.json`. Run all commands from `frontend/`.
 
 ```bash
 cd frontend && pnpm install               # Install workspace dependencies
@@ -81,7 +80,11 @@ pnpm --filter aml-filter-app build        # tsc --noEmit && vite build (prebuild
 pnpm --filter aml-filter-app preview      # Serve the production build
 ```
 
-### The gate — the literal sequence (NOT a single `gate` script), from `frontend/`
+### The gate — one command, from `frontend/` (CI literally runs this same script)
+```bash
+pnpm gate               # lint → typecheck → test → build → the 3 Playwright e2e lanes
+```
+Individual stages (what `gate` fans out to):
 ```bash
 pnpm -r run lint        # Biome check across the workspace
 pnpm -r run typecheck   # tsc across the workspace
@@ -89,10 +92,11 @@ pnpm -r run test        # Vitest across the workspace
 pnpm -r run build       # Production build across the workspace
 ```
 
-### e2e lanes (from `frontend/app`)
+### e2e lanes (from `frontend/app`; all three are part of the gate)
 ```bash
 pnpm test:e2e:c1        # Browser-engine e2e in real Chromium
 pnpm test:e2e:kyc       # Backend-free local-first KYC journey in real Chromium
+pnpm test:e2e:bundle    # Signed-bundle delta-sync boot (verify → OPFS → offline reload)
 ```
 
 ### Publish signed lists (from `frontend/`)
@@ -111,13 +115,57 @@ fingerprint-based re-review + the `match_events` audit trail). There
 is also `frontend/packages/amlfilter-publisher` (`@amlfilter/publisher`, the Node-side
 signed-watchlist publisher). Always use `pnpm` for frontend package management.
 
-## Code Quality Requirements
+## Quality Gates (Non-Negotiable)
 
-Frontend-only — the codebase is entirely TypeScript.
-- Biome (lint + format)
+The canonical gate is **`pnpm gate`** from `frontend/`, and `ci.yml` literally runs that
+same command — the gate mirrors CI exactly, both directions (ENGINEERING-STANDARDS §3).
+Each rule below carries the real shipped scar that makes it non-negotiable:
+
+- **CI runs `pnpm run gate`, never a hand-copied step list.** Scar: the gate lived as a
+  documented "literal sequence" in README + CLAUDE.md while `ci.yml` maintained its own
+  step copy — the 2026-07 standards pass found CI running a whole lane
+  (`test:e2e:bundle`) that neither doc mentioned. Three places to say one thing is two
+  drifts waiting.
+- **The three real-Chromium e2e lanes are part of the gate, not optional extras.** Scar:
+  an es2020 model-load crash, a silent boot hang, and the demo bundle failing in-tab
+  signature verification all shipped through green units + green build — only the
+  production-build browser lanes catch this class.
+- **Scheduled workflows are CI: a red scheduled run is a red repo.** Scar: the weekly
+  security-audit ran red for weeks unnoticed — live undici CVEs sat behind a green CI
+  badge (advisories move without commits) — because scheduled lanes don't block merges.
+  Check them explicitly (`gh run list --workflow=security-audit.yml`).
+- **`pnpm audit` has no ignore list.** Every finding is fixed by upgrading the offending
+  dependency (undici 7.26.0 → 7.28.0, 2026-07), never silenced.
+- **gitleaks keeps the full upstream ruleset; exceptions live only in `.gitleaks.toml`,
+  each with a documented why.** Scar: the full-history scan sat red on provably-dummy
+  pre-v4 fixtures and the EU webgate's *public* download token — the fix is a documented
+  allowlist, never a disabled scan or a trimmed ruleset.
+- **Run the gate on dependabot branches before merging them.** Scar: the Biome 2.4 → 2.5
+  group bump (PR #49) turned lint red via a NEW rule firing on a long-committed SVG — a
+  green gate on main says nothing about a bumped toolchain.
+- **Tag at release time — tag-forward-only (§5).** Scar: the CHANGELOG reached 4.0.0
+  while tags stopped at v2.1.0; CHANGELOG-only releases decay silently.
+
+Composition floor (frontend-only — the codebase is entirely TypeScript):
+- Biome (lint + format; its complexity rules are the TS stand-in for xenon)
 - TypeScript strict mode; no `any`, no default exports
-- Vitest for unit tests; Playwright for e2e
-- The gate is the literal `lint → typecheck → test → build` sequence above (it mirrors CI)
+- Vitest for unit tests (incl. frozen parity goldens); Playwright for e2e
+
+## Engineering standard — §8 declaration
+
+ENGINEERING-STANDARDS §8 (WASM / edge-compute): **applicable — this repo is the named
+exemplar for two shipped patterns.**
+
+- **§8.1(b) — vendored WASM runtimes + parity-tested TS.** Real WASM executes inside
+  vendored runtimes (transformers.js MiniLM over ORT-WASM, `@hpcc-js/wasm-zstd`); model
+  weights are **self-hosted** (`frontend/app/public/models/`, populated by
+  `scripts/download-model.mjs` — no CDN fetch at runtime), and engine behavior is pinned
+  by frozen golden parity fixtures (scoring + tiering).
+- **§8.1(c) — browser storage = sqlite-wasm over OPFS.** Customer/KYC data lives in
+  `@sqlite.org/sqlite-wasm` over OPFS (`@amlfilter/workstation` DB worker); verified
+  bundle bytes live in the OPFS bundle store owned by the sync worker. IndexedDB is
+  used only for the legacy durable list cache (trivial verified-bytes KV), per the
+  §8.1(c) fallback rule.
 
 ## Architecture
 
