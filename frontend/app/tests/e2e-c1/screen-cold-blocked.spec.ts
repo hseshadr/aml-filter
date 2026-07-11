@@ -9,12 +9,17 @@ import { expect, type Page, test } from "@playwright/test";
  *
  * Three things are proven here:
  *
- *   (a) CDN-blocked, self-host works — with every huggingface.co request aborted,
- *       /screen STILL boots: the model loads from the same-origin /models/ mirror.
- *       This proves the runtime has NO huggingface.co dependency. It doubles as
- *       the `useBrowserCache` re-enable guard: the assertion of ZERO in-page
- *       console errors re-trips if the old es2020 `Ke(...).call is not a function`
- *       downlevel crash ever returns on the minified build.
+ *   (a) CDN-blocked, self-host works — with every huggingface.co request AND
+ *       jsDelivr aborted, /screen STILL boots: the model loads from the
+ *       same-origin /models/ mirror and the ORT wasm LOADER from the same-origin
+ *       staged /ort/ copy (house standard §8.1b — onnxruntime-web's default base
+ *       for its dynamically imported loader module is the jsDelivr CDN, a
+ *       dependency the old HF-only blocks never exercised: with jsDelivr aborted
+ *       the boot silently never reached ready). This proves the runtime has ZERO
+ *       CDN dependency. It doubles as the `useBrowserCache` re-enable guard: the
+ *       assertion of ZERO in-page console errors re-trips if the old es2020
+ *       `Ke(...).call is not a function` downlevel crash ever returns on the
+ *       minified build.
  *
  *   (b) Everything blocked → loud failure + Retry — with the CDN AND the /models/
  *       mirror both blocked, the boot FAILS LOUDLY: a role="alert" banner with a
@@ -62,8 +67,16 @@ const RESULT_TIMEOUT_MS = 30_000;
 
 const SEARCH_PLACEHOLDER = "Search a name, e.g. Ivan Fakovich";
 
-/** Hosts transformers.js could reach for weights — the HF hub and its LFS CDN. */
-const HF_GLOBS = ["**huggingface.co/**", "**cdn-lfs**", "**hf.co/**"];
+/** Hosts transformers.js could reach for weights — the HF hub and its LFS CDN —
+ * plus jsDelivr, onnxruntime-web's default origin for its wasm LOADER module.
+ * Blocking only the HF globs is NOT enough: the loader dependency stays
+ * invisible until jsDelivr itself is aborted (found live on this repo). */
+const CDN_GLOBS = [
+	"**huggingface.co/**",
+	"**cdn-lfs**",
+	"**hf.co/**",
+	"**cdn.jsdelivr.net/**",
+];
 
 /** Collect in-page errors (pageerror + console.error) for a clean-console assert. */
 function collectErrors(page: Page): string[] {
@@ -77,18 +90,22 @@ function collectErrors(page: Page): string[] {
 	return errors;
 }
 
-test("self-host serves the model when the HF CDN is blocked — no huggingface.co dependency", async ({
+test("self-host serves the model AND the ORT wasm loader when HF + jsDelivr are blocked — zero CDN dependency", async ({
 	page,
+	context,
 }) => {
 	test.setTimeout(240_000);
 	const errors = collectErrors(page);
 
-	// Abort every request to the HF hub / its LFS CDN, and record that the runtime
-	// never even tried to reach it (the self-host path must be the only one used).
-	let hitHf = 0;
-	for (const glob of HF_GLOBS) {
-		await page.route(glob, (route) => {
-			hitHf += 1;
+	// Abort every request to the HF hub / its LFS CDN / jsDelivr, and record that
+	// the runtime never even tried to reach them (the same-origin self-host paths
+	// — /models/ and /ort/ — must be the only ones used). Context-level routing so
+	// dedicated-Worker requests (the embedder Worker's ORT loader import) are
+	// covered too.
+	let hitCdn = 0;
+	for (const glob of CDN_GLOBS) {
+		await context.route(glob, (route) => {
+			hitCdn += 1;
 			return route.abort();
 		});
 	}
@@ -110,10 +127,11 @@ test("self-host serves the model when the HF CDN is blocked — no huggingface.c
 		page.locator(".match-card__name", { hasText: "Ivan Fakovich" }),
 	).toBeVisible({ timeout: RESULT_TIMEOUT_MS });
 
-	// The runtime never depended on huggingface.co: nothing reached the blocked
-	// hosts, and the minified model-load path threw no console errors (the
-	// useBrowserCache re-enable guard — a return of the es2020 crash trips this).
-	expect(hitHf, "the runtime hit a blocked HF host").toBe(0);
+	// The runtime never depended on huggingface.co OR jsDelivr: nothing reached
+	// the blocked hosts, and the minified model-load path threw no console errors
+	// (the useBrowserCache re-enable guard — a return of the es2020 crash trips
+	// this).
+	expect(hitCdn, "the runtime hit a blocked CDN host").toBe(0);
 	expect(errors, `in-browser errors:\n${errors.join("\n")}`).toEqual([]);
 
 	// useBrowserCache is ON: a successful load must have populated the CacheStorage
@@ -132,7 +150,7 @@ test("self-host serves the model when the HF CDN is blocked — no huggingface.c
 		"transformers-cache was not populated",
 	).toBeGreaterThan(0);
 
-	// Warm-cache HIT: reload the SAME page (HF routes are still aborted, /models/
+	// Warm-cache HIT: reload the SAME page (CDN routes are still aborted, /models/
 	// still reachable, but the weights are now in transformers-cache). The box must
 	// re-enable and the console must stay error-free — proving the warm-cache code
 	// path also stays crash-free on the minified build, not just the cold load.
@@ -152,9 +170,9 @@ test("everything blocked → the boot fails loudly with a working Retry, not a s
 	test.setTimeout(240_000);
 	collectErrors(page);
 
-	// Block BOTH the CDN and the same-origin /models/ mirror: the model can load
+	// Block BOTH the CDNs and the same-origin /models/ mirror: the model can load
 	// from nowhere, so the warmup must reject (bounded by VITE_MODEL_LOAD_TIMEOUT_MS).
-	for (const glob of [...HF_GLOBS, "**/models/**"]) {
+	for (const glob of [...CDN_GLOBS, "**/models/**"]) {
 		await page.route(glob, (route) => route.abort());
 	}
 

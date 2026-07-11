@@ -6,6 +6,11 @@ coverage
 # hook (scripts/download-model.mjs) before every `pnpm build`. Kept out of git so
 # the repo stays lean; `pnpm build` repopulates them locally.
 public/models/
+
+# Self-hosted onnxruntime-web wasm runtime (~23 MB), staged by the `prebuild`
+# hook (scripts/stage-ort-wasm.mjs) from the lockfile-pinned node_modules copy —
+# same policy as the model weights above.
+public/ort/
 playwright-report
 test-results
 *.log

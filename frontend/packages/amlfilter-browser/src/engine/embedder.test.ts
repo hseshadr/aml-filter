@@ -1,6 +1,10 @@
-import type { ProgressInfo } from "@huggingface/transformers";
+import { env, type ProgressInfo } from "@huggingface/transformers";
 import { describe, expect, it, vi } from "vitest";
-import { mapProgress } from "./embedder";
+import {
+	configureOrtWasmPaths,
+	mapProgress,
+	type OrtWasmEnvLike,
+} from "./embedder";
 
 // Unit-tests the pure progress-mapping seam: a transformers.js ProgressInfo with
 // status "progress" maps to {loaded,total,pct}; every other status emits nothing.
@@ -128,5 +132,22 @@ describe("createEmbedder progress threading", () => {
 		await embedder.embed("warm up");
 
 		expect(onProgress).not.toHaveBeenCalled();
+	});
+});
+
+describe("ORT wasm loader self-hosting (house standard §8.1b)", () => {
+	it("configureOrtWasmPaths points the loader at the same-origin /ort/ copy", () => {
+		const fakeOrt: OrtWasmEnvLike = {};
+		configureOrtWasmPaths(fakeOrt);
+		expect(fakeOrt.wasmPaths).toBe("/ort/");
+	});
+
+	it("importing the embedder wires the REAL env.backends.onnx.wasm knob", () => {
+		// Not a fake: this asserts the module-load side effect reached the live
+		// transformers.js env, so onnxruntime-web dynamic-imports its wasm loader
+		// from the staged same-origin /ort/ copy instead of the jsDelivr CDN. If
+		// transformers.js ever moves the knob, this fails here — not in prod.
+		const backends = env.backends as { onnx?: { wasm?: OrtWasmEnvLike } };
+		expect(backends.onnx?.wasm?.wasmPaths).toBe("/ort/");
 	});
 });

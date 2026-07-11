@@ -41,6 +41,39 @@ env.useBrowserCache = true;
 env.allowLocalModels = true;
 env.localModelPath = "/models/";
 
+/** The onnxruntime-web wasm env knob the self-hosting config owns
+ * (transformers.js exposes it as `env.backends.onnx.wasm`). Structural, so the
+ * unit test can drive the decision with a fake alongside the real env. */
+export interface OrtWasmEnvLike {
+	wasmPaths?: string;
+}
+
+/**
+ * `wasmPaths = "/ort/"` — self-host the ORT wasm LOADER, not just the model
+ * (house standard §8.1b). onnxruntime-web dynamically imports its wasm loader
+ * module (`ort-wasm-simd-threaded.asyncify.mjs`, which then fetches its sibling
+ * `.wasm` relative to its own URL) at runtime, and the library's default base
+ * for that import is the jsDelivr CDN. The cold-blocked e2e caught exactly that
+ * on this repo: with jsDelivr aborted, boot died fetching
+ * `cdn.jsdelivr.net/npm/onnxruntime-web/…/ort-wasm-simd-threaded.asyncify.mjs`.
+ * The staged same-origin copy under /ort/ is materialized by the app's
+ * `prebuild` hook (app/scripts/stage-ort-wasm.mjs) from the lockfile-pinned
+ * node_modules bytes.
+ */
+export function configureOrtWasmPaths(ortWasm: OrtWasmEnvLike): void {
+	ortWasm.wasmPaths = "/ort/";
+}
+
+/** The live onnxruntime-web wasm env, reached through transformers.js's loosely
+ * typed `env.backends`; a missing node yields an inert target (the unit test on
+ * the REAL env and the cold-blocked e2e both fail loudly if the knob moves). */
+function ortWasmEnv(): OrtWasmEnvLike {
+	const backends = env.backends as { onnx?: { wasm?: OrtWasmEnvLike } };
+	return backends.onnx?.wasm ?? {};
+}
+
+configureOrtWasmPaths(ortWasmEnv());
+
 /** The sentence-transformers model id, mirrored as its Xenova ONNX export. */
 export const EMBEDDING_MODEL = "Xenova/all-MiniLM-L6-v2";
 

@@ -1,11 +1,50 @@
 /// <reference types="vitest/config" />
+import { readFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import react from "@vitejs/plugin-react";
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 import { configDefaults } from "vitest/config";
+
+// DEV-ONLY: serve the staged onnxruntime-web runtime under /ort/ as raw files.
+// In production /ort/ is plain static output and its loader module dynamic-
+// imports cleanly, but the dev server routes .mjs requests through the module
+// pipeline and refuses to import files that live in public/ ("can only be
+// referenced via HTML tags"). Serving them raw here keeps dev === prod: the
+// embedder's `wasmPaths = "/ort/"` works on the dev server too, so even local
+// dev never touches the jsDelivr CDN (house standard §8.1b).
+function serveOrtRuntimeRawInDev(): Plugin {
+	const publicDir = join(dirname(fileURLToPath(import.meta.url)), "public");
+	const mime: Record<string, string> = {
+		".mjs": "text/javascript",
+		".wasm": "application/wasm",
+	};
+	return {
+		name: "amlfilter:serve-ort-runtime-raw",
+		apply: "serve",
+		configureServer(server) {
+			server.middlewares.use((req, res, next) => {
+				const path = (req.url ?? "").split("?")[0];
+				const ext = Object.keys(mime).find((e) => path.endsWith(e));
+				if (!path.startsWith("/ort/") || ext === undefined) {
+					next();
+					return;
+				}
+				readFile(join(publicDir, path)).then(
+					(bytes) => {
+						res.setHeader("Content-Type", mime[ext]);
+						res.end(bytes);
+					},
+					() => next(),
+				);
+			});
+		},
+	};
+}
 
 // https://vitejs.dev/config/
 export default defineConfig({
-	plugins: [react()],
+	plugins: [react(), serveOrtRuntimeRawInDev()],
 	build: {
 		// esbuild's default build target ('modules' ≈ es2020) downlevels native
 		// class private fields (#load/#extract in the embedder) to a WeakMap-based

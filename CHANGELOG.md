@@ -8,6 +8,17 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Self-hosted ORT wasm loader (§8.1b)** — onnxruntime-web dynamically imports its wasm
+  loader module (`ort-wasm-simd-threaded.asyncify.mjs` + sibling `.wasm`) from the
+  jsDelivr CDN at runtime; a cold audit with jsDelivr aborted proved /screen never
+  reached ready. Fixed end-to-end: `scripts/stage-ort-wasm.mjs` stages the pair from the
+  lockfile-pinned node_modules into `public/ort/` on every `prebuild`,
+  `env.backends.onnx.wasm.wasmPaths = "/ort/"` (embedder) makes the import same-origin,
+  a dev-server middleware keeps dev === prod, and the C1 cold spec now aborts jsDelivr
+  permanently alongside the HF globs (context-level routing, so Worker requests are
+  covered). Includes a Cloudflare Pages 25 MiB asset-size preflight over the staged ORT
+  runtime and the pinned model manifest, so a runtime/model bump fails in CI, not on
+  deploy.
 - **Canonical `pnpm gate`** (`frontend/package.json`): one command fanning out to Biome
   lint → tsc typecheck → Vitest units → production build → all three Playwright e2e
   lanes. `ci.yml` now literally runs `pnpm run gate`, so the local gate and CI cannot
