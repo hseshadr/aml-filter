@@ -4,7 +4,7 @@ import { NetworkError } from "./fetchBytes";
 import { latestBytes, originFetch, pubkeyRaw } from "./fixtures";
 import { IntegrityError } from "./integrity";
 import { MemoryCacheStore } from "./memoryStore";
-import { materializeFile, syncIndex } from "./sync";
+import { materializeFile, RollbackError, syncIndex } from "./sync";
 import type {
 	FetchBytes,
 	IndexManifest,
@@ -156,6 +156,85 @@ describe("syncIndex fail-closed behavior", () => {
 			syncIndex({ baseUrl: "/o", store, fetchBytes, verify }),
 		).rejects.toBeInstanceOf(IntegrityError);
 		expect(await store.readActive()).toBeNull();
+	});
+});
+
+describe("syncIndex rejects a rollback (monotonic version guard)", () => {
+	const passVerify: Verify = () => Promise.resolve();
+
+	// An origin whose /latest pointer carries an injected monotonic `sequence`. The
+	// pointer bytes are mutated, so signature checking is bypassed with a resolving
+	// verify seam — the rollback guard under test is independent of signing.
+	function sequencedFetch(sequence: number): FetchBytes {
+		const origin = originFetch();
+		return (url) => {
+			if (url.endsWith("/latest")) {
+				const pointer = JSON.parse(
+					DECODER.decode(latestBytes()),
+				) as VersionPointer;
+				const withSeq = { ...pointer, sequence };
+				return Promise.resolve(
+					new TextEncoder().encode(JSON.stringify(withSeq)),
+				);
+			}
+			return origin.fetchBytes(url);
+		};
+	}
+
+	it("promotes a newer sequence, then rejects an older signed pointer, leaving the newer active", async () => {
+		const store = new MemoryCacheStore();
+		await syncIndex({
+			baseUrl: "/o",
+			store,
+			fetchBytes: sequencedFetch(5),
+			verify: passVerify,
+		});
+		expect((await store.readActive())?.sequence).toBe(5);
+
+		// A signature-valid but OLDER pointer (a replay/downgrade) must be rejected.
+		await expect(
+			syncIndex({
+				baseUrl: "/o",
+				store,
+				fetchBytes: sequencedFetch(3),
+				verify: passVerify,
+			}),
+		).rejects.toBeInstanceOf(RollbackError);
+		// The active watchlist was NOT rolled back to the older version.
+		expect((await store.readActive())?.sequence).toBe(5);
+	});
+
+	it("rejects a pre-versioning (sequence-less) pointer replayed over a versioned active", async () => {
+		const store = new MemoryCacheStore();
+		await syncIndex({
+			baseUrl: "/o",
+			store,
+			fetchBytes: sequencedFetch(5),
+			verify: passVerify,
+		});
+		// The real fixture pointer carries no `sequence`; replaying it over a
+		// versioned active is a rollback to a pre-versioning pointer → rejected.
+		const { fetchBytes } = originFetch();
+		await expect(
+			syncIndex({ baseUrl: "/o", store, fetchBytes, verify: realVerify }),
+		).rejects.toBeInstanceOf(RollbackError);
+		expect((await store.readActive())?.sequence).toBe(5);
+	});
+
+	it("allows the first upgrade from a legacy (sequence-less) active to a versioned pointer", async () => {
+		const store = new MemoryCacheStore();
+		// Legacy active: the real fixture pointer (no sequence) promotes cleanly.
+		const { fetchBytes } = originFetch();
+		await syncIndex({ baseUrl: "/o", store, fetchBytes, verify: realVerify });
+		expect((await store.readActive())?.sequence).toBeUndefined();
+		// A newly versioned pointer promotes over the legacy active (migration).
+		await syncIndex({
+			baseUrl: "/o",
+			store,
+			fetchBytes: sequencedFetch(1),
+			verify: passVerify,
+		});
+		expect((await store.readActive())?.sequence).toBe(1);
 	});
 });
 

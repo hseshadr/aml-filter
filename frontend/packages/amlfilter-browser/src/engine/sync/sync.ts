@@ -25,6 +25,37 @@ interface SyncArgs {
 
 const DECODER = new TextDecoder();
 
+/**
+ * A signature-valid pointer whose monotonic `sequence` would move the active
+ * version BACKWARD — a rollback/replay of an older signed bundle. Thrown
+ * fail-closed: it promotes nothing and (unlike a NetworkError) never falls back
+ * to a cached version, so a replayed pointer cannot downgrade the watchlist.
+ */
+export class RollbackError extends Error {
+	public constructor(message: string) {
+		super(message);
+		this.name = "RollbackError";
+	}
+}
+
+/**
+ * True when promoting `incoming` over the current `active` would roll the
+ * watchlist backward. When the active pointer carries a monotonic `sequence`, a
+ * strictly-lower incoming sequence — or a MISSING one (a pre-versioning pointer
+ * replayed over a versioned chain) — is a rollback. A sequence-less active
+ * (legacy first sync) has no ordering to compare against, so the first upgrade to
+ * a versioned pointer is allowed; an equal sequence is an idempotent re-sync.
+ */
+function isRollback(active: VersionPointer, incoming: VersionPointer): boolean {
+	if (active.sequence === undefined) {
+		return false;
+	}
+	if (incoming.sequence === undefined) {
+		return true;
+	}
+	return incoming.sequence < active.sequence;
+}
+
 function parseJson<T>(bytes: Uint8Array): T {
 	return JSON.parse(DECODER.decode(bytes)) as T;
 }
@@ -196,6 +227,17 @@ export async function syncIndex(args: SyncArgs): Promise<SyncResult> {
 			}
 		}
 		throw error;
+	}
+	// Anti-rollback gate: a verified pointer must never move the active version
+	// backward. Checked BEFORE any manifest/chunk fetch so a replayed downgrade
+	// costs nothing and promotes nothing (fail-closed).
+	const active = await store.readActive();
+	if (active !== null && isRollback(active, pointer)) {
+		throw new RollbackError(
+			`refusing to promote version "${pointer.version}" (sequence ${String(
+				pointer.sequence,
+			)}) over active sequence ${String(active.sequence)} — rollback rejected`,
+		);
 	}
 	const manifest = await fetchManifest(baseUrl, pointer, fetchBytes, store);
 	const { missing, reused } = await missingChunks(manifest, store);
