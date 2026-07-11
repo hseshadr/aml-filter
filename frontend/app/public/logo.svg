@@ -1,4 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200" role="img" aria-labelledby="aml-filter-logo-title">
+  <title id="aml-filter-logo-title">aml-filter — in-browser sanctions screening</title>
   <!-- Shield background -->
   <path d="M100 10 L180 40 L180 100 C180 150 140 180 100 195 C60 180 20 150 20 100 L20 40 Z" fill="#1a365d" stroke="#2c5282" stroke-width="3"/>
 
