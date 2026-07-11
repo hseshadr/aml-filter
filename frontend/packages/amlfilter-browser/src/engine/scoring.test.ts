@@ -69,6 +69,55 @@ describe("computeScore — explainable weighted signals", () => {
 		expect(alias?.value).toBe("V. Ivanov");
 	});
 
+	it("an exact alias is not shadowed by an earlier substring alias (recall)", () => {
+		// Regression guard: a partial/substring alias listed BEFORE the exact one
+		// used to early-return at 0.5 and hide the exact 1.0 hit — dropping an
+		// exact-alias-only entity to a half score. "ivan" is a substring of the
+		// query "v ivanov" (partial, 0.5); "v ivanov" is the exact alias (1.0).
+		const result = computeScore(
+			entity({
+				aliases: [
+					{ name: "Ivan", name_canonical: "ivan", source: "OFAC" },
+					{ name: "V. Ivanov", name_canonical: "v ivanov", source: "OFAC" },
+				],
+			}),
+			query({ nameCanonical: "v ivanov", trigramSimilarity: 0.5 }),
+			PRESETS.balanced.weights,
+		);
+		const alias = result.reasons.find((r) => r.signal === "alias_match");
+		// The EXACT alias wins, not the earlier substring alias.
+		expect(alias?.value).toBe("V. Ivanov");
+		// Full-weight exact contribution (0.1 * 1.0), not the 0.05 partial.
+		expect(alias?.contribution).toBeCloseTo(0.1, 10);
+	});
+
+	it("keeps the first substring alias when several partially hit and none is exact", () => {
+		// With no exact alias, the first substring hit's name is kept (unchanged
+		// behavior) and later partials do not override it.
+		const result = computeScore(
+			entity({
+				aliases: [
+					{
+						name: "Vladimir Ivanov II",
+						name_canonical: "vladimir ivanov ii",
+						source: "OFAC",
+					},
+					{
+						name: "Vladimir Ivanov Jr",
+						name_canonical: "vladimir ivanov jr",
+						source: "OFAC",
+					},
+				],
+			}),
+			query({ nameCanonical: "vladimir ivanov", trigramSimilarity: 0.5 }),
+			PRESETS.balanced.weights,
+		);
+		const alias = result.reasons.find((r) => r.signal === "alias_match");
+		expect(alias?.value).toBe("Vladimir Ivanov II");
+		// Half-weight substring contribution (0.1 * 0.5).
+		expect(alias?.contribution).toBeCloseTo(0.05, 10);
+	});
+
 	it("scores a year-only DOB match at half", () => {
 		const result = computeScore(
 			entity({ dob: ["1970-06-15"] }),

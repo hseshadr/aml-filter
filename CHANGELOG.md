@@ -8,10 +8,28 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Self-hosted ORT wasm loader (§8.1b)** — onnxruntime-web dynamically imports its wasm
+  loader module (`ort-wasm-simd-threaded.asyncify.mjs` + sibling `.wasm`) from the
+  jsDelivr CDN at runtime; a cold audit with jsDelivr aborted proved /screen never
+  reached ready. Fixed end-to-end: `scripts/stage-ort-wasm.mjs` stages the pair from the
+  lockfile-pinned node_modules into `public/ort/` on every `prebuild`,
+  `env.backends.onnx.wasm.wasmPaths = "/ort/"` (embedder) makes the import same-origin,
+  a dev-server middleware keeps dev === prod, and the C1 cold spec now aborts jsDelivr
+  permanently alongside the HF globs (context-level routing, so Worker requests are
+  covered). Includes a Cloudflare Pages 25 MiB asset-size preflight over the staged ORT
+  runtime and the pinned model manifest, so a runtime/model bump fails in CI, not on
+  deploy.
+- **Vitest coverage floors, enforced (§2/§9.7)** — every workspace package pins
+  `coverage.thresholds` (statements 90 / lines 90 / functions 90 / branches 85) and the
+  gate's unit step now runs `pnpm -r run test:coverage`, so the thresholds actually
+  enforce (they are inert under a plain `vitest run`). Reached honestly with ~230 new
+  behavior tests — no floor was lowered: app 86/79/82/87 → 95/88/94/96,
+  browser 90/84/89/90 → 98/94/100/98, publisher 84/67/86/84 → 100/93/100/100,
+  workstation already above at 95/94/91/94 (s/b/f/l).
 - **Canonical `pnpm gate`** (`frontend/package.json`): one command fanning out to Biome
-  lint → tsc typecheck → Vitest units → production build → all three Playwright e2e
-  lanes. `ci.yml` now literally runs `pnpm run gate`, so the local gate and CI cannot
-  silently drift (ENGINEERING-STANDARDS §3/§4).
+  lint → tsc typecheck → Vitest units (with coverage thresholds) → production build →
+  all three Playwright e2e lanes. `ci.yml` now literally runs `pnpm run gate`, so the
+  local gate and CI cannot silently drift (ENGINEERING-STANDARDS §3/§4).
 - **`.gitleaks.toml` documented allowlist** — full upstream ruleset kept; the only
   exceptions are verified false positives (pre-v4 dummy docs/test fixture keys on
   deleted paths, and the EU webgate's public non-rotating list-download token). The
@@ -23,6 +41,36 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Silent false-clear on /screen (§C1, critical)** — the screen call was fired from a
+  `setTimeout` with no `try/catch`, so a rejected `engine.screen()` left the previous
+  (stale or empty) results on screen, reading as a confident "no matches". It is now
+  awaited inside a guard that surfaces a visible `role="alert"` error state and never
+  presents an empty result as a clear. Regression-tested with a rejecting engine.
+- **Watchlist rollback via a stale signed pointer** — a monotonic `sequence` on the
+  signed `VersionPointer` now rejects promoting an older watchlist over a newer active
+  one (downgrade/replay), while a sequence-less legacy pointer still upgrades once and an
+  equal sequence is an idempotent re-sync. `sequence` is part of the existing signed
+  canonical bytes, so no signing/crypto/storage change. Replay-tested.
+- **Model remote-fallback fail-closed** — `env.allowRemoteModels = false` so a missing or
+  renamed local weight throws instead of silently fetching an unpinned model from
+  huggingface.co. Tested: zero HF fetch on a missing weight.
+- **Exact-alias recall** — alias scoring scored only the first alias that partially hit
+  and early-returned at 0.5, so an exact-alias-only entity listed after a substring alias
+  was silently halved and could drop below the threshold (a false clear). Every alias is
+  now scored; an exact hit wins full weight regardless of order. The 0.5 substring
+  behavior and the frozen scoring golden are unchanged; guarded by a shadowing test.
+- **Zero font-CDN egress** — the marketing landing loaded Fraunces / Hanken Grotesk from
+  `fonts.googleapis.com` via a `<link>` in `index.html` that fired on every route
+  (including /screen). Removed; the faces now resolve local-or-system (see
+  `--landing-font-*`). The C1 cold-blocked e2e asserts zero font-CDN requests.
+- **ORT wasm env fails loud** — `ortWasmEnv()` now throws when
+  `env.backends.onnx.wasm` is absent instead of configuring a throwaway `{}` (which would
+  have left the loader on the jsDelivr CDN default). Guarded by a mocked-env import test.
+- **Dev `/ort/` middleware path-traversal guard** — the dev-server raw-serve middleware
+  now resolves each request through `resolveOrtAsset`, which rejects anything escaping the
+  staged `/ort` dir via `..`. Dev-only; unit-tested (`src/dev/ortDevAsset.test.ts`).
+- **Stale tab title** — `index.html` `<title>` was `AML-Filter v2`; corrected to
+  `AML-Filter v4` (matches the header and `package.json`).
 - **Weekly security-audit red** — `undici` (transitive via `jsdom`) bumped 7.26.0 →
   7.28.0 in the lockfile, clearing GHSA-hm92-r4w5-c3mj and the undici header-injection
   advisory; `pnpm audit --audit-level low` is clean again with no suppressions.
@@ -42,8 +90,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [4.0.0] — 2026-06-20
 
 > _Release tags v2.2–v3.x were never cut; per the tag-forward-only rule
-> (ENGINEERING-STANDARDS §5) the `v4.0.0` tag is cut at the 2026-07 standards-alignment
-> merge commit — history is not backfilled._
+> (ENGINEERING-STANDARDS §5) the annotated `v4.0.0` tag ("aml-filter 4.0.0 —
+> browser-local screening workstation") is cut at the 2026-07 `main` tip reached
+> during the standards-alignment work, not at the 2026-06-20 feature commit —
+> history is not backfilled._
 
 **From a single-list screener to a watchlist-filtering + KYC-review product.** aml-filter
 still runs entirely in the browser tab — zero-server, pure-TypeScript — but it now screens

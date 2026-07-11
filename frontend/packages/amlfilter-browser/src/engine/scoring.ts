@@ -110,16 +110,30 @@ function aliasMatch(
 	queryCanonical: string,
 ): { readonly score: number; readonly name: string | null } {
 	const query = queryCanonical.toLowerCase();
+	// Score EVERY alias, not just the first that partially hits. An exact alias
+	// anywhere is a full (1.0) match and must never be shadowed by an earlier
+	// SUBSTRING alias (which only earns 0.5) — that shadowing silently dropped an
+	// exact-alias-only entity to a half score and, near the threshold, out of the
+	// results entirely (a false clear). The first partial's name is retained so a
+	// partial-only entity scores exactly as before; an exact hit returns
+	// immediately, since nothing can beat 1.0.
+	let best: { readonly score: number; readonly name: string | null } = {
+		score: 0.0,
+		name: null,
+	};
 	for (const alias of aliases) {
 		const aliasLower = alias.name_canonical.toLowerCase();
 		if (query === aliasLower) {
 			return { score: 1.0, name: alias.name };
 		}
-		if (aliasLower.includes(query) || query.includes(aliasLower)) {
-			return { score: 0.5, name: alias.name };
+		if (
+			best.score < 0.5 &&
+			(aliasLower.includes(query) || query.includes(aliasLower))
+		) {
+			best = { score: 0.5, name: alias.name };
 		}
 	}
-	return { score: 0.0, name: null };
+	return best;
 }
 
 function dobMatch(

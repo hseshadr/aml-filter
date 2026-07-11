@@ -15,7 +15,10 @@ import {
 	bytesToMb,
 	computeStats,
 	countEntities,
+	demoEntitiesPath,
 	generateStats,
+	modelPath,
+	outputPath,
 	renderModule,
 } from "./gen-demo-stats.mjs";
 
@@ -68,6 +71,47 @@ describe("renderModule", () => {
 	it("emits a module that has no 'any' and reads back the values", async () => {
 		const src = renderModule({ demoEntityCount: 5, modelSizeMb: 9 });
 		expect(src).not.toContain(": any");
+	});
+});
+
+describe("source paths (single source of truth)", () => {
+	it("demoEntitiesPath points at the committed demo sanctions list", async () => {
+		const p = demoEntitiesPath();
+		expect(
+			p.endsWith(
+				join(
+					"packages",
+					"amlfilter-publisher",
+					"fixtures",
+					"demo_entities.jsonl",
+				),
+			),
+		).toBe(true);
+		// The advertised source must actually exist in the repo with records —
+		// this is the file the landing page's entity count is derived from.
+		const text = await readFile(p, "utf8");
+		expect(countEntities(text)).toBeGreaterThan(0);
+	});
+
+	it("modelPath points at the quantized ONNX under public/models", () => {
+		expect(
+			modelPath().endsWith(
+				join(
+					"public",
+					"models",
+					"Xenova",
+					"all-MiniLM-L6-v2",
+					"onnx",
+					"model_quantized.onnx",
+				),
+			),
+		).toBe(true);
+	});
+
+	it("outputPath lands the generated module in src/generated", () => {
+		expect(
+			outputPath().endsWith(join("src", "generated", "landing-stats.ts")),
+		).toBe(true);
 	});
 });
 

@@ -26,7 +26,8 @@ import type { Embedder } from "./embedder";
 import { EngineRuntime, type RuntimeConfig, type RuntimeDeps } from "./runtime";
 import { MemoryCacheStore } from "./sync/memoryStore";
 import { materializeFile, syncIndex } from "./sync/sync";
-import type { FetchBytes, IndexManifest } from "./sync/types";
+import type { FetchBytes, IndexManifest, SyncResult } from "./sync/types";
+import { WatchlistFormatError } from "./watchlist";
 
 // engine -> src -> amlfilter-browser -> packages -> frontend -> app/public.
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -230,5 +231,130 @@ describe("EngineRuntime — bundle path boot + screen", () => {
 		await runtime.bootstrap(BUNDLE_CONFIG);
 		const published = await runtime.fetchPublishedVersion();
 		expect(published).toContain("OFAC_SDN@demo-1");
+	});
+});
+
+// --- fail-closed catalog validation + list version skew + clear ----------------
+
+const CRAFTED_SYNC: SyncResult = {
+	version: "crafted-1",
+	manifestHash: "h".repeat(64),
+	chunksFetched: 0,
+	chunksReused: 0,
+	bytesFetched: 0,
+};
+
+/** A client whose synced store materializes exactly one crafted catalog.json —
+ * the seam for driving assertBundleCatalog's fail-closed arms from the public
+ * openBundleSource surface. Records whether clear() reached the client. */
+function craftedClient(catalogJson: unknown): {
+	deps: BundleSourceDeps;
+	wasCleared: () => boolean;
+} {
+	let cleared = false;
+	const client: BundleEngineClient = {
+		sync: () => Promise.resolve(CRAFTED_SYNC),
+		readFile: (path) => {
+			if (path === "catalog.json") {
+				return Promise.resolve(
+					new TextEncoder().encode(JSON.stringify(catalogJson)),
+				);
+			}
+			return Promise.reject(new Error(`unexpected readFile ${path}`));
+		},
+		clear: () => {
+			cleared = true;
+			return Promise.resolve();
+		},
+	};
+	return { deps: { createClient: () => client }, wasCleared: () => cleared };
+}
+
+describe("openBundleSource — fail-closed catalog validation", () => {
+	it("rejects a catalog that is not an object", async () => {
+		const { deps } = craftedClient(null);
+		const pending = openBundleSource("/o", PUBKEY_URL, deps);
+		await expect(pending).rejects.toBeInstanceOf(WatchlistFormatError);
+		await expect(pending).rejects.toThrow(/not an object/);
+	});
+
+	it("rejects a catalog with the wrong schemaVersion", async () => {
+		const { deps } = craftedClient({
+			schemaVersion: 2,
+			generatedAt: "2026-06-19T00:00:00Z",
+			lists: [],
+		});
+		await expect(openBundleSource("/o", PUBKEY_URL, deps)).rejects.toThrow(
+			/schemaVersion is 2; expected 1/,
+		);
+	});
+
+	it("rejects a catalog missing the lists[] array", async () => {
+		const { deps } = craftedClient({
+			schemaVersion: 1,
+			generatedAt: "2026-06-19T00:00:00Z",
+		});
+		await expect(openBundleSource("/o", PUBKEY_URL, deps)).rejects.toThrow(
+			/missing a lists\[\] array/,
+		);
+	});
+
+	it("rejects a non-object list entry", async () => {
+		const { deps } = craftedClient({
+			schemaVersion: 1,
+			generatedAt: "2026-06-19T00:00:00Z",
+			lists: [null],
+		});
+		await expect(openBundleSource("/o", PUBKEY_URL, deps)).rejects.toThrow(
+			/malformed list entry/,
+		);
+	});
+
+	it("rejects a list entry whose entitiesCount is not a finite number", async () => {
+		const { deps } = craftedClient({
+			schemaVersion: 1,
+			generatedAt: "2026-06-19T00:00:00Z",
+			lists: [
+				{
+					id: "OFAC_SDN",
+					title: "OFAC SDN",
+					slug: "ofac",
+					version: "1",
+					entitiesCount: "many",
+				},
+			],
+		});
+		await expect(openBundleSource("/o", PUBKEY_URL, deps)).rejects.toThrow(
+			/malformed list entry/,
+		);
+	});
+});
+
+describe("openBundleSource — version skew + clear passthrough", () => {
+	it("fail-closes when a list's meta version disagrees with the catalog", async () => {
+		const { deps } = memoryClient();
+		const source = await openBundleSource("/o", PUBKEY_URL, deps);
+		const catalog = source.loadCatalog();
+		const ofacEntry = catalog.lists.find((l) => l.id === "OFAC_SDN");
+		if (ofacEntry === undefined) {
+			throw new Error("OFAC list missing from the committed bundle catalog");
+		}
+		// The materialized meta.json says demo-1; a catalog claiming otherwise is
+		// a publisher inconsistency and must abort the list load, not half-load.
+		const pending = source.loadList({ ...ofacEntry, version: "tampered-9" });
+		await expect(pending).rejects.toBeInstanceOf(WatchlistFormatError);
+		await expect(pending).rejects.toThrow(/version skew/);
+	});
+
+	it("clear() drops the durable store through the client", async () => {
+		const { deps, wasCleared } = craftedClient({
+			schemaVersion: 1,
+			generatedAt: "2026-06-19T00:00:00Z",
+			lists: [],
+		});
+		const source = await openBundleSource("/o", PUBKEY_URL, deps);
+		expect(wasCleared()).toBe(false);
+		await source.clear();
+		expect(wasCleared()).toBe(true);
 	});
 });

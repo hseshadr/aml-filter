@@ -9,5 +9,10 @@ export default defineConfig({
 	test: {
 		environment: "node",
 		globals: false,
+		// House standard §2 floors, enforced because the gate's test step runs
+		// with --coverage.
+		coverage: {
+			thresholds: { statements: 90, lines: 90, functions: 90, branches: 85 },
+		},
 	},
 });

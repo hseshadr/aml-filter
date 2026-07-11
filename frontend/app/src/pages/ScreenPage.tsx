@@ -169,9 +169,23 @@ function fromMatch(m: Match): Dossier {
 	};
 }
 
-interface SearchState {
-	readonly matches: ReadonlyArray<Match>;
-	readonly ms: number;
+// The outcome of one screen call. A rejection is a FIRST-CLASS state, not a
+// dropped promise: an unscreened name must never fall through to the no-match
+// (clear) render. `matches` carries a completed screen; `error` a failed one.
+type SearchOutcome =
+	| {
+			readonly kind: "matches";
+			readonly matches: ReadonlyArray<Match>;
+			readonly ms: number;
+	  }
+	| { readonly kind: "error"; readonly message: string };
+
+// A screen call that rejects mid-session must be shown as a hard error, never as
+// a clear — an unscreened name is NOT a cleared name. Surface the cause so a
+// crashed worker / model fault is diagnosable, and tell the user how to retry.
+function screenErrorMessage(error: unknown): string {
+	const detail = error instanceof Error ? error.message : String(error);
+	return `Screening failed — this name was NOT cleared. ${detail}. Edit the name to try again.`;
 }
 
 export function ScreenPage() {
@@ -187,7 +201,7 @@ export function ScreenPage() {
 	const [dob, setDob] = useState("");
 	const [strictness, setStrictness] = useState<Strictness>("balanced");
 	const [entities, setEntities] = useState<ReadonlyArray<Entity>>([]);
-	const [search, setSearch] = useState<SearchState | null>(null);
+	const [search, setSearch] = useState<SearchOutcome | null>(null);
 	// Bumped by Retry: it resets the boot guard and re-fires the boot effect so a
 	// boot that timed out (stalled CDN) can be re-attempted from the error banner.
 	const [bootNonce, setBootNonce] = useState(0);
@@ -256,19 +270,28 @@ export function ScreenPage() {
 			}
 			const level = LEVEL[strictness];
 			const mine = ++seq.current;
-			const result = await engine.screen({
-				name: text,
-				// A native date input is already ISO `YYYY-MM-DD`; omit when empty so
-				// the scorer never sees a blank dob (which it would treat as null).
-				...(dobIso.length > 0 ? { dob: dobIso } : {}),
-				threshold: level.floor,
-				k: SEARCH_K,
-			});
-			if (mine === seq.current && alive.current) {
-				const matches = result.matches.filter((m) =>
-					passesStrictness(m, text, level),
-				);
-				setSearch({ matches, ms: result.execution_time_ms });
+			try {
+				const result = await engine.screen({
+					name: text,
+					// A native date input is already ISO `YYYY-MM-DD`; omit when empty so
+					// the scorer never sees a blank dob (which it would treat as null).
+					...(dobIso.length > 0 ? { dob: dobIso } : {}),
+					threshold: level.floor,
+					k: SEARCH_K,
+				});
+				if (mine === seq.current && alive.current) {
+					const matches = result.matches.filter((m) =>
+						passesStrictness(m, text, level),
+					);
+					setSearch({ kind: "matches", matches, ms: result.execution_time_ms });
+				}
+			} catch (error) {
+				// Fail LOUD, never silent: a dropped screen rejection would let the
+				// prior (stale/empty) result linger and read as a clear. Surface a
+				// visible error for this exact query instead.
+				if (mine === seq.current && alive.current) {
+					setSearch({ kind: "error", message: screenErrorMessage(error) });
+				}
 			}
 		},
 		[runtime, strictness],
@@ -465,7 +488,7 @@ function Results({
 }: {
 	readonly query: string;
 	readonly entities: ReadonlyArray<Entity>;
-	readonly search: SearchState | null;
+	readonly search: SearchOutcome | null;
 }) {
 	// Empty box → browse the whole list (a directory, no scores).
 	if (query.length === 0) {
@@ -487,6 +510,15 @@ function Results({
 		return (
 			<div className="screen-banner" role="status">
 				Searching…
+			</div>
+		);
+	}
+	// A failed screen is a hard, visible error — never a silent clear. role="alert"
+	// so assistive tech announces it, and the stale/empty result is replaced.
+	if (search.kind === "error") {
+		return (
+			<div className="screen-results screen-results--error" role="alert">
+				{search.message}
 			</div>
 		);
 	}

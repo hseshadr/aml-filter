@@ -7,7 +7,7 @@
 	},
 	"files": {
 		"ignoreUnknown": false,
-		"includes": ["**", "!**/__fixtures__"]
+		"includes": ["**", "!**/__fixtures__", "!**/coverage"]
 	},
 	"formatter": {
 		"enabled": true,

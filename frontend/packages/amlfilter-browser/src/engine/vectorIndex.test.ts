@@ -50,4 +50,9 @@ describe("VectorIndex over the decoded watchlist vectors", () => {
 	it("rejects a query of the wrong dimension", () => {
 		expect(() => fixtureIndex().search(new Float32Array(8), 3)).toThrow();
 	});
+
+	it("idAt fails loudly for a row outside the index (no silent undefined)", () => {
+		expect(() => fixtureIndex().idAt(999)).toThrow(RangeError);
+		expect(() => fixtureIndex().idAt(999)).toThrow(/out of range/);
+	});
 });

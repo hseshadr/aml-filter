@@ -15,18 +15,22 @@ const onProgressSinks: OnEmbedProgress[] = [];
 
 vi.mock("./embedder", () => {
 	let resolveEmbed: ((v: Float32Array) => void) | undefined;
+	let rejectEmbed: ((reason: unknown) => void) | undefined;
 	return {
 		createEmbedder: (onProgress: OnEmbedProgress) => {
 			onProgressSinks.push(onProgress);
 			return {
 				embed: () =>
-					new Promise<Float32Array>((resolve) => {
+					new Promise<Float32Array>((resolve, reject) => {
 						resolveEmbed = resolve;
+						rejectEmbed = reject;
 					}),
 			};
 		},
 		// Exposed via the module so the test can settle the in-flight embed.
 		__finishEmbed: (): void => resolveEmbed?.(new Float32Array(384)),
+		// …or fail it, to drive the worker's error-reply path.
+		__failEmbed: (reason: unknown): void => rejectEmbed?.(reason),
 	};
 });
 
@@ -130,5 +134,45 @@ describe("embedderWorker", () => {
 
 		const progressMsg = stub.posted.find((m) => m.type === "progress");
 		expect(progressMsg).toMatchObject({ type: "progress", id: 1 });
+	});
+
+	it("replies ok:false with the Error's message when the embed fails", async () => {
+		const stub = installSelf();
+		const mod = (await import("./embedder")) as unknown as {
+			__failEmbed: (reason: unknown) => void;
+		};
+		await import("./embedderWorker");
+
+		send(stub, { id: 5, text: "boom" });
+		mod.__failEmbed(new Error("model load failed"));
+		await Promise.resolve();
+		await Promise.resolve();
+
+		expect(stub.posted).toContainEqual({
+			type: "result",
+			ok: false,
+			id: 5,
+			error: "model load failed",
+		});
+	});
+
+	it("stringifies a non-Error rejection into the tagged error reply", async () => {
+		const stub = installSelf();
+		const mod = (await import("./embedder")) as unknown as {
+			__failEmbed: (reason: unknown) => void;
+		};
+		await import("./embedderWorker");
+
+		send(stub, { id: 6, text: "boom" });
+		mod.__failEmbed("wasm out of memory");
+		await Promise.resolve();
+		await Promise.resolve();
+
+		expect(stub.posted).toContainEqual({
+			type: "result",
+			ok: false,
+			id: 6,
+			error: "wasm out of memory",
+		});
 	});
 });

@@ -40,6 +40,56 @@ import { env, type ProgressInfo, pipeline } from "@huggingface/transformers";
 env.useBrowserCache = true;
 env.allowLocalModels = true;
 env.localModelPath = "/models/";
+// FAIL CLOSED: never fall back to fetching an unpinned model from huggingface.co.
+// transformers.js defaults `allowRemoteModels` to true, so a missing/renamed local
+// weight would silently pull from the HF CDN — unacceptable for an AML tool, where
+// the scoring model must be the exact self-hosted export. Off ⇒ a missing weight
+// throws instead. The cold-blocked e2e proves boot succeeds with all CDNs aborted.
+env.allowRemoteModels = false;
+
+/** The onnxruntime-web wasm env knob the self-hosting config owns
+ * (transformers.js exposes it as `env.backends.onnx.wasm`). Structural, so the
+ * unit test can drive the decision with a fake alongside the real env. */
+export interface OrtWasmEnvLike {
+	wasmPaths?: string;
+}
+
+/**
+ * `wasmPaths = "/ort/"` — self-host the ORT wasm LOADER, not just the model
+ * (house standard §8.1b). onnxruntime-web dynamically imports its wasm loader
+ * module (`ort-wasm-simd-threaded.asyncify.mjs`, which then fetches its sibling
+ * `.wasm` relative to its own URL) at runtime, and the library's default base
+ * for that import is the jsDelivr CDN. The cold-blocked e2e caught exactly that
+ * on this repo: with jsDelivr aborted, boot died fetching
+ * `cdn.jsdelivr.net/npm/onnxruntime-web/…/ort-wasm-simd-threaded.asyncify.mjs`.
+ * The staged same-origin copy under /ort/ is materialized by the app's
+ * `prebuild` hook (app/scripts/stage-ort-wasm.mjs) from the lockfile-pinned
+ * node_modules bytes.
+ */
+export function configureOrtWasmPaths(ortWasm: OrtWasmEnvLike): void {
+	ortWasm.wasmPaths = "/ort/";
+}
+
+/** The live onnxruntime-web wasm env, reached through transformers.js's loosely
+ * typed `env.backends`. FAIL LOUD: if the `onnx.wasm` node is absent we throw at
+ * module load rather than configure a throwaway `{}` — a silent no-op there would
+ * leave `wasmPaths` unset and let onnxruntime-web dynamic-import its loader from
+ * the jsDelivr CDN (the exact §8.1b dependency this self-host kills). A missing
+ * knob means transformers.js moved it, and that must fail here, not in prod. */
+function ortWasmEnv(): OrtWasmEnvLike {
+	const backends = env.backends as { onnx?: { wasm?: OrtWasmEnvLike } };
+	const wasm = backends.onnx?.wasm;
+	if (wasm === undefined) {
+		throw new Error(
+			"onnxruntime-web wasm env (env.backends.onnx.wasm) is unavailable — " +
+				"cannot pin the same-origin ORT loader; refusing to boot on the " +
+				"jsDelivr CDN default (house standard §8.1b).",
+		);
+	}
+	return wasm;
+}
+
+configureOrtWasmPaths(ortWasmEnv());
 
 /** The sentence-transformers model id, mirrored as its Xenova ONNX export. */
 export const EMBEDDING_MODEL = "Xenova/all-MiniLM-L6-v2";

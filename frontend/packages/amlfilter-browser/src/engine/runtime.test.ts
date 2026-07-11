@@ -4,6 +4,7 @@ import type { Embedder, EmbedProgress } from "./embedder";
 import {
 	type BootStage,
 	compositeVersion,
+	configFromEnv,
 	defaultRuntimeDeps,
 	EngineRuntime,
 	MODEL_LOAD_TIMEOUT_MS,
@@ -661,5 +662,171 @@ describe("EngineRuntime.clearListCache + cache-aware deps", () => {
 
 	it("defaultRuntimeDeps exposes a clearCache seam (cache-aware by default)", () => {
 		expect(typeof defaultRuntimeDeps().clearCache).toBe("function");
+	});
+});
+
+describe("configFromEnv", () => {
+	it("defaults the bundle base URL and pins the pubkey same-origin", () => {
+		const config = configFromEnv({});
+		expect(config.bundleBaseUrl).toBe("/bundle/origin");
+		expect(config.pubkeyUrl).toBe(
+			new URL("public.key", document.baseURI).toString(),
+		);
+	});
+
+	it("VITE_BUNDLE_BASE_URL overrides the default bundle origin", () => {
+		const config = configFromEnv({
+			VITE_BUNDLE_BASE_URL: "https://cdn.example/bundle",
+		});
+		expect(config.bundleBaseUrl).toBe("https://cdn.example/bundle");
+	});
+
+	it("a whitespace-only override falls back to the default (fail-closed)", () => {
+		expect(configFromEnv({ VITE_BUNDLE_BASE_URL: "   " }).bundleBaseUrl).toBe(
+			"/bundle/origin",
+		);
+	});
+});
+
+describe("EngineRuntime bootstrap memo + bundle-source retry", () => {
+	function instantEmbedder(): Embedder {
+		return { embed: () => Promise.resolve(new Float32Array(384)) };
+	}
+
+	it("bootstrap is idempotent: a second call reuses the first engine", async () => {
+		let opens = 0;
+		const deps: RuntimeDeps = {
+			makeEmbedder: () => instantEmbedder(),
+			clearCache: () => Promise.resolve(),
+			openBundleSource: bundleSourceFromCatalogs(
+				[catalogOf([["OFAC_SDN", "1"]])],
+				() => fakeLoaded(),
+				() => {
+					opens += 1;
+				},
+			),
+		};
+		const runtime = new EngineRuntime(deps);
+		const first = await runtime.bootstrap(CONFIG);
+		const second = await runtime.bootstrap(CONFIG);
+		expect(second).toBe(first);
+		// ONE delta-sync served both calls — the memo held.
+		expect(opens).toBe(1);
+	});
+
+	it("a failed bundle open clears the memo so a later bootstrap retries", async () => {
+		let calls = 0;
+		const good = bundleSourceOf([["OFAC_SDN", "1"]]);
+		const deps: RuntimeDeps = {
+			makeEmbedder: () => instantEmbedder(),
+			clearCache: () => Promise.resolve(),
+			openBundleSource: (baseUrl, pubkeyUrl) => {
+				calls += 1;
+				if (calls === 1) {
+					return Promise.reject(new Error("bundle origin unreachable"));
+				}
+				return good(baseUrl, pubkeyUrl);
+			},
+		};
+		const runtime = new EngineRuntime(deps);
+		await expect(runtime.bootstrap(CONFIG)).rejects.toThrow(
+			/bundle origin unreachable/,
+		);
+		// Both memos (engine promise + bundle source) were cleared: the retry
+		// re-opens the bundle instead of replaying the failed promise.
+		await expect(runtime.bootstrap(CONFIG)).resolves.toBeDefined();
+		expect(calls).toBe(2);
+	});
+
+	it("catalogLists before a successful bootstrap throws", async () => {
+		const runtime = new EngineRuntime({
+			makeEmbedder: () => instantEmbedder(),
+			clearCache: () => Promise.resolve(),
+			openBundleSource: bundleSourceOf([["OFAC_SDN", "1"]]),
+		});
+		await expect(runtime.catalogLists()).rejects.toThrow(
+			/requires a successful bootstrap/,
+		);
+	});
+});
+
+// --- defaultRuntimeDeps: the production seams over a scripted Worker -----------
+
+/** Requests the scripted engine Worker received, by kind, in order. */
+const scriptedRequests: string[] = [];
+
+/** A scripted stand-in for the sync engine Worker (worker.ts): replies to
+ * sync/readFile/clear like the real one over an empty-but-valid bundle, so the
+ * default clearCache seam (spawn → sync → catalog → clear) runs end-to-end on
+ * the main thread with no OPFS and no real module Worker. */
+class ScriptedEngineWorker {
+	#listener: ((event: MessageEvent<unknown>) => void) | undefined;
+
+	public addEventListener(
+		_type: "message",
+		listener: (event: MessageEvent<unknown>) => void,
+	): void {
+		this.#listener = listener;
+	}
+
+	public postMessage(request: {
+		kind: "sync" | "readFile" | "clear";
+		id: number;
+	}): void {
+		scriptedRequests.push(request.kind);
+		const respond = (data: unknown): void => {
+			queueMicrotask(() => this.#listener?.({ data } as MessageEvent<unknown>));
+		};
+		if (request.kind === "sync") {
+			respond({
+				ok: true,
+				id: request.id,
+				kind: "sync",
+				result: {
+					version: "demo-1",
+					manifestHash: "h".repeat(64),
+					chunksFetched: 0,
+					chunksReused: 0,
+					bytesFetched: 0,
+				},
+			});
+			return;
+		}
+		if (request.kind === "readFile") {
+			respond({
+				ok: true,
+				id: request.id,
+				kind: "readFile",
+				bytes: new TextEncoder().encode(
+					JSON.stringify({
+						schemaVersion: 1,
+						generatedAt: "2026-06-19T00:00:00Z",
+						lists: [],
+					}),
+				),
+			});
+			return;
+		}
+		respond({ ok: true, id: request.id, kind: "clear" });
+	}
+
+	public terminate(): void {}
+}
+
+describe("defaultRuntimeDeps (production seams over a scripted Worker)", () => {
+	it("clearCache drops the durable store through a spawned Worker client", async () => {
+		scriptedRequests.length = 0;
+		vi.stubGlobal("Worker", ScriptedEngineWorker);
+
+		await defaultRuntimeDeps().clearCache();
+
+		// The transient bundle source syncs, validates the catalog, then clears.
+		expect(scriptedRequests).toEqual(["sync", "readFile", "clear"]);
+	});
+
+	it("makeEmbedder builds a Worker-backed embedder", () => {
+		vi.stubGlobal("Worker", ScriptedEngineWorker);
+		const embedder = defaultRuntimeDeps().makeEmbedder(() => {});
+		expect(typeof embedder.embed).toBe("function");
 	});
 });
