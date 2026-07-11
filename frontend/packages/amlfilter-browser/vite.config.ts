@@ -13,5 +13,9 @@ export default defineConfig({
 		// implementation onto globalThis so listCache.ts's durable-store tests
 		// run standalone (the real IndexedDB is exercised by the browser e2e).
 		setupFiles: ["fake-indexeddb/auto"],
+		coverage: {
+			// House standard §2 floors.
+			thresholds: { statements: 90, lines: 90, functions: 90, branches: 85 },
+		},
 	},
 });

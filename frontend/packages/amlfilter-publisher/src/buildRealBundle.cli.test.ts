@@ -1,0 +1,239 @@
+// runRealBundle end-to-end, offline: the argv contract, the fail-soft "skip a
+// source whose fetch fails / refuse an empty bundle" policy, and the happy-path
+// orchestration (stage -> publish -> drop the producer-side CAS mirror -> clean
+// the staging dir). The two heavyweight boundaries are replaced at their module
+// seams: createNodeEmbedder (the 23 MB MiniLM) with the deterministic fake
+// embedder, and publishBundle (`uv run edgeproc publish`) with a recorder that
+// writes the origin-tree shape edge-proc would. Every upstream fetch goes to a
+// stubbed `fetch` serving tiny in-repo fixtures — the suite never goes online.
+
+import { existsSync } from "node:fs";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { runRealBundle } from "./buildRealBundle.ts";
+
+const state = vi.hoisted(() => ({
+	publishCalls: [] as {
+		srcDir: string;
+		originDir: string;
+		bundleId: string;
+		version: string;
+		stagedEntries: string[];
+	}[],
+}));
+
+vi.mock("./nodeEmbedder.ts", async () => {
+	const { createFakeEmbedder } = await import("./fakeEmbedder.ts");
+	return { createNodeEmbedder: () => createFakeEmbedder() };
+});
+
+vi.mock("./publishBundle.ts", async () => {
+	const { mkdir, readdir, writeFile: write } = await import("node:fs/promises");
+	const { join: joinPath } = await import("node:path");
+	return {
+		publishBundle: async (input: {
+			srcDir: string;
+			originDir: string;
+			keyPath: string;
+			bundleId: string;
+			version: string;
+		}): Promise<void> => {
+			state.publishCalls.push({
+				srcDir: input.srcDir,
+				originDir: input.originDir,
+				bundleId: input.bundleId,
+				version: input.version,
+				stagedEntries: (await readdir(input.srcDir)).sort(),
+			});
+			// Mirror the tree `edgeproc publish` writes: the served contract
+			// (latest, manifest/, chunk/) plus the producer-side CAS mirror
+			// (chunks/, manifests/) that runRealBundle must drop afterwards.
+			for (const dir of ["manifest", "chunk", "chunks/aa", "manifests"]) {
+				await mkdir(joinPath(input.originDir, dir), { recursive: true });
+			}
+			await write(joinPath(input.originDir, "latest"), "{}\n");
+		},
+	};
+});
+
+// Tiny upstream fixtures — one entity per feed, in each feed's real format.
+const SDN_CSV = `12345,"DOE, John",individual,PROGRAM,-0-,-0-,-0-,-0-,-0-,-0-,-0-,"DOB 01 Jan 1970; nationality Cuba"\n`;
+const ALT_CSV = `12345,1,aka,"Johnny D",-0-\n`;
+const UN_XML = [
+	"<CONSOLIDATED_LIST>",
+	"<INDIVIDUALS><INDIVIDUAL>",
+	"<DATAID>101</DATAID>",
+	"<FIRST_NAME>Test</FIRST_NAME><SECOND_NAME>Person</SECOND_NAME>",
+	"<INDIVIDUAL_ALIAS><ALIAS_NAME>TP</ALIAS_NAME></INDIVIDUAL_ALIAS>",
+	"<INDIVIDUAL_DATE_OF_BIRTH><DATE>1970-01-01</DATE></INDIVIDUAL_DATE_OF_BIRTH>",
+	"<NATIONALITY><VALUE>Testland</VALUE></NATIONALITY>",
+	"</INDIVIDUAL></INDIVIDUALS>",
+	"</CONSOLIDATED_LIST>",
+].join("");
+const EU_XML = [
+	"<export>",
+	'<sanctionEntity logicalId="55">',
+	'<subjectType code="person"/>',
+	'<nameAlias wholeName="Eu Person"/>',
+	'<birthdate birthdate="1970-01-01"/>',
+	'<citizenship countryIso2Code="FR"/>',
+	"</sanctionEntity>",
+	"</export>",
+].join("");
+const UK_CSV = [
+	"Last Updated,01/07/2026",
+	"Name 1,Name 2,Name 3,Name 4,Name 5,Name 6,DOB,Nationality,Group Type,Alias Type,Group ID",
+	"John,,,,,Doe,01/01/1970,Testland,Individual,Primary name,123",
+	"",
+].join("\n");
+
+/** Stub global fetch to serve `routes` by URL substring (404 otherwise). */
+function stubFetchRoutes(
+	routes: readonly [needle: string, body: string][],
+): void {
+	vi.stubGlobal(
+		"fetch",
+		vi.fn(async (input: string | URL | Request): Promise<Response> => {
+			const url = String(input);
+			const hit = routes.find(([needle]) => url.includes(needle));
+			if (hit === undefined) {
+				return new Response("not found", {
+					status: 404,
+					statusText: "Not Found",
+				});
+			}
+			return new Response(hit[1]);
+		}),
+	);
+}
+
+describe("runRealBundle argv contract", () => {
+	test.each([
+		[["--version"], 'malformed argument near "--version"'],
+		[["version", "1"], 'malformed argument near "version"'],
+		[["--key", "k", "--out", "o"], "missing required --version"],
+		[["--version", "v", "--out", "o"], "missing required --key"],
+		[["--version", "v", "--key", "k"], "missing required --out"],
+	])("rejects %j", async (argv, message) => {
+		await expect(runRealBundle(argv)).rejects.toThrow(message);
+	});
+});
+
+describe("runRealBundle with every feed down", () => {
+	afterEach(() => {
+		vi.unstubAllGlobals();
+		vi.restoreAllMocks();
+	});
+
+	test("logs one skip per source to stderr, then refuses the empty bundle", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (): Promise<Response> => {
+				throw new Error("network down");
+			}),
+		);
+		const stderrSpy = vi
+			.spyOn(process.stderr, "write")
+			.mockImplementation(() => true);
+		const dir = await mkdtemp(join(tmpdir(), "aml-real-cli-"));
+		try {
+			await expect(
+				runRealBundle([
+					"--version",
+					"v1",
+					"--key",
+					join(dir, "signing.key"),
+					"--out",
+					join(dir, "out"),
+					"--models",
+					join(dir, "models"),
+				]),
+			).rejects.toThrow(
+				"no source fetched — refusing to stage an empty bundle",
+			);
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
+		const written = stderrSpy.mock.calls.map((c) => String(c[0])).join("");
+		for (const id of [
+			"OFAC_SDN",
+			"UN_CONSOLIDATED",
+			"EU_CONSOLIDATED",
+			"UK_OFSI",
+		]) {
+			expect(written).toContain(
+				`skipping ${id}: fetchRaw failed (network down)`,
+			);
+		}
+	});
+});
+
+describe("runRealBundle happy path", () => {
+	let workDir: string;
+	let outDir: string;
+
+	beforeEach(async () => {
+		state.publishCalls.length = 0;
+		workDir = await mkdtemp(join(tmpdir(), "aml-real-cli-"));
+		outDir = join(workDir, "origin");
+		stubFetchRoutes([
+			["treasury.gov/ofac/downloads/SDN.CSV", SDN_CSV],
+			["treasury.gov/ofac/downloads/ALT.CSV", ALT_CSV],
+			["scsanctions.un.org", UN_XML],
+			["webgate.ec.europa.eu", EU_XML],
+			["ofsistorage.blob.core.windows.net", UK_CSV],
+		]);
+	});
+
+	afterEach(async () => {
+		vi.unstubAllGlobals();
+		vi.restoreAllMocks();
+		await rm(workDir, { recursive: true, force: true });
+	});
+
+	test("stages all four lists, publishes once, drops the CAS mirror", async () => {
+		const keyPath = join(workDir, "signing.key");
+		await writeFile(keyPath, new Uint8Array(32).fill(7));
+		const stdoutSpy = vi
+			.spyOn(process.stdout, "write")
+			.mockImplementation(() => true);
+
+		await runRealBundle([
+			"--version",
+			"2026-07-11",
+			"--key",
+			keyPath,
+			"--out",
+			outDir,
+		]);
+
+		expect(state.publishCalls).toHaveLength(1);
+		const call = state.publishCalls[0];
+		expect(call?.bundleId).toBe("amlfilter-watchlists");
+		expect(call?.version).toBe("2026-07-11");
+		expect(call?.originDir).toBe(outDir);
+		// stageBundle wrote catalog.json + one dir per fetched list before publish.
+		expect(call?.stagedEntries).toEqual([
+			"catalog.json",
+			"eu",
+			"ofac",
+			"uk",
+			"un",
+		]);
+		// The staging temp dir is cleaned up after the publish.
+		expect(existsSync(call?.srcDir ?? "/nonexistent")).toBe(false);
+		// The producer-side CAS mirror is dropped; the served contract remains.
+		expect(existsSync(join(outDir, "chunks"))).toBe(false);
+		expect(existsSync(join(outDir, "manifests"))).toBe(false);
+		expect(existsSync(join(outDir, "latest"))).toBe(true);
+		expect(existsSync(join(outDir, "manifest"))).toBe(true);
+		expect(existsSync(join(outDir, "chunk"))).toBe(true);
+
+		const printed = stdoutSpy.mock.calls.map((c) => String(c[0])).join("");
+		expect(printed).toContain(
+			"real bundle (4 lists: OFAC_SDN, UN_CONSOLIDATED, EU_CONSOLIDATED, UK_OFSI, v2026-07-11)",
+		);
+	});
+});

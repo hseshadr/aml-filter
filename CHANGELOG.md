@@ -19,10 +19,17 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   covered). Includes a Cloudflare Pages 25 MiB asset-size preflight over the staged ORT
   runtime and the pinned model manifest, so a runtime/model bump fails in CI, not on
   deploy.
+- **Vitest coverage floors, enforced (§2/§9.7)** — every workspace package pins
+  `coverage.thresholds` (statements 90 / lines 90 / functions 90 / branches 85) and the
+  gate's unit step now runs `pnpm -r run test:coverage`, so the thresholds actually
+  enforce (they are inert under a plain `vitest run`). Reached honestly with ~230 new
+  behavior tests — no floor was lowered: app 86/79/82/87 → 95/88/94/96,
+  browser 90/84/89/90 → 98/94/100/98, publisher 84/67/86/84 → 100/93/100/100,
+  workstation already above at 95/94/91/94 (s/b/f/l).
 - **Canonical `pnpm gate`** (`frontend/package.json`): one command fanning out to Biome
-  lint → tsc typecheck → Vitest units → production build → all three Playwright e2e
-  lanes. `ci.yml` now literally runs `pnpm run gate`, so the local gate and CI cannot
-  silently drift (ENGINEERING-STANDARDS §3/§4).
+  lint → tsc typecheck → Vitest units (with coverage thresholds) → production build →
+  all three Playwright e2e lanes. `ci.yml` now literally runs `pnpm run gate`, so the
+  local gate and CI cannot silently drift (ENGINEERING-STANDARDS §3/§4).
 - **`.gitleaks.toml` documented allowlist** — full upstream ruleset kept; the only
   exceptions are verified false positives (pre-v4 dummy docs/test fixture keys on
   deleted paths, and the EU webgate's public non-rotating list-download token). The

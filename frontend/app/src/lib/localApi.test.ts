@@ -288,3 +288,99 @@ describe("LocalApiClient slice methods", () => {
 		expect(() => client.clearApiKey()).not.toThrow();
 	});
 });
+
+describe("LocalApiClient CRUD pass-throughs", () => {
+	it("listCustomers maps store rows to the CustomerResponse wire shape", async () => {
+		const services = makeServices();
+		const client = new LocalApiClient(() => Promise.resolve(services));
+		const rows = await client.listCustomers();
+		expect(services.store.listCustomers).toHaveBeenCalledTimes(1);
+		expect(rows).toHaveLength(1);
+		expect(rows[0]).toMatchObject({
+			customer_id: "c-1",
+			tenant_id: "local",
+			customer_reference: "R-1",
+			screening_entity_id: null,
+		});
+	});
+
+	it("getCustomer returns the mapped row when it exists", async () => {
+		const services = makeServices();
+		const client = new LocalApiClient(() => Promise.resolve(services));
+		const row = await client.getCustomer("c-1");
+		expect(services.store.getCustomer).toHaveBeenCalledWith("c-1");
+		expect(row).toMatchObject({ customer_id: "c-1", tenant_id: "local" });
+	});
+
+	it("updateCustomer delegates the patch and maps the updated row", async () => {
+		const services = makeServices();
+		const client = new LocalApiClient(() => Promise.resolve(services));
+		const row = await client.updateCustomer("c-1", {
+			onboarding_status: "ACTIVE",
+		});
+		expect(services.store.updateCustomer).toHaveBeenCalledWith("c-1", {
+			onboarding_status: "ACTIVE",
+		});
+		expect(row.customer_id).toBe("c-1");
+	});
+
+	it("deleteCustomer delegates to the store", async () => {
+		const services = makeServices();
+		const client = new LocalApiClient(() => Promise.resolve(services));
+		await client.deleteCustomer("c-1");
+		expect(services.store.deleteCustomer).toHaveBeenCalledWith("c-1");
+	});
+
+	it("onboardCustomer defaults missing country/dob to null and documents to []", async () => {
+		const services = makeServices();
+		const client = new LocalApiClient(() => Promise.resolve(services));
+		await client.onboardCustomer({ customer_reference: "R-2", name: "Bea" });
+		expect(services.onboarding.onboard).toHaveBeenCalledWith(
+			expect.objectContaining({ country: null, dob: null, id_documents: [] }),
+		);
+	});
+});
+
+describe("setScreeningConfig override-change detection", () => {
+	it("re-scans when an override VALUE changes under the same keys", async () => {
+		const services = makeServices();
+		const client = new LocalApiClient(() => Promise.resolve(services));
+		await client.setScreeningConfig({
+			sensitivity: "balanced",
+			overrides: { DEMO_SDN: "strict" },
+		});
+		await client.setScreeningConfig({
+			sensitivity: "balanced",
+			overrides: { DEMO_SDN: "lenient" },
+		});
+		expect(services.rescan.rescanAll).toHaveBeenCalledTimes(2);
+	});
+
+	it("re-scans when the override KEY SET grows", async () => {
+		const services = makeServices();
+		const client = new LocalApiClient(() => Promise.resolve(services));
+		await client.setScreeningConfig({
+			sensitivity: "balanced",
+			overrides: { DEMO_SDN: "strict" },
+		});
+		await client.setScreeningConfig({
+			sensitivity: "balanced",
+			overrides: { DEMO_SDN: "strict", EU_LIST: "strict" },
+		});
+		expect(services.rescan.rescanAll).toHaveBeenCalledTimes(2);
+	});
+
+	it("saving identical overrides again is a no-op (no second rescan)", async () => {
+		const services = makeServices();
+		const client = new LocalApiClient(() => Promise.resolve(services));
+		await client.setScreeningConfig({
+			sensitivity: "balanced",
+			overrides: { DEMO_SDN: "strict" },
+		});
+		await client.setScreeningConfig({
+			sensitivity: "balanced",
+			overrides: { DEMO_SDN: "strict" },
+		});
+		expect(services.rescan.rescanAll).toHaveBeenCalledTimes(1);
+	});
+});

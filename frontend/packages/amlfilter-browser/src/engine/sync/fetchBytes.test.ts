@@ -87,3 +87,32 @@ describe("fetchBytes cache mode", () => {
 		expect(fetchMock.mock.calls[0]?.[1]?.cache).toBe("no-store");
 	});
 });
+
+describe("fetchBytes failure classes (both recoverable NetworkErrors)", () => {
+	it("wraps a network-level rejection (offline/DNS) in NetworkError", async () => {
+		// The real fetch rejects with a TypeError when the origin is unreachable.
+		const fetchMock = vi.fn(() =>
+			Promise.reject(new TypeError("Failed to fetch")),
+		);
+		vi.stubGlobal("fetch", fetchMock);
+
+		const pending = fetchBytes("https://cdn.example/offline");
+		await expect(pending).rejects.toBeInstanceOf(NetworkError);
+		await expect(pending).rejects.toThrow(/network unreachable/);
+	});
+
+	it("treats a non-2xx status as an unreachable origin, carrying the status", async () => {
+		const notFound = new Response("nope", {
+			status: 404,
+			statusText: "Not Found",
+		});
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(() => Promise.resolve(notFound)),
+		);
+
+		const pending = fetchBytes("https://cdn.example/missing");
+		await expect(pending).rejects.toBeInstanceOf(NetworkError);
+		await expect(pending).rejects.toThrow(/404 Not Found/);
+	});
+});

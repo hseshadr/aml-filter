@@ -16,6 +16,8 @@
 		"typecheck": "tsc --noEmit",
 		"pretest": "node scripts/gen-demo-stats.mjs",
 		"test": "vitest run",
+		"pretest:coverage": "node scripts/gen-demo-stats.mjs",
+		"test:coverage": "vitest run --coverage",
 		"test:e2e": "playwright test",
 		"test:e2e:c1": "playwright test -c playwright.c1.config.ts",
 		"test:e2e:kyc": "playwright test -c playwright.kyc.config.ts",
@@ -42,9 +44,10 @@
 		"@types/react": "^19.2.17",
 		"@types/react-dom": "^19.2.3",
 		"@vitejs/plugin-react": "^6.0.3",
+		"@vitest/coverage-v8": "^4.1.10",
 		"jsdom": "^29.1.1",
 		"typescript": "^6.0.3",
 		"vite": "^8.1.3",
-		"vitest": "^4.1.9"
+		"vitest": "^4.1.10"
 	}
 }

@@ -78,5 +78,9 @@ export default defineConfig({
 		setupFiles: ["./src/test/setup.ts"],
 		// Playwright owns tests/ (e2e); keep Vitest to unit specs in src/.
 		exclude: [...configDefaults.exclude, "tests/**"],
+		// House standard §2 floors, enforced because the gate's test step runs with --coverage.
+		coverage: {
+			thresholds: { statements: 90, lines: 90, functions: 90, branches: 85 },
+		},
 	},
 });

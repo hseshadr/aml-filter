@@ -11,6 +11,7 @@ import { describe, expect, it } from "vitest";
 import { MODEL_FILES } from "./download-model.mjs";
 import {
 	ORT_RUNTIME_FILES,
+	ortDir,
 	ortDistDir,
 	stageOrtWasm,
 } from "./stage-ort-wasm.mjs";
@@ -24,6 +25,10 @@ describe("stage-ort-wasm", () => {
 			"ort-wasm-simd-threaded.asyncify.mjs",
 			"ort-wasm-simd-threaded.asyncify.wasm",
 		]);
+	});
+
+	it("ortDir stages under the app's public/ort (served same-origin at /ort/)", () => {
+		expect(ortDir().endsWith(join("app", "public", "ort"))).toBe(true);
 	});
 
 	it("the lockfile-pinned onnxruntime-web ships both runtime files", async () => {

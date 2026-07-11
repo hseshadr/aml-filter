@@ -44,4 +44,31 @@ describe("MemoryCacheStore content-address integrity", () => {
 		await store.promote({ manifest_hash: "h", version: "v1", signature: "s" });
 		expect((await store.readActive())?.version).toBe("v1");
 	});
+
+	it("getChunk on an absent hash fails closed", async () => {
+		const store = new MemoryCacheStore();
+		await expect(store.getChunk("0".repeat(64))).rejects.toThrow(
+			/not in store/,
+		);
+	});
+
+	it("getManifest on an absent hash fails closed", () => {
+		const store = new MemoryCacheStore();
+		expect(() => store.getManifest("0".repeat(64))).toThrow(/not in store/);
+	});
+
+	it("clear drops chunks, manifests, and the active pointer", async () => {
+		const store = new MemoryCacheStore();
+		await store.putChunkCompressed(REAL_CHUNK, chunkBytes(REAL_CHUNK));
+		const manifestHash = await store.putManifest(
+			new TextEncoder().encode("{}"),
+		);
+		await store.promote({ manifest_hash: "h", version: "v1", signature: "s" });
+
+		await store.clear();
+
+		expect(await store.hasChunk(REAL_CHUNK)).toBe(false);
+		expect(() => store.getManifest(manifestHash)).toThrow(/not in store/);
+		expect(await store.readActive()).toBeNull();
+	});
 });

@@ -2,6 +2,10 @@ import { env, type ProgressInfo } from "@huggingface/transformers";
 import { describe, expect, it, vi } from "vitest";
 import {
 	configureOrtWasmPaths,
+	createEmbedder,
+	createEmbedderWith,
+	EMBEDDING_DTYPE,
+	EMBEDDING_MODEL,
 	mapProgress,
 	type OrtWasmEnvLike,
 } from "./embedder";
@@ -149,5 +153,73 @@ describe("ORT wasm loader self-hosting (house standard §8.1b)", () => {
 		// transformers.js ever moves the knob, this fails here — not in prod.
 		const backends = env.backends as { onnx?: { wasm?: OrtWasmEnvLike } };
 		expect(backends.onnx?.wasm?.wasmPaths).toBe("/ort/");
+	});
+});
+
+describe("embedder pipeline caching + dimension guard", () => {
+	it("loads the pipeline once and reuses the extractor across embeds", async () => {
+		const load = vi.fn(async () => {
+			return async (): Promise<{ data: ArrayLike<number> }> => ({
+				data: new Float32Array(384),
+			});
+		});
+		const embedder = createEmbedderWith(load);
+		await embedder.embed("first query");
+		await embedder.embed("second query");
+		// The heavy load ran exactly once; the second embed reused the extractor.
+		expect(load).toHaveBeenCalledTimes(1);
+	});
+
+	it("fail-closes on an embedding of the wrong dimension", async () => {
+		const embedder = createEmbedderWith(async () => {
+			return async (): Promise<{ data: ArrayLike<number> }> => ({
+				data: new Float32Array(3),
+			});
+		});
+		await expect(embedder.embed("query")).rejects.toThrow(
+			/has 3 dims; expected 384/,
+		);
+	});
+});
+
+describe("pipeline options", () => {
+	it("pins the shared dtype and omits progress_callback when no sink is wired", async () => {
+		const { createEmbedderWithPipeline } = await import("./embedder");
+		const load = vi.fn(async (_task: string, _model: string) => {
+			return async (): Promise<{ data: ArrayLike<number> }> => ({
+				data: new Float32Array(384),
+			});
+		});
+		const embedder = createEmbedderWithPipeline(load);
+		await embedder.embed("warm up");
+
+		// No sink → the options carry ONLY the pinned dtype; a progress_callback
+		// key must not appear (transformers.js treats its presence as opt-in).
+		expect(load).toHaveBeenCalledWith("feature-extraction", EMBEDDING_MODEL, {
+			dtype: EMBEDDING_DTYPE,
+		});
+	});
+
+	it("createEmbedder builds a lazy embedder (no model load at construction)", () => {
+		// The real ~23 MB pipeline is only loaded on the first embed; constructing
+		// the default embedder must be free and synchronous.
+		const embedder = createEmbedder();
+		expect(typeof embedder.embed).toBe("function");
+	});
+});
+
+describe("ortWasmEnv fallback (missing onnx wasm backend)", () => {
+	it("importing against an env with no onnx backend is inert, not a crash", async () => {
+		// A transformers.js env whose backends tree lacks the onnx.wasm node must
+		// yield an inert configure target — the module import still succeeds.
+		vi.resetModules();
+		vi.doMock("@huggingface/transformers", () => ({
+			env: { backends: {} },
+			pipeline: vi.fn(),
+		}));
+		const mod = await import("./embedder");
+		expect(mod.EMBEDDING_DIM).toBe(384);
+		vi.doUnmock("@huggingface/transformers");
+		vi.resetModules();
 	});
 });
