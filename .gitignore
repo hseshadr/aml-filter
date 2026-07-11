@@ -14,6 +14,12 @@ frontend/test-results/
 .env.local
 .env.*.local
 
+# Tree-guard: the production Ed25519 signing seed and the CI-staged bundle output
+# must NEVER be committed. The key lives only in the WATCHLIST_SIGNING_KEY GitHub
+# Actions secret; only the PUBLIC verify key (frontend/app/public/public.key) is tracked.
+signing.key
+frontend/origin/
+
 # Logs
 *.log
 

@@ -12,6 +12,24 @@
 
 > A hosted demo at `aml-filter.com` is **coming soon** — the Cloudflare deploy is pending. For now, run it locally; everything works on a cold clone with no backend.
 
+## TL;DR
+
+- **What it is** — a sanctions-screening + KYC-review workstation that runs 100% in the
+  browser tab: fuzzy name-matching against OFAC/EU/UN/UK watchlists, explained scores,
+  and an auditable review workflow. No server, no signup, no database to run.
+- **Why it works** — the heavy lifting is precomputed and signed at publish time (name
+  vectors, content-addressed chunks); the tab only verifies (Ed25519, fail-closed),
+  embeds one query with an in-tab MiniLM, and runs a transparent 5-signal scorer.
+  Customer data lives in SQLite-WASM on OPFS and never leaves the machine.
+- **Worked example** — `cd frontend && pnpm install && pnpm --filter aml-filter-app dev`,
+  open `/screen`, type a sanctioned name: you get a ranked match card with the per-signal
+  score breakdown ("strong name-vector similarity, country match") naming its source
+  list. Load customers at `/customers`, work the matches at `/review`.
+- **Core invariants** — verify-before-parse on every byte (any signature/hash mismatch
+  aborts — fetched and cached alike); customer data never leaves the browser; reviews are
+  append-only (`match_events`) and only re-open when the match **materially** changes;
+  the TS scorer is parity-locked by frozen golden fixtures; `pnpm gate` == CI, literally.
+
 Banks and businesses are legally required to check that the people they deal with
 aren't on government sanctions lists. The hard part isn't looking a name up — it's
 deciding when two *differently-spelled* names are the same person. The same person
@@ -93,19 +111,20 @@ pnpm --filter aml-filter-app preview   # serves the minified production build lo
 
 ### Run the checks (the gate)
 
-There is no single `gate` command. The gate is the CI sequence, run from `frontend/`:
+One command from `frontend/` — CI runs this exact script, so local and CI can't drift:
 
 ```bash
 cd frontend
-pnpm -r run lint        # Biome (lint + format)
-pnpm -r run typecheck   # tsc strict, every workspace member
-pnpm -r run test        # Vitest (incl. scoring + tiering parity goldens)
-pnpm -r run build       # production build across the workspace
+pnpm gate
+# = pnpm -r lint        Biome (lint + format)
+#   pnpm -r typecheck   tsc strict, every workspace member
+#   pnpm -r test        Vitest (incl. scoring + tiering parity goldens)
+#   pnpm -r build       production build across the workspace
+#   + the three Playwright e2e lanes (real Chromium, minified build):
+#     test:e2e:c1       in-tab screening against the committed signed watchlist
+#     test:e2e:kyc      backend-free KYC journey (onboard → auto-screen → review → resolve)
+#     test:e2e:bundle   signed-bundle delta-sync boot (verify → OPFS → offline reload)
 ```
-
-Plus the two Playwright end-to-end lanes (run from `frontend/app`): the in-tab
-screening lane and the backend-free KYC journey (onboard → auto-screen → review →
-resolve) against the minified build and the committed signed demo catalog.
 
 ## Under the hood — the three TypeScript units
 
