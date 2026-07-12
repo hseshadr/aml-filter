@@ -41,21 +41,37 @@ test("searches the sanctions list in-browser over the minified build, with full 
 			errors.push(`console.error: ${msg.text()}`);
 		}
 	});
+	let modelRequests = 0;
+	page.on("request", (request) => {
+		if (request.url().endsWith("/onnx/model_quantized.onnx")) {
+			modelRequests += 1;
+		}
+	});
 
 	await page.goto("/screen", { waitUntil: "domcontentloaded" });
 
 	const search = page.getByPlaceholder("Search a name, e.g. Ivan Fakovich");
 	await expect(search).toBeVisible();
 
-	// Bootstrap = sync + verify the signed bundle + ~23 MB model download +
-	// compile. The box is disabled until the runtime is "ready"; that it ENABLES
-	// proves the bundle verified and the model loaded without the prod crash.
-	await expect(search).toBeEnabled({ timeout: MODEL_LOAD_TIMEOUT_MS });
-
 	const alert = page.locator('[role="alert"]');
-	if (await alert.count()) {
-		throw new Error(`bootstrap errored: ${await alert.first().textContent()}`);
+	// Bootstrap = sync + verify the signed bundle + ~23 MB model download +
+	// compile. Race readiness against the error banner so a real boot failure is
+	// reported immediately instead of looking like a 160-second disabled-input hang.
+	const outcome = await Promise.race([
+		expect(search)
+			.toBeEnabled({ timeout: MODEL_LOAD_TIMEOUT_MS })
+			.then(() => ({ kind: "ready" as const })),
+		alert
+			.waitFor({ state: "visible", timeout: MODEL_LOAD_TIMEOUT_MS })
+			.then(async () => ({
+				kind: "error" as const,
+				message: await alert.first().textContent(),
+			})),
+	]);
+	if (outcome.kind === "error") {
+		throw new Error(`bootstrap errored: ${outcome.message}`);
 	}
+	expect(modelRequests, "the model must be fetched exactly once").toBe(1);
 
 	// --- browse: the empty box lists the whole demo list (discoverability) ---
 	await expect(

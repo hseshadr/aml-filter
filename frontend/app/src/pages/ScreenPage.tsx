@@ -470,10 +470,9 @@ function BootBanner({
 	);
 }
 
-// The banner line for a stage. The loading-model stage shows a live percent once
-// download progress arrives — appended to the SAME single-sourced label (size
-// hint kept) so it reads "…(~23 MB, once)… 42%"; before that (and for every
-// other stage) it is the plain label.
+// The banner line for a stage. Production model loading is indeterminate because
+// transformers.js 4.2.0's progress callback duplicates the ONNX fetch; injected
+// runtimes can still supply a percentage through the same stage contract.
 function stageMessage(stage: BootStage): string {
 	if (stage.kind === "loading-model" && stage.progress !== undefined) {
 		return `${LOADING_MODEL_LABEL} ${Math.round(stage.progress.pct)}%`;

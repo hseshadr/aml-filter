@@ -87,36 +87,31 @@ describe("mapProgress", () => {
 });
 
 describe("createEmbedder progress threading", () => {
-	it("forwards a status:progress event to the construction-time onProgress", async () => {
-		// The fake pipeline immediately fires a progress callback, exactly as
-		// transformers.js does while downloading the ONNX weights.
+	it("omits the progress callback that makes transformers.js fetch the ONNX model three times", async () => {
 		const { createEmbedderWithPipeline } = await import("./embedder");
 		const onProgress = vi.fn();
+		let receivedOptions: {
+			dtype?: string;
+			progress_callback?: (i: ProgressInfo) => void;
+		} = {};
 		const fakePipeline = vi.fn(
 			async (
 				_task: string,
 				_model: string,
-				opts?: { progress_callback?: (i: ProgressInfo) => void },
+				opts?: {
+					dtype?: string;
+					progress_callback?: (i: ProgressInfo) => void;
+				},
 			) => {
-				opts?.progress_callback?.({
-					status: "progress",
-					name: "m",
-					file: "f",
-					progress: 60,
-					loaded: 60,
-					total: 100,
-				});
+				receivedOptions = opts ?? {};
 				return async () => ({ data: new Float32Array(384) });
 			},
 		);
 		const embedder = createEmbedderWithPipeline(fakePipeline, onProgress);
 		await embedder.embed("warm up");
 
-		expect(onProgress).toHaveBeenCalledWith({
-			loaded: 60,
-			total: 100,
-			pct: 60,
-		});
+		expect(receivedOptions.progress_callback).toBeUndefined();
+		expect(onProgress).not.toHaveBeenCalled();
 	});
 
 	it("does not emit for a non-progress status during load", async () => {
@@ -126,7 +121,10 @@ describe("createEmbedder progress threading", () => {
 			async (
 				_task: string,
 				_model: string,
-				opts?: { progress_callback?: (i: ProgressInfo) => void },
+				opts?: {
+					dtype?: string;
+					progress_callback?: (i: ProgressInfo) => void;
+				},
 			) => {
 				opts?.progress_callback?.({ status: "done", name: "m", file: "f" });
 				return async () => ({ data: new Float32Array(384) });

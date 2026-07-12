@@ -41,6 +41,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Browser model boot could fail as a fake network error** — transformers.js 4.2.0's
+  progress callback starts three overlapping requests for the same 23 MB ONNX model.
+  Under Chromium cache pressure that produced `ERR_CACHE_WRITE_FAILURE` and left
+  screening unavailable even though the self-hosted model was healthy. Production now
+  uses the indeterminate loading banner and omits that callback; the minified-browser
+  gate asserts exactly one model request and races readiness against the error banner so
+  failures surface immediately instead of after a 160-second disabled-input wait.
 - **Silent false-clear on /screen (§C1, critical)** — the screen call was fired from a
   `setTimeout` with no `try/catch`, so a rejected `engine.screen()` left the previous
   (stale or empty) results on screen, reading as a confident "no matches". It is now

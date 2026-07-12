@@ -10,8 +10,9 @@
 //   - the embedder Worker (embedderWorker.ts) owns transformers.js: the ~23 MB
 //     all-MiniLM-L6-v2 weights download + ONNX inference for the QUERY only.
 //
-// bootstrap() drives both with a progress callback so the UI can show real
-// stages (downloading list… verifying… loading model…). It is idempotent: the
+// bootstrap() drives both through real stages (downloading list… verifying…
+// loading model…). Production model loading is intentionally indeterminate while
+// transformers.js 4.2.0's progress callback duplicates the ONNX fetch. It is idempotent: the
 // engine is built once and cached; later calls return the same instance.
 
 import {
@@ -116,9 +117,8 @@ export function throttleByRoundedPct(emit: OnEmbedProgress): OnEmbedProgress {
 	};
 }
 
-/** A bootstrap stage, surfaced to the UI for a real progress story. The
- * `loading-model` stage may fire with no progress yet (the plain banner) and
- * then re-fire carrying download progress as the ~23 MB model streams in. */
+/** A bootstrap stage surfaced to the UI. Production currently emits the plain
+ * `loading-model` stage; injected embedders may still provide progress. */
 export type BootStage =
 	| { readonly kind: "downloading" }
 	| { readonly kind: "verified"; readonly version: string }
@@ -164,8 +164,8 @@ export interface CatalogListInfo {
 }
 
 /** The seams bootstrap depends on; defaulted to the real embedder Worker + the
- * signed-bundle source. `makeEmbedder` receives an `onProgress` sink the runtime
- * wires to the boot banner so model-download progress reaches the UI;
+ * signed-bundle source. `makeEmbedder` receives an optional progress sink for
+ * injected implementations; the production worker currently stays indeterminate;
  * `openBundleSource` delta-syncs + verifies (fail-closed) the signed bundle (the
  * ONLY catalog/list path); `clearCache` drops the durable OPFS bundle store (the
  * "Clear cached lists" affordance). */

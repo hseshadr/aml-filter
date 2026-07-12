@@ -31,12 +31,9 @@ import { expect, type Page, test } from "@playwright/test";
  *       playwright.c1.config.ts) so the warmup rejects at the 120s ceiling
  *       instead of hanging forever.
  *
- *   (c) progress percent — SKIPPED. transformers.js only emits a download percent
- *       when the response carries a Content-Length it trusts; for the local
- *       /models/ mirror (and under route interception) the `total` is unreliable,
- *       so a "%-increases" assertion would be flaky. The progress WIRING is
- *       covered deterministically by the runtime unit test
- *       ("threads an embedder progress event into a loading-model stage").
+ *   (c) progress percent — intentionally absent. transformers.js 4.2.0's progress
+ *       callback duplicates the ONNX request and can fail Chromium's HTTP cache.
+ *       Production keeps the honest indeterminate loading state instead.
  */
 
 /**
