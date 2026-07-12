@@ -7,8 +7,15 @@
 #   - Content-Security-Policy (CSP): the app loads WASM, spawns web/module workers,
 #     and fetches the same-origin bundle; a wrong CSP silently breaks the screen.
 #     Left as a browser-validated follow-up (see docs/DEPLOY.md).
+#
+# HSTS: aml-filter.com is served HTTPS-only via Cloudflare Pages, so pin HTTPS for
+# a year (and cover subdomains) to close the first-visit SSL-strip / downgrade
+# window. This is purely additive — it constrains the TRANSPORT, never what the
+# app is allowed to load — so it cannot break the WASM / worker / same-origin
+# bundle screen path the way a wrong CSP/COEP would.
 /*
   X-Frame-Options: DENY
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: geolocation=(), microphone=(), camera=()
+  Strict-Transport-Security: max-age=31536000; includeSubDomains
