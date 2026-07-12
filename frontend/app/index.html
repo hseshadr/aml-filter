@@ -2,8 +2,63 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/logo.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="index, follow" />
+    <meta
+      name="description"
+      content="A zero-server, in-browser sanctions screening engineering demo with signed watchlist data and local-first review tools."
+    />
+    <meta name="application-name" content="AML-Filter" />
+    <meta name="theme-color" content="#0f5c4d" />
+    <link rel="canonical" href="https://aml-filter.com/" />
+    <link rel="icon" type="image/svg+xml" href="/logo.svg" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="AML-Filter" />
+    <meta
+      property="og:title"
+      content="AML-Filter | In-Browser Sanctions Screening Demo"
+    />
+    <meta
+      property="og:description"
+      content="Screen names against signed sanctions data in your browser. No account or backend required."
+    />
+    <meta property="og:url" content="https://aml-filter.com/" />
+    <meta property="og:image" content="https://aml-filter.com/logo.svg" />
+    <meta property="og:image:alt" content="AML-Filter logo" />
+
+    <meta name="twitter:card" content="summary" />
+    <meta
+      name="twitter:title"
+      content="AML-Filter | In-Browser Sanctions Screening Demo"
+    />
+    <meta
+      name="twitter:description"
+      content="Screen names against signed sanctions data in your browser. No account or backend required."
+    />
+    <meta name="twitter:image" content="https://aml-filter.com/logo.svg" />
+    <meta name="twitter:image:alt" content="AML-Filter logo" />
+
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "name": "AML-Filter",
+        "url": "https://aml-filter.com/",
+        "description": "A zero-server, in-browser sanctions screening engineering demo with signed watchlist data and local-first review tools.",
+        "applicationCategory": "BusinessApplication",
+        "operatingSystem": "Any modern browser",
+        "browserRequirements": "JavaScript and WebAssembly support",
+        "isAccessibleForFree": true,
+        "codeRepository": "https://github.com/hseshadr/aml-filter",
+        "license": "https://github.com/hseshadr/aml-filter/blob/main/LICENSE",
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "USD"
+        }
+      }
+    </script>
     <!-- No web-font CDN. The public landing's display/body faces resolve from the
          visitor's local Fraunces / Hanken Grotesk if installed, else a system
          serif / sans fallback (see --landing-font-* in landing.css). This keeps
@@ -11,11 +66,26 @@
          standard §8.1b as the self-hosted model weights and ORT loader. The old
          fonts.googleapis.com <link> fired on EVERY page (including /screen); the
          cold-blocked C1 e2e now asserts zero font-CDN requests. -->
-    <title>AML-Filter v4</title>
+    <title>AML-Filter | In-Browser Sanctions Screening Demo</title>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <main>
+        <h1>AML-Filter</h1>
+        <p>
+          Screen names against signed sanctions data entirely in your browser.
+          No account or backend is required.
+        </p>
+        <nav aria-label="Primary">
+          <a href="/screen">Screen a name</a>
+          <a href="https://github.com/hseshadr/aml-filter">View source code</a>
+        </nav>
+        <p>
+          AML-Filter is an engineering demonstration, not legal advice and not a
+          compliance product. Do not use it to satisfy legal or regulatory obligations.
+        </p>
+      </main>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
-

@@ -1,5 +1,6 @@
-# Cloudflare Pages SPA fallback.
-# The app has client-side routes (/screen /customers /review /settings); without
-# this catch-all 200-rewrite, a deep-link refresh (e.g. /screen) would 404 on Pages.
-# 200 = rewrite (serve index.html, keep the URL) — NOT a 301/302 redirect.
-/*    /index.html    200
+# Each SPA route has a Vite HTML entrypoint, so Pages can serve deep links without
+# a catch-all 200 rewrite. The top-level 404.html handles every unknown path.
+/screen/ /screen 301
+/customers/ /customers 301
+/review/ /review 301
+/settings/ /settings 301

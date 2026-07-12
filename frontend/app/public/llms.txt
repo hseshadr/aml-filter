@@ -1,0 +1,14 @@
+# AML-Filter
+
+> AML-Filter is a zero-server engineering demonstration for screening names against signed sanctions data in a web browser.
+
+AML-Filter runs its screening and local review workflow in the browser. It has no account system or application backend. It is not legal advice and not a compliance product; do not use it to satisfy legal or regulatory obligations.
+
+## Primary links
+
+- [AML-Filter](https://aml-filter.com/): Product overview and scope.
+- [Screen a name](https://aml-filter.com/screen): Interactive in-browser screening demo.
+- [Source code](https://github.com/hseshadr/aml-filter): TypeScript source, setup, architecture, and tests.
+- [Watchlist format](https://github.com/hseshadr/aml-filter/blob/main/docs/WATCHLIST_FORMAT.md): Signed static watchlist and bundle format.
+- [License](https://github.com/hseshadr/aml-filter/blob/main/LICENSE): MIT license terms.
+- [Notices](https://github.com/hseshadr/aml-filter/blob/main/NOTICE): Product limitations and data attribution.

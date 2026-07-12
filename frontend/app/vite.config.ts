@@ -7,6 +7,8 @@ import { defineConfig, type Plugin } from "vite";
 import { configDefaults } from "vitest/config";
 import { resolveOrtAsset } from "./src/dev/ortDevAsset";
 
+const APP_ROOT = dirname(fileURLToPath(import.meta.url));
+
 // DEV-ONLY: serve the staged onnxruntime-web runtime under /ort/ as raw files.
 // In production /ort/ is plain static output and its loader module dynamic-
 // imports cleanly, but the dev server routes .mjs requests through the module
@@ -17,7 +19,7 @@ import { resolveOrtAsset } from "./src/dev/ortDevAsset";
 // run through resolveOrtAsset, which rejects anything that escapes the staged
 // /ort dir via `..` traversal (unit-tested in src/dev/ortDevAsset.test.ts).
 function serveOrtRuntimeRawInDev(): Plugin {
-	const publicDir = join(dirname(fileURLToPath(import.meta.url)), "public");
+	const publicDir = join(APP_ROOT, "public");
 	return {
 		name: "amlfilter:serve-ort-runtime-raw",
 		apply: "serve",
@@ -55,6 +57,15 @@ export default defineConfig({
 		// edge-reco's app tsconfig target = es2023, where the identical embedder
 		// works.)
 		target: "es2022",
+		rolldownOptions: {
+			input: {
+				main: join(APP_ROOT, "index.html"),
+				screen: join(APP_ROOT, "screen.html"),
+				customers: join(APP_ROOT, "customers.html"),
+				review: join(APP_ROOT, "review.html"),
+				settings: join(APP_ROOT, "settings.html"),
+			},
+		},
 	},
 	optimizeDeps: {
 		// sqlite-wasm resolves its .wasm + helper assets relative to its own
