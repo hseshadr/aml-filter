@@ -106,7 +106,7 @@ jobs:
           exit "$missing"
 
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           # Deploy the exact commit that passed CI (auto-run); HEAD for manual.
           ref: ${{ github.event.workflow_run.head_sha || github.ref }}
@@ -116,7 +116,7 @@ jobs:
         with:
           package_json_file: frontend/package.json
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v6
         with:
           node-version-file: frontend/.nvmrc
           cache: pnpm
@@ -130,7 +130,7 @@ jobs:
       # hard-429s GitHub runner IPs, so pull them from our own release instead.
       - name: Cache self-hosted model weights
         id: model-weights-cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: frontend/app/public/models
           key: model-weights-${{ runner.os }}-rel1-${{ hashFiles('frontend/app/scripts/download-model.mjs') }}
