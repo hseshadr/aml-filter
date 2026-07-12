@@ -1,6 +1,7 @@
 // OFAC SDN adapter — wraps the existing parseSdn/SDN.CSV+ALT.CSV reader.
 //
-// fetchRaw: REAL — pulls the live SDN.CSV + ALT.CSV off treasury.gov.
+// fetchRaw: REAL — pulls the live SDN.CSV + ALT.CSV off the OFAC sanctions-list
+//           service (OFAC_BASE, overridable via env; see fetchOfac.ts).
 // parse:    REAL — delegates to parseSdn (fixture-tested in ofacSource.test.ts
 //           and fetchOfac.test.ts). entity_id is namespaced "OFAC_SDN:<ent_num>".
 

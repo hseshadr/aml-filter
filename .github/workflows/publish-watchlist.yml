@@ -1,27 +1,33 @@
-# Publish the signed, content-addressed watchlist BUNDLE to Cloudflare R2.
+# Nightly: refresh the REAL sanctions bundle and redeploy aml-filter.com.
 #
-# Runs each adapter's real fetchRaw() (OFAC + EU + UN + UK all fetch live today),
+# Runs each adapter's real fetchRaw() (OFAC + UN + EU + UK all fetch live today),
 # maps each list to the publisher's wire shape, precomputes name vectors
 # (transformers.js, MiniLM) in Node, stages a deterministic tree, and shells out
 # to `edgeproc publish` to chunk + Ed25519-sign it into the content-addressed
 # `origin/{latest, manifest/<hash>, chunk/<hash>}` layout the in-tab delta-sync
 # tier consumes — all signed with the production key held in the
-# WATCHLIST_SIGNING_KEY secret. This signed bundle is the ONLY catalog path the
-# app loads (the old JSON `catalog.json` / per-list-dir tree was retired). A
-# source whose fetchRaw throws (an upstream feed is down) is logged-and-skipped,
-# so a single down feed never aborts the publish.
+# WATCHLIST_SIGNING_KEY secret. A source whose fetchRaw throws (an upstream feed
+# is down) is logged-and-skipped, so one down feed never aborts the publish.
+#
+# Delivery is SAME-ORIGIN (no R2, no separate lists.* host): the freshly-signed
+# bundle is written straight into the SPA's public/bundle/origin/ tree, so the
+# Vite build copies it into dist/ and Cloudflare Pages serves it at
+# /bundle/origin. The SPA fetches it same-origin (VITE_BUNDLE_BASE_URL unset →
+# runtime default "/bundle/origin"). Pages is already CDN-fronted, so this keeps
+# the edgeproc model — local-first processing over CDN-delivered signed artifacts
+# — without any object store to provision.
 #
 # Key format: WATCHLIST_SIGNING_KEY is the raw 32-byte Ed25519 seed, base64-
 # encoded (so it round-trips cleanly through a GitHub secret). The job decodes it
-# back to 32 raw bytes before signing. The signed /latest pointer verifies in-tab
-# against the committed frontend/app/public/public.key.
+# back to 32 raw bytes before signing. Before deploying, the signed /latest is
+# re-verified fail-closed (`edgeproc sync --key public.key`) against the committed
+# frontend/app/public/public.key — a bundle that does not verify never ships.
 #
-# Distribution: origin/ is uploaded to the Cloudflare R2 bucket (S3-compatible
-# API) at the bucket ROOT, so the app's VITE_BUNDLE_BASE_URL
-# (https://lists.aml-filter.com) GETs /chunk/<hash>, /manifest/<hash>, /latest
-# directly. Immutable chunks + manifests are uploaded FIRST (long max-age); the
-# `latest` pointer is uploaded LAST (no-cache) so a reader never sees a pointer
-# ahead of the chunks it names.
+# Required repository secrets:
+#   WATCHLIST_SIGNING_KEY   base64 of the raw 32-byte Ed25519 signing seed
+#   CLOUDFLARE_API_TOKEN    Pages:Edit-scoped API token
+#   CLOUDFLARE_ACCOUNT_ID   the account that owns the aml-filter Pages project
+# (The old R2_* secrets are no longer used — same-origin delivery retires them.)
 
 name: publish-watchlist
 
@@ -35,10 +41,10 @@ on:
         required: false
         type: string
 
-# Never let two publishes interleave (a half-uploaded bundle + a flipped pointer
-# would be a torn read). Queue, don't cancel.
+# Share the deploy concurrency group so a nightly refresh and a code-triggered
+# deploy never push the same Pages project at once. Queue, don't cancel.
 concurrency:
-  group: publish-watchlist
+  group: deploy-aml-filter-com
   cancel-in-progress: false
 
 permissions:
@@ -52,24 +58,66 @@ env:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: frontend
     steps:
+      - name: Guard — refuse to run until the deploy secrets are configured
+        working-directory: ${{ github.workspace }}
+        env:
+          SIGNING: ${{ secrets.WATCHLIST_SIGNING_KEY }}
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          missing=0
+          for v in SIGNING CF_TOKEN CF_ACCOUNT; do
+            if [ -z "${!v}" ]; then
+              echo "::error::secret behind $v is not configured (see this workflow's header)"
+              missing=1
+            fi
+          done
+          exit "$missing"
+
       - uses: actions/checkout@v5
 
       - uses: pnpm/action-setup@v6
         with:
-          version: 11.5.0
+          package_json_file: frontend/package.json
 
       - uses: actions/setup-node@v5
         with:
-          node-version: 22
+          node-version-file: frontend/.nvmrc
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
 
       - name: Install workspace deps
         run: pnpm install --frozen-lockfile
+
+      # Self-hosted MiniLM weights, fetched BEFORE any build. They feed BOTH the
+      # Node embedder (real-bundle build) and the SPA prebuild. HF's CDN hard-429s
+      # GitHub runner IPs, so we pull them from our own release instead.
+      - name: Cache self-hosted model weights
+        id: model-weights-cache
+        uses: actions/cache@v5
+        with:
+          path: frontend/app/public/models
+          key: model-weights-${{ runner.os }}-rel1-${{ hashFiles('frontend/app/scripts/download-model.mjs') }}
+
+      - name: Fetch self-hosted model weights (cache miss)
+        if: steps.model-weights-cache.outputs.cache-hit != 'true'
+        working-directory: frontend/app
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          dir=public/models/Xenova/all-MiniLM-L6-v2
+          mkdir -p "$dir/onnx"
+          gh release download model-weights-v1 --repo "$GITHUB_REPOSITORY" --dir "$dir" --clobber \
+            --pattern config.json --pattern tokenizer.json \
+            --pattern tokenizer_config.json --pattern special_tokens_map.json
+          gh release download model-weights-v1 --repo "$GITHUB_REPOSITORY" --dir "$dir/onnx" --clobber \
+            --pattern model_quantized.onnx
+          node scripts/download-model.mjs
 
       # edge-proc chunks + signs the staged tree. It is not published to PyPI, so
       # we clone the public repo at a pinned ref and `uv sync --extra bundles`
@@ -87,8 +135,9 @@ jobs:
           cd edge-proc
           uv sync --extra bundles
           echo "EDGEPROC_DIR=$PWD" >> "$GITHUB_ENV"
-          # Smoke-test the exact invocation contract the publisher uses.
+          # Smoke-test the exact invocation contracts the publisher + verify use.
           uv run --project "$PWD" edgeproc publish --help >/dev/null
+          uv run --project "$PWD" edgeproc sync --help >/dev/null
 
       - name: Resolve version stamp
         env:
@@ -106,70 +155,52 @@ jobs:
         env:
           WATCHLIST_SIGNING_KEY: ${{ secrets.WATCHLIST_SIGNING_KEY }}
         run: |
-          if [ -z "$WATCHLIST_SIGNING_KEY" ]; then
-            echo "::error::WATCHLIST_SIGNING_KEY secret is not set" && exit 1
-          fi
           printf '%s' "$WATCHLIST_SIGNING_KEY" | base64 -d > signing.key
           SIZE=$(wc -c < signing.key)
           [ "$SIZE" -eq 32 ] || { echo "::error::decoded key is $SIZE bytes, expected 32"; exit 1; }
 
-      - name: Build + publish the signed bundle
-        # build-real-bundle drives each adapter's real fetchRaw() itself; a source
-        # whose feed is down is logged-and-skipped, so the signed bundle contains
-        # exactly the lists that really fetched. It stages, then shells out to
-        # `uv run --project $EDGEPROC_DIR edgeproc publish` to chunk + sign into
-        # origin/.
+      # Build + sign the REAL bundle straight into the SPA's public tree so the
+      # Vite build serves it same-origin at /bundle/origin. Clean the prior
+      # contents first so the deployed tree is EXACTLY the freshly-signed bundle.
+      - name: Build + sign the real watchlist bundle (same-origin)
         run: |
+          ORIGIN="$GITHUB_WORKSPACE/frontend/app/public/bundle/origin"
+          rm -rf "$ORIGIN"
           pnpm --filter @amlfilter/publisher run build-real-bundle -- \
             --version "$VERSION" \
             --key "$GITHUB_WORKSPACE/frontend/signing.key" \
-            --out "$GITHUB_WORKSPACE/frontend/origin"
+            --out "$ORIGIN"
 
       - name: Scrub the key
         if: always()
         run: rm -f signing.key
 
-      - name: Sanity-check the bundle exists
+      # Covenant: the freshly-signed /latest MUST verify fail-closed against the
+      # pinned public key before anything deploys. `edgeproc sync` refuses to sync
+      # without a valid trust root, so a non-verifying bundle exits non-zero here.
+      - name: Verify the signed bundle against the pinned public key
         run: |
-          ORIGIN="$GITHUB_WORKSPACE/frontend/origin"
-          [ -d "$ORIGIN" ] || { echo "::error::origin/ was not produced"; exit 1; }
-          [ -f "$ORIGIN/latest" ] || { echo "::error::origin/latest pointer is missing"; exit 1; }
-          [ -d "$ORIGIN/manifest" ] || { echo "::error::origin/manifest/ is missing"; exit 1; }
-          [ -d "$ORIGIN/chunk" ] || { echo "::error::origin/chunk/ is missing"; exit 1; }
+          ORIGIN="$GITHUB_WORKSPACE/frontend/app/public/bundle/origin"
+          [ -f "$ORIGIN/latest" ] && [ -d "$ORIGIN/manifest" ] && [ -d "$ORIGIN/chunk" ] \
+            || { echo "::error::origin tree incomplete"; exit 1; }
+          uv run --project "$EDGEPROC_DIR" edgeproc sync \
+            --base-url "$ORIGIN" \
+            --cache-dir "$RUNNER_TEMP/verify-cache" \
+            --materialize-to "$RUNNER_TEMP/verify-out" \
+            --key "$GITHUB_WORKSPACE/frontend/app/public/public.key" \
+            --pretty
+          RECORDS=$(cat "$RUNNER_TEMP"/verify-out/*/entities.jsonl | grep -c .)
+          echo "verified signed bundle: $RECORDS screened records"
 
-      # Upload to R2 (S3-compatible). Two ORDERED steps so a reader never sees a
-      # `latest` pointer ahead of the immutable chunks/manifest it references:
-      #   1) sync everything EXCEPT `latest` (immutable, long cache),
-      #   2) only on success, cp `latest` LAST (no-cache).
-      # Upload to the bucket ROOT so served paths match VITE_BUNDLE_BASE_URL:
-      # GET /chunk/<hash>, /manifest/<hash>, /latest.
-      - name: Upload immutable chunks + manifest to R2
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          AWS_REGION: auto
-          R2_S3_ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
-          R2_BUCKET: ${{ secrets.R2_BUCKET }}
-          # R2 / AWS-CLI-v2 checksum interop: R2 rejects the default trailing
-          # checksum headers AWS-CLI-v2 now sends, so only send/validate when required.
-          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
-          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
-        run: |
-          aws s3 sync ./origin "s3://$R2_BUCKET" \
-            --endpoint-url "$R2_S3_ENDPOINT" \
-            --exclude "latest" \
-            --cache-control "public, max-age=31536000, immutable"
+      # Same-origin SPA build: no VITE_BUNDLE_BASE_URL → runtime defaults to
+      # /bundle/origin, which now holds the freshly-signed real bundle. Vite
+      # copies public/bundle/origin into dist/bundle/origin.
+      - name: Build the static SPA (same-origin bundle)
+        run: pnpm --filter aml-filter-app run build
 
-      - name: Flip the latest pointer on R2
+      - name: Deploy to Cloudflare Pages
+        # wrangler reads the API token + account id from the environment.
         env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          AWS_REGION: auto
-          R2_S3_ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
-          R2_BUCKET: ${{ secrets.R2_BUCKET }}
-          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
-          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
-        run: |
-          aws s3 cp ./origin/latest "s3://$R2_BUCKET/latest" \
-            --endpoint-url "$R2_S3_ENDPOINT" \
-            --cache-control "no-cache"
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx wrangler@4.103.0 pages deploy app/dist --project-name=aml-filter --branch=main

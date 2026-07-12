@@ -5,6 +5,7 @@
 # secrets exist — when they are absent the auto-run SKIPS cleanly (no red X);
 # a manual run fails fast at the guard step. Secrets required:
 #
+#   WATCHLIST_SIGNING_KEY   base64 of the raw 32-byte Ed25519 signing seed
 #   CLOUDFLARE_API_TOKEN    Pages:Edit-scoped API token
 #   CLOUDFLARE_ACCOUNT_ID   the Cloudflare account that owns the `aml-filter`
 #                           Pages project + the aml-filter.com zone
@@ -12,11 +13,14 @@
 # A manual run without the secrets fails fast at the guard step with a clear
 # message — it cannot half-deploy. The auto-run skips instead of failing.
 #
-# SPA-ONLY: this deploys the static React SPA to `frontend/app/dist`. The signed,
-# content-addressed watchlist BUNDLE is published SEPARATELY to Cloudflare R2 at
-# lists.aml-filter.com by the `publish-watchlist` workflow — this deploy never
-# touches the bundle signing key. The SPA fetches the bundle at runtime via the
-# build-time env `VITE_BUNDLE_BASE_URL=https://lists.aml-filter.com`. See docs/DEPLOY.md.
+# SAME-ORIGIN BUNDLE: this workflow rebuilds the REAL signed sanctions bundle from
+# the live source lists (OFAC + UN + EU + UK), signs it with WATCHLIST_SIGNING_KEY,
+# and writes it into the SPA's public/bundle/origin/ tree so the Vite build serves
+# it same-origin at /bundle/origin. There is no separate object store — Cloudflare
+# Pages is already CDN-fronted. The committed demo bundle is the cold-clone / test
+# artifact only; production always serves a freshly-built real list (so a routine
+# code deploy never reverts the site to the demo). The nightly `publish-watchlist`
+# workflow refreshes the same bundle on a schedule. See docs/DEPLOY.md.
 #
 # One-time prerequisites (outside this workflow, done by a human with wrangler):
 #   npx wrangler pages project create aml-filter --production-branch=main
@@ -34,10 +38,15 @@ on:
 permissions:
   contents: read
 
-# Never let two deploys interleave their uploads.
+# Never let two deploys interleave their uploads (shared with publish-watchlist).
 concurrency:
   group: deploy-aml-filter-com
   cancel-in-progress: false
+
+env:
+  # edge-proc is NOT on PyPI; CI clones the public repo and `uv sync`s it.
+  EDGEPROC_REPO: https://github.com/hseshadr/edge-proc
+  EDGEPROC_REF: v0.1.1
 
 jobs:
   # Only auto-deploy when the triggering CI run succeeded on main. For a manual
@@ -57,10 +66,11 @@ jobs:
       - name: Detect whether deploy secrets are configured
         id: check
         env:
+          SIGNING: ${{ secrets.WATCHLIST_SIGNING_KEY }}
           CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
-          if [ -n "$CF_TOKEN" ] && [ -n "$CF_ACCOUNT" ]; then
+          if [ -n "$SIGNING" ] && [ -n "$CF_TOKEN" ] && [ -n "$CF_ACCOUNT" ]; then
             echo "configured=true" >> "$GITHUB_OUTPUT"
           else
             echo "configured=false" >> "$GITHUB_OUTPUT"
@@ -76,17 +86,18 @@ jobs:
       needs.preflight.outputs.configured == 'true' ||
       github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - name: Guard — refuse to run until the deploy secrets are configured
         # Runs BEFORE checkout — run from the always-present workspace root.
         working-directory: ${{ github.workspace }}
         env:
+          SIGNING: ${{ secrets.WATCHLIST_SIGNING_KEY }}
           CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           missing=0
-          for v in CF_TOKEN CF_ACCOUNT; do
+          for v in SIGNING CF_TOKEN CF_ACCOUNT; do
             if [ -z "${!v}" ]; then
               echo "::error::secret behind $v is not configured (see the header of .github/workflows/deploy.yml)"
               missing=1
@@ -114,9 +125,9 @@ jobs:
       - name: Install workspace
         run: pnpm -C frontend install --frozen-lockfile
 
-      # Self-hosted SPA model weights, fetched BEFORE the build (same as CI): the
-      # build's `prebuild` hook resolves them from app/public/models/ instead of
-      # huggingface.co (whose CDN hard-429s GitHub runner IPs).
+      # Self-hosted MiniLM weights, fetched BEFORE the build (same as CI). They feed
+      # BOTH the Node embedder (real-bundle build) and the SPA prebuild. HF's CDN
+      # hard-429s GitHub runner IPs, so pull them from our own release instead.
       - name: Cache self-hosted model weights
         id: model-weights-cache
         uses: actions/cache@v5
@@ -139,11 +150,65 @@ jobs:
             --pattern model_quantized.onnx
           node scripts/download-model.mjs
 
-      # The canonical Pages build: the SPA's `tsc --noEmit && vite build` with the
-      # runtime bundle host wired in. Output: frontend/app/dist.
-      - name: Build the static SPA (bundle fetched at runtime from R2)
+      # edge-proc chunks + signs the staged tree (not on PyPI → clone + uv sync).
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.3.2
+
+      - name: Install edge-proc
+        working-directory: ${{ runner.temp }}
+        run: |
+          git clone --depth 1 --branch "$EDGEPROC_REF" "$EDGEPROC_REPO" edge-proc
+          cd edge-proc
+          uv sync --extra bundles
+          echo "EDGEPROC_DIR=$PWD" >> "$GITHUB_ENV"
+          uv run --project "$PWD" edgeproc publish --help >/dev/null
+          uv run --project "$PWD" edgeproc sync --help >/dev/null
+
+      - name: Decode signing key
         env:
-          VITE_BUNDLE_BASE_URL: https://lists.aml-filter.com
+          WATCHLIST_SIGNING_KEY: ${{ secrets.WATCHLIST_SIGNING_KEY }}
+        run: |
+          printf '%s' "$WATCHLIST_SIGNING_KEY" | base64 -d > "$GITHUB_WORKSPACE/frontend/signing.key"
+          SIZE=$(wc -c < "$GITHUB_WORKSPACE/frontend/signing.key")
+          [ "$SIZE" -eq 32 ] || { echo "::error::decoded key is $SIZE bytes, expected 32"; exit 1; }
+
+      # Build + sign the REAL bundle straight into the SPA's public tree so the
+      # Vite build serves it same-origin at /bundle/origin (replacing the committed
+      # demo). Clean the prior contents so the deployed tree is EXACTLY the bundle.
+      - name: Build + sign the real watchlist bundle (same-origin)
+        run: |
+          VERSION="$(date -u +%Y-%m-%d)"
+          ORIGIN="$GITHUB_WORKSPACE/frontend/app/public/bundle/origin"
+          rm -rf "$ORIGIN"
+          pnpm -C frontend --filter @amlfilter/publisher run build-real-bundle -- \
+            --version "$VERSION" \
+            --key "$GITHUB_WORKSPACE/frontend/signing.key" \
+            --out "$ORIGIN"
+
+      - name: Scrub the key
+        if: always()
+        run: rm -f "$GITHUB_WORKSPACE/frontend/signing.key"
+
+      # Covenant: the freshly-signed /latest MUST verify fail-closed against the
+      # pinned public key before deploy. `edgeproc sync` refuses without a valid
+      # trust root, so a non-verifying bundle exits non-zero here.
+      - name: Verify the signed bundle against the pinned public key
+        run: |
+          ORIGIN="$GITHUB_WORKSPACE/frontend/app/public/bundle/origin"
+          [ -f "$ORIGIN/latest" ] && [ -d "$ORIGIN/manifest" ] && [ -d "$ORIGIN/chunk" ] \
+            || { echo "::error::origin tree incomplete"; exit 1; }
+          uv run --project "$EDGEPROC_DIR" edgeproc sync \
+            --base-url "$ORIGIN" \
+            --cache-dir "$RUNNER_TEMP/verify-cache" \
+            --materialize-to "$RUNNER_TEMP/verify-out" \
+            --key "$GITHUB_WORKSPACE/frontend/app/public/public.key" \
+            --pretty
+          RECORDS=$(cat "$RUNNER_TEMP"/verify-out/*/entities.jsonl | grep -c .)
+          echo "verified signed bundle: $RECORDS screened records"
+
+      # Same-origin SPA build: no VITE_BUNDLE_BASE_URL → runtime defaults to
+      # /bundle/origin (which now holds the freshly-signed real bundle).
+      - name: Build the static SPA (same-origin bundle)
         run: pnpm -C frontend --filter aml-filter-app run build
 
       - name: Deploy to Cloudflare Pages
