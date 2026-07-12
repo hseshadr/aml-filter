@@ -151,12 +151,12 @@ type ExtractFn = (
 	options: { readonly pooling: "mean"; readonly normalize: boolean },
 ) => Promise<{ readonly data: ArrayLike<number> }>;
 
-/** Pipeline options this module passes through: the shared {@link EMBEDDING_DTYPE}
- * (always pinned), plus the progress callback transformers.js invokes during model
- * construction (weight download). */
+/** Pipeline options this module passes through. The dtype stays pinned, while the
+ * transformers.js progress callback is deliberately omitted: in 4.2.0 it starts
+ * overlapping metadata/model fetches for the same ONNX file, which can fail the
+ * browser HTTP cache and abort an otherwise healthy same-origin model load. */
 interface PipelineOptions {
 	readonly dtype?: string;
-	readonly progress_callback?: (info: ProgressInfo) => void;
 }
 
 /** A narrowed view of transformers.js `pipeline`: building the feature-extraction
@@ -195,41 +195,27 @@ class PipelineEmbedder implements Embedder {
 	}
 }
 
-/** Build the `pipeline` options: always pin the shared {@link EMBEDDING_DTYPE} (so
- * the browser no longer relies on the wasm device's implicit q8 default), and add
- * the progress callback only when a sink is wired. */
-function pipelineOptions(
-	onProgress: OnEmbedProgress | undefined,
-): PipelineOptions {
-	if (onProgress === undefined) {
-		return { dtype: EMBEDDING_DTYPE };
-	}
-	return {
-		dtype: EMBEDDING_DTYPE,
-		progress_callback: (info) => {
-			const mapped = mapProgress(info);
-			if (mapped !== undefined) {
-				onProgress(mapped);
-			}
-		},
-	};
+/** Build the `pipeline` options without the unsafe 4.2.0 progress callback. */
+function pipelineOptions(): PipelineOptions {
+	return { dtype: EMBEDDING_DTYPE };
 }
 
 /** Load the feature-extraction pipeline via an injected `pipeline`, pinning the
- * shared dtype and threading the (optional) progress sink as `progress_callback`. */
+ * shared dtype. The optional sink remains a source-compatible API seam but does
+ * not fire until transformers.js can report progress without duplicate fetches. */
 function loadWith(
 	load: LoadFeatureExtraction,
-	onProgress: OnEmbedProgress | undefined,
+	_onProgress: OnEmbedProgress | undefined,
 ): () => Promise<ExtractFn> {
-	return () =>
-		load("feature-extraction", EMBEDDING_MODEL, pipelineOptions(onProgress));
+	return () => load("feature-extraction", EMBEDDING_MODEL, pipelineOptions());
 }
 
 /**
  * The default embedder, backed by the transformers.js feature-extraction
  * pipeline. The model is fetched + compiled lazily on the first embed call and
- * cached for the lifetime of the embedder. An optional `onProgress` sink is
- * called once per download tick so the boot banner can show a real percent.
+ * cached for the lifetime of the embedder. The optional progress sink is retained
+ * for API compatibility but intentionally receives no events with transformers.js
+ * 4.2.0; the UI shows an indeterminate loading state instead.
  */
 export function createEmbedder(onProgress?: OnEmbedProgress): Embedder {
 	const load = pipeline as unknown as LoadFeatureExtraction;
@@ -237,8 +223,8 @@ export function createEmbedder(onProgress?: OnEmbedProgress): Embedder {
 }
 
 /**
- * An embedder over an injected `pipeline` — the seam tests use to exercise the
- * progress_callback wiring without the real ~23 MB download.
+ * An embedder over an injected `pipeline` — the seam tests use to verify the
+ * production options without the real ~23 MB download.
  */
 export function createEmbedderWithPipeline(
 	load: LoadFeatureExtraction,

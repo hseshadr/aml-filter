@@ -3,14 +3,9 @@
 // query string and reply with the normalized vector over postMessage. The model
 // is loaded once on the first request and cached by createEmbedder().
 //
-// During that first load transformers.js streams download progress; the worker
-// forwards each tick to the client as a one-way `progress` message so the boot
-// banner can show a real percent. Every worker→client message carries an
-// explicit `type` tag — "result" | "progress" — so the client routes on the tag
-// rather than on the structural presence of a field. Progress ticks are tagged
-// with the id of the request whose embed triggered the load (captured by
-// closure, not read from a mutable global), so the tag is correct even if a
-// future change lets embeds overlap.
+// The client protocol can carry progress, but transformers.js 4.2.0's callback
+// triggers duplicate ONNX fetches, so the production embedder intentionally
+// emits only the indeterminate loading state until that upstream behavior is safe.
 
 /// <reference lib="webworker" />
 
@@ -52,12 +47,13 @@ export type WorkerMessage = EmbedResponse | ProgressMessage;
 let embedder: Embedder | undefined;
 
 /**
- * Build (once) the embedder whose model-load progress is tagged with `id`.
+ * Build (once) the embedder whose model-load progress would be tagged with `id`.
  * The id is captured by closure here — NOT read from a mutable module global
  * inside the callback — so progress ticks carry the id of the request that
  * actually triggered the load even if a future change lets embeds overlap.
  *
- * Invariant today: exactly one embed is in flight during the single model load
+ * Progress is currently suppressed by createEmbedder because the upstream
+ * callback duplicates the model fetch. Invariant today: exactly one embed is in flight during the single model load
  * (the first request), so the embedder built here is the cached one. A second
  * concurrent request reuses this same embedder and never re-enters the load, so
  * no in-flight progress can be mis-tagged.
