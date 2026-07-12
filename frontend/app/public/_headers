@@ -1,13 +1,12 @@
 # Cloudflare Pages response headers (pattern line, then indented `Name: Value` lines).
 #
 # Safe security headers only. We deliberately do NOT set:
-#   - Cross-Origin-Embedder-Policy (COEP): `require-corp` would break loading the
-#     cross-origin R2 bundle from https://lists.aml-filter.com. The app does not
-#     need cross-origin isolation.
-#   - Cross-Origin-Opener-Policy (COOP): unnecessary and pairs with COEP.
+#   - Cross-Origin-Embedder-Policy (COEP) / Cross-Origin-Opener-Policy (COOP):
+#     the signed watchlist bundle is now served SAME-ORIGIN from /bundle/origin,
+#     so cross-origin isolation buys nothing; left off to avoid regressions.
 #   - Content-Security-Policy (CSP): the app loads WASM, spawns web/module workers,
-#     and fetches the R2 bundle; a wrong CSP silently breaks the screen. Left as a
-#     browser-validated follow-up (see docs/DEPLOY.md).
+#     and fetches the same-origin bundle; a wrong CSP silently breaks the screen.
+#     Left as a browser-validated follow-up (see docs/DEPLOY.md).
 /*
   X-Frame-Options: DENY
   X-Content-Type-Options: nosniff

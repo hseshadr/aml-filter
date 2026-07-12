@@ -179,8 +179,8 @@ describe("runRealBundle happy path", () => {
 		workDir = await mkdtemp(join(tmpdir(), "aml-real-cli-"));
 		outDir = join(workDir, "origin");
 		stubFetchRoutes([
-			["treasury.gov/ofac/downloads/SDN.CSV", SDN_CSV],
-			["treasury.gov/ofac/downloads/ALT.CSV", ALT_CSV],
+			["PublicationPreview/exports/SDN.CSV", SDN_CSV],
+			["PublicationPreview/exports/ALT.CSV", ALT_CSV],
 			["scsanctions.un.org", UN_XML],
 			["webgate.ec.europa.eu", EU_XML],
 			["ofsistorage.blob.core.windows.net", UK_CSV],

@@ -1,10 +1,15 @@
 // Fetch + parse the live OFAC SDN list into the publisher's source-JSONL shape.
 //
-// OFAC publishes fixed-position CSVs at https://www.treasury.gov/ofac/downloads/:
+// OFAC publishes fixed-position CSVs from its sanctions-list service at
+// https://sanctionslistservice.ofac.treas.gov/api/PublicationPreview/exports/
+// (the current machine-readable portal behind https://sanctionslist.ofac.treas.gov;
+// each export 302-redirects to a short-lived presigned S3 URL, which fetch follows):
 //   SDN.CSV  ent_num, SDN_Name, SDN_Type, Program, Title, Call_Sign, Vess_type,
 //            Tonnage, GRT, Vess_flag, Vess_owner, Remarks
 //   ALT.CSV  ent_num, alt_num, alt_type, alt_name, alt_remarks
 // Rows are quoted, comma-separated, with "-0-" used as the empty sentinel.
+// The base URL is overridable via the OFAC_BASE env var (proactive config; no
+// hardcoded host lock-in) — unset falls back to the service default above.
 //
 // This maps id / name / type / aliases FOR REAL (joining ALT.CSV by ent_num).
 // DOB and country are extracted from the freeform, semicolon-delimited `Remarks`
@@ -23,7 +28,9 @@ import {
 	type SourceLine,
 } from "./sources/source.ts";
 
-export const OFAC_BASE = "https://www.treasury.gov/ofac/downloads";
+export const OFAC_BASE =
+	process.env.OFAC_BASE ??
+	"https://sanctionslistservice.ofac.treas.gov/api/PublicationPreview/exports";
 const EMPTY = "-0-";
 
 /** Split one OFAC CSV line into fields per RFC 4180, then map the "-0-" sentinel
