@@ -24,6 +24,7 @@ interface SyncArgs {
 }
 
 const DECODER = new TextDecoder();
+const MAX_CONCURRENT_CHUNK_FETCHES = 8;
 
 /**
  * A signature-valid pointer whose monotonic `sequence` would move the active
@@ -129,13 +130,27 @@ async function fetchMissing(
 	fetchBytes: FetchBytes,
 	store: CacheStore,
 ): Promise<number> {
-	let bytesFetched = 0;
-	for (const chunkHash of missing) {
-		const compressed = await fetchBytes(`${baseUrl}/chunk/${chunkHash}`);
-		await store.putChunkCompressed(chunkHash, compressed);
-		bytesFetched += compressed.byteLength;
-	}
-	return bytesFetched;
+	let nextIndex = 0;
+	const fetchNext = async (): Promise<number> => {
+		let workerBytes = 0;
+		while (nextIndex < missing.length) {
+			const chunkHash = missing[nextIndex];
+			nextIndex += 1;
+			if (chunkHash === undefined) {
+				break;
+			}
+			const compressed = await fetchBytes(`${baseUrl}/chunk/${chunkHash}`);
+			await store.putChunkCompressed(chunkHash, compressed);
+			workerBytes += compressed.byteLength;
+		}
+		return workerBytes;
+	};
+	const workers = Array.from(
+		{ length: Math.min(MAX_CONCURRENT_CHUNK_FETCHES, missing.length) },
+		fetchNext,
+	);
+	const fetchedByWorker = await Promise.all(workers);
+	return fetchedByWorker.reduce((total, workerBytes) => total + workerBytes, 0);
 }
 
 function concat(parts: ReadonlyArray<Uint8Array>): Uint8Array {
