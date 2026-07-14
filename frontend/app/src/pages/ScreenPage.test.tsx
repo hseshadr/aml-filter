@@ -4,6 +4,7 @@ import {
 	render,
 	screen,
 	waitFor,
+	within,
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -104,6 +105,14 @@ const bankMatch = matchWithTrigram(
 	{ entity_id: "DEMO:BANK", primary_name: "Madeupistan Imaginary Bank" },
 	0.267,
 );
+// A NON-PERSON entity (an organization). The signed watchlist wire format
+// carries no entity type, so — like every bundle-materialized entity — it
+// arrives with the engine's "PERSON" placeholder. That placeholder is the
+// mislabel the match card must not surface. Kept via token-containment on "banco".
+const bancoMatch = matchWithTrigram(
+	{ entity_id: "DEMO:BANCO", primary_name: "Banco Nacional De Cuba" },
+	0.2,
+);
 
 // Two distinguishable matches for the stale-cancellation test. The "slow"
 // query resolves LATER (longer delay) than the "fast" one, so if cancellation
@@ -197,6 +206,15 @@ vi.mock("@amlfilter/browser", async (importActual) => {
 							list_versions_used: {},
 							execution_time_ms: 3,
 							matches: [bankMatch],
+						});
+					}
+					// "banco": a non-person org whose wire record has no entity type.
+					if (lower === "banco") {
+						return Promise.resolve({
+							request_id: "banco",
+							list_versions_used: {},
+							execution_time_ms: 3,
+							matches: [bancoMatch],
 						});
 					}
 					// Delay-aware branches drive the stale-result test: "slow"
@@ -475,5 +493,22 @@ describe("ScreenPage — in-browser search", () => {
 		);
 		// Empty date input must not pass an empty string — it is omitted entirely.
 		expect(observedDobs.every((d) => d === undefined)).toBe(true);
+	});
+
+	it("does not mislabel a non-person entity with a PERSON type badge", async () => {
+		render(<ScreenPage />);
+		const box = await readyBox();
+		fireEvent.change(box, { target: { value: "banco" } });
+		const name = await waitFor(() =>
+			screen.getByText("Banco Nacional De Cuba", {
+				selector: ".match-card__name",
+			}),
+		);
+		const card = name.closest("li.match-card") as HTMLElement;
+		// The signed watchlist wire format carries no entity type, so an org
+		// materializes with the engine's "PERSON" placeholder. Rather than assert a
+		// fabricated "PERSON" for a bank, the dossier OMITS the type label.
+		expect(card.querySelector(".match-card__type")).toBeNull();
+		expect(within(card).queryByText("PERSON")).toBeNull();
 	});
 });

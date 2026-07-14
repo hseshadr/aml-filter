@@ -58,14 +58,14 @@ product runs in the tab. The flow:
    changes. Dispositions are written to an append-only `match_events` audit trail.
 5. **Bidirectional sync**: a list change re-screens all customers; a customer change
    re-screens just that customer.
-6. **Durable, offline cache**: verified list bytes are cached in IndexedDB (separate from
-   the customer DB) and **re-verified fail-closed on every load**; "Clear cached lists" is
-   in `/settings`.
+6. **Durable, offline cache**: verified bundle bytes are cached in the OPFS bundle store
+   (separate from the customer DB) and **re-verified fail-closed on every load**; "Clear
+   cached lists" is in `/settings`.
 
 **Tech Stack**: React + TypeScript (Vite) SPA, a pnpm workspace, Biome, transformers.js
 MiniLM (`Xenova/all-MiniLM-L6-v2`, 384-dim) running both in-tab and in-Node, SQLite-WASM
-over OPFS (customers), IndexedDB (durable list cache), and an Ed25519-signed catalog of
-static watchlist files (served same-origin).
+over OPFS (customers), an OPFS bundle store (the durable, verified list cache), and an
+Ed25519-signed, content-addressed watchlist bundle (served same-origin).
 
 ## Common Commands
 
@@ -163,9 +163,9 @@ exemplar for two shipped patterns.**
   by frozen golden parity fixtures (scoring + tiering).
 - **§8.1(c) — browser storage = sqlite-wasm over OPFS.** Customer/KYC data lives in
   `@sqlite.org/sqlite-wasm` over OPFS (`@amlfilter/workstation` DB worker); verified
-  bundle bytes live in the OPFS bundle store owned by the sync worker. IndexedDB is
-  used only for the legacy durable list cache (trivial verified-bytes KV), per the
-  §8.1(c) fallback rule.
+  bundle bytes live in the OPFS bundle store owned by the sync worker
+  (`amlfilter-browser` `engine/sync/opfsStore.ts`). No IndexedDB list cache remains — the
+  signed content-addressed bundle over OPFS is the single verified-list store.
 
 ## Architecture
 
@@ -185,19 +185,24 @@ committed demo catalog is built by `build-demo-multilist`. The single-list `publ
 set. Wire format: `docs/WATCHLIST_FORMAT.md`.
 
 ### 2. Browser engine — `frontend/packages/amlfilter-browser` (`@amlfilter/browser`)
-Fetch + **verify fail-closed** the signed `catalog.json` (the trust anchor), then each
-enabled list (`verifyEd25519` against the pinned `frontend/app/public/public.key`) → decode
-the precomputed name vectors → embed the query name in-tab once → **brute-force cosine**
-retrieval per list → explainable weighted scorer (`computeScore` / `PRESETS`: `strict` /
-`balanced` / `lenient`; 5 signals — `name_vector`, `name_trigram`, `alias_match`,
+Delta-sync the signed, content-addressed watchlist **bundle** — **the ONLY catalog/list
+path** — same-origin from `/bundle/origin` (`VITE_BUNDLE_BASE_URL` only OVERRIDES the base
+origin): the signed `latest` pointer → the content-hashed `manifest` → only the missing
+deduplicated `chunk/` files. **Verify fail-closed** every byte (Ed25519 + SHA-256 against the
+pinned `frontend/app/public/public.key`; any signature or hash mismatch aborts the load) →
+decode the precomputed name vectors → embed the query name in-tab once → **brute-force
+cosine** retrieval per list → explainable weighted scorer (`computeScore` / `PRESETS`:
+`strict` / `balanced` / `lenient`; 5 signals — `name_vector`, `name_trigram`, `alias_match`,
 `dob_match`, `country_match`). The `MultiListScreeningEngine` (`engine/multiEngine.ts`)
 holds one index per list over a shared embedder, applies the per-list threshold
-(`perList[id] ?? query.threshold ?? default`), and merges. Verified bytes are cached in a
-durable **IndexedDB** store (`engine/listCache.ts`, separate from the customer DB,
-re-verified fail-closed every load → offline support). Entry points:
-`EngineRuntime.bootstrap()` → `ScreeningEngine.screen({ name })`. (The old chunked-CAS /
-OPFS / GearCDC / zstd sync tier and `EngineClient` were **removed**; the `./engine` export
-is now just the crypto primitives.)
+(`perList[id] ?? query.threshold ?? default`), and merges. Verified bundle bytes are cached
+durably in the **OPFS bundle store** (`engine/sync/opfsStore.ts`, owned by the sync Web
+Worker, separate from the customer DB), re-verified fail-closed on every load → offline
+support; a zero-byte or integrity-failing chunk is evicted and re-fetched (self-healing).
+Entry points: `EngineRuntime.bootstrap()` → `ScreeningEngine.screen({ name })`. (The
+standalone `catalog.json` / per-list `watchlist.json` JSON fetch path and its IndexedDB list
+cache were **retired** — the signed content-addressed bundle over OPFS is now the only
+transport.)
 
 ### 3. Workstation — `frontend/packages/amlfilter-workstation` (`@amlfilter/workstation`) + `frontend/app`
 A **SQLite-WASM/OPFS DB worker** (schema v2, `SCHEMA_VERSION = 2`; tables `customers`,
@@ -213,19 +218,20 @@ sensitivity, per-list thresholds, list selection, and analyst name. Tiering
 (`classifyTier`) maps a score to **STRONG** (≥0.8) / **POSSIBLE** (≥ the preset threshold)
 / **WEAK**; it is layered on top of scoring and **never alters the score**.
 
-### Signed-catalog distribution
-The lists ship as plain **signed static files** served same-origin: a signed `catalog.json`
-registry over per-list `watchlist.json`/`manifest` files. The browser verifier is
-**fail-closed** (Ed25519 over the pinned public key) for the catalog and every list — over
-fetched and cached bytes alike; any signature or hash mismatch aborts the load, with no
-silent empty list.
+### Signed-bundle distribution
+The lists ship as a signed, content-addressed **bundle** served same-origin from
+`/bundle/origin`: a signed `latest` pointer → a content-hashed `manifest` → deduplicated
+`chunk/` CAS files. The browser verifier is **fail-closed** (Ed25519 + SHA-256 over the
+pinned public key) for the pointer, manifest, and every chunk — over fetched and cached bytes
+alike; any signature or hash mismatch aborts the load, with no silent empty list.
 
 ### Key Patterns
 - **One scoring contract**: the TS scorer emits a numeric score plus `reasons[]` with a
   plain-language `explanation`. The scorer is the source of truth and is parity-locked by a
   frozen golden snapshot (see Testing).
 - **Local-first**: customer data lives only in the browser (SQLite-WASM over OPFS) and
-  never leaves the machine; lists cache durably in IndexedDB (separate store).
+  never leaves the machine; verified list bytes cache durably in the OPFS bundle store
+  (separate store).
 - **Fail closed** on trust: catalog + list verification aborts on any signature/hash
   mismatch — over fetched and cached bytes alike.
 - **Review once, re-review on material change**: a `material_fingerprint` gates whether a

@@ -131,7 +131,13 @@ function passesStrictness(
 interface Dossier {
 	readonly entity_id: string;
 	readonly primary_name: string;
-	readonly entity_type: EntityType;
+	/** Present only when the entity type is genuinely known. The signed watchlist
+	 * wire format (`WatchlistEntity`) carries no entity type, so every
+	 * bundle-materialized entity arrives with the engine's "PERSON" placeholder
+	 * (see `@amlfilter/browser` `watchlist.ts` `toEntity`). We therefore leave this
+	 * UNSET rather than fabricate a type — the card omits the label instead of
+	 * mislabeling organizations, vessels, and aircraft as people. */
+	readonly entity_type?: EntityType;
 	readonly risk_category: RiskCategory;
 	readonly aliases: ReadonlyArray<string>;
 	readonly dob: ReadonlyArray<string>;
@@ -148,7 +154,8 @@ function fromEntity(e: Entity): Dossier {
 	return {
 		entity_id: e.entity_id,
 		primary_name: e.primary_name,
-		entity_type: e.entity_type,
+		// entity_type is intentionally omitted: the wire format carries none, so
+		// `e.entity_type` is always the "PERSON" placeholder (see Dossier).
 		risk_category: e.risk_category,
 		aliases: e.aliases.map((a) => a.name),
 		dob: e.dob,
@@ -163,7 +170,8 @@ function fromMatch(m: Match): Dossier {
 	return {
 		entity_id: m.entity_id,
 		primary_name: m.primary_name,
-		entity_type: m.entity_type,
+		// entity_type is intentionally omitted: the wire format carries none, so
+		// `m.entity_type` is always the "PERSON" placeholder (see Dossier).
 		risk_category: m.risk_category,
 		aliases: m.aliases,
 		dob: m.dob,
@@ -622,7 +630,9 @@ function DossierCard({ dossier }: { readonly dossier: Dossier }) {
 		<li className="match-card">
 			<div className="match-card__head">
 				<span className="match-card__name">{dossier.primary_name}</span>
-				<span className="match-card__type">{dossier.entity_type}</span>
+				{dossier.entity_type !== undefined && (
+					<span className="match-card__type">{dossier.entity_type}</span>
+				)}
 				{dossier.score !== undefined && (
 					<span className="match-card__score">{dossier.score.toFixed(3)}</span>
 				)}
