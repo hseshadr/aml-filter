@@ -1,4 +1,174 @@
+import { DeviceUnsupportedError } from "@amlfilter/browser";
+import {
+	type Catalog,
+	defineErrors,
+	httpStatusOf,
+	starterPack,
+	type TFunction,
+} from "@edgeproc/errors";
 import i18n from "../i18n";
+
+/**
+ * How a raw failure's searchable message is derived — the thrown `Error`'s
+ * `.message`, or the stringified value for a non-Error. Kept identical to the
+ * pre-@edgeproc/errors boot logic so classification stays byte-for-byte
+ * unchanged.
+ */
+function messageOf(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * A raw failure's `.name`, but only when it is a real `Error` (a plain object
+ * carrying `{ name }` deliberately does NOT count — matching the app's typed
+ * boot-error guards). Classification is duck-typed on `.name` so it survives the
+ * `@amlfilter/browser` Worker/module boundary without `instanceof` coupling.
+ */
+function nameOf(error: unknown): string {
+	return error instanceof Error ? error.name : "";
+}
+
+const TIMEOUT_TEXT = /timeout|timed out/i;
+const NETWORK_TEXT =
+	/failed to fetch|load failed|network ?error|network unreachable|unreachable/i;
+
+/**
+ * AML-Filter's bundle-load error catalog, expressed in the shared
+ * `@edgeproc/errors` vocabulary (the portfolio canonical-errors standard,
+ * vendored at `packages/edgeproc-errors`). Each code is REUSED from the library's
+ * `starterPack`; on top of the starter data we attach the exact detection the
+ * app already uses — its typed boot errors (`DeviceUnsupportedError`,
+ * `QuotaError`, `IntegrityError`, the transport `NetworkError`) — so
+ * `bundleErrorRegistry.classify()` reproduces the app's previous branch logic
+ * byte-for-byte.
+ *
+ * Registration ORDER is the precedence — `classify` returns the first code whose
+ * `match` fires — so it mirrors the app's fail-closed model: the specific typed
+ * failures first (device / quota / integrity), then the transport signals
+ * (timeout before a bare unreachable before a bad-status download), then
+ * `internal.unknown` as the last resort.
+ *
+ * `bundle.device_unsupported` overrides its i18n key to the app's existing
+ * `errors:device.unsupported` string, so `describe()` renders the exact copy the
+ * unsupported-device screen already showed.
+ */
+const BUNDLE_ERROR_CATALOG = {
+	"bundle.device_unsupported": {
+		...starterPack["bundle.device_unsupported"],
+		i18nKey: "errors:device.unsupported",
+		match: (raw: unknown) => nameOf(raw) === "DeviceUnsupportedError",
+	},
+	"bundle.quota_exceeded": {
+		...starterPack["bundle.quota_exceeded"],
+		match: (raw: unknown) => nameOf(raw) === "QuotaError",
+	},
+	"bundle.integrity_failed": {
+		...starterPack["bundle.integrity_failed"],
+		match: (raw: unknown) => nameOf(raw) === "IntegrityError",
+	},
+	"bundle.timeout": {
+		...starterPack["bundle.timeout"],
+		match: (raw: unknown) => {
+			const name = nameOf(raw);
+			return (
+				name === "AbortError" ||
+				name === "TimeoutError" ||
+				TIMEOUT_TEXT.test(messageOf(raw))
+			);
+		},
+	},
+	"net.unreachable": {
+		...starterPack["net.unreachable"],
+		match: (raw: unknown) =>
+			httpStatusOf(raw) === undefined && NETWORK_TEXT.test(messageOf(raw)),
+	},
+	"bundle.download_failed": {
+		...starterPack["bundle.download_failed"],
+		match: (raw: unknown) => nameOf(raw) === "NetworkError",
+	},
+	"internal.unknown": starterPack["internal.unknown"],
+} satisfies Catalog;
+
+/**
+ * The AML-Filter bundle-load error registry — the single place a raw cold-boot
+ * failure is classified into a canonical `@edgeproc/errors` code, built with the
+ * shared library. Exported so the classification is inspectable and testable as
+ * the library's own `Registry` (and so a server surface can later reuse the same
+ * codes for RFC 9457 Problem Details without re-deriving them).
+ */
+export const bundleErrorRegistry = defineErrors(BUNDLE_ERROR_CATALOG);
+
+/** The distinct ways loading the screening bundle can fail. Kept as the public
+ * type at the boot call sites so this adoption is a zero-churn internal swap. */
+export type BundleErrorKind =
+	| "device_unsupported"
+	| "quota_exceeded"
+	| "integrity_failed"
+	| "timeout"
+	| "network"
+	| "download_failed"
+	| "unknown";
+
+/**
+ * Map a canonical `@edgeproc/errors` code back to the local `BundleErrorKind` the
+ * boot path switches on. Keeping `BundleErrorKind` as the public shape means the
+ * registry replaces the classification without touching how the UI branches.
+ */
+const CODE_TO_KIND: Readonly<Record<string, BundleErrorKind>> = {
+	"bundle.device_unsupported": "device_unsupported",
+	"bundle.quota_exceeded": "quota_exceeded",
+	"bundle.integrity_failed": "integrity_failed",
+	"bundle.timeout": "timeout",
+	"net.unreachable": "network",
+	"bundle.download_failed": "download_failed",
+	"internal.unknown": "unknown",
+};
+
+/**
+ * Classify a caught cold-boot failure into one bundle-error kind via the shared
+ * `@edgeproc/errors` registry (`bundleErrorRegistry`) — the same coded behavior
+ * as the app's previous typed-error branches, now expressed in the portfolio's
+ * canonical-errors vocabulary — then map the canonical code back to the local
+ * `BundleErrorKind`.
+ */
+export function classifyBundleError(error: unknown): BundleErrorKind {
+	return CODE_TO_KIND[bundleErrorRegistry.classify(error)] ?? "unknown";
+}
+
+/** i18next adapter passed to the registry's `describe()`, so a canonical code
+ * resolves through the app's offline `errors` catalog (localized), falling back
+ * to the library's default English when a key is absent. */
+const translate: TFunction = (key, params) => i18n.t(key, params ?? {});
+
+/**
+ * The /screen unsupported-device string. Shown when the up-front capability
+ * preflight (engineSupport) finds this browser can't run the local engine —
+ * an older iOS Safari / locked-down WebView missing OPFS, module Workers, or
+ * synchronous file access. This is a graceful dead-end, not a hang: no Retry,
+ * because retrying can't add a missing browser capability. Names the missing
+ * features when known so a technical visitor can see why.
+ *
+ * The base sentence is resolved through the shared `@edgeproc/errors` registry
+ * (the canonical `bundle.device_unsupported` code, whose i18n key is this app's
+ * existing `errors:device.unsupported`) — same rendered bytes, now behind a
+ * portfolio-standard code.
+ */
+export function deviceUnsupportedMessage(
+	missing: ReadonlyArray<string>,
+): string {
+	const base = bundleErrorRegistry.describe(
+		"bundle.device_unsupported",
+		{},
+		translate,
+	);
+	if (missing.length === 0) {
+		return base;
+	}
+	return i18n.t("errors:device.missingSuffix", {
+		base,
+		missing: missing.join(", "),
+	});
+}
 
 /**
  * The user-facing /screen boot-failure string. The watchlist now loads
@@ -9,30 +179,23 @@ import i18n from "../i18n";
  *
  * Keeps the "could not load the screening bundle" substring the C1 cold-boot
  * alert assertion (screen-cold-blocked.spec.ts) matches.
+ *
+ * The caught failure is classified through the shared `@edgeproc/errors` registry
+ * (`classifyBundleError`) so each cause carries a stable canonical code. Every
+ * reachable retryable cause — a failed download, a timed-out or unreachable
+ * fetch, a storage-quota refusal, or a fail-closed integrity/signature error —
+ * still surfaces through the ONE "could not load" wrapper (the specific cause
+ * rides in `{detail}`), so no user-visible copy moved. A device-capability
+ * failure that reaches here (normally caught up-front by the preflight) shows the
+ * same dead-end copy the unsupported-device screen uses, since no Retry can add a
+ * missing capability.
  */
 export function bootErrorMessage(error: unknown): string {
-	const detail = error instanceof Error ? error.message : String(error);
-	return i18n.t("errors:boot.couldNotLoad", { detail });
-}
-
-/**
- * The /screen unsupported-device string. Shown when the up-front capability
- * preflight (engineSupport) finds this browser can't run the local engine —
- * an older iOS Safari / locked-down WebView missing OPFS, module Workers, or
- * synchronous file access. This is a graceful dead-end, not a hang: no Retry,
- * because retrying can't add a missing browser capability. Names the missing
- * features when known so a technical visitor can see why. Maps to the future
- * canonical `bundle.device_unsupported` error code.
- */
-export function deviceUnsupportedMessage(
-	missing: ReadonlyArray<string>,
-): string {
-	const base = i18n.t("errors:device.unsupported");
-	if (missing.length === 0) {
-		return base;
+	if (classifyBundleError(error) === "device_unsupported") {
+		return deviceUnsupportedMessage(
+			error instanceof DeviceUnsupportedError ? error.missing : [],
+		);
 	}
-	return i18n.t("errors:device.missingSuffix", {
-		base,
-		missing: missing.join(", "),
-	});
+	const detail = messageOf(error);
+	return i18n.t("errors:boot.couldNotLoad", { detail });
 }
