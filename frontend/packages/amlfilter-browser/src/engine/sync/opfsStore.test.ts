@@ -22,6 +22,7 @@ import {
 } from "./fixtures";
 import { IntegrityError } from "./integrity";
 import { OpfsCacheStore } from "./opfsStore";
+import { QuotaError } from "./storage";
 import { syncIndex } from "./sync";
 import type { IndexManifest, Verify, VersionPointer } from "./types";
 
@@ -250,14 +251,17 @@ describe("OpfsCacheStore poisoned-chunk self-healing", () => {
 		expect(chunkDirOf(root).files.has(hash)).toBe(false);
 	});
 
-	it("does not strand an entry when the chunk write itself fails", async () => {
+	it("does not strand an entry when the chunk write itself fails, and reports a typed QuotaError", async () => {
 		const { store, root } = await openStore();
 		const [hash] = twoFixtureChunkHashes();
 		chunkDirOf(root).failWrites.add(hash);
 
+		// The fake write throws a QuotaExceededError DOMException; the store must
+		// (a) remove the stranded entry and (b) translate it to a typed QuotaError
+		// so the boot banner can explain "not enough free storage".
 		await expect(
 			store.putChunkCompressed(hash, chunkBytes(hash)),
-		).rejects.toThrow(/quota/);
+		).rejects.toBeInstanceOf(QuotaError);
 		expect(chunkDirOf(root).files.has(hash)).toBe(false);
 	});
 });

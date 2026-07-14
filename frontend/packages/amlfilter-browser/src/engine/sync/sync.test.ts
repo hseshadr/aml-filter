@@ -5,6 +5,7 @@ import { NetworkError } from "./fetchBytes";
 import { latestBytes, originFetch, pubkeyRaw } from "./fixtures";
 import { IntegrityError } from "./integrity";
 import { MemoryCacheStore } from "./memoryStore";
+import { QuotaError } from "./storage";
 import { materializeFile, RollbackError, syncIndex } from "./sync";
 import type {
 	CacheStore,
@@ -218,6 +219,60 @@ describe("syncIndex bounded chunk concurrency", () => {
 		).rejects.toThrow("synthetic chunk fetch failed");
 		expect(store.promotionCount).toBe(0);
 		expect(await store.readActive()).toBeNull();
+	});
+});
+
+describe("syncIndex storage preflight", () => {
+	it("throws QuotaError without promoting when free space cannot fit the bundle", async () => {
+		const bundle = await syntheticBundle(20);
+		const store = new RecordingCacheStore();
+		// Report almost no free space so the ~600-byte synthetic bundle can't fit.
+		const estimateStorage = () => Promise.resolve({ quota: 100, usage: 0 });
+
+		await expect(
+			syncIndex({
+				baseUrl: "/o",
+				store,
+				fetchBytes: bundle.fetchBytes,
+				verify: passVerify,
+				estimateStorage,
+			}),
+		).rejects.toBeInstanceOf(QuotaError);
+		// Fail-fast: nothing was fetched or promoted.
+		expect(store.promotionCount).toBe(0);
+		expect(store.verifiedChunks.size).toBe(0);
+		expect(await store.readActive()).toBeNull();
+	});
+
+	it("proceeds when ample free space is reported", async () => {
+		const bundle = await syntheticBundle(20);
+		const store = new RecordingCacheStore();
+		const estimateStorage = () => Promise.resolve({ quota: 10 ** 9, usage: 0 });
+
+		const result = await syncIndex({
+			baseUrl: "/o",
+			store,
+			fetchBytes: bundle.fetchBytes,
+			verify: passVerify,
+			estimateStorage,
+		});
+		expect(result.chunksFetched).toBe(bundle.chunkHashes.length);
+		expect(store.promotionCount).toBe(1);
+	});
+
+	it("is best-effort: proceeds when the browser reports no quota numbers", async () => {
+		const bundle = await syntheticBundle(20);
+		const store = new RecordingCacheStore();
+		const estimateStorage = () => Promise.resolve({});
+
+		const result = await syncIndex({
+			baseUrl: "/o",
+			store,
+			fetchBytes: bundle.fetchBytes,
+			verify: passVerify,
+			estimateStorage,
+		});
+		expect(result.chunksFetched).toBe(bundle.chunkHashes.length);
 	});
 });
 

@@ -18,6 +18,7 @@
 
 import { sha256Hex } from "../crypto";
 import { decompressAndVerify, IntegrityError } from "./integrity";
+import { isQuotaExceeded, QuotaError } from "./storage";
 import type { CacheStore, VersionPointer } from "./types";
 
 const CHUNK_DIR = "chunk";
@@ -197,6 +198,15 @@ export class OpfsCacheStore implements CacheStore {
 				await dir.removeEntry(name);
 			} catch {
 				// Best-effort: the original write error is the one that matters.
+			}
+			// A storage-quota write failure (common on iOS Safari under pressure) is
+			// translated to a typed, user-explained QuotaError so the boot banner can
+			// say "not enough free storage" instead of surfacing a raw DOMException.
+			if (isQuotaExceeded(error)) {
+				throw new QuotaError(
+					"not enough free storage on this device — free up space or use a desktop browser",
+					{ cause: error },
+				);
 			}
 			throw error;
 		}

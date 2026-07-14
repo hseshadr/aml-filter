@@ -45,6 +45,12 @@ async function handleSync(req: SyncRequest): Promise<EngineResponse> {
 		store: cacheStore,
 		fetchBytes,
 		verify: (message, signature) => verifyEd25519(pubkey, message, signature),
+		// Storage-quota preflight seam: refuse fail-fast with a QuotaError if the
+		// device can't hold the bundle, instead of fetching tens of MB only for the
+		// first OPFS write to throw. Guarded — a browser without estimate() reports
+		// nothing, which the preflight treats best-effort (proceed).
+		estimateStorage: () =>
+			navigator.storage?.estimate?.() ?? Promise.resolve({}),
 	});
 	const raw = await cacheStore.getManifest(result.manifestHash);
 	activeManifest = JSON.parse(DECODER.decode(raw)) as IndexManifest;

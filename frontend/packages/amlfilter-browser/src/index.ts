@@ -90,6 +90,8 @@ export {
 	ScreeningEngine,
 	type ScreenOptions,
 } from "./engine/screeningEngine";
+// --- storage-quota preflight: refuse fail-fast rather than hang mid-sync ---
+export { QuotaError } from "./engine/sync/storage";
 // --- the bundle-files builder + the shared watchlist/catalog shapes ---
 export {
 	type BundleListFiles,

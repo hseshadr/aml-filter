@@ -6,6 +6,7 @@ import { canonicalBytes, type JsonValue } from "../canonical";
 import { sha256Hex } from "../crypto";
 import { NetworkError } from "./fetchBytes";
 import { IntegrityError } from "./integrity";
+import { type EstimateStorage, fitsInQuota, QuotaError } from "./storage";
 import type {
 	CacheStore,
 	FetchBytes,
@@ -21,6 +22,14 @@ interface SyncArgs {
 	readonly store: CacheStore;
 	readonly fetchBytes: FetchBytes;
 	readonly verify: Verify;
+	/**
+	 * Optional storage-quota seam (production: `navigator.storage.estimate`).
+	 * When present, a preflight refuses fail-fast with a {@link QuotaError} if the
+	 * device can't hold the chunks about to be fetched — instead of downloading
+	 * tens of MB only for the first OPFS write to throw deep in the Worker. Absent
+	 * = no preflight (the write path still fails closed on a real quota error).
+	 */
+	readonly estimateStorage?: EstimateStorage;
 }
 
 const DECODER = new TextDecoder();
@@ -189,6 +198,52 @@ async function verifyReassembly(
 	}
 }
 
+/** Sum the (uncompressed) sizes of the chunks about to be fetched. An upper
+ * bound on the OPFS bytes the sync will add — chunks are stored compressed, so
+ * this over-estimates, keeping the quota preflight conservative (it never
+ * under-warns). */
+function neededBytes(
+	manifest: IndexManifest,
+	missing: ReadonlyArray<string>,
+): number {
+	const wanted = new Set(missing);
+	const sizeOf = new Map<string, number>();
+	for (const entry of manifest.files) {
+		for (const ref of entry.chunks) {
+			if (wanted.has(ref.hash)) {
+				sizeOf.set(ref.hash, ref.size);
+			}
+		}
+	}
+	let total = 0;
+	for (const size of sizeOf.values()) {
+		total += size;
+	}
+	return total;
+}
+
+/** Fail-fast quota preflight (best-effort): refuse before fetching if the device
+ * can't hold the missing chunks. A no-op when no estimate seam is wired or the
+ * browser can't report quota/usage. */
+async function assertRoomForChunks(
+	manifest: IndexManifest,
+	missing: ReadonlyArray<string>,
+	estimateStorage: EstimateStorage | undefined,
+): Promise<void> {
+	if (estimateStorage === undefined || missing.length === 0) {
+		return;
+	}
+	const needed = neededBytes(manifest, missing);
+	const estimate = await estimateStorage();
+	if (!fitsInQuota(estimate, needed)) {
+		const mb = Math.ceil(needed / 1_000_000);
+		throw new QuotaError(
+			`not enough free storage on this device to load the sanctions list ` +
+				`(needs about ${mb} MB) — free up space or use a desktop browser`,
+		);
+	}
+}
+
 /** Count the distinct chunk hashes a manifest references (for the cache result). */
 function distinctChunks(manifest: IndexManifest): number {
 	const seen = new Set<string>();
@@ -256,6 +311,9 @@ export async function syncIndex(args: SyncArgs): Promise<SyncResult> {
 	}
 	const manifest = await fetchManifest(baseUrl, pointer, fetchBytes, store);
 	const { missing, reused } = await missingChunks(manifest, store);
+	// Quota preflight: refuse fail-fast (QuotaError) before fetching any chunk if
+	// the device can't hold them. Best-effort — a no-op without an estimate seam.
+	await assertRoomForChunks(manifest, missing, args.estimateStorage);
 	const bytesFetched = await fetchMissing(baseUrl, missing, fetchBytes, store);
 	await verifyReassembly(manifest, store);
 	await store.promote(pointer);
