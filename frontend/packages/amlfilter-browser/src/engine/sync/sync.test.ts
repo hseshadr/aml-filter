@@ -222,6 +222,64 @@ describe("syncIndex bounded chunk concurrency", () => {
 	});
 });
 
+describe("syncIndex lazy file verification (single reassembly)", () => {
+	it("promotes on the fresh path without eagerly reassembling; materialize is the fail-closed file check", async () => {
+		// A manifest whose declared file_sha256 does NOT match its (individually
+		// valid) chunk. The fresh sync no longer reassembles every file eagerly
+		// (that was the double-reassemble the cold boot paid twice), so it PROMOTES;
+		// the file-hash check now happens once, at materialize, still fail-closed.
+		const zstd = await Zstd.load();
+		const chunkPlain = ENCODER.encode("the only chunk");
+		const chunkHash = await sha256Hex(chunkPlain);
+		const manifest: IndexManifest = {
+			schema_version: 2,
+			bundle_id: "lazy-verify",
+			version: "v1",
+			files: [
+				{
+					path: "f.bin",
+					file_type: null,
+					size: chunkPlain.byteLength,
+					file_sha256: "0".repeat(64), // deliberately wrong
+					chunks: [{ hash: chunkHash, size: chunkPlain.byteLength }],
+				},
+			],
+			metadata: {},
+		};
+		const manifestBytes = ENCODER.encode(JSON.stringify(manifest));
+		const manifestHash = await sha256Hex(manifestBytes);
+		const pointer: VersionPointer = {
+			manifest_hash: manifestHash,
+			version: "v1",
+			signature: "test-signature",
+		};
+		const fetchBytes: FetchBytes = (url) => {
+			if (url.endsWith("/latest")) {
+				return Promise.resolve(ENCODER.encode(JSON.stringify(pointer)));
+			}
+			if (url.endsWith(`/manifest/${manifestHash}`)) {
+				return Promise.resolve(manifestBytes);
+			}
+			if (url.endsWith(`/chunk/${chunkHash}`)) {
+				return Promise.resolve(zstd.compress(chunkPlain));
+			}
+			return Promise.reject(new Error(`unexpected ${url}`));
+		};
+		const store = new MemoryCacheStore();
+
+		// Fresh sync promotes — no eager reassembly rejected it.
+		await syncIndex({ baseUrl: "/o", store, fetchBytes, verify: passVerify });
+		expect(await store.readActive()).not.toBeNull();
+
+		// Materialize is the fail-closed file check: the bad file_sha256 is caught
+		// here, before the bytes are ever used.
+		const loaded = await loadManifest(store, manifestHash);
+		await expect(
+			materializeFile(store, loaded, "f.bin"),
+		).rejects.toBeInstanceOf(IntegrityError);
+	});
+});
+
 describe("syncIndex storage preflight", () => {
 	it("throws QuotaError without promoting when free space cannot fit the bundle", async () => {
 		const bundle = await syntheticBundle(20);

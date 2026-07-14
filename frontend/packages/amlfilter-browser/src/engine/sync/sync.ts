@@ -188,7 +188,38 @@ async function reassemble(
 	return blob;
 }
 
-/** Reassembly-on-read check: each file's chunks concat to its file_sha256. */
+/**
+ * Read every REUSED chunk once so a corrupt one already in the store is caught
+ * (and self-healed) before promotion. `getChunk` decompresses + verifies the
+ * content-address and evicts a poisoned entry on failure (the 2026-07-13 outage
+ * fix), so this is what keeps a stale bad chunk from being promoted — WITHOUT
+ * reassembling whole files in RAM the way verifyReassembly does (the cold-boot
+ * memory win). Freshly-fetched chunks are skipped: putChunkCompressed already
+ * verified them on write, so re-reading them would be pure redundant work. Each
+ * distinct chunk is read at most once. Fail-closed: a bad chunk throws here,
+ * before promote.
+ */
+async function verifyReusedChunks(
+	manifest: IndexManifest,
+	missing: ReadonlyArray<string>,
+	store: CacheStore,
+): Promise<void> {
+	const fetched = new Set(missing);
+	const seen = new Set<string>();
+	for (const entry of manifest.files) {
+		for (const ref of entry.chunks) {
+			if (fetched.has(ref.hash) || seen.has(ref.hash)) {
+				continue;
+			}
+			seen.add(ref.hash);
+			await store.getChunk(ref.hash);
+		}
+	}
+}
+
+/** Reassembly-on-read check: each file's chunks concat to its file_sha256. Used
+ * on the OFFLINE fallback path (syncFromCache), which re-serves cached bytes not
+ * re-verified on write this run, so it re-verifies them fail-closed. */
 async function verifyReassembly(
 	manifest: IndexManifest,
 	store: CacheStore,
@@ -315,7 +346,14 @@ export async function syncIndex(args: SyncArgs): Promise<SyncResult> {
 	// the device can't hold them. Best-effort — a no-op without an estimate seam.
 	await assertRoomForChunks(manifest, missing, args.estimateStorage);
 	const bytesFetched = await fetchMissing(baseUrl, missing, fetchBytes, store);
-	await verifyReassembly(manifest, store);
+	// Fresh path: verify only the REUSED chunks (self-healing a poisoned present
+	// chunk), NOT a full verifyReassembly. The old eager pass reassembled + hashed
+	// EVERY file in RAM at boot, then materializeFile did it a SECOND time per file
+	// — doubling the peak on the memory-tight cold path (the iOS killer). Dropping
+	// it keeps fail-closed intact: fetched chunks were verified on write, reused
+	// chunks are verified here, and each file's sha256 is checked once at
+	// materialize BEFORE its bytes are used.
+	await verifyReusedChunks(manifest, missing, store);
 	await store.promote(pointer);
 	return {
 		version: pointer.version,

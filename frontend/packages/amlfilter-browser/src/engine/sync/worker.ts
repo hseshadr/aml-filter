@@ -15,6 +15,7 @@ import type {
 	SyncRequest,
 } from "./protocol";
 import { materializeFile, syncIndex } from "./sync";
+import { transferables } from "./transfer";
 import type { IndexManifest, VersionPointer } from "./types";
 
 const DECODER = new TextDecoder();
@@ -97,7 +98,10 @@ self.addEventListener("message", (event: MessageEvent<EngineRequest>) => {
 	const req = event.data;
 	handle(req)
 		.then((response) => {
-			self.postMessage(response);
+			// Transfer the readFile bytes (see transferables): hand the buffer to the
+			// main thread zero-copy instead of structured-cloning it, so a multi-MB
+			// materialized file never exists twice at once at peak.
+			self.postMessage(response, transferables(response));
 		})
 		.catch((error: unknown) => {
 			const message = error instanceof Error ? error.message : String(error);
