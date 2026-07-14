@@ -21,6 +21,16 @@ export {
 	type BundleSourceDeps,
 	openBundleSource,
 } from "./engine/bundleSource";
+// --- device-support preflight: is the local engine runnable on this browser? ---
+export {
+	type CapabilityScope,
+	DeviceUnsupportedError,
+	detectCapabilities,
+	type EngineCapabilities,
+	engineSupport,
+	isEngineSupported,
+	missingCapabilities,
+} from "./engine/deviceSupport";
 // --- the domain contract (single source of truth, mirrors the backend) ---
 export {
 	type Alias,
@@ -52,7 +62,9 @@ export {
 export { canonicalize, normalizeDob } from "./engine/normalize";
 // --- runtime: bootstrap the multi-list engine over the signed catalog + lists ---
 export {
+	BOOT_TIMEOUT_MS,
 	type BootStage,
+	bootTimeoutMs,
 	type CatalogListInfo,
 	compositeVersion,
 	configFromEnv,
@@ -80,6 +92,10 @@ export {
 	ScreeningEngine,
 	type ScreenOptions,
 } from "./engine/screeningEngine";
+// --- storage-quota preflight: refuse fail-fast rather than hang mid-sync ---
+export { QuotaError } from "./engine/sync/storage";
+// --- cold-sync download progress shape (threaded into the downloading banner) ---
+export type { OnSyncProgress, SyncProgress } from "./engine/sync/types";
 // --- the bundle-files builder + the shared watchlist/catalog shapes ---
 export {
 	type BundleListFiles,

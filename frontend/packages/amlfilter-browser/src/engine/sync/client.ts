@@ -2,8 +2,8 @@
 // OPFS sync access handles, so it only sends typed requests and awaits replies.
 // One in-flight map keyed by request id correlates responses to promises.
 
-import type { EngineRequest, EngineResponse } from "./protocol";
-import type { SyncResult } from "./types";
+import type { EngineOutbound, EngineRequest, EngineResponse } from "./protocol";
+import type { OnSyncProgress, SyncResult } from "./types";
 
 interface Pending {
 	readonly resolve: (response: EngineResponse) => void;
@@ -13,13 +13,17 @@ interface Pending {
 export class EngineClient {
 	readonly #worker: Worker;
 	readonly #pending = new Map<number, Pending>();
+	// Per-sync progress sinks, keyed by request id. A `sync-progress` message is
+	// routed here instead of settling the pending promise; cleared when the sync
+	// finally settles.
+	readonly #progress = new Map<number, OnSyncProgress>();
 	#nextId = 0;
 
 	public constructor(worker: Worker) {
 		this.#worker = worker;
 		this.#worker.addEventListener(
 			"message",
-			(event: MessageEvent<EngineResponse>) => {
+			(event: MessageEvent<EngineOutbound>) => {
 				this.#onMessage(event.data);
 			},
 		);
@@ -33,18 +37,32 @@ export class EngineClient {
 		return new EngineClient(worker);
 	}
 
-	/** Sync the signed bundle at `baseUrl`, pinning the raw pubkey at `pubkeyUrl`. */
-	public async sync(baseUrl: string, pubkeyUrl: string): Promise<SyncResult> {
-		const response = await this.#send({
-			kind: "sync",
-			id: this.#allocId(),
-			baseUrl,
-			pubkeyUrl,
-		});
-		if (response.ok && response.kind === "sync") {
-			return response.result;
+	/** Sync the signed bundle at `baseUrl`, pinning the raw pubkey at `pubkeyUrl`.
+	 * `onProgress`, when given, receives one tick per fetched chunk (the long
+	 * cold-sync phase) via the Worker's one-way `sync-progress` channel. */
+	public async sync(
+		baseUrl: string,
+		pubkeyUrl: string,
+		onProgress?: OnSyncProgress,
+	): Promise<SyncResult> {
+		const id = this.#allocId();
+		if (onProgress !== undefined) {
+			this.#progress.set(id, onProgress);
 		}
-		throw new Error(this.#errorOf(response));
+		try {
+			const response = await this.#send({
+				kind: "sync",
+				id,
+				baseUrl,
+				pubkeyUrl,
+			});
+			if (response.ok && response.kind === "sync") {
+				return response.result;
+			}
+			throw new Error(this.#errorOf(response));
+		} finally {
+			this.#progress.delete(id);
+		}
 	}
 
 	/** Materialize a synced file's bytes from the active manifest. */
@@ -88,12 +106,18 @@ export class EngineClient {
 		});
 	}
 
-	#onMessage(response: EngineResponse): void {
-		const pending = this.#pending.get(response.id);
+	#onMessage(message: EngineOutbound): void {
+		// A one-way progress notification: route it to the sync's sink (if any) and
+		// return — it must NOT settle the pending sync promise.
+		if ("kind" in message && message.kind === "sync-progress") {
+			this.#progress.get(message.id)?.(message.progress);
+			return;
+		}
+		const pending = this.#pending.get(message.id);
 		if (pending === undefined) {
 			return;
 		}
-		this.#pending.delete(response.id);
-		pending.resolve(response);
+		this.#pending.delete(message.id);
+		pending.resolve(message);
 	}
 }

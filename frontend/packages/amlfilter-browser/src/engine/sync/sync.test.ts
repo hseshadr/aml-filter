@@ -5,6 +5,7 @@ import { NetworkError } from "./fetchBytes";
 import { latestBytes, originFetch, pubkeyRaw } from "./fixtures";
 import { IntegrityError } from "./integrity";
 import { MemoryCacheStore } from "./memoryStore";
+import { QuotaError } from "./storage";
 import { materializeFile, RollbackError, syncIndex } from "./sync";
 import type {
 	CacheStore,
@@ -183,6 +184,60 @@ describe("syncIndex bounded chunk concurrency", () => {
 		expect(maxInFlight).toBeLessThanOrEqual(8);
 	});
 
+	it("emits monotonic per-chunk download progress reaching total/total", async () => {
+		const bundle = await syntheticBundle(20);
+		const store = new RecordingCacheStore();
+		const events: Array<{ fetched: number; total: number; bytes: number }> = [];
+
+		await syncIndex({
+			baseUrl: "/o",
+			store,
+			fetchBytes: bundle.fetchBytes,
+			verify: passVerify,
+			onProgress: (p) => events.push(p),
+		});
+
+		// One event per fetched chunk, ending at fetched === total.
+		expect(events.length).toBe(bundle.chunkHashes.length);
+		const last = events[events.length - 1];
+		expect(last).toMatchObject({
+			fetched: bundle.chunkHashes.length,
+			total: bundle.chunkHashes.length,
+		});
+		expect(last?.bytes ?? 0).toBeGreaterThan(0);
+		// fetched + bytes are monotonically non-decreasing across the pool.
+		for (let i = 1; i < events.length; i += 1) {
+			const prev = events[i - 1];
+			const curr = events[i];
+			if (prev === undefined || curr === undefined) {
+				continue;
+			}
+			expect(curr.fetched).toBeGreaterThanOrEqual(prev.fetched);
+			expect(curr.bytes).toBeGreaterThanOrEqual(prev.bytes);
+		}
+	});
+
+	it("emits no progress on a warm re-sync that fetches nothing", async () => {
+		const bundle = await syntheticBundle(5);
+		const store = new RecordingCacheStore();
+		await syncIndex({
+			baseUrl: "/o",
+			store,
+			fetchBytes: bundle.fetchBytes,
+			verify: passVerify,
+		});
+		// Second sync: every chunk is already present, so nothing is fetched.
+		const events: unknown[] = [];
+		await syncIndex({
+			baseUrl: "/o",
+			store,
+			fetchBytes: bundle.fetchBytes,
+			verify: passVerify,
+			onProgress: (p) => events.push(p),
+		});
+		expect(events).toEqual([]);
+	});
+
 	it("verifies and stores every chunk before promoting", async () => {
 		const bundle = await syntheticBundle(20);
 		const store = new RecordingCacheStore();
@@ -218,6 +273,118 @@ describe("syncIndex bounded chunk concurrency", () => {
 		).rejects.toThrow("synthetic chunk fetch failed");
 		expect(store.promotionCount).toBe(0);
 		expect(await store.readActive()).toBeNull();
+	});
+});
+
+describe("syncIndex lazy file verification (single reassembly)", () => {
+	it("promotes on the fresh path without eagerly reassembling; materialize is the fail-closed file check", async () => {
+		// A manifest whose declared file_sha256 does NOT match its (individually
+		// valid) chunk. The fresh sync no longer reassembles every file eagerly
+		// (that was the double-reassemble the cold boot paid twice), so it PROMOTES;
+		// the file-hash check now happens once, at materialize, still fail-closed.
+		const zstd = await Zstd.load();
+		const chunkPlain = ENCODER.encode("the only chunk");
+		const chunkHash = await sha256Hex(chunkPlain);
+		const manifest: IndexManifest = {
+			schema_version: 2,
+			bundle_id: "lazy-verify",
+			version: "v1",
+			files: [
+				{
+					path: "f.bin",
+					file_type: null,
+					size: chunkPlain.byteLength,
+					file_sha256: "0".repeat(64), // deliberately wrong
+					chunks: [{ hash: chunkHash, size: chunkPlain.byteLength }],
+				},
+			],
+			metadata: {},
+		};
+		const manifestBytes = ENCODER.encode(JSON.stringify(manifest));
+		const manifestHash = await sha256Hex(manifestBytes);
+		const pointer: VersionPointer = {
+			manifest_hash: manifestHash,
+			version: "v1",
+			signature: "test-signature",
+		};
+		const fetchBytes: FetchBytes = (url) => {
+			if (url.endsWith("/latest")) {
+				return Promise.resolve(ENCODER.encode(JSON.stringify(pointer)));
+			}
+			if (url.endsWith(`/manifest/${manifestHash}`)) {
+				return Promise.resolve(manifestBytes);
+			}
+			if (url.endsWith(`/chunk/${chunkHash}`)) {
+				return Promise.resolve(zstd.compress(chunkPlain));
+			}
+			return Promise.reject(new Error(`unexpected ${url}`));
+		};
+		const store = new MemoryCacheStore();
+
+		// Fresh sync promotes — no eager reassembly rejected it.
+		await syncIndex({ baseUrl: "/o", store, fetchBytes, verify: passVerify });
+		expect(await store.readActive()).not.toBeNull();
+
+		// Materialize is the fail-closed file check: the bad file_sha256 is caught
+		// here, before the bytes are ever used.
+		const loaded = await loadManifest(store, manifestHash);
+		await expect(
+			materializeFile(store, loaded, "f.bin"),
+		).rejects.toBeInstanceOf(IntegrityError);
+	});
+});
+
+describe("syncIndex storage preflight", () => {
+	it("throws QuotaError without promoting when free space cannot fit the bundle", async () => {
+		const bundle = await syntheticBundle(20);
+		const store = new RecordingCacheStore();
+		// Report almost no free space so the ~600-byte synthetic bundle can't fit.
+		const estimateStorage = () => Promise.resolve({ quota: 100, usage: 0 });
+
+		await expect(
+			syncIndex({
+				baseUrl: "/o",
+				store,
+				fetchBytes: bundle.fetchBytes,
+				verify: passVerify,
+				estimateStorage,
+			}),
+		).rejects.toBeInstanceOf(QuotaError);
+		// Fail-fast: nothing was fetched or promoted.
+		expect(store.promotionCount).toBe(0);
+		expect(store.verifiedChunks.size).toBe(0);
+		expect(await store.readActive()).toBeNull();
+	});
+
+	it("proceeds when ample free space is reported", async () => {
+		const bundle = await syntheticBundle(20);
+		const store = new RecordingCacheStore();
+		const estimateStorage = () => Promise.resolve({ quota: 10 ** 9, usage: 0 });
+
+		const result = await syncIndex({
+			baseUrl: "/o",
+			store,
+			fetchBytes: bundle.fetchBytes,
+			verify: passVerify,
+			estimateStorage,
+		});
+		expect(result.chunksFetched).toBe(bundle.chunkHashes.length);
+		expect(store.promotionCount).toBe(1);
+	});
+
+	it("is best-effort: proceeds when the browser reports no quota numbers", async () => {
+		const bundle = await syntheticBundle(20);
+		const store = new RecordingCacheStore();
+		const estimateStorage = () => Promise.resolve({});
+
+		const result = await syncIndex({
+			baseUrl: "/o",
+			store,
+			fetchBytes: bundle.fetchBytes,
+			verify: passVerify,
+			estimateStorage,
+		});
+		expect(result.chunksFetched).toBe(bundle.chunkHashes.length);
 	});
 });
 

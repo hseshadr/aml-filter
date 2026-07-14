@@ -55,7 +55,13 @@ vi.mock("@amlfilter/browser", async (importActual) => {
 			};
 		}
 	}
-	return { ...actual, EngineRuntime, configFromEnv: () => ({}) };
+	return {
+		...actual,
+		EngineRuntime,
+		configFromEnv: () => ({}),
+		// jsdom lacks Worker/OPFS; force "supported" so boot reaches the ready box.
+		engineSupport: () => ({ supported: true, missing: [] }),
+	};
 });
 
 import { ScreenPage } from "./ScreenPage";

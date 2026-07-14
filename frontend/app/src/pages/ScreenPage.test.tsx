@@ -243,6 +243,10 @@ vi.mock("@amlfilter/browser", async (importActual) => {
 		...actual,
 		EngineRuntime,
 		configFromEnv: () => ({}),
+		// Force "supported" so the boot proceeds: the real engineSupport reads
+		// globalThis, and jsdom lacks Worker/OPFS, which would otherwise route
+		// every test to the unsupported-device screen.
+		engineSupport: () => ({ supported: true, missing: [] }),
 	};
 });
 

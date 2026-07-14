@@ -15,6 +15,7 @@ import type {
 	SyncRequest,
 } from "./protocol";
 import { materializeFile, syncIndex } from "./sync";
+import { transferables } from "./transfer";
 import type { IndexManifest, VersionPointer } from "./types";
 
 const DECODER = new TextDecoder();
@@ -45,6 +46,17 @@ async function handleSync(req: SyncRequest): Promise<EngineResponse> {
 		store: cacheStore,
 		fetchBytes,
 		verify: (message, signature) => verifyEd25519(pubkey, message, signature),
+		// Storage-quota preflight seam: refuse fail-fast with a QuotaError if the
+		// device can't hold the bundle, instead of fetching tens of MB only for the
+		// first OPFS write to throw. Guarded — a browser without estimate() reports
+		// nothing, which the preflight treats best-effort (proceed).
+		estimateStorage: () =>
+			navigator.storage?.estimate?.() ?? Promise.resolve({}),
+		// One-way per-chunk progress back to the main thread so the boot banner
+		// shows n/total during the long cold sync instead of looking frozen.
+		onProgress: (progress) => {
+			self.postMessage({ kind: "sync-progress", id: req.id, progress });
+		},
 	});
 	const raw = await cacheStore.getManifest(result.manifestHash);
 	activeManifest = JSON.parse(DECODER.decode(raw)) as IndexManifest;
@@ -91,7 +103,10 @@ self.addEventListener("message", (event: MessageEvent<EngineRequest>) => {
 	const req = event.data;
 	handle(req)
 		.then((response) => {
-			self.postMessage(response);
+			// Transfer the readFile bytes (see transferables): hand the buffer to the
+			// main thread zero-copy instead of structured-cloning it, so a multi-MB
+			// materialized file never exists twice at once at peak.
+			self.postMessage(response, transferables(response));
 		})
 		.catch((error: unknown) => {
 			const message = error instanceof Error ? error.message : String(error);

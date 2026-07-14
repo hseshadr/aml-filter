@@ -57,6 +57,22 @@ export interface SyncResult {
 	readonly bytesFetched: number;
 }
 
+/** Cold-sync download progress, emitted once per fetched chunk. Threaded to the
+ * boot banner so the long "Downloading…" phase shows life (n/total chunks)
+ * instead of looking frozen — the exact symptom on a slow first visit. */
+export interface SyncProgress {
+	/** Chunks fetched + verified so far this sync. */
+	readonly fetched: number;
+	/** Total chunks this sync must fetch (the missing-chunk count). */
+	readonly total: number;
+	/** Compressed bytes fetched so far. */
+	readonly bytes: number;
+}
+
+/** A progress sink for the cold-sync download. Optional at every layer — a warm
+ * reload fetches no chunks and emits nothing. */
+export type OnSyncProgress = (progress: SyncProgress) => void;
+
 /**
  * Local content-addressed store. The OPFS-backed and in-memory implementations
  * share this surface — the seam edge-proc's `cas.py` `CacheStore` Protocol names.

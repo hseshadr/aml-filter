@@ -2,7 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BundleSource } from "./bundleSource";
 import type { Embedder, EmbedProgress } from "./embedder";
 import {
+	BOOT_TIMEOUT_MS,
 	type BootStage,
+	bootTimeoutMs,
 	compositeVersion,
 	configFromEnv,
 	defaultRuntimeDeps,
@@ -159,6 +161,42 @@ describe("parseTimeoutMs (model-load timeout override, fail-closed)", () => {
 
 	it("falls back to the default when the env var is unset", () => {
 		expect(modelLoadTimeoutMs({})).toBe(MODEL_LOAD_TIMEOUT_MS);
+	});
+});
+
+describe("bootTimeoutMs (overall boot deadline override, fail-closed)", () => {
+	it("defaults to BOOT_TIMEOUT_MS when the env var is unset", () => {
+		expect(bootTimeoutMs({})).toBe(BOOT_TIMEOUT_MS);
+	});
+
+	it("uses a valid positive override and falls back for an invalid one", () => {
+		expect(bootTimeoutMs({ VITE_BOOT_TIMEOUT_MS: "5000" })).toBe(5000);
+		expect(bootTimeoutMs({ VITE_BOOT_TIMEOUT_MS: "-1" })).toBe(BOOT_TIMEOUT_MS);
+	});
+
+	it("is longer than the model-load ceiling so the model timeout stays the tighter bound", () => {
+		expect(BOOT_TIMEOUT_MS).toBeGreaterThan(MODEL_LOAD_TIMEOUT_MS);
+	});
+});
+
+describe("EngineRuntime overall boot timeout", () => {
+	it("rejects the whole boot when the download phase stalls past the deadline", async () => {
+		const deps: RuntimeDeps = {
+			makeEmbedder: () => neverEmbedder(),
+			clearCache: () => Promise.resolve(),
+			// A bundle open that never settles — the download/verify phase hangs
+			// forever, the exact "sits on Downloading… forever" shape on iOS.
+			openBundleSource: () => new Promise<BundleSource>(() => {}),
+		};
+		const runtime = new EngineRuntime(deps);
+		vi.useFakeTimers();
+		const pending = runtime.bootstrap(CONFIG);
+		const assertion = expect(pending).rejects.toThrow(/timed out/i);
+		await vi.advanceTimersByTimeAsync(BOOT_TIMEOUT_MS);
+		await assertion;
+		// The boot-timeout rejection flows through the SAME memo-clearing catch a
+		// build rejection does (covered by "a failed bundle open clears the memo"),
+		// so a later Retry re-attempts the boot.
 	});
 });
 
@@ -609,6 +647,39 @@ describe("EngineRuntime boot stages", () => {
 		expect(stages).toContainEqual({
 			kind: "verified",
 			version: "OFAC_SDN@test",
+		});
+	});
+
+	it("threads cold-sync download progress into a downloading stage", async () => {
+		// The bundle-open dep receives an onSyncProgress sink (4th arg); this fake
+		// fires one tick during the sync, then the warmup rejects to halt #build —
+		// proving the download progress reached onStage as a downloading stage.
+		const deps: RuntimeDeps = {
+			makeEmbedder: () => ({
+				embed: () => Promise.reject(new Error("warmup halted after progress")),
+			}),
+			clearCache: () => Promise.resolve(),
+			openBundleSource: (_baseUrl, _pubkeyUrl, _bundleDeps, onProgress) => {
+				onProgress?.({ fetched: 3, total: 10, bytes: 300 });
+				return Promise.resolve(
+					fakeBundleSource(catalogOf([["OFAC_SDN", "test"]]), () =>
+						fakeLoaded(),
+					),
+				);
+			},
+		};
+		const runtime = new EngineRuntime(deps);
+		const stages: BootStage[] = [];
+		await expect(
+			runtime.bootstrap(CONFIG, (s) => stages.push(s)),
+		).rejects.toThrow("warmup halted after progress");
+
+		// The plain downloading stage fires first (no progress yet)...
+		expect(stages[0]).toEqual({ kind: "downloading" });
+		// ...then the per-chunk progress rides a later downloading stage.
+		expect(stages).toContainEqual({
+			kind: "downloading",
+			progress: { fetched: 3, total: 10, bytes: 300 },
 		});
 	});
 

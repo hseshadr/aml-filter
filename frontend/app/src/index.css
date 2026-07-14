@@ -41,6 +41,11 @@ code {
 	border-color: #fecaca;
 	color: #991b1b;
 }
+.screen-banner--unsupported {
+	background: #fffbeb;
+	border-color: #fde68a;
+	color: #92400e;
+}
 .screen-search {
 	width: 100%;
 	box-sizing: border-box;

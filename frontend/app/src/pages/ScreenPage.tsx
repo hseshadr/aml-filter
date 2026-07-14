@@ -6,6 +6,7 @@ import {
 	EngineRuntime,
 	type Entity,
 	type EntityType,
+	engineSupport,
 	type Identifiers,
 	type Match,
 	type MatchReason,
@@ -20,7 +21,7 @@ import {
 	useState,
 } from "react";
 import { Footer } from "../components/Footer";
-import { bootErrorMessage } from "./bootErrorMessage";
+import { bootErrorMessage, deviceUnsupportedMessage } from "./bootErrorMessage";
 
 // The backend-free OFAC screening page. On mount it fetches the signed JSON
 // watchlist (ed25519-verified, fail-closed) and warms the MiniLM embedder in a
@@ -33,7 +34,12 @@ import { bootErrorMessage } from "./bootErrorMessage";
 type Phase =
 	| { readonly kind: "booting"; readonly stage: BootStage }
 	| { readonly kind: "ready" }
-	| { readonly kind: "error"; readonly message: string };
+	| { readonly kind: "error"; readonly message: string }
+	// A device/browser that can't run the local engine at all (older iOS Safari /
+	// locked-down WebView missing OPFS, module Workers, or sync file access). A
+	// graceful dead-end detected BEFORE bootstrap — no Retry, since retrying can't
+	// add a missing browser capability. Maps to future `bundle.device_unsupported`.
+	| { readonly kind: "unsupported"; readonly message: string };
 
 // Single source of truth for the model-loading line, so the with-progress and
 // without-progress banners stay consistent (same wording, same accurate size).
@@ -190,10 +196,19 @@ function screenErrorMessage(error: unknown): string {
 
 export function ScreenPage() {
 	const runtime = useMemo(() => new EngineRuntime(), []);
-	const [phase, setPhase] = useState<Phase>({
-		kind: "booting",
-		stage: { kind: "downloading" },
-	});
+	// Capability preflight (once): before spawning any Worker or touching OPFS,
+	// check this browser can actually run the local engine. On an unsupported
+	// device the boot below would otherwise throw deep in a Worker — or, on iOS,
+	// silently hang with no catchable error — so we branch to an explicit screen.
+	const support = useMemo(() => engineSupport(), []);
+	const [phase, setPhase] = useState<Phase>(() =>
+		support.supported
+			? { kind: "booting", stage: { kind: "downloading" } }
+			: {
+					kind: "unsupported",
+					message: deviceUnsupportedMessage(support.missing),
+				},
+	);
 	const [query, setQuery] = useState("");
 	// Optional date-of-birth filter. A native date input's value is already
 	// `YYYY-MM-DD`, which flows straight into the engine's `dob` (normalized to
@@ -225,6 +240,11 @@ export function ScreenPage() {
 	// the boot. Listed as a dep so that re-fire actually happens.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: bootNonce is an intentional re-fire trigger, not read in the body
 	useEffect(() => {
+		// An unsupported device never boots: the preflight already routed to the
+		// unsupported screen, and spawning the engine Worker would only throw/hang.
+		if (!support.supported) {
+			return;
+		}
 		if (started.current) {
 			return;
 		}
@@ -251,7 +271,7 @@ export function ScreenPage() {
 					message: bootErrorMessage(error),
 				});
 			});
-	}, [runtime, bootNonce]);
+	}, [runtime, bootNonce, support.supported]);
 
 	const retryBoot = useCallback(() => {
 		// Reset the once-only boot guard and re-arm the booting banner; bumping the
@@ -449,6 +469,15 @@ function BootBanner({
 	if (phase.kind === "ready") {
 		return null;
 	}
+	if (phase.kind === "unsupported") {
+		// A graceful dead-end: no Retry, because retrying can't add a missing
+		// browser capability. role="alert" so assistive tech announces it.
+		return (
+			<div className="screen-banner screen-banner--unsupported" role="alert">
+				<span>{phase.message}</span>
+			</div>
+		);
+	}
 	if (phase.kind === "error") {
 		return (
 			<div className="screen-banner screen-banner--error" role="alert">
@@ -476,6 +505,12 @@ function BootBanner({
 function stageMessage(stage: BootStage): string {
 	if (stage.kind === "loading-model" && stage.progress !== undefined) {
 		return `${LOADING_MODEL_LABEL} ${Math.round(stage.progress.pct)}%`;
+	}
+	// Show the cold-sync chunk count so the long download reads as making
+	// progress (n/total) instead of a frozen "Downloading…" line.
+	if (stage.kind === "downloading" && stage.progress !== undefined) {
+		const { fetched, total } = stage.progress;
+		return `${STAGE_LABEL.downloading} ${fetched}/${total}`;
 	}
 	return STAGE_LABEL[stage.kind];
 }

@@ -6,7 +6,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 // accessible role="status" line.
 
 type BootStage =
-	| { readonly kind: "downloading" }
+	| {
+			readonly kind: "downloading";
+			readonly progress?: {
+				readonly fetched: number;
+				readonly total: number;
+				readonly bytes: number;
+			};
+	  }
 	| {
 			readonly kind: "loading-model";
 			readonly progress?: {
@@ -37,7 +44,12 @@ vi.mock("@amlfilter/browser", () => {
 			return null;
 		}
 	}
-	return { EngineRuntime, configFromEnv: () => ({}) };
+	return {
+		EngineRuntime,
+		configFromEnv: () => ({}),
+		// jsdom lacks Worker/OPFS; force "supported" so boot reaches the banner.
+		engineSupport: () => ({ supported: true, missing: [] }),
+	};
 });
 
 import { ScreenPage } from "./ScreenPage";
@@ -70,5 +82,28 @@ describe("ScreenPage boot banner — model-load progress", () => {
 		const text = screen.getByRole("status").textContent ?? "";
 		expect(text).toMatch(/model/i);
 		expect(text).not.toMatch(/%/);
+	});
+
+	it("shows n/total chunk progress on the downloading stage (not a frozen banner)", async () => {
+		setScript([
+			{
+				kind: "downloading",
+				progress: { fetched: 42, total: 1269, bytes: 10 },
+			},
+		]);
+		render(<ScreenPage />);
+		await waitFor(() => expect(screen.getByRole("status")).toBeTruthy());
+		const text = screen.getByRole("status").textContent ?? "";
+		expect(text).toMatch(/downloading/i);
+		expect(text).toMatch(/42\s*\/\s*1269/);
+	});
+
+	it("shows the plain downloading line before any chunk progress arrives", async () => {
+		setScript([{ kind: "downloading" }]);
+		render(<ScreenPage />);
+		await waitFor(() => expect(screen.getByRole("status")).toBeTruthy());
+		const text = screen.getByRole("status").textContent ?? "";
+		expect(text).toMatch(/downloading/i);
+		expect(text).not.toMatch(/\//);
 	});
 });

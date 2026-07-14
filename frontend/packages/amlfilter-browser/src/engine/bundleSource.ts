@@ -19,7 +19,7 @@
 // bytes) aborts the load. The pubkey is NEVER fetched from the bundle origin.
 
 import { EngineClient } from "./sync/client";
-import type { SyncResult } from "./sync/types";
+import type { OnSyncProgress, SyncResult } from "./sync/types";
 import {
 	buildLoadedFromBundleFiles,
 	type LoadedWatchlist,
@@ -114,7 +114,11 @@ function slugOf(entry: WatchlistCatalogEntry): string {
  * file's bytes out of the Worker's store. {@link EngineClient} satisfies it in the
  * browser; unit tests inject an in-process fake over a MemoryCacheStore. */
 export interface BundleEngineClient {
-	sync(baseUrl: string, pubkeyUrl: string): Promise<SyncResult>;
+	sync(
+		baseUrl: string,
+		pubkeyUrl: string,
+		onProgress?: OnSyncProgress,
+	): Promise<SyncResult>;
 	readFile(path: string): Promise<Uint8Array>;
 	clear(): Promise<void>;
 	terminate?(): void;
@@ -158,9 +162,12 @@ export async function openBundleSource(
 	baseUrl: string,
 	pubkeyUrl: string,
 	deps: BundleSourceDeps = defaultBundleSourceDeps,
+	onProgress?: OnSyncProgress,
 ): Promise<BundleSource> {
 	const client = deps.createClient();
-	const result = await client.sync(baseUrl, pubkeyUrl);
+	// `onProgress` threads the cold-sync per-chunk ticks up to the boot banner;
+	// undefined on reload/version-poll paths (no banner to feed).
+	const result = await client.sync(baseUrl, pubkeyUrl, onProgress);
 
 	const bundleCatalog: unknown = JSON.parse(
 		DECODER.decode(await client.readFile("catalog.json")),

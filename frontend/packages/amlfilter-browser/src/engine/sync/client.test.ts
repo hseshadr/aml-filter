@@ -6,19 +6,19 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { EngineClient } from "./client";
-import type { EngineRequest, EngineResponse } from "./protocol";
-import type { SyncResult } from "./types";
+import type { EngineOutbound, EngineRequest } from "./protocol";
+import type { SyncProgress, SyncResult } from "./types";
 
 /** A scripted stand-in for the engine Worker: records every posted request and
  * lets the test deliver typed responses through the client's message listener. */
 class FakeWorker {
 	public readonly posted: EngineRequest[] = [];
 	public terminated = false;
-	#listener: ((event: MessageEvent<EngineResponse>) => void) | undefined;
+	#listener: ((event: MessageEvent<EngineOutbound>) => void) | undefined;
 
 	public addEventListener(
 		_type: "message",
-		listener: (event: MessageEvent<EngineResponse>) => void,
+		listener: (event: MessageEvent<EngineOutbound>) => void,
 	): void {
 		this.#listener = listener;
 	}
@@ -31,9 +31,10 @@ class FakeWorker {
 		this.terminated = true;
 	}
 
-	/** Deliver a response as if the Worker posted it back. */
-	public emit(response: EngineResponse): void {
-		this.#listener?.({ data: response } as MessageEvent<EngineResponse>);
+	/** Deliver a response (or a one-way progress message) as if the Worker
+	 * posted it back. */
+	public emit(message: EngineOutbound): void {
+		this.#listener?.({ data: message } as MessageEvent<EngineOutbound>);
 	}
 }
 
@@ -79,6 +80,49 @@ describe("EngineClient request/response correlation", () => {
 			kind: "sync",
 			result: RESULT,
 		});
+		await expect(pending).resolves.toEqual(RESULT);
+	});
+
+	it("routes one-way sync-progress messages to the sync's progress sink without settling it", async () => {
+		const { client, worker } = clientOver();
+		const seen: SyncProgress[] = [];
+		const pending = client.sync("/bundle/origin", "/public.key", (p) =>
+			seen.push(p),
+		);
+		const id = idAt(worker, 0);
+		// Two progress ticks arrive BEFORE the final result — they must reach the
+		// sink and must NOT resolve the sync promise.
+		worker.emit({
+			kind: "sync-progress",
+			id,
+			progress: { fetched: 1, total: 2, bytes: 10 },
+		});
+		worker.emit({
+			kind: "sync-progress",
+			id,
+			progress: { fetched: 2, total: 2, bytes: 20 },
+		});
+		expect(seen).toEqual([
+			{ fetched: 1, total: 2, bytes: 10 },
+			{ fetched: 2, total: 2, bytes: 20 },
+		]);
+		// The final sync result settles the promise.
+		worker.emit({ ok: true, id, kind: "sync", result: RESULT });
+		await expect(pending).resolves.toEqual(RESULT);
+	});
+
+	it("ignores a sync-progress message with no registered sink (no crash)", async () => {
+		const { client, worker } = clientOver();
+		// A sync started WITHOUT a progress callback still works when a stray
+		// progress message arrives for it.
+		const pending = client.sync("/bundle/origin", "/public.key");
+		const id = idAt(worker, 0);
+		worker.emit({
+			kind: "sync-progress",
+			id,
+			progress: { fetched: 1, total: 1, bytes: 5 },
+		});
+		worker.emit({ ok: true, id, kind: "sync", result: RESULT });
 		await expect(pending).resolves.toEqual(RESULT);
 	});
 
