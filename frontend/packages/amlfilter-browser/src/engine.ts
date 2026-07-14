@@ -1,11 +1,18 @@
-// @amlfilter/browser/engine — the reusable, domain-agnostic crypto tier.
+// @amlfilter/browser/engine — the reusable, domain-agnostic crypto tier: the
+// fail-closed Ed25519 primitive, content hashing, canonical signing bytes, and
+// the chunk decode+verify rule. ZERO domain coupling (no screening, no
+// embeddings, no OFAC).
 //
-// After the v3 pivot to a single signed JSON watchlist, the heavy chunked-CAS
-// sync tier (OPFS store, GearCDC chunk reassembly, zstd, the sync Worker) is
-// gone — the browser fetches ONE signed file and verifies it. What remains
-// reusable, and what the publisher's round-trip test pins against, is the
-// fail-closed Ed25519 primitive + content hash. This subpath exposes exactly
-// those, with ZERO domain coupling (no screening, no embeddings, no OFAC).
+// Consumers: the publisher's round-trip test pins the signing primitives, and
+// the publisher's post-publish origin gate (verifyPublishedOrigin) re-checks
+// the LIVE origin after every deploy through the EXACT decode path the in-tab
+// verifier enforces — bytes-on-the-wire → zstd decompress → content-address.
+
+// --- canonical signing bytes (byte-matches edge-proc's canonical_bytes) ---
+export { canonicalBytes, type JsonValue } from "./engine/canonical";
 
 // --- fail-closed crypto primitives (verify a detached signature, hash bytes) ---
 export { SignatureError, sha256Hex, verifyEd25519 } from "./engine/crypto";
+
+// --- the client's chunk decode path (zstd decompress → sha256 == name) ---
+export { decompressAndVerify, IntegrityError } from "./engine/sync/integrity";
