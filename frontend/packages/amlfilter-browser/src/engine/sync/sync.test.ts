@@ -184,6 +184,60 @@ describe("syncIndex bounded chunk concurrency", () => {
 		expect(maxInFlight).toBeLessThanOrEqual(8);
 	});
 
+	it("emits monotonic per-chunk download progress reaching total/total", async () => {
+		const bundle = await syntheticBundle(20);
+		const store = new RecordingCacheStore();
+		const events: Array<{ fetched: number; total: number; bytes: number }> = [];
+
+		await syncIndex({
+			baseUrl: "/o",
+			store,
+			fetchBytes: bundle.fetchBytes,
+			verify: passVerify,
+			onProgress: (p) => events.push(p),
+		});
+
+		// One event per fetched chunk, ending at fetched === total.
+		expect(events.length).toBe(bundle.chunkHashes.length);
+		const last = events[events.length - 1];
+		expect(last).toMatchObject({
+			fetched: bundle.chunkHashes.length,
+			total: bundle.chunkHashes.length,
+		});
+		expect(last?.bytes ?? 0).toBeGreaterThan(0);
+		// fetched + bytes are monotonically non-decreasing across the pool.
+		for (let i = 1; i < events.length; i += 1) {
+			const prev = events[i - 1];
+			const curr = events[i];
+			if (prev === undefined || curr === undefined) {
+				continue;
+			}
+			expect(curr.fetched).toBeGreaterThanOrEqual(prev.fetched);
+			expect(curr.bytes).toBeGreaterThanOrEqual(prev.bytes);
+		}
+	});
+
+	it("emits no progress on a warm re-sync that fetches nothing", async () => {
+		const bundle = await syntheticBundle(5);
+		const store = new RecordingCacheStore();
+		await syncIndex({
+			baseUrl: "/o",
+			store,
+			fetchBytes: bundle.fetchBytes,
+			verify: passVerify,
+		});
+		// Second sync: every chunk is already present, so nothing is fetched.
+		const events: unknown[] = [];
+		await syncIndex({
+			baseUrl: "/o",
+			store,
+			fetchBytes: bundle.fetchBytes,
+			verify: passVerify,
+			onProgress: (p) => events.push(p),
+		});
+		expect(events).toEqual([]);
+	});
+
 	it("verifies and stores every chunk before promoting", async () => {
 		const bundle = await syntheticBundle(20);
 		const store = new RecordingCacheStore();

@@ -132,6 +132,29 @@ describe("openBundleSource — over the committed demo bundle", () => {
 		expect(ofac?.path).toBe("ofac/");
 	});
 
+	it("forwards the cold-sync progress sink through to the client's sync", async () => {
+		// Wrap the working memory client so its sync emits one progress tick, then
+		// assert openBundleSource forwarded the sink it was given down to it.
+		const { deps: baseDeps } = memoryClient();
+		const inner = baseDeps.createClient();
+		const wrapped: BundleEngineClient = {
+			sync: (baseUrl, pubkeyUrl, onProgress) => {
+				onProgress?.({ fetched: 1, total: 1, bytes: 10 });
+				return inner.sync(baseUrl, pubkeyUrl);
+			},
+			readFile: (path) => inner.readFile(path),
+			clear: () => inner.clear(),
+		};
+		const seen: Array<{ fetched: number; total: number; bytes: number }> = [];
+		await openBundleSource(
+			"/o",
+			PUBKEY_URL,
+			{ createClient: () => wrapped },
+			(p) => seen.push(p),
+		);
+		expect(seen).toEqual([{ fetched: 1, total: 1, bytes: 10 }]);
+	});
+
 	it("builds a per-list LoadedWatchlist from materialized files (Ivan Fakovich present)", async () => {
 		const { deps } = memoryClient();
 		const source = await openBundleSource("/o", PUBKEY_URL, deps);

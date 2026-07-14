@@ -52,6 +52,11 @@ async function handleSync(req: SyncRequest): Promise<EngineResponse> {
 		// nothing, which the preflight treats best-effort (proceed).
 		estimateStorage: () =>
 			navigator.storage?.estimate?.() ?? Promise.resolve({}),
+		// One-way per-chunk progress back to the main thread so the boot banner
+		// shows n/total during the long cold sync instead of looking frozen.
+		onProgress: (progress) => {
+			self.postMessage({ kind: "sync-progress", id: req.id, progress });
+		},
 	});
 	const raw = await cacheStore.getManifest(result.manifestHash);
 	activeManifest = JSON.parse(DECODER.decode(raw)) as IndexManifest;

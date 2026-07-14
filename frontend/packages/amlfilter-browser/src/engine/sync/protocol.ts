@@ -2,7 +2,7 @@
 // owns OPFS + the sync engine; the main thread only sends requests + awaits
 // replies. Discriminated unions on `kind` / `ok` keep the bridge type-safe.
 
-import type { SyncResult } from "./types";
+import type { SyncProgress, SyncResult } from "./types";
 
 /** Sync the signed bundle at `baseUrl`, pinning the raw pubkey at `pubkeyUrl`. */
 export interface SyncRequest {
@@ -54,3 +54,16 @@ interface EngineErr {
 }
 
 export type EngineResponse = SyncOk | ReadFileOk | ClearOk | EngineErr;
+
+/** A one-way cold-sync download progress notification, correlated to its sync
+ * request by `id` but NOT settling it. Tagged `kind: "sync-progress"` so the
+ * client routes it to the sync's progress sink instead of resolving the pending
+ * promise (mirrors the embedder Worker's `type: "progress"` channel). */
+export interface SyncProgressMessage {
+	readonly kind: "sync-progress";
+	readonly id: number;
+	readonly progress: SyncProgress;
+}
+
+/** Everything the Worker may post to the main-thread client. */
+export type EngineOutbound = EngineResponse | SyncProgressMessage;

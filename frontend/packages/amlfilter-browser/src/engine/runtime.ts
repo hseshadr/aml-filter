@@ -33,6 +33,7 @@ import {
 	type MultiListScreeningEngine,
 } from "./multiEngine";
 import { PRESETS } from "./scoring";
+import type { OnSyncProgress, SyncProgress } from "./sync/types";
 import type {
 	LoadedWatchlist,
 	WatchlistCatalog,
@@ -53,20 +54,52 @@ const WARMUP_PROMPT = "warm up the model";
 export const MODEL_LOAD_TIMEOUT_MS = 120_000;
 
 /**
+ * Hard ceiling on the WHOLE boot (download → verify → model load), a superset of
+ * the model-load ceiling. Its job is the phase the model timeout doesn't cover:
+ * a signed-bundle sync that stalls — many chunk fetches each under the per-fetch
+ * ceiling but collectively hanging, or a wedged Worker — which would otherwise
+ * leave the banner on "Downloading the signed sanctions list…" forever (the
+ * exact iOS symptom). On expiry the boot rejects, the memo clears, and the UI's
+ * error banner + Retry appears. Deliberately LONGER than
+ * {@link MODEL_LOAD_TIMEOUT_MS} so the model-load timeout stays the tighter, more
+ * specific bound; the cold-cache e2e overrides it via `VITE_BOOT_TIMEOUT_MS`.
+ * Maps to the future canonical `bundle.timeout` error code.
+ */
+export const BOOT_TIMEOUT_MS = 180_000;
+
+/** Parse a positive-millisecond override fail-closed: an absent, non-numeric,
+ * non-finite, or non-positive value yields `fallback`, so a malformed env var can
+ * never weaken a production ceiling to 0/NaN. */
+function parsePositiveMs(raw: string | undefined, fallback: number): number {
+	if (raw === undefined) {
+		return fallback;
+	}
+	const parsed = Number(raw);
+	if (!Number.isFinite(parsed) || parsed <= 0) {
+		return fallback;
+	}
+	return parsed;
+}
+
+/**
  * Parse a model-load timeout override (ms) fail-closed: an absent, non-numeric,
  * non-finite, or non-positive value falls back to {@link MODEL_LOAD_TIMEOUT_MS},
  * so a malformed env var can never weaken the production ceiling to 0/NaN. Pure
  * over its input — the caller supplies the raw env string (or undefined).
  */
 export function parseTimeoutMs(raw: string | undefined): number {
-	if (raw === undefined) {
-		return MODEL_LOAD_TIMEOUT_MS;
-	}
-	const parsed = Number(raw);
-	if (!Number.isFinite(parsed) || parsed <= 0) {
-		return MODEL_LOAD_TIMEOUT_MS;
-	}
-	return parsed;
+	return parsePositiveMs(raw, MODEL_LOAD_TIMEOUT_MS);
+}
+
+/**
+ * The effective overall-boot timeout: the `VITE_BOOT_TIMEOUT_MS` override if
+ * present and valid, otherwise {@link BOOT_TIMEOUT_MS}. The override exists only
+ * so the cold-cache e2e can bound the "everything blocked" boot to seconds.
+ */
+export function bootTimeoutMs(
+	env: Readonly<Record<string, string | undefined>>,
+): number {
+	return parsePositiveMs(env.VITE_BOOT_TIMEOUT_MS, BOOT_TIMEOUT_MS);
 }
 
 /**
@@ -120,7 +153,7 @@ export function throttleByRoundedPct(emit: OnEmbedProgress): OnEmbedProgress {
 /** A bootstrap stage surfaced to the UI. Production currently emits the plain
  * `loading-model` stage; injected embedders may still provide progress. */
 export type BootStage =
-	| { readonly kind: "downloading" }
+	| { readonly kind: "downloading"; readonly progress?: SyncProgress }
 	| { readonly kind: "verified"; readonly version: string }
 	| { readonly kind: "loading-model"; readonly progress?: EmbedProgress }
 	| { readonly kind: "ready" };
@@ -180,6 +213,7 @@ export interface RuntimeDeps {
 		baseUrl: string,
 		pubkeyUrl: string,
 		deps?: BundleSourceDeps,
+		onProgress?: OnSyncProgress,
 	) => Promise<BundleSource>;
 }
 
@@ -289,6 +323,10 @@ export class EngineRuntime {
 	// The active selection + thresholds, carried across reload so a re-bootstrap
 	// with no override reuses the last enabled set / score floors.
 	#selection: RuntimeSelection = {};
+	// The cold-sync download progress sink for the CURRENT boot only. Set for the
+	// duration of #build so the (memoized, once-called) openBundleSource threads
+	// per-chunk ticks to onStage; undefined on reload/poll opens (no banner).
+	#onSyncProgress: OnSyncProgress | undefined = undefined;
 
 	public constructor(deps: RuntimeDeps = defaultDeps) {
 		this.#deps = deps;
@@ -335,8 +373,17 @@ export class EngineRuntime {
 	): Promise<MultiListScreeningEngine> {
 		if (this.#enginePromise === null) {
 			this.#selection = selection;
-			this.#enginePromise = this.#build(config, onStage).catch((error) => {
-				// Let a failed bootstrap be retried by clearing the memo.
+			// Bound the WHOLE boot, not just the model load: a stalled bundle sync
+			// (or a wedged Worker) would otherwise hang the banner on "Downloading…"
+			// forever. On expiry the boot rejects → the memo clears → the UI shows
+			// its error banner + Retry (maps to future bundle.timeout).
+			const deadlineMs = bootTimeoutMs(import.meta.env);
+			this.#enginePromise = withTimeout(
+				this.#build(config, onStage),
+				deadlineMs,
+				`loading the screening engine timed out after ${deadlineMs}ms`,
+			).catch((error) => {
+				// Let a failed (or timed-out) bootstrap be retried by clearing the memo.
 				this.#enginePromise = null;
 				throw error;
 			});
@@ -439,7 +486,12 @@ export class EngineRuntime {
 			// The Worker fetches + verifies the pinned same-origin pubkey itself; the
 			// main thread never touches OPFS (sync access handles are Worker-only).
 			this.#bundleSource = this.#deps
-				.openBundleSource(baseUrl, config.pubkeyUrl)
+				.openBundleSource(
+					baseUrl,
+					config.pubkeyUrl,
+					undefined,
+					this.#onSyncProgress,
+				)
 				.catch((error: unknown) => {
 					this.#bundleSource = null;
 					throw error;
@@ -504,7 +556,18 @@ export class EngineRuntime {
 		// loaders open their own short IndexedDB transactions on demand; the bundle
 		// path's OPFS store does the same.
 		await requestPersistentStorage();
-		const loaded = await this.#loadEnabledLists(config);
+		// Feed cold-sync per-chunk progress to the downloading banner for THIS boot
+		// only. The bundle open is memoized + called once (in #loadEnabledLists →
+		// #bundleSourceFor), so this sink is live exactly across that sync; cleared
+		// after so reload/poll opens carry no banner sink.
+		this.#onSyncProgress = (progress) =>
+			onStage({ kind: "downloading", progress });
+		let loaded: LoadedWatchlist[];
+		try {
+			loaded = await this.#loadEnabledLists(config);
+		} finally {
+			this.#onSyncProgress = undefined;
+		}
 		const versions: Record<string, string> = {};
 		for (const l of loaded) {
 			versions[l.listId] = l.version;

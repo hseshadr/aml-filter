@@ -12,6 +12,7 @@ import type {
 	FetchBytes,
 	FileEntry,
 	IndexManifest,
+	OnSyncProgress,
 	SyncResult,
 	Verify,
 	VersionPointer,
@@ -30,6 +31,10 @@ interface SyncArgs {
 	 * = no preflight (the write path still fails closed on a real quota error).
 	 */
 	readonly estimateStorage?: EstimateStorage;
+	/** Optional per-chunk download progress sink (see {@link OnSyncProgress}).
+	 * Fires once per fetched chunk so the boot banner can show n/total instead of
+	 * looking frozen; a warm re-sync fetches nothing and emits nothing. */
+	readonly onProgress?: OnSyncProgress;
 }
 
 const DECODER = new TextDecoder();
@@ -132,14 +137,20 @@ async function missingChunks(
 	return { missing, reused: wanted.size - missing.length };
 }
 
-/** Fetch + verbatim-ingest each missing chunk (fail-closed); return bytes fetched. */
+/** Fetch + verbatim-ingest each missing chunk (fail-closed); return bytes fetched.
+ * Emits progress once per fetched chunk (n/total, cumulative bytes) so the boot
+ * banner shows life on the long cold-sync phase. */
 async function fetchMissing(
 	baseUrl: string,
 	missing: ReadonlyArray<string>,
 	fetchBytes: FetchBytes,
 	store: CacheStore,
+	onProgress?: OnSyncProgress,
 ): Promise<number> {
 	let nextIndex = 0;
+	// Shared across the worker pool: total chunks + bytes completed so far.
+	let fetched = 0;
+	let totalBytes = 0;
 	const fetchNext = async (): Promise<number> => {
 		let workerBytes = 0;
 		while (nextIndex < missing.length) {
@@ -151,6 +162,9 @@ async function fetchMissing(
 			const compressed = await fetchBytes(`${baseUrl}/chunk/${chunkHash}`);
 			await store.putChunkCompressed(chunkHash, compressed);
 			workerBytes += compressed.byteLength;
+			fetched += 1;
+			totalBytes += compressed.byteLength;
+			onProgress?.({ fetched, total: missing.length, bytes: totalBytes });
 		}
 		return workerBytes;
 	};
@@ -345,7 +359,13 @@ export async function syncIndex(args: SyncArgs): Promise<SyncResult> {
 	// Quota preflight: refuse fail-fast (QuotaError) before fetching any chunk if
 	// the device can't hold them. Best-effort — a no-op without an estimate seam.
 	await assertRoomForChunks(manifest, missing, args.estimateStorage);
-	const bytesFetched = await fetchMissing(baseUrl, missing, fetchBytes, store);
+	const bytesFetched = await fetchMissing(
+		baseUrl,
+		missing,
+		fetchBytes,
+		store,
+		args.onProgress,
+	);
 	// Fresh path: verify only the REUSED chunks (self-healing a poisoned present
 	// chunk), NOT a full verifyReassembly. The old eager pass reassembled + hashed
 	// EVERY file in RAM at boot, then materializeFile did it a SECOND time per file

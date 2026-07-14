@@ -506,6 +506,12 @@ function stageMessage(stage: BootStage): string {
 	if (stage.kind === "loading-model" && stage.progress !== undefined) {
 		return `${LOADING_MODEL_LABEL} ${Math.round(stage.progress.pct)}%`;
 	}
+	// Show the cold-sync chunk count so the long download reads as making
+	// progress (n/total) instead of a frozen "Downloading…" line.
+	if (stage.kind === "downloading" && stage.progress !== undefined) {
+		const { fetched, total } = stage.progress;
+		return `${STAGE_LABEL.downloading} ${fetched}/${total}`;
+	}
 	return STAGE_LABEL[stage.kind];
 }
 

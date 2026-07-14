@@ -62,7 +62,9 @@ export {
 export { canonicalize, normalizeDob } from "./engine/normalize";
 // --- runtime: bootstrap the multi-list engine over the signed catalog + lists ---
 export {
+	BOOT_TIMEOUT_MS,
 	type BootStage,
+	bootTimeoutMs,
 	type CatalogListInfo,
 	compositeVersion,
 	configFromEnv,
@@ -92,6 +94,8 @@ export {
 } from "./engine/screeningEngine";
 // --- storage-quota preflight: refuse fail-fast rather than hang mid-sync ---
 export { QuotaError } from "./engine/sync/storage";
+// --- cold-sync download progress shape (threaded into the downloading banner) ---
+export type { OnSyncProgress, SyncProgress } from "./engine/sync/types";
 // --- the bundle-files builder + the shared watchlist/catalog shapes ---
 export {
 	type BundleListFiles,
