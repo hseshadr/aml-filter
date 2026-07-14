@@ -3,14 +3,14 @@
 **A free, zero-server watchlist-filtering and KYC-review app that runs entirely in your browser — screens your customers against multiple sanctions lists, shows exactly why each one matched, and gives reviewers an auditable workflow.**
 
 [![CI](https://github.com/hseshadr/aml-filter/actions/workflows/ci.yml/badge.svg)](https://github.com/hseshadr/aml-filter/actions/workflows/ci.yml)
-[![Demo](https://img.shields.io/badge/demo-run%20locally-blue.svg)](#quickstart--clone-to-screening-in-10-minutes)
+[![Live demo](https://img.shields.io/badge/demo-live%20at%20aml--filter.com-brightgreen.svg)](https://aml-filter.com)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue.svg)](https://www.typescriptlang.org/)
 [![Node 22.13](https://img.shields.io/badge/node-22.13-green.svg)](frontend/.nvmrc)
 
-▶ **Try it locally in ~10 minutes — [one-command Quickstart](#quickstart--clone-to-screening-in-10-minutes)** (clone, `pnpm install`, `pnpm --filter aml-filter-app dev`).
+▶ **Try it now at [aml-filter.com](https://aml-filter.com)** — the whole app runs in your browser tab, no server and no signup. Prefer to self-host? **[Run it locally in ~10 minutes](#quickstart--clone-to-screening-in-10-minutes)** (clone, `pnpm install`, `pnpm --filter aml-filter-app dev`).
 
-> A hosted demo at `aml-filter.com` is **coming soon** — the Cloudflare deploy is pending. For now, run it locally; everything works on a cold clone with no backend.
+> **Live at [`aml-filter.com`](https://aml-filter.com)** — hosted on Cloudflare Pages, screening entirely in your browser (the signed watchlist bundle is served same-origin). Everything also works on a cold local clone with no backend; [`docs/DEPLOY.md`](docs/DEPLOY.md) covers hosting your own copy.
 
 ## TL;DR
 
@@ -293,7 +293,8 @@ aml-filter/
 │   └── packages/
 │       ├── amlfilter-publisher/         #   @amlfilter/publisher — list adapters → embed → sign → signed content-addressed bundle
 │       ├── amlfilter-browser/           #   @amlfilter/browser — bundle delta-sync + verify + embed + cosine search + scorer + OPFS cache
-│       └── amlfilter-workstation/       #   @amlfilter/workstation — SQLite-WASM/OPFS DB worker + rescan + audit trail
+│       ├── amlfilter-workstation/       #   @amlfilter/workstation — SQLite-WASM/OPFS DB worker + rescan + audit trail
+│       └── edgeproc-errors/             #   @edgeproc/errors — vendored canonical-errors library (registers the bundle-load taxonomy)
 ├── .github/workflows/publish-watchlist.yml  # daily signed-list publish
 ├── docs/                                # ARCHITECTURE · QUICKSTART · DEPLOY · WATCHLIST_FORMAT · diagrams/
 ├── LICENSE  NOTICE  CHANGELOG.md  CONTRIBUTING.md

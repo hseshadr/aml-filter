@@ -150,12 +150,13 @@ pnpm --filter aml-filter-app preview    # serves the dist/ build; open the print
 ## Troubleshooting
 
 - **`/screen` never becomes ready** — it boots the embedder and verifies the signed
-  catalog and its lists on first load; give the model fetch a moment on a cold cache, and
+  watchlist bundle on first load; give the model fetch a moment on a cold cache, and
   confirm a clean browser console.
 - **"signature verification failed"** — verification is fail-closed by design. Make sure
-  you're serving the committed `watchlist/` tree (`catalog.json` + the per-list dirs) and
-  the pinned `public.key` together, over a secure context (`localhost` or HTTPS) — not a
-  LAN IP. The same check runs over cached bytes, so a stale/corrupt cache also fails
-  closed; use **Clear cached lists** in `/settings` to force a re-fetch.
+  you're serving the committed signed bundle (`bundle/origin/` — the `latest` pointer +
+  `manifest/` + `chunk/`) and the pinned `public.key` together, over a secure context
+  (`localhost` or HTTPS) — not a LAN IP. The same check runs over cached bytes, so a
+  stale/corrupt cache also fails closed; use **Clear cached lists** in `/settings` to
+  force a re-fetch.
 - **No matches ever** — screen a name that's actually close to one on an enabled list
   (the committed demo lists are small), and confirm the list is enabled in `/settings`.

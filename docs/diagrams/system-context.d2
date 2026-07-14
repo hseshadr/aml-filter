@@ -1,5 +1,5 @@
-# aml-filter — system context (v3, zero-server)
-# Publisher (CI) signs static watchlist files -> browser verifies + screens in-tab
+# aml-filter — system context (v4, zero-server)
+# Publisher (CI) signs a content-addressed watchlist bundle -> browser verifies + screens in-tab
 
 direction: right
 
@@ -14,7 +14,7 @@ publisher: {
 }
 
 cdn: {
-  label: "Static host / CDN\nwatchlist.json(.sig)\nwatchlist.manifest.json(.sig)\n+ the SPA"
+  label: "Static host / CDN\nsigned bundle: latest + manifest/ + chunk/\n+ the SPA"
   shape: cylinder
 }
 
@@ -29,8 +29,8 @@ user: {
 }
 
 ofac -> publisher: "SDN.CSV + ALT.CSV"
-publisher -> cdn: "4 signed static files"
-cdn -> browser: "fetch watchlist + SPA (HTTPS, same-origin)"
+publisher -> cdn: "signed bundle (latest + manifest + chunk)"
+cdn -> browser: "fetch signed bundle + SPA (HTTPS, same-origin)"
 user -> browser: "load customers · screen names"
 browser -> user: "scored, explained matches + review queue"
 

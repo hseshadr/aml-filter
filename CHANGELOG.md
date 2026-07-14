@@ -8,6 +8,20 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Full SPA localization with i18next (#61)** — every user-facing string in the SPA is
+  extracted to namespaced i18n keys with an English baseline bundled **offline** (no runtime
+  network fetch); a `verify-i18n` step keeps the catalog complete, and coded errors plug in
+  as i18n keys.
+- **Graceful, observable iOS `/screen` boot (#60)** — a capability preflight, a bounded
+  whole-boot timeout (`VITE_BOOT_TIMEOUT_MS`, default 180s), per-stage progress, and lower
+  peak memory make the cold boot legible and keep locked-down iOS Safari / WebViews from
+  hanging silently; a device that cannot run the local engine dead-ends gracefully (no
+  futile Retry) instead of spinning.
+- **Vendored `@edgeproc/errors` for the bundle-load error path (#63)** — the portfolio's
+  canonical-errors library is vendored (`frontend/packages/edgeproc-errors`, source consumed
+  directly) and classifies raw boot/screen failures through a registered taxonomy expressed
+  in the shared error vocabulary. Behavior-identical: every failure still renders the exact
+  same existing `errors:*` string — no user-visible copy or i18n key moved.
 - **Self-hosted ORT wasm loader (§8.1b)** — onnxruntime-web dynamically imports its wasm
   loader module (`ort-wasm-simd-threaded.asyncify.mjs` + sibling `.wasm`) from the
   jsDelivr CDN at runtime; a cold audit with jsDelivr aborted proved /screen never

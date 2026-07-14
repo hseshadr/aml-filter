@@ -29,8 +29,8 @@ everything the app needs at runtime:
 | Bundled into `dist/` | What it is |
 | --- | --- |
 | the SPA (HTML/JS/CSS) | the React app and the in-tab screening/scorer code |
-| `watchlist/` | the committed **signed** demo catalog: `catalog.json(.sig)` + per-list dirs (`ofac/ eu/ un/ uk/`) |
-| `public.key` | the pinned Ed25519 public key the app verifies the catalog + lists against |
+| `bundle/origin/` | the committed **signed** content-addressed demo bundle: the `latest` pointer + `manifest/` + `chunk/` CAS |
+| `public.key` | the pinned Ed25519 public key the app verifies the bundle against |
 | `models/` | the MiniLM embedding-model weights (loaded once, in-tab) |
 
 ## 2. Serve it (secure context required)
