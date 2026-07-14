@@ -19,7 +19,8 @@
 		"publish": "vite-node src/cli.ts --",
 		"build-real-bundle": "vite-node src/buildRealBundleMain.ts --",
 		"build-demo-bundle": "vite-node src/buildDemoBundle.ts",
-		"build-demo-bundle-v2": "vite-node src/buildDemoBundleV2.ts"
+		"build-demo-bundle-v2": "vite-node src/buildDemoBundleV2.ts",
+		"verify-published-origin": "vite-node src/verifyPublishedOriginMain.ts --"
 	},
 	"dependencies": {
 		"@amlfilter/browser": "workspace:*",

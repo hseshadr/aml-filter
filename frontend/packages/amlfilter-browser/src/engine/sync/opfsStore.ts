@@ -4,6 +4,17 @@
 // the manifest bytes, active holds the promoted VersionPointer. The read path is
 // always decompress → re-hash → compare (fail-closed). Store this verbatim so a
 // patch re-sync can prove only-changed-chunks were fetched.
+//
+// Self-healing (the remove half of edge-proc cas.py's _verify_or_remove, and
+// the fix for the 2026-07-13 production outage): getFileHandle(create:true)
+// creates the durable entry BEFORE any bytes land, so an interrupted sync can
+// strand a zero-byte chunk file. A store that only fails closed on such a file
+// bricks the app forever — hasChunk() reports it present, sync never
+// re-fetches it, and every boot dies with "failed content-address check".
+// Therefore: a zero-byte chunk counts as absent, a chunk that fails its
+// integrity check on read is evicted before the error propagates, and a failed
+// write removes whatever partial entry it created — the next sync re-fetches
+// and recovers instead of failing permanently.
 
 import { sha256Hex } from "../crypto";
 import { decompressAndVerify, IntegrityError } from "./integrity";
@@ -61,8 +72,10 @@ export class OpfsCacheStore implements CacheStore {
 
 	public async hasChunk(chunkHash: string): Promise<boolean> {
 		try {
-			await this.#chunkDir.getFileHandle(chunkHash);
-			return true;
+			const fileHandle = await this.#chunkDir.getFileHandle(chunkHash);
+			// A zero-byte entry is an interrupted write (created, never written),
+			// not a chunk: report it absent so the next sync re-fetches it.
+			return (await fileHandle.getFile()).size > 0;
 		} catch {
 			return false;
 		}
@@ -79,7 +92,17 @@ export class OpfsCacheStore implements CacheStore {
 
 	public async getChunk(chunkHash: string): Promise<Uint8Array> {
 		const compressed = await this.readFile(this.#chunkDir, chunkHash);
-		return decompressAndVerify(chunkHash, compressed);
+		try {
+			return await decompressAndVerify(chunkHash, compressed);
+		} catch (error) {
+			if (error instanceof IntegrityError) {
+				// Evict the poisoned file (fail-closed stays intact — the error
+				// still propagates) so the next sync re-fetches it instead of
+				// failing on the same bytes forever.
+				await this.#evictChunk(chunkHash);
+			}
+			throw error;
+		}
 	}
 
 	public async putManifest(manifestBytes: Uint8Array): Promise<string> {
@@ -144,17 +167,38 @@ export class OpfsCacheStore implements CacheStore {
 		}
 	}
 
+	/** Best-effort removal of a bad chunk file; the caller's error still wins. */
+	async #evictChunk(chunkHash: string): Promise<void> {
+		try {
+			await this.#chunkDir.removeEntry(chunkHash);
+		} catch {
+			// Eviction is advisory: if it fails, the read error propagates anyway.
+		}
+	}
+
 	private async writeFile(
 		dir: FileSystemDirectoryHandle,
 		name: string,
 		data: Uint8Array,
 	): Promise<void> {
-		const fileHandle = await dir.getFileHandle(name, { create: true });
-		const handle = await fileHandle.createSyncAccessHandle();
 		try {
-			writeHandle(handle, data);
-		} finally {
-			handle.close();
+			const fileHandle = await dir.getFileHandle(name, { create: true });
+			const handle = await fileHandle.createSyncAccessHandle();
+			try {
+				writeHandle(handle, data);
+			} finally {
+				handle.close();
+			}
+		} catch (error) {
+			// getFileHandle(create:true) creates the entry before bytes land; a
+			// failed write must not strand a truncated file that would read as
+			// present. Remove whatever this write left behind, then re-throw.
+			try {
+				await dir.removeEntry(name);
+			} catch {
+				// Best-effort: the original write error is the one that matters.
+			}
+			throw error;
 		}
 	}
 

@@ -38,9 +38,28 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   ENGINEERING-STANDARDS §8 declaration (exemplar for §8.1(b) vendored/self-hosted WASM
   runtimes + parity-tested TS and §8.1(c) sqlite-wasm-over-OPFS).
 - **README 4-part TL;DR** (what / why it works / worked example / core invariants).
+- **Post-publish live-origin integrity gate** — after the nightly publish deploys,
+  `publish-watchlist.yml` now runs `verify-published-origin` (publisher package): it
+  re-fetches the LIVE `/bundle/origin` and verifies the whole chain through the exact
+  decode path the in-tab verifier enforces (`@amlfilter/browser` zstd decompress →
+  sha256 == content-address, 8-way like the client) — signed pointer (version pinned to
+  the stamp just published), manifest hash, and every chunk. A deploy that serves bytes
+  the client would reject now fails the workflow loudly instead of shipping silently.
 
 ### Fixed
 
+- **Permanent "failed content-address check" screen outage (2026-07-13)** — OPFS
+  `getFileHandle(create: true)` creates the durable chunk entry BEFORE any bytes are
+  written, so a sync interrupted mid-write (tab close, quota abort) could strand a
+  zero-byte `chunk/<hash>` file. `hasChunk()` checked existence only, so every
+  subsequent sync skipped re-fetching it, and reassembly then failed fail-closed with
+  `chunk <hash> failed content-address check` on every boot — Retry could never heal
+  (observed live: 1264 chunks in OPFS, exactly one zero-byte, exactly the chunk named
+  in the error; the served origin verified byte-perfect). The store now implements the
+  missing remove half of edge-proc cas.py's `_verify_or_remove`: a zero-byte chunk
+  counts as absent (silently re-fetched on the next sync), a chunk failing integrity on
+  read is evicted before the error propagates (fail-closed preserved, next sync heals),
+  and a failed write removes whatever partial entry it created.
 - **Browser model boot could fail as a fake network error** — transformers.js 4.2.0's
   progress callback starts three overlapping requests for the same 23 MB ONNX model.
   Under Chromium cache pressure that produced `ERR_CACHE_WRITE_FAILURE` and left
