@@ -21,6 +21,16 @@ export {
 	type BundleSourceDeps,
 	openBundleSource,
 } from "./engine/bundleSource";
+// --- device-support preflight: is the local engine runnable on this browser? ---
+export {
+	type CapabilityScope,
+	DeviceUnsupportedError,
+	detectCapabilities,
+	type EngineCapabilities,
+	engineSupport,
+	isEngineSupported,
+	missingCapabilities,
+} from "./engine/deviceSupport";
 // --- the domain contract (single source of truth, mirrors the backend) ---
 export {
 	type Alias,

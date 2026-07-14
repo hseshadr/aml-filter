@@ -1,0 +1,55 @@
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+// An unsupported device (older iOS Safari / locked-down WebView) must NOT spawn
+// the engine Worker — the capability preflight routes straight to an explicit
+// "can't run the local engine" screen. bootstrap must never be called (spawning
+// the Worker would throw deep inside it, or on iOS hang with no catchable error).
+const bootCalls = { count: 0 };
+
+vi.mock("@amlfilter/browser", () => {
+	class EngineRuntime {
+		bootstrap(): Promise<void> {
+			bootCalls.count += 1;
+			return Promise.resolve();
+		}
+		engine() {
+			return null;
+		}
+	}
+	return {
+		EngineRuntime,
+		configFromEnv: () => ({}),
+		// This browser is missing the capabilities the local engine needs.
+		engineSupport: () => ({ supported: false, missing: ["Web Workers"] }),
+	};
+});
+
+import { ScreenPage } from "./ScreenPage";
+
+afterEach(() => {
+	cleanup();
+	bootCalls.count = 0;
+});
+
+describe("ScreenPage — unsupported device", () => {
+	it("shows the unsupported-device screen and never spawns the engine", async () => {
+		render(<ScreenPage />);
+
+		const alert = await waitFor(() => screen.getByRole("alert"));
+		expect(alert.textContent ?? "").toMatch(/can’t run the local engine/i);
+		expect(alert.textContent ?? "").toMatch(/desktop browser/i);
+		// The missing capability is named so a technical visitor can see why.
+		expect(alert.textContent ?? "").toMatch(/Web Workers/);
+
+		// The search box stays disabled — there is no engine to screen against.
+		const box = screen.getByPlaceholderText(/Search a name/);
+		expect((box as HTMLInputElement).disabled).toBe(true);
+
+		// No Retry: retrying can't add a missing browser capability.
+		expect(screen.queryByRole("button", { name: /retry/i })).toBeNull();
+
+		// Crucially, bootstrap was never attempted on the unsupported device.
+		expect(bootCalls.count).toBe(0);
+	});
+});
