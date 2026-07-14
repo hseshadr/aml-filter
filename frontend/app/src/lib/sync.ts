@@ -18,6 +18,7 @@
  */
 
 import type { SyncResult } from "@amlfilter/workstation";
+import i18n from "../i18n";
 import type { WorkstationHandle } from "./workstation";
 
 /**
@@ -62,7 +63,11 @@ export async function checkForWatchlistUpdates(
 /** Plain-language one-liner for a completed sync — shared by every surface. */
 export function syncSummaryText(result: SyncResult): string {
 	if (!result.changed) {
-		return "Watchlist already current.";
+		return i18n.t("common:sync.alreadyCurrent");
 	}
-	return `Re-screened ${result.customersScanned} customer(s) — ${result.newHits} new hit(s), ${result.clearedHits} cleared.`;
+	return i18n.t("common:sync.summary", {
+		scanned: result.customersScanned,
+		newHits: result.newHits,
+		clearedHits: result.clearedHits,
+	});
 }

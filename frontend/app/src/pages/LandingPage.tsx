@@ -1,3 +1,4 @@
+import { Trans, useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { Footer } from "../components/Footer";
 import { DEMO_STATS } from "../generated/landing-stats";
@@ -7,6 +8,11 @@ import "../styles/landing.css";
 // no backend, no auth. It pitches the two tiers of aml-filter — the backend-free
 // in-browser screening demo (/screen) and the local-first KYC workstation
 // (/customers) — and routes a visitor to whichever they want.
+//
+// Copy is i18n'd: the display strings live in locales/en/landing.json under the
+// "landing" namespace, and the data arrays below hold catalog KEYS (resolved via
+// t() at render). The big KPI figure line (num/prefix/unit) is DATA, not copy —
+// the two measured tiles come straight from the GENERATED single source of truth.
 //
 // HONESTY: every KPI below is a real number, not marketing fiction. The two
 // measured figures are GENERATED from the actual source files by
@@ -26,80 +32,72 @@ interface Metric {
 	readonly prefix?: string;
 	readonly unit?: string;
 	readonly tone?: "hot" | "pos";
-	readonly label: string;
-	readonly sub: string;
+	readonly labelKey: string;
+	readonly subKey: string;
 }
 
 interface Why {
-	readonly title: string;
-	readonly body: string;
+	readonly titleKey: string;
+	readonly bodyKey: string;
 }
 
 interface Step {
 	readonly n: string;
-	readonly label: string;
+	readonly labelKey: string;
 }
 
 const METRICS: readonly Metric[] = [
 	{
 		num: "$0",
 		tone: "pos",
-		label: "backend infra to run the demo",
-		sub: "no API, no vector DB, no servers in the path",
+		labelKey: "metrics.infra.label",
+		subKey: "metrics.infra.sub",
 	},
 	{
 		prefix: "~",
 		num: String(DEMO_STATS.modelSizeMb),
 		unit: "MB",
 		tone: "hot",
-		label: "MiniLM matcher, cached once",
-		sub: "all-MiniLM-L6-v2 quantized ONNX, then offline",
+		labelKey: "metrics.matcher.label",
+		subKey: "metrics.matcher.sub",
 	},
 	{
 		num: String(DEMO_STATS.demoEntityCount),
-		label: "sanctions entities on the demo list",
-		sub: "fictional demo bundle · the workstation loads real lists",
+		labelKey: "metrics.entities.label",
+		subKey: "metrics.entities.sub",
 	},
 	{
 		num: "0 bytes",
 		tone: "pos",
-		label: "of what you type leave the device",
-		sub: "the name is matched entirely in the tab",
+		labelKey: "metrics.pii.label",
+		subKey: "metrics.pii.sub",
 	},
 ];
 
 const WHYS: readonly Why[] = [
-	{
-		title: "Private",
-		body: "The name you screen is matched in the tab and never leaves the device. No query, no customer name, is sent to a third-party SaaS.",
-	},
-	{
-		title: "Local / Offline",
-		body: "Backend-free and in-tab. After the first load — model plus signed bundle — the matcher keeps working with no network at all.",
-	},
-	{
-		title: "Verifiable",
-		body: "The sanctions list arrives as a content-addressed, ed25519-signed bundle, verified fail-closed in-tab against a pinned key. A bad signature aborts the load.",
-	},
+	{ titleKey: "whys.private.title", bodyKey: "whys.private.body" },
+	{ titleKey: "whys.local.title", bodyKey: "whys.local.body" },
+	{ titleKey: "whys.verifiable.title", bodyKey: "whys.verifiable.body" },
 ];
 
 const STEPS: readonly Step[] = [
-	{ n: "1", label: "sync the signed bundle" },
-	{ n: "2", label: "verify ed25519 + sha-256 in-tab (fail-closed)" },
-	{ n: "3", label: "load MiniLM once" },
-	{ n: "4", label: "normalize + embed the query" },
-	{ n: "5", label: "transparent weighted scoring" },
-	{ n: "6", label: "ranked matches with per-signal reasons" },
+	{ n: "1", labelKey: "howItWorks.steps.sync" },
+	{ n: "2", labelKey: "howItWorks.steps.verify" },
+	{ n: "3", labelKey: "howItWorks.steps.load" },
+	{ n: "4", labelKey: "howItWorks.steps.embed" },
+	{ n: "5", labelKey: "howItWorks.steps.score" },
+	{ n: "6", labelKey: "howItWorks.steps.rank" },
 ];
 
 const WORKSTATION_FLOW = [
-	"Onboard a customer",
-	"Auto-screen in-tab",
-	"Tiered review board",
-	"Resolve with an audit trail",
+	"workstation.flow.onboard",
+	"workstation.flow.screen",
+	"workstation.flow.review",
+	"workstation.flow.resolve",
 ] as const;
 
 function MetricTile({ metric }: { readonly metric: Metric }) {
+	const { t } = useTranslation("landing");
 	const toneClass = metric.tone ? ` landing__tile-num--${metric.tone}` : "";
 	return (
 		<div className="landing__tile">
@@ -112,18 +110,17 @@ function MetricTile({ metric }: { readonly metric: Metric }) {
 					<span className="landing__tile-unit">{metric.unit}</span>
 				) : null}
 			</div>
-			<div className="landing__tile-label">{metric.label}</div>
-			<div className="landing__tile-sub">{metric.sub}</div>
+			<div className="landing__tile-label">{t(metric.labelKey)}</div>
+			<div className="landing__tile-sub">{t(metric.subKey)}</div>
 		</div>
 	);
 }
 
 function Hero() {
+	const { t } = useTranslation("landing");
 	return (
 		<header className="landing__hero">
-			<div className="landing__eyebrow">
-				on-device · in your browser · no backend
-			</div>
+			<div className="landing__eyebrow">{t("hero.eyebrow")}</div>
 			<div className="landing__wordmark">
 				<img src="/logo.svg" alt="" aria-hidden="true" />
 				<span className="landing__wordmark-name">
@@ -132,43 +129,35 @@ function Hero() {
 			</div>
 
 			<h1 className="landing__title">
-				Sanctions screening that runs <em>entirely in your browser</em>.
+				<Trans i18nKey="hero.title" ns="landing" components={{ em: <em /> }} />
 			</h1>
 
-			<p className="landing__lede">
-				Screening a name usually means shipping your customers&rsquo; names to a
-				third-party SaaS. AML-Filter turns that inside out. The sanctions list
-				syncs in as a signed bundle, is ed25519-verified in the tab, and the
-				matcher runs locally — so nothing you type leaves the device. Private,
-				offline-capable, and free to operate.
-			</p>
+			<p className="landing__lede">{t("hero.lede")}</p>
 
 			<div className="landing__cta">
 				<Link to="/screen" className="landing__btn landing__btn--primary">
-					▶ Try the live demo
+					{t("hero.ctaPrimary")}
 				</Link>
 				<Link to="/customers" className="landing__btn landing__btn--ghost">
-					Open the workstation
+					{t("hero.ctaSecondary")}
 				</Link>
 			</div>
-			<p className="landing__footnote">
-				First load fetches the matcher model plus the signed bundle; after that
-				everything is cached and works offline.
-			</p>
+			<p className="landing__footnote">{t("hero.footnote")}</p>
 		</header>
 	);
 }
 
 function MetricsBand() {
+	const { t } = useTranslation("landing");
 	return (
-		<section className="landing__band" aria-label="Metrics">
+		<section className="landing__band" aria-label={t("metrics.ariaLabel")}>
 			<div className="landing__band-head">
-				<h2 className="landing__band-title">What it costs to run</h2>
-				<div className="landing__band-note">measured / real figures</div>
+				<h2 className="landing__band-title">{t("metrics.title")}</h2>
+				<div className="landing__band-note">{t("metrics.note")}</div>
 			</div>
 			<div className="landing__tiles">
 				{METRICS.map((metric) => (
-					<MetricTile key={metric.label} metric={metric} />
+					<MetricTile key={metric.labelKey} metric={metric} />
 				))}
 			</div>
 		</section>
@@ -176,12 +165,13 @@ function MetricsBand() {
 }
 
 function WhyCards() {
+	const { t } = useTranslation("landing");
 	return (
-		<section className="landing__why" aria-label="Why">
+		<section className="landing__why" aria-label={t("whys.ariaLabel")}>
 			{WHYS.map((why) => (
-				<article key={why.title} className="landing__why-card">
-					<div className="landing__why-key">{why.title}</div>
-					<div className="landing__why-desc">{why.body}</div>
+				<article key={why.titleKey} className="landing__why-card">
+					<div className="landing__why-key">{t(why.titleKey)}</div>
+					<div className="landing__why-desc">{t(why.bodyKey)}</div>
 				</article>
 			))}
 		</section>
@@ -189,15 +179,16 @@ function WhyCards() {
 }
 
 function HowItWorks() {
+	const { t } = useTranslation("landing");
 	return (
-		<section className="landing__how" aria-label="How it works">
-			<div className="landing__how-title">How it works</div>
+		<section className="landing__how" aria-label={t("howItWorks.ariaLabel")}>
+			<div className="landing__how-title">{t("howItWorks.title")}</div>
 			<ol className="landing__steps">
 				{STEPS.map((step, i) => (
 					<li key={step.n} className="landing__step-item">
 						<span className="landing__step">
 							<b>{step.n}</b>
-							{step.label}
+							{t(step.labelKey)}
 						</span>
 						{i < STEPS.length - 1 ? (
 							<span className="landing__arrow" aria-hidden="true">
@@ -212,27 +203,21 @@ function HowItWorks() {
 }
 
 function Workstation() {
+	const { t } = useTranslation("landing");
 	return (
 		<section
 			className="landing__workstation"
-			aria-label="Compliance workstation"
+			aria-label={t("workstation.ariaLabel")}
 		>
 			<div className="landing__workstation-kicker">
-				the local-first KYC tier
+				{t("workstation.kicker")}
 			</div>
-			<h2 className="landing__workstation-title">
-				Need the full workflow? The KYC workstation runs in your browser too.
-			</h2>
-			<p className="landing__workstation-lede">
-				Onboard customers, auto-screen them against the signed sanctions bundle,
-				and triage tiered matches on a review board — persisted to SQLite in
-				your browser&rsquo;s private storage (OPFS). No login, no server: your
-				customer data never leaves the device.
-			</p>
+			<h2 className="landing__workstation-title">{t("workstation.title")}</h2>
+			<p className="landing__workstation-lede">{t("workstation.lede")}</p>
 			<ol className="landing__workstation-flow">
-				{WORKSTATION_FLOW.map((label, i) => (
-					<li key={label} className="landing__workstation-step">
-						<span className="landing__workstation-pill">{label}</span>
+				{WORKSTATION_FLOW.map((flowKey, i) => (
+					<li key={flowKey} className="landing__workstation-step">
+						<span className="landing__workstation-pill">{t(flowKey)}</span>
 						{i < WORKSTATION_FLOW.length - 1 ? (
 							<span className="landing__workstation-arrow" aria-hidden="true">
 								→
@@ -242,7 +227,7 @@ function Workstation() {
 				))}
 			</ol>
 			<Link to="/customers" className="landing__btn landing__btn--invert">
-				Start onboarding
+				{t("workstation.cta")}
 			</Link>
 		</section>
 	);

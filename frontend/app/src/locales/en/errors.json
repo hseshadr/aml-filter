@@ -1,0 +1,19 @@
+{
+	"boot": {
+		"couldNotLoad": "Could not load the screening bundle: {{detail}}"
+	},
+	"device": {
+		"unsupported": "This device or browser can’t run the local engine. Everything runs in your browser, so it needs a recent desktop browser — try Chrome, Edge, Firefox, or Safari 17+.",
+		"missingSuffix": "{{base}} (Missing: {{missing}}.)"
+	},
+	"engine": {
+		"unavailable": "Screening engine unavailable: {{error}}"
+	},
+	"boundary": {
+		"title": "Something went wrong",
+		"body": "An unexpected error occurred. Please try refreshing the page.",
+		"detailsSummary": "Error Details",
+		"tryAgain": "Try Again",
+		"refresh": "Refresh Page"
+	}
+}

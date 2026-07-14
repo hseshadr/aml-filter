@@ -1,6 +1,7 @@
 /** Review / case board — analyst triage of sanctions matches (the /v1/review tier). */
 
 import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
 	apiClient,
 	type MatchEvent,
@@ -29,10 +30,10 @@ const DISPOSITIONS: ReviewDisposition[] = [
 /** The View filter shapes which params the list query carries. */
 type ViewFilter = "ALL" | "NEEDS_REVIEW" | "CHANGED";
 
-const VIEW_OPTIONS: { value: ViewFilter; label: string }[] = [
-	{ value: "ALL", label: "All" },
-	{ value: "NEEDS_REVIEW", label: "Needs review (new + changed)" },
-	{ value: "CHANGED", label: "Changed only" },
+const VIEW_OPTIONS: { value: ViewFilter; labelKey: string }[] = [
+	{ value: "ALL", labelKey: "filters.view.options.all" },
+	{ value: "NEEDS_REVIEW", labelKey: "filters.view.options.needsReview" },
+	{ value: "CHANGED", labelKey: "filters.view.options.changed" },
 ];
 
 function tierBadgeClass(tier: MatchTier): string {
@@ -93,6 +94,7 @@ interface HistoryEntry {
 type HistoryState = Record<string, HistoryEntry>;
 
 export default function ReviewBoardPage() {
+	const { t } = useTranslation("review");
 	const [matches, setMatches] = useState<ReviewMatch[]>([]);
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
@@ -113,11 +115,11 @@ export default function ReviewBoardPage() {
 			const data = await apiClient.listReviewMatches(params);
 			setMatches(data);
 		} catch (err) {
-			setError(errorMessage(err, "Failed to load matches"));
+			setError(errorMessage(err, t("status.loadFailed")));
 		} finally {
 			setLoading(false);
 		}
-	}, [tier, status, view]);
+	}, [tier, status, view, t]);
 
 	useEffect(() => {
 		loadMatches();
@@ -152,32 +154,35 @@ export default function ReviewBoardPage() {
 				prev.map((m) => (m.match_id === updated.match_id ? updated : m)),
 			);
 		} catch (err) {
-			setError(errorMessage(err, "Failed to resolve match"));
+			setError(errorMessage(err, t("status.resolveFailed")));
 		}
 	};
 
-	const loadHistory = useCallback(async (matchId: string) => {
-		setHistory((prev) => ({
-			...prev,
-			[matchId]: { loading: true, error: null, events: [] },
-		}));
-		try {
-			const events = await apiClient.getMatchEvents(matchId);
+	const loadHistory = useCallback(
+		async (matchId: string) => {
 			setHistory((prev) => ({
 				...prev,
-				[matchId]: { loading: false, error: null, events },
+				[matchId]: { loading: true, error: null, events: [] },
 			}));
-		} catch (err) {
-			setHistory((prev) => ({
-				...prev,
-				[matchId]: {
-					loading: false,
-					error: errorMessage(err, "Failed to load history"),
-					events: [],
-				},
-			}));
-		}
-	}, []);
+			try {
+				const events = await apiClient.getMatchEvents(matchId);
+				setHistory((prev) => ({
+					...prev,
+					[matchId]: { loading: false, error: null, events },
+				}));
+			} catch (err) {
+				setHistory((prev) => ({
+					...prev,
+					[matchId]: {
+						loading: false,
+						error: errorMessage(err, t("status.historyFailed")),
+						events: [],
+					},
+				}));
+			}
+		},
+		[t],
+	);
 
 	const toggleHistory = (matchId: string) => {
 		if (openHistoryId === matchId) {
@@ -194,17 +199,17 @@ export default function ReviewBoardPage() {
 
 	return (
 		<div>
-			<h1>Review Board</h1>
-			<p className="text-muted">
-				Triage sanctions matches by strength. Strongest hits are listed first.
-			</p>
+			<h1>{t("header.title")}</h1>
+			<p className="text-muted">{t("header.subtitle")}</p>
 
-			{error && <div className="alert alert-error">Error: {error}</div>}
+			{error && (
+				<div className="alert alert-error">{t("status.error", { error })}</div>
+			)}
 
 			<div className="form-group form-grid mb-md">
 				<div>
 					<label htmlFor="tier-filter" className="form-label">
-						Filter by Tier
+						{t("filters.tier.label")}
 					</label>
 					<select
 						id="tier-filter"
@@ -212,17 +217,17 @@ export default function ReviewBoardPage() {
 						onChange={(e) => setTier(e.target.value as MatchTier | "")}
 						className="form-select"
 					>
-						<option value="">All tiers</option>
-						{TIER_FILTERS.map((t) => (
-							<option key={t} value={t}>
-								{t}
+						<option value="">{t("filters.tier.all")}</option>
+						{TIER_FILTERS.map((tierValue) => (
+							<option key={tierValue} value={tierValue}>
+								{tierValue}
 							</option>
 						))}
 					</select>
 				</div>
 				<div>
 					<label htmlFor="status-filter" className="form-label">
-						Filter by Status
+						{t("filters.status.label")}
 					</label>
 					<select
 						id="status-filter"
@@ -232,7 +237,7 @@ export default function ReviewBoardPage() {
 						}
 						className="form-select"
 					>
-						<option value="">All statuses</option>
+						<option value="">{t("filters.status.all")}</option>
 						{STATUS_FILTERS.map((s) => (
 							<option key={s} value={s}>
 								{s}
@@ -242,7 +247,7 @@ export default function ReviewBoardPage() {
 				</div>
 				<div>
 					<label htmlFor="view-filter" className="form-label">
-						View
+						{t("filters.view.label")}
 					</label>
 					<select
 						id="view-filter"
@@ -252,7 +257,7 @@ export default function ReviewBoardPage() {
 					>
 						{VIEW_OPTIONS.map((opt) => (
 							<option key={opt.value} value={opt.value}>
-								{opt.label}
+								{t(opt.labelKey)}
 							</option>
 						))}
 					</select>
@@ -260,26 +265,26 @@ export default function ReviewBoardPage() {
 			</div>
 
 			<h2>
-				Matches ({matches.length}, {pendingCount} pending)
+				{t("board.heading", { total: matches.length, pending: pendingCount })}
 			</h2>
 
 			{loading ? (
-				<p>Loading...</p>
+				<p>{t("board.loading")}</p>
 			) : matches.length === 0 ? (
-				<p>No matches for the current filters.</p>
+				<p>{t("board.empty")}</p>
 			) : (
 				<table className="table">
 					<thead>
 						<tr>
-							<th>Tier</th>
-							<th>Customer</th>
-							<th>Matched Entity</th>
-							<th>Source</th>
-							<th>Score</th>
-							<th>Status</th>
-							<th>Reviewer / Notes</th>
-							<th className="table-cell-right">Resolve</th>
-							<th className="table-cell-right">History</th>
+							<th>{t("board.columns.tier")}</th>
+							<th>{t("board.columns.customer")}</th>
+							<th>{t("board.columns.matchedEntity")}</th>
+							<th>{t("board.columns.source")}</th>
+							<th>{t("board.columns.score")}</th>
+							<th>{t("board.columns.status")}</th>
+							<th>{t("board.columns.reviewerNotes")}</th>
+							<th className="table-cell-right">{t("board.columns.resolve")}</th>
+							<th className="table-cell-right">{t("board.columns.history")}</th>
 						</tr>
 					</thead>
 					<tbody>
@@ -325,6 +330,7 @@ function MatchRow({
 	history,
 	onToggleHistory,
 }: MatchRowProps) {
+	const { t } = useTranslation("review");
 	const ref = match.customer_reference ?? match.match_id;
 	return (
 		<>
@@ -342,7 +348,9 @@ function MatchRow({
 				<td>
 					<span className="badge badge-muted">{match.source_list}</span>
 				</td>
-				<td>{(match.match_score * 100).toFixed(1)}%</td>
+				<td>
+					{t("card.score", { score: (match.match_score * 100).toFixed(1) })}
+				</td>
 				<td>
 					<span className={statusBadgeClass(match.resolution_status)}>
 						{match.resolution_status}
@@ -350,13 +358,13 @@ function MatchRow({
 					{match.review_state === "CHANGED" && (
 						<div className="mt-sm">
 							<span className="badge badge-warning">
-								CHANGED — needs re-review
+								{t("card.changedBadge")}
 							</span>
 						</div>
 					)}
 				</td>
 				<td className="text-sm">
-					<div>{match.reviewer_id ?? "-"}</div>
+					<div>{match.reviewer_id ?? t("card.emptyReviewer")}</div>
 					{match.review_notes && (
 						<div className="text-muted">{match.review_notes}</div>
 					)}
@@ -370,7 +378,7 @@ function MatchRow({
 							onResolve={onResolve}
 						/>
 					) : (
-						<span className="text-muted text-sm">Resolved</span>
+						<span className="text-muted text-sm">{t("card.resolved")}</span>
 					)}
 				</td>
 				<td className="table-cell-right">
@@ -378,10 +386,10 @@ function MatchRow({
 						type="button"
 						className="btn btn-secondary btn-sm"
 						aria-expanded={historyOpen}
-						aria-label={`History for ${ref}`}
+						aria-label={t("card.history.aria", { ref })}
 						onClick={onToggleHistory}
 					>
-						History
+						{t("card.history.toggle")}
 					</button>
 				</td>
 			</tr>
@@ -401,11 +409,16 @@ interface HistoryDrawerProps {
 }
 
 function HistoryDrawer({ history }: HistoryDrawerProps) {
-	if (!history || history.loading) return <p>Loading history…</p>;
+	const { t } = useTranslation("review");
+	if (!history || history.loading) return <p>{t("history.loading")}</p>;
 	if (history.error)
-		return <div className="alert alert-error">Error: {history.error}</div>;
+		return (
+			<div className="alert alert-error">
+				{t("history.error", { error: history.error })}
+			</div>
+		);
 	if (history.events.length === 0)
-		return <p className="text-muted">No history recorded.</p>;
+		return <p className="text-muted">{t("history.empty")}</p>;
 	return (
 		<ul className="text-sm">
 			{history.events.map((event) => (
@@ -416,18 +429,32 @@ function HistoryDrawer({ history }: HistoryDrawerProps) {
 }
 
 function HistoryItem({ event }: { event: MatchEvent }) {
+	const { t } = useTranslation("review");
 	const transition =
 		event.from_status || event.to_status
-			? ` (${event.from_status ?? "—"} → ${event.to_status ?? "—"})`
+			? t("history.transition", {
+					from: event.from_status ?? t("history.unknownStatus"),
+					to: event.to_status ?? t("history.unknownStatus"),
+				})
 			: "";
 	return (
 		<li>
 			<strong>{event.event_type}</strong>
 			{transition}
-			{" — "}
+			{t("history.separator")}
 			{formatEventAt(event.at)}
-			{event.reviewer_id && <span> · {event.reviewer_id}</span>}
-			{event.notes && <span className="text-muted"> · {event.notes}</span>}
+			{event.reviewer_id && (
+				<span>
+					{t("history.meta")}
+					{event.reviewer_id}
+				</span>
+			)}
+			{event.notes && (
+				<span className="text-muted">
+					{t("history.meta")}
+					{event.notes}
+				</span>
+			)}
 		</li>
 	);
 }
@@ -445,11 +472,12 @@ function ResolveControls({
 	onChange,
 	onResolve,
 }: ResolveControlsProps) {
+	const { t } = useTranslation("review");
 	const ref = match.customer_reference ?? match.match_id;
 	return (
 		<div className="flex-gap-sm">
 			<select
-				aria-label={`Disposition for ${ref}`}
+				aria-label={t("resolve.disposition", { ref })}
 				value={draft.disposition}
 				onChange={(e) =>
 					onChange("disposition", e.target.value as ReviewDisposition)
@@ -464,16 +492,16 @@ function ResolveControls({
 			</select>
 			<input
 				type="text"
-				aria-label={`Reviewer for ${ref}`}
-				placeholder="Reviewer ID"
+				aria-label={t("resolve.reviewer", { ref })}
+				placeholder={t("resolve.reviewerPlaceholder")}
 				value={draft.reviewer_id}
 				onChange={(e) => onChange("reviewer_id", e.target.value)}
 				className="form-input"
 			/>
 			<input
 				type="text"
-				aria-label={`Notes for ${ref}`}
-				placeholder="Notes"
+				aria-label={t("resolve.notes", { ref })}
+				placeholder={t("resolve.notesPlaceholder")}
 				value={draft.review_notes}
 				onChange={(e) => onChange("review_notes", e.target.value)}
 				className="form-input"
@@ -483,7 +511,7 @@ function ResolveControls({
 				onClick={onResolve}
 				className="btn btn-primary btn-sm"
 			>
-				Resolve
+				{t("resolve.submit")}
 			</button>
 		</div>
 	);

@@ -1,0 +1,41 @@
+{
+	"nav": {
+		"brandAlt": "AML-Filter",
+		"brand": "AML-Filter v4",
+		"screen": "Screen (in-browser)",
+		"customers": "Customers",
+		"review": "Review",
+		"settings": "Settings"
+	},
+	"layoutFooter": "AML-Filter v4 - Open Source AML Screening Engine",
+	"route": {
+		"loading": "Loading…"
+	},
+	"actions": {
+		"retry": "Retry",
+		"dismiss": "Dismiss"
+	},
+	"sync": {
+		"alreadyCurrent": "Watchlist already current.",
+		"summary": "Re-screened {{scanned}} customer(s) — {{newHits}} new hit(s), {{clearedHits}} cleared."
+	},
+	"demoFooter": {
+		"line1": "This is a portfolio demo of <repoLink>aml-filter</repoLink> — it lets you search the public OFAC sanctions list entirely in this browser tab. No name you type ever leaves your device.",
+		"line2": "Data: U.S. Treasury OFAC Specially Designated Nationals (SDN) list, a public dataset. See the repo’s NOTICE for attribution. Not legal or compliance advice."
+	},
+	"workstation": {
+		"booting": "Opening the local KYC database…",
+		"welcomeHeading": "Welcome to the workstation",
+		"nameExplain": "Your name is stamped on review decisions for the audit trail. It is stored only in this browser (a local SQLite settings row) — there is no account and no server.",
+		"nameLabel": "Analyst name",
+		"nameFormAria": "Set analyst name",
+		"startReviewing": "Start reviewing",
+		"engine": {
+			"downloading": "downloading the sanctions list…",
+			"verified": "preparing the screening index…",
+			"loadingModel": "loading the name-matching model…{{pct}}"
+		},
+		"engineStatus": "Screening engine: {{label}}",
+		"watchlistUpdated": "Watchlist updated: re-screened {{count}} customer(s) — {{newHits}} new hit(s), {{clearedHits}} cleared."
+	}
+}

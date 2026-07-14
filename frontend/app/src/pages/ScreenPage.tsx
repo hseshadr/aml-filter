@@ -12,6 +12,7 @@ import {
 	type MatchReason,
 	type RiskCategory,
 } from "@amlfilter/browser";
+import type { TFunction } from "i18next";
 import {
 	type KeyboardEvent as ReactKeyboardEvent,
 	useCallback,
@@ -20,6 +21,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { useTranslation } from "react-i18next";
 import { Footer } from "../components/Footer";
 import { bootErrorMessage, deviceUnsupportedMessage } from "./bootErrorMessage";
 
@@ -41,16 +43,15 @@ type Phase =
 	// add a missing browser capability. Maps to future `bundle.device_unsupported`.
 	| { readonly kind: "unsupported"; readonly message: string };
 
-// Single source of truth for the model-loading line, so the with-progress and
-// without-progress banners stay consistent (same wording, same accurate size).
-// The real quantized ONNX export is ~23 MB (22,972,370 bytes).
-const LOADING_MODEL_LABEL = "Loading the name-matching model (~23 MB, once)…";
-
-const STAGE_LABEL: Readonly<Record<BootStage["kind"], string>> = {
-	downloading: "Downloading the signed sanctions list…",
-	verified: "List verified.",
-	"loading-model": LOADING_MODEL_LABEL,
-	ready: "Ready.",
+// Maps each boot stage to its `screen`-namespace translation key. The
+// with-progress and without-progress banners share the same base key per stage,
+// so the wording stays consistent (the model line's accurate ~23 MB size — the
+// real quantized ONNX export is 22,972,370 bytes — lives in `boot.loadingModel`).
+const STAGE_KEY: Readonly<Record<BootStage["kind"], string>> = {
+	downloading: "boot.downloading",
+	verified: "boot.verified",
+	"loading-model": "boot.loadingModel",
+	ready: "boot.ready",
 };
 
 const SEARCH_K = 25;
@@ -68,17 +69,18 @@ type Strictness = "lenient" | "balanced" | "strict";
 
 interface StrictnessLevel {
 	readonly level: Strictness;
-	readonly label: string;
 	/** Passed to engine.screen as the combined-score `threshold`. */
 	readonly floor: number;
 	/** Minimum name_trigram a match must clear (unless a token matches). */
 	readonly minLexical: number;
 }
 
+// The visible per-level labels live in screen.json under `strictness.levels.*`,
+// keyed by `level`; the control renders them with t() at their button.
 const STRICTNESS_LEVELS: ReadonlyArray<StrictnessLevel> = [
-	{ level: "lenient", label: "Lenient", floor: 0.3, minLexical: 0.0 },
-	{ level: "balanced", label: "Balanced", floor: 0.3, minLexical: 0.35 },
-	{ level: "strict", label: "Strict", floor: 0.4, minLexical: 0.5 },
+	{ level: "lenient", floor: 0.3, minLexical: 0.0 },
+	{ level: "balanced", floor: 0.3, minLexical: 0.35 },
+	{ level: "strict", floor: 0.4, minLexical: 0.5 },
 ];
 
 const LEVEL: Readonly<Record<Strictness, StrictnessLevel>> = {
@@ -187,14 +189,15 @@ type SearchOutcome =
 	| { readonly kind: "error"; readonly message: string };
 
 // A screen call that rejects mid-session must be shown as a hard error, never as
-// a clear — an unscreened name is NOT a cleared name. Surface the cause so a
-// crashed worker / model fault is diagnosable, and tell the user how to retry.
-function screenErrorMessage(error: unknown): string {
-	const detail = error instanceof Error ? error.message : String(error);
-	return `Screening failed — this name was NOT cleared. ${detail}. Edit the name to try again.`;
+// a clear — an unscreened name is NOT a cleared name. This surfaces the cause
+// (so a crashed worker / model fault is diagnosable) into the `results.searchError`
+// copy, which frames it as uncleared and tells the user how to retry.
+function errorDetail(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
 }
 
 export function ScreenPage() {
+	const { t } = useTranslation("screen");
 	const runtime = useMemo(() => new EngineRuntime(), []);
 	// Capability preflight (once): before spawning any Worker or touching OPFS,
 	// check this browser can actually run the local engine. On an unsupported
@@ -310,11 +313,14 @@ export function ScreenPage() {
 				// prior (stale/empty) result linger and read as a clear. Surface a
 				// visible error for this exact query instead.
 				if (mine === seq.current && alive.current) {
-					setSearch({ kind: "error", message: screenErrorMessage(error) });
+					setSearch({
+						kind: "error",
+						message: t("results.searchError", { detail: errorDetail(error) }),
+					});
 				}
 			}
 		},
-		[runtime, strictness],
+		[runtime, strictness, t],
 	);
 
 	useEffect(() => {
@@ -333,19 +339,16 @@ export function ScreenPage() {
 
 	return (
 		<div className="screen-page">
-			<h1>Search the sanctions list</h1>
-			<p className="screen-page__lede">
-				Type a name. It is matched against the public OFAC sanctions list right
-				here in your browser — nothing you type ever leaves your device.
-			</p>
+			<h1>{t("header.title")}</h1>
+			<p className="screen-page__lede">{t("header.lede")}</p>
 
 			<BootBanner phase={phase} onRetry={retryBoot} />
 
 			<input
 				className="screen-search"
 				type="search"
-				placeholder="Search a name, e.g. Ivan Fakovich"
-				aria-label="Search the sanctions list"
+				placeholder={t("search.placeholder")}
+				aria-label={t("search.ariaLabel")}
 				value={query}
 				onChange={(event) => setQuery(event.target.value)}
 				disabled={phase.kind !== "ready"}
@@ -353,7 +356,7 @@ export function ScreenPage() {
 
 			<div className="screen-dob">
 				<label className="screen-dob__label" htmlFor="screen-dob-input">
-					Date of birth (optional)
+					{t("dob.label")}
 				</label>
 				<input
 					id="screen-dob-input"
@@ -372,7 +375,7 @@ export function ScreenPage() {
 			/>
 
 			<div className="screen-examples">
-				<span className="screen-examples__label">Try:</span>
+				<span className="screen-examples__label">{t("examples.label")}</span>
 				{EXAMPLE_QUERIES.map((example) => (
 					<button
 						key={example}
@@ -420,6 +423,7 @@ function StrictnessControl({
 	readonly onChange: (next: Strictness) => void;
 	readonly disabled: boolean;
 }) {
+	const { t } = useTranslation("screen");
 	const onKeyDown = (event: ReactKeyboardEvent) => {
 		const next = arrowTarget(value, event.key);
 		if (next !== null) {
@@ -429,11 +433,13 @@ function StrictnessControl({
 	};
 	return (
 		<div className="screen-strictness">
-			<span className="screen-strictness__caption">Strictness</span>
+			<span className="screen-strictness__caption">
+				{t("strictness.caption")}
+			</span>
 			<div
 				className="screen-strictness__track"
 				role="radiogroup"
-				aria-label="Match strictness"
+				aria-label={t("strictness.ariaLabel")}
 			>
 				{STRICTNESS_LEVELS.map((level) => (
 					// biome-ignore lint/a11y/useSemanticElements: this is a custom segmented "slider" — a native radio can't carry the active-segment styling or the single-tabstop arrow-key roving used here; the ARIA radiogroup/radio pattern is the correct equivalent
@@ -448,13 +454,11 @@ function StrictnessControl({
 						onClick={() => onChange(level.level)}
 						onKeyDown={onKeyDown}
 					>
-						{level.label}
+						{t(`strictness.levels.${level.level}`)}
 					</button>
 				))}
 			</div>
-			<span className="screen-strictness__hint">
-				how closely a name must match
-			</span>
+			<span className="screen-strictness__hint">{t("strictness.hint")}</span>
 		</div>
 	);
 }
@@ -466,6 +470,7 @@ function BootBanner({
 	readonly phase: Phase;
 	readonly onRetry: () => void;
 }) {
+	const { t } = useTranslation("screen");
 	if (phase.kind === "ready") {
 		return null;
 	}
@@ -487,14 +492,14 @@ function BootBanner({
 					className="screen-banner__retry"
 					onClick={onRetry}
 				>
-					Retry
+					{t("boot.retry")}
 				</button>
 			</div>
 		);
 	}
 	return (
 		<div className="screen-banner" role="status">
-			{stageMessage(phase.stage)}
+			{stageMessage(phase.stage, t)}
 		</div>
 	);
 }
@@ -502,17 +507,24 @@ function BootBanner({
 // The banner line for a stage. Production model loading is indeterminate because
 // transformers.js 4.2.0's progress callback duplicates the ONNX fetch; injected
 // runtimes can still supply a percentage through the same stage contract.
-function stageMessage(stage: BootStage): string {
+function stageMessage(stage: BootStage, t: TFunction): string {
 	if (stage.kind === "loading-model" && stage.progress !== undefined) {
-		return `${LOADING_MODEL_LABEL} ${Math.round(stage.progress.pct)}%`;
+		return t("boot.loadingModelProgress", {
+			label: t("boot.loadingModel"),
+			pct: Math.round(stage.progress.pct),
+		});
 	}
 	// Show the cold-sync chunk count so the long download reads as making
 	// progress (n/total) instead of a frozen "Downloading…" line.
 	if (stage.kind === "downloading" && stage.progress !== undefined) {
 		const { fetched, total } = stage.progress;
-		return `${STAGE_LABEL.downloading} ${fetched}/${total}`;
+		return t("boot.downloadingProgress", {
+			label: t("boot.downloading"),
+			fetched,
+			total,
+		});
 	}
-	return STAGE_LABEL[stage.kind];
+	return t(STAGE_KEY[stage.kind]);
 }
 
 function Results({
@@ -524,13 +536,13 @@ function Results({
 	readonly entities: ReadonlyArray<Entity>;
 	readonly search: SearchOutcome | null;
 }) {
+	const { t } = useTranslation("screen");
 	// Empty box → browse the whole list (a directory, no scores).
 	if (query.length === 0) {
 		return (
 			<section className="screen-results">
 				<p className="screen-results__count">
-					Browsing all {entities.length} entities on the demo list — searched
-					entirely in your browser.
+					{t("results.browsing", { total: entities.length })}
 				</p>
 				<ul className="screen-results__list">
 					{entities.map((entity) => (
@@ -543,7 +555,7 @@ function Results({
 	if (search === null) {
 		return (
 			<div className="screen-banner" role="status">
-				Searching…
+				{t("results.searching")}
 			</div>
 		);
 	}
@@ -559,16 +571,18 @@ function Results({
 	if (search.matches.length === 0) {
 		return (
 			<div className="screen-results screen-results--clear" aria-live="polite">
-				No sanctions match “{query}”. Screened in {search.ms} ms.
+				{t("results.noMatch", { query, ms: search.ms })}
 			</div>
 		);
 	}
 	return (
 		<section className="screen-results" aria-live="polite">
 			<p className="screen-results__count">
-				{search.matches.length} potential match
-				{search.matches.length === 1 ? "" : "es"} — screened in {search.ms} ms,
-				in your browser.
+				{t("results.matchCount", {
+					n: search.matches.length,
+					suffix: search.matches.length === 1 ? "" : "es",
+					ms: search.ms,
+				})}
 			</p>
 			<ul className="screen-results__list">
 				{search.matches.map((match) => (
@@ -579,14 +593,19 @@ function Results({
 	);
 }
 
-function idLines(identifiers: Identifiers): ReadonlyArray<string> {
+function idLines(
+	identifiers: Identifiers,
+	t: TFunction,
+): ReadonlyArray<string> {
 	const lines: string[] = [];
 	for (const p of identifiers.passport) {
-		lines.push(`passport ${p}`);
+		lines.push(t("dossier.ids.passport", { value: p }));
 	}
 	for (const n of identifiers.national_id) {
-		lines.push(`national-id ${n}`);
+		lines.push(t("dossier.ids.nationalId", { value: n }));
 	}
+	// `label` here is the raw identifier-type key from the data (not UI copy), so
+	// it is rendered verbatim alongside its value.
 	for (const [label, values] of Object.entries(identifiers.other)) {
 		for (const v of values) {
 			lines.push(`${label} ${v}`);
@@ -596,7 +615,8 @@ function idLines(identifiers: Identifiers): ReadonlyArray<string> {
 }
 
 function DossierCard({ dossier }: { readonly dossier: Dossier }) {
-	const ids = idLines(dossier.identifiers);
+	const { t } = useTranslation("screen");
+	const ids = idLines(dossier.identifiers, t);
 	const places = [...new Set([...dossier.nationalities, ...dossier.countries])];
 	return (
 		<li className="match-card">
@@ -611,18 +631,26 @@ function DossierCard({ dossier }: { readonly dossier: Dossier }) {
 
 			<dl className="match-card__facts">
 				{dossier.aliases.length > 0 && (
-					<Fact label="aka" value={dossier.aliases.join(", ")} />
+					<Fact
+						label={t("dossier.facts.aka")}
+						value={dossier.aliases.join(", ")}
+					/>
 				)}
 				{dossier.dob.length > 0 && (
-					<Fact label="DOB" value={dossier.dob.join(", ")} />
+					<Fact label={t("dossier.facts.dob")} value={dossier.dob.join(", ")} />
 				)}
 				{places.length > 0 && (
-					<Fact label="country" value={places.join(", ")} />
+					<Fact label={t("dossier.facts.country")} value={places.join(", ")} />
 				)}
 				{dossier.addresses.length > 0 && (
-					<Fact label="address" value={dossier.addresses.join("; ")} />
+					<Fact
+						label={t("dossier.facts.address")}
+						value={dossier.addresses.join("; ")}
+					/>
 				)}
-				{ids.length > 0 && <Fact label="id" value={ids.join(", ")} />}
+				{ids.length > 0 && (
+					<Fact label={t("dossier.facts.id")} value={ids.join(", ")} />
+				)}
 			</dl>
 
 			{dossier.explanation !== undefined && (
@@ -630,7 +658,7 @@ function DossierCard({ dossier }: { readonly dossier: Dossier }) {
 			)}
 			{dossier.reasons !== undefined && dossier.reasons.length > 0 && (
 				<details className="match-card__details">
-					<summary>Why this score?</summary>
+					<summary>{t("dossier.whyScore")}</summary>
 					<dl className="match-card__signals">
 						{dossier.reasons.map((reason) => (
 							<div className="match-card__signal" key={reason.signal}>

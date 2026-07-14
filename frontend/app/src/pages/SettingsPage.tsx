@@ -14,11 +14,13 @@
 import type { CatalogListInfo } from "@amlfilter/browser";
 import type { RescanSummary, ScreeningConfig } from "@amlfilter/workstation";
 import { ANALYST_NAME_KEY } from "@amlfilter/workstation";
+import type { TFunction } from "i18next";
 import {
 	type KeyboardEvent as ReactKeyboardEvent,
 	useEffect,
 	useState,
 } from "react";
+import { useTranslation } from "react-i18next";
 import { apiClient } from "../lib/api";
 import { workstation } from "../lib/workstation";
 import "../styles/common.css";
@@ -28,15 +30,14 @@ type Overrides = Record<string, Sensitivity>;
 
 interface SensitivityLevel {
 	readonly level: Sensitivity;
-	readonly label: string;
 }
 
 // Order lenient→strict so left/right arrow roving reads naturally, mirroring
 // ScreenPage's STRICTNESS_LEVELS.
 const SENSITIVITY_LEVELS: ReadonlyArray<SensitivityLevel> = [
-	{ level: "lenient", label: "Lenient" },
-	{ level: "balanced", label: "Balanced" },
-	{ level: "strict", label: "Strict" },
+	{ level: "lenient" },
+	{ level: "balanced" },
+	{ level: "strict" },
 ];
 
 const EMPTY_SUMMARY: RescanSummary = {
@@ -68,9 +69,11 @@ function arrowTarget(current: Sensitivity, key: string): Sensitivity | null {
 function SensitivityControl({
 	value,
 	onChange,
+	t,
 }: {
 	readonly value: Sensitivity;
 	readonly onChange: (next: Sensitivity) => void;
+	readonly t: TFunction;
 }) {
 	const onKeyDown = (event: ReactKeyboardEvent) => {
 		const next = arrowTarget(value, event.key);
@@ -84,7 +87,7 @@ function SensitivityControl({
 			<div
 				className="screen-strictness__track"
 				role="radiogroup"
-				aria-label="Screening sensitivity"
+				aria-label={t("sensitivity.ariaLabel")}
 			>
 				{SENSITIVITY_LEVELS.map((level) => (
 					// biome-ignore lint/a11y/useSemanticElements: this is a custom segmented "slider" — a native radio can't carry the active-segment styling or the single-tabstop arrow-key roving used here; the ARIA radiogroup/radio pattern is the correct equivalent
@@ -98,7 +101,7 @@ function SensitivityControl({
 						onClick={() => onChange(level.level)}
 						onKeyDown={onKeyDown}
 					>
-						{level.label}
+						{t(`sensitivity.levels.${level.level}`)}
 					</button>
 				))}
 			</div>
@@ -135,16 +138,18 @@ function OverrideSelect({
 	label,
 	value,
 	onChange,
+	t,
 }: {
 	readonly id: string;
 	readonly label: string;
 	readonly value: Sensitivity | "";
 	readonly onChange: (next: string) => void;
+	readonly t: TFunction;
 }) {
 	return (
 		<div>
 			<label className="form-label" htmlFor={`override-${id}`}>
-				Override for {label}
+				{t("overrides.label", { label })}
 			</label>
 			<select
 				id={`override-${id}`}
@@ -152,10 +157,10 @@ function OverrideSelect({
 				value={value}
 				onChange={(e) => onChange(e.target.value)}
 			>
-				<option value="">Use default</option>
-				<option value="strict">Strict</option>
-				<option value="balanced">Balanced</option>
-				<option value="lenient">Lenient</option>
+				<option value="">{t("overrides.options.default")}</option>
+				<option value="strict">{t("overrides.options.strict")}</option>
+				<option value="balanced">{t("overrides.options.balanced")}</option>
+				<option value="lenient">{t("overrides.options.lenient")}</option>
 			</select>
 		</div>
 	);
@@ -164,25 +169,32 @@ function OverrideSelect({
 function ResultBanner({
 	summary,
 	error,
+	t,
 }: {
 	readonly summary: RescanSummary | null;
 	readonly error: string | null;
+	readonly t: TFunction;
 }) {
 	if (error !== null) {
-		return <div className="alert alert-error">Error: {error}</div>;
+		return (
+			<div className="alert alert-error">{t("banner.error", { error })}</div>
+		);
 	}
 	if (summary === null) return null;
 	if (summary.customersScanned === 0) {
 		return (
 			<div className="alert alert-success" role="status">
-				Settings unchanged — no changes to apply.
+				{t("banner.unchanged")}
 			</div>
 		);
 	}
 	return (
 		<div className="alert alert-success" role="status">
-			Re-screened {summary.customersScanned} customers — {summary.newHits} new
-			hits, {summary.clearedHits} cleared.
+			{t("banner.rescanned", {
+				customers: summary.customersScanned,
+				newHits: summary.newHits,
+				clearedHits: summary.clearedHits,
+			})}
 		</div>
 	);
 }
@@ -217,6 +229,7 @@ function combineSummaries(
 }
 
 export default function SettingsPage() {
+	const { t } = useTranslation("settings");
 	const [sensitivity, setSensitivity] = useState<Sensitivity>("balanced");
 	const [overrides, setOverrides] = useState<Overrides>({});
 	const [analystName, setAnalystName] = useState<string>("");
@@ -250,12 +263,12 @@ export default function SettingsPage() {
 			setLoaded(true);
 		}
 		load().catch((err: unknown) => {
-			if (!cancelled) setError(errorMessage(err, "Failed to load settings"));
+			if (!cancelled) setError(errorMessage(err, t("errors.load")));
 		});
 		return () => {
 			cancelled = true;
 		};
-	}, []);
+	}, [t]);
 
 	function toggleWatchlist(id: string, next: boolean): void {
 		setEnabled((prev) => {
@@ -293,7 +306,7 @@ export default function SettingsPage() {
 		try {
 			await persist();
 		} catch (err) {
-			setError(errorMessage(err, "Failed to apply settings"));
+			setError(errorMessage(err, t("errors.apply")));
 		} finally {
 			setApplying(false);
 		}
@@ -307,7 +320,7 @@ export default function SettingsPage() {
 			await handle.clearListCache();
 			setCacheCleared(true);
 		} catch (err) {
-			setError(errorMessage(err, "Failed to clear cached lists"));
+			setError(errorMessage(err, t("errors.clearCache")));
 		}
 	}
 
@@ -315,30 +328,29 @@ export default function SettingsPage() {
 
 	return (
 		<div className="page-content">
-			<h1>Settings</h1>
+			<h1>{t("header.title")}</h1>
 
 			{!loaded ? (
 				<section className="card">
 					<p className="text-muted" role="status">
-						Loading settings…
+						{t("status.loading")}
 					</p>
 				</section>
 			) : (
 				<>
 					<section className="card">
-						<h2>Screening sensitivity</h2>
-						<p className="text-muted">
-							How closely a customer name must match a sanctioned name to flag.
-						</p>
-						<SensitivityControl value={sensitivity} onChange={setSensitivity} />
+						<h2>{t("sensitivity.title")}</h2>
+						<p className="text-muted">{t("sensitivity.description")}</p>
+						<SensitivityControl
+							value={sensitivity}
+							onChange={setSensitivity}
+							t={t}
+						/>
 					</section>
 
 					<section className="card">
-						<h2>Watchlists</h2>
-						<p className="text-muted">
-							Which sanctions lists to screen against. Disabling a list removes
-							its matches on the next re-screen.
-						</p>
+						<h2>{t("watchlists.title")}</h2>
+						<p className="text-muted">{t("watchlists.description")}</p>
 						{catalog.map((list) => (
 							<WatchlistToggle
 								key={list.id}
@@ -351,7 +363,7 @@ export default function SettingsPage() {
 					</section>
 
 					<section className="card">
-						<h2>Per-list overrides</h2>
+						<h2>{t("overrides.title")}</h2>
 						{overrideRows.map((list) => (
 							<OverrideSelect
 								key={list.id}
@@ -361,14 +373,15 @@ export default function SettingsPage() {
 								onChange={(value) =>
 									setOverrides((prev) => setOverride(prev, list.id, value))
 								}
+								t={t}
 							/>
 						))}
 					</section>
 
 					<section className="card">
-						<h2>Analyst name</h2>
+						<h2>{t("analyst.title")}</h2>
 						<label className="form-label" htmlFor="analyst-name">
-							Analyst name
+							{t("analyst.label")}
 						</label>
 						<input
 							id="analyst-name"
@@ -382,12 +395,8 @@ export default function SettingsPage() {
 			)}
 
 			<section className="card">
-				<h2>Cached lists</h2>
-				<p className="text-muted">
-					Verified watchlists are cached on this device for fast cold starts and
-					offline use. Clearing the cache frees space; the next load re-fetches
-					and re-verifies every list.
-				</p>
+				<h2>{t("cache.title")}</h2>
+				<p className="text-muted">{t("cache.description")}</p>
 				<button
 					type="button"
 					className="btn btn-secondary"
@@ -395,11 +404,11 @@ export default function SettingsPage() {
 						void handleClearCache();
 					}}
 				>
-					Clear cached lists
+					{t("cache.button")}
 				</button>
 				{cacheCleared && (
 					<div className="alert alert-success" role="status">
-						Cached lists cleared — the next load re-fetches and re-verifies.
+						{t("cache.cleared")}
 					</div>
 				)}
 			</section>
@@ -412,10 +421,10 @@ export default function SettingsPage() {
 					void handleApply();
 				}}
 			>
-				Apply
+				{t("buttons.apply")}
 			</button>
 
-			<ResultBanner summary={summary} error={error} />
+			<ResultBanner summary={summary} error={error} t={t} />
 		</div>
 	);
 }

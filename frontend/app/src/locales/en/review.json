@@ -1,0 +1,73 @@
+{
+	"header": {
+		"title": "Review Board",
+		"subtitle": "Triage sanctions matches by strength. Strongest hits are listed first."
+	},
+	"status": {
+		"error": "Error: {{error}}",
+		"loadFailed": "Failed to load matches",
+		"resolveFailed": "Failed to resolve match",
+		"historyFailed": "Failed to load history"
+	},
+	"filters": {
+		"tier": {
+			"label": "Filter by Tier",
+			"all": "All tiers"
+		},
+		"status": {
+			"label": "Filter by Status",
+			"all": "All statuses"
+		},
+		"view": {
+			"label": "View",
+			"options": {
+				"all": "All",
+				"needsReview": "Needs review (new + changed)",
+				"changed": "Changed only"
+			}
+		}
+	},
+	"board": {
+		"heading": "Matches ({{total}}, {{pending}} pending)",
+		"loading": "Loading...",
+		"empty": "No matches for the current filters.",
+		"columns": {
+			"tier": "Tier",
+			"customer": "Customer",
+			"matchedEntity": "Matched Entity",
+			"source": "Source",
+			"score": "Score",
+			"status": "Status",
+			"reviewerNotes": "Reviewer / Notes",
+			"resolve": "Resolve",
+			"history": "History"
+		}
+	},
+	"card": {
+		"score": "{{score}}%",
+		"changedBadge": "CHANGED — needs re-review",
+		"emptyReviewer": "-",
+		"resolved": "Resolved",
+		"history": {
+			"aria": "History for {{ref}}",
+			"toggle": "History"
+		}
+	},
+	"history": {
+		"loading": "Loading history…",
+		"error": "Error: {{error}}",
+		"empty": "No history recorded.",
+		"transition": " ({{from}} → {{to}})",
+		"unknownStatus": "—",
+		"separator": " — ",
+		"meta": " · "
+	},
+	"resolve": {
+		"disposition": "Disposition for {{ref}}",
+		"reviewer": "Reviewer for {{ref}}",
+		"notes": "Notes for {{ref}}",
+		"reviewerPlaceholder": "Reviewer ID",
+		"notesPlaceholder": "Notes",
+		"submit": "Resolve"
+	}
+}
