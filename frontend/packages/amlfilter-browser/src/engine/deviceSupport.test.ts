@@ -8,10 +8,12 @@ import {
 	missingCapabilities,
 } from "./deviceSupport";
 
-// A scope where every engine capability is present (a modern desktop browser).
+// A scope where every engine capability is present (a modern browser). Note the
+// engine's Worker-only createSyncAccessHandle is intentionally NOT probed here —
+// it is [Exposed=DedicatedWorker] and cannot be seen from the main thread, so the
+// detector relies on OPFS getDirectory as the main-thread-safe proxy.
 const FULL: CapabilityScope = {
 	Worker: function Worker() {},
-	FileSystemFileHandle: { prototype: { createSyncAccessHandle: () => {} } },
 	navigator: { storage: { getDirectory: () => {} } },
 };
 
@@ -20,7 +22,6 @@ describe("detectCapabilities", () => {
 		expect(detectCapabilities(FULL)).toEqual({
 			moduleWorker: true,
 			opfs: true,
-			syncAccessHandle: true,
 		});
 	});
 
@@ -29,7 +30,7 @@ describe("detectCapabilities", () => {
 		expect(caps.moduleWorker).toBe(false);
 	});
 
-	it("reports OPFS absent when navigator.storage.getDirectory is missing", () => {
+	it("reports OPFS absent when navigator.storage.getDirectory is missing (older iOS Safari)", () => {
 		const caps = detectCapabilities({ ...FULL, navigator: { storage: {} } });
 		expect(caps.opfs).toBe(false);
 	});
@@ -37,22 +38,6 @@ describe("detectCapabilities", () => {
 	it("reports OPFS absent when navigator is missing entirely", () => {
 		const caps = detectCapabilities({ ...FULL, navigator: undefined });
 		expect(caps.opfs).toBe(false);
-	});
-
-	it("reports sync access handle absent when FileSystemFileHandle is missing (older iOS Safari)", () => {
-		const caps = detectCapabilities({
-			...FULL,
-			FileSystemFileHandle: undefined,
-		});
-		expect(caps.syncAccessHandle).toBe(false);
-	});
-
-	it("reports sync access handle absent when the prototype lacks createSyncAccessHandle", () => {
-		const caps = detectCapabilities({
-			...FULL,
-			FileSystemFileHandle: { prototype: {} },
-		});
-		expect(caps.syncAccessHandle).toBe(false);
 	});
 });
 
@@ -66,11 +51,10 @@ describe("missingCapabilities + isEngineSupported", () => {
 	it("names each missing capability in a human-readable form", () => {
 		const caps = detectCapabilities({
 			Worker: undefined,
-			FileSystemFileHandle: undefined,
 			navigator: undefined,
 		});
 		const missing = missingCapabilities(caps);
-		expect(missing.length).toBe(3);
+		expect(missing.length).toBe(2);
 		expect(missing.join(" ")).toMatch(/worker/i);
 		expect(missing.join(" ")).toMatch(/opfs|storage/i);
 		expect(isEngineSupported(caps)).toBe(false);

@@ -1,24 +1,30 @@
 // Feature-detect whether this browser can run the local screening engine BEFORE
-// bootstrap tries to. The engine needs three browser capabilities, any of which
-// an older iOS Safari or a locked-down in-app WebView can lack:
+// bootstrap tries to. The engine needs two capabilities an older iOS Safari or a
+// locked-down in-app WebView can lack, BOTH detectable from the main thread:
 //
 //   - module Web Workers — the sync + embedder engines are module Workers;
 //   - OPFS (navigator.storage.getDirectory) — the durable content-addressed
-//     chunk store the delta-sync promotes into;
-//   - createSyncAccessHandle — the Worker-only synchronous OPFS write path the
-//     store writes every chunk through (present on FileSystemFileHandle.prototype
-//     in browsers that support it, even though it is callable only in a Worker).
+//     chunk store the delta-sync promotes into.
 //
-// When any is missing, boot would otherwise throw deep inside a Worker — or, on
-// iOS, the tab is killed with NO catchable JS error and the banner hangs forever.
-// Detecting up front lets the UI render an explicit "unsupported device" screen
-// instead. Maps to the future canonical `bundle.device_unsupported` error code.
+// NOTE on the Worker-only OPFS write path: the store writes chunks through
+// `createSyncAccessHandle`, which is `[Exposed=DedicatedWorker]` — it is NOT on
+// `FileSystemFileHandle.prototype` in the Window realm, so it CANNOT be
+// feature-detected from the main thread (an early version tried and wrongly
+// flagged every real browser as unsupported). It ships together with OPFS in the
+// browsers we target, so `getDirectory` is the reliable main-thread proxy; the
+// rare "OPFS present, sync-access-handle absent" case still fails safe — the
+// Worker throws and the boot shows its error banner.
+//
+// When a required capability is missing, boot would otherwise throw deep inside a
+// Worker — or, on iOS, the tab is killed with NO catchable JS error and the
+// banner hangs forever. Detecting up front lets the UI render an explicit
+// "unsupported device" screen instead. Maps to the future canonical
+// `bundle.device_unsupported` error code.
 
-/** The three capabilities the local engine requires, each detected present/absent. */
+/** The capabilities the local engine requires, each detected present/absent. */
 export interface EngineCapabilities {
 	readonly moduleWorker: boolean;
 	readonly opfs: boolean;
-	readonly syncAccessHandle: boolean;
 }
 
 /** The globals the detector reads. Injectable so the pure detection is testable
@@ -26,7 +32,6 @@ export interface EngineCapabilities {
  * `globalThis`. */
 export interface CapabilityScope {
 	readonly Worker?: unknown;
-	readonly FileSystemFileHandle?: { readonly prototype: object };
 	readonly navigator?: {
 		readonly storage?: { readonly getDirectory?: unknown };
 	};
@@ -36,17 +41,13 @@ export interface CapabilityScope {
 const CAPABILITY_LABELS: Readonly<Record<keyof EngineCapabilities, string>> = {
 	moduleWorker: "Web Workers",
 	opfs: "private file storage (OPFS)",
-	syncAccessHandle: "synchronous file access",
 };
 
 /** Pure capability detection over an injected scope (no real globals touched). */
 export function detectCapabilities(scope: CapabilityScope): EngineCapabilities {
-	const handle = scope.FileSystemFileHandle;
 	return {
 		moduleWorker: typeof scope.Worker === "function",
 		opfs: typeof scope.navigator?.storage?.getDirectory === "function",
-		syncAccessHandle:
-			handle !== undefined && "createSyncAccessHandle" in handle.prototype,
 	};
 }
 
