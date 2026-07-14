@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import "../styles/common.css";
 
@@ -7,6 +8,7 @@ interface LayoutProps {
 }
 
 export default function Layout({ children }: LayoutProps) {
+	const { t } = useTranslation("common");
 	return (
 		<div className="page-container">
 			<header className="nav-header">
@@ -15,30 +17,30 @@ export default function Layout({ children }: LayoutProps) {
 						<Link to="/" className="nav-brand">
 							<img
 								src="/logo.svg"
-								alt="AML-Filter"
+								alt={t("nav.brandAlt")}
 								style={{ height: "32px", width: "32px" }}
 							/>
-							AML-Filter v4
+							{t("nav.brand")}
 						</Link>
 						<Link to="/screen" className="nav-link">
-							Screen (in-browser)
+							{t("nav.screen")}
 						</Link>
 						{/* The local-first workstation — no login, no API keys. */}
 						<Link to="/customers" className="nav-link">
-							Customers
+							{t("nav.customers")}
 						</Link>
 						<Link to="/review" className="nav-link">
-							Review
+							{t("nav.review")}
 						</Link>
 						<Link to="/settings" className="nav-link">
-							Settings
+							{t("nav.settings")}
 						</Link>
 					</div>
 				</nav>
 			</header>
 			<main className="page-main">{children}</main>
 			<footer className="page-footer">
-				<small>AML-Filter v4 - Open Source AML Screening Engine</small>
+				<small>{t("layoutFooter")}</small>
 			</footer>
 		</div>
 	);

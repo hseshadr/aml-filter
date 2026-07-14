@@ -1,0 +1,56 @@
+{
+	"header": {
+		"title": "Search the sanctions list",
+		"lede": "Type a name. It is matched against the public OFAC sanctions list right here in your browser — nothing you type ever leaves your device."
+	},
+	"search": {
+		"placeholder": "Search a name, e.g. Ivan Fakovich",
+		"ariaLabel": "Search the sanctions list"
+	},
+	"dob": {
+		"label": "Date of birth (optional)"
+	},
+	"examples": {
+		"label": "Try:"
+	},
+	"strictness": {
+		"caption": "Strictness",
+		"ariaLabel": "Match strictness",
+		"hint": "how closely a name must match",
+		"levels": {
+			"lenient": "Lenient",
+			"balanced": "Balanced",
+			"strict": "Strict"
+		}
+	},
+	"boot": {
+		"downloading": "Downloading the signed sanctions list…",
+		"downloadingProgress": "{{label}} {{fetched}}/{{total}}",
+		"verified": "List verified.",
+		"loadingModel": "Loading the name-matching model (~23 MB, once)…",
+		"loadingModelProgress": "{{label}} {{pct}}%",
+		"ready": "Ready.",
+		"retry": "Retry"
+	},
+	"results": {
+		"browsing": "Browsing all {{total}} entities on the demo list — searched entirely in your browser.",
+		"searching": "Searching…",
+		"searchError": "Screening failed — this name was NOT cleared. {{detail}}. Edit the name to try again.",
+		"noMatch": "No sanctions match “{{query}}”. Screened in {{ms}} ms.",
+		"matchCount": "{{n}} potential match{{suffix}} — screened in {{ms}} ms, in your browser."
+	},
+	"dossier": {
+		"facts": {
+			"aka": "aka",
+			"dob": "DOB",
+			"country": "country",
+			"address": "address",
+			"id": "id"
+		},
+		"ids": {
+			"passport": "passport {{value}}",
+			"nationalId": "national-id {{value}}"
+		},
+		"whyScore": "Why this score?"
+	}
+}

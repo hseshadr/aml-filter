@@ -1,3 +1,5 @@
+import i18n from "../i18n";
+
 /**
  * The user-facing /screen boot-failure string. The watchlist now loads
  * same-origin (no separate bundle origin to name), so this surfaces only the
@@ -10,7 +12,7 @@
  */
 export function bootErrorMessage(error: unknown): string {
 	const detail = error instanceof Error ? error.message : String(error);
-	return `Could not load the screening bundle: ${detail}`;
+	return i18n.t("errors:boot.couldNotLoad", { detail });
 }
 
 /**
@@ -25,12 +27,12 @@ export function bootErrorMessage(error: unknown): string {
 export function deviceUnsupportedMessage(
 	missing: ReadonlyArray<string>,
 ): string {
-	const base =
-		"This device or browser can’t run the local engine. Everything runs in " +
-		"your browser, so it needs a recent desktop browser — try Chrome, Edge, " +
-		"Firefox, or Safari 17+.";
+	const base = i18n.t("errors:device.unsupported");
 	if (missing.length === 0) {
 		return base;
 	}
-	return `${base} (Missing: ${missing.join(", ")}.)`;
+	return i18n.t("errors:device.missingSuffix", {
+		base,
+		missing: missing.join(", "),
+	});
 }

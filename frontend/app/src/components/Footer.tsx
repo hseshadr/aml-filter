@@ -4,26 +4,31 @@
  * the data source — so nobody mistakes it for a production compliance tool or
  * unattributed data. Mirrors edge-reco's fictional-demo footer.
  */
+import { Trans, useTranslation } from "react-i18next";
+
 export function Footer() {
+	const { t } = useTranslation("common");
 	return (
 		<footer className="screen-footer">
 			<p className="screen-footer__line">
-				This is a portfolio demo of{" "}
-				<a
-					className="screen-footer__link"
-					href="https://github.com/hseshadr/aml-filter"
-					target="_blank"
-					rel="noopener noreferrer"
-				>
-					aml-filter
-				</a>{" "}
-				— it lets you search the public OFAC sanctions list entirely in this
-				browser tab. No name you type ever leaves your device.
+				<Trans
+					i18nKey="demoFooter.line1"
+					ns="common"
+					components={{
+						repoLink: (
+							// biome-ignore lint/a11y/useAnchorContent: content is supplied by the <Trans> catalog value
+							<a
+								className="screen-footer__link"
+								href="https://github.com/hseshadr/aml-filter"
+								target="_blank"
+								rel="noopener noreferrer"
+							/>
+						),
+					}}
+				/>
 			</p>
 			<p className="screen-footer__line screen-footer__line--muted">
-				Data: U.S. Treasury OFAC Specially Designated Nationals (SDN) list, a
-				public dataset. See the repo&rsquo;s NOTICE for attribution. Not legal
-				or compliance advice.
+				{t("demoFooter.line2")}
 			</p>
 		</footer>
 	);

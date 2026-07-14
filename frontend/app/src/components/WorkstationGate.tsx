@@ -9,6 +9,7 @@
 
 import type { BootStage } from "@amlfilter/browser";
 import { ANALYST_NAME_KEY, type SyncResult } from "@amlfilter/workstation";
+import type { TFunction } from "i18next";
 import {
 	type FormEvent,
 	type ReactNode,
@@ -16,6 +17,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { useTranslation } from "react-i18next";
 import { checkForWatchlistUpdates, runWatchlistSync } from "../lib/sync";
 import { type WorkstationHandle, workstation } from "../lib/workstation";
 
@@ -41,6 +43,7 @@ function messageOf(error: unknown): string {
 }
 
 export default function WorkstationGate({ children }: WorkstationGateProps) {
+	const { t } = useTranslation(["common", "errors"]);
 	const [phase, setPhase] = useState<GatePhase>({ kind: "booting" });
 	const [nonce, setNonce] = useState(0);
 	const [name, setName] = useState("");
@@ -88,7 +91,7 @@ export default function WorkstationGate({ children }: WorkstationGateProps) {
 	if (phase.kind === "booting") {
 		return (
 			<div className="card card-muted" role="status" aria-live="polite">
-				Opening the local KYC database…
+				{t("common:workstation.booting")}
 			</div>
 		);
 	}
@@ -102,7 +105,7 @@ export default function WorkstationGate({ children }: WorkstationGateProps) {
 					className="btn btn-primary"
 					onClick={() => setNonce((n) => n + 1)}
 				>
-					Retry
+					{t("common:actions.retry")}
 				</button>
 			</div>
 		);
@@ -112,17 +115,13 @@ export default function WorkstationGate({ children }: WorkstationGateProps) {
 		return (
 			<form
 				onSubmit={handleNameSubmit}
-				aria-label="Set analyst name"
+				aria-label={t("common:workstation.nameFormAria")}
 				className="card card-muted"
 			>
-				<h2>Welcome to the workstation</h2>
-				<p className="text-muted">
-					Your name is stamped on review decisions for the audit trail. It is
-					stored only in this browser (a local SQLite settings row) — there is
-					no account and no server.
-				</p>
+				<h2>{t("common:workstation.welcomeHeading")}</h2>
+				<p className="text-muted">{t("common:workstation.nameExplain")}</p>
 				<label htmlFor="analyst-name" className="form-label">
-					Analyst name
+					{t("common:workstation.nameLabel")}
 				</label>
 				<input
 					id="analyst-name"
@@ -133,7 +132,7 @@ export default function WorkstationGate({ children }: WorkstationGateProps) {
 					className="form-input"
 				/>
 				<button type="submit" className="btn btn-primary">
-					Start reviewing
+					{t("common:workstation.startReviewing")}
 				</button>
 			</form>
 		);
@@ -147,17 +146,22 @@ export default function WorkstationGate({ children }: WorkstationGateProps) {
 	);
 }
 
-function engineStageLabel(stage: BootStage): string | null {
-	if (stage.kind === "downloading") return "downloading the sanctions list…";
-	if (stage.kind === "verified") return "preparing the screening index…";
+function engineStageLabel(stage: BootStage, t: TFunction): string | null {
+	if (stage.kind === "downloading") {
+		return t("common:workstation.engine.downloading");
+	}
+	if (stage.kind === "verified") {
+		return t("common:workstation.engine.verified");
+	}
 	if (stage.kind === "loading-model") {
 		const pct = stage.progress ? ` ${Math.round(stage.progress.pct)}%` : "";
-		return `loading the name-matching model…${pct}`;
+		return t("common:workstation.engine.loadingModel", { pct });
 	}
 	return null; // ready
 }
 
 function EngineStatusStrip() {
+	const { t } = useTranslation(["common", "errors"]);
 	const [stage, setStage] = useState<BootStage | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [autoSync, setAutoSync] = useState<SyncResult | null>(null);
@@ -238,23 +242,23 @@ function EngineStatusStrip() {
 	if (error !== null) {
 		return (
 			<div className="alert alert-warning" role="status">
-				Screening engine unavailable: {error}{" "}
+				{t("errors:engine.unavailable", { error })}{" "}
 				<button
 					type="button"
 					className="btn btn-secondary btn-sm"
 					onClick={() => setNonce((n) => n + 1)}
 				>
-					Retry
+					{t("common:actions.retry")}
 				</button>
 			</div>
 		);
 	}
 
-	const label = stage === null ? null : engineStageLabel(stage);
+	const label = stage === null ? null : engineStageLabel(stage, t);
 	if (label !== null) {
 		return (
 			<div className="card card-muted text-sm" role="status" aria-live="polite">
-				Screening engine: {label}
+				{t("common:workstation.engineStatus", { label })}
 			</div>
 		);
 	}
@@ -265,14 +269,17 @@ function EngineStatusStrip() {
 				role="status"
 				aria-live="polite"
 			>
-				Watchlist updated: re-screened {autoSync.customersScanned} customer(s) —{" "}
-				{autoSync.newHits} new hit(s), {autoSync.clearedHits} cleared.{" "}
+				{t("common:workstation.watchlistUpdated", {
+					count: autoSync.customersScanned,
+					newHits: autoSync.newHits,
+					clearedHits: autoSync.clearedHits,
+				})}{" "}
 				<button
 					type="button"
 					className="btn btn-secondary btn-sm"
 					onClick={() => setAutoSync(null)}
 				>
-					Dismiss
+					{t("common:actions.dismiss")}
 				</button>
 			</div>
 		);

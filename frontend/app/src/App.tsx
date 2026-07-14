@@ -1,4 +1,5 @@
 import { lazy, Suspense } from "react";
+import { useTranslation } from "react-i18next";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import ErrorBoundary from "./components/ErrorBoundary";
 import Layout from "./components/Layout";
@@ -20,9 +21,10 @@ const ReviewBoardPage = lazy(() => import("./pages/ReviewBoardPage"));
 const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 
 function RouteFallback() {
+	const { t } = useTranslation("common");
 	return (
 		<div className="page-loading" role="status" aria-live="polite">
-			Loading…
+			{t("route.loading")}
 		</div>
 	);
 }

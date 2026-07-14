@@ -1,6 +1,8 @@
 /** KYC customer onboarding page (the /v1/customers tier). */
 
+import type { TFunction } from "i18next";
 import { useCallback, useEffect, useState } from "react";
+import { Trans, useTranslation } from "react-i18next";
 import {
 	apiClient,
 	type CustomerOnboardResponse,
@@ -81,6 +83,7 @@ function errorMessage(err: unknown, fallback: string): string {
 }
 
 export default function CustomersPage() {
+	const { t } = useTranslation("customers");
 	const [customers, setCustomers] = useState<CustomerResponse[]>([]);
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
@@ -104,11 +107,11 @@ export default function CustomersPage() {
 			const data = await apiClient.listCustomers();
 			setCustomers(data);
 		} catch (err) {
-			setError(errorMessage(err, "Failed to load customers"));
+			setError(errorMessage(err, t("errors.load")));
 		} finally {
 			setLoading(false);
 		}
-	}, []);
+	}, [t]);
 
 	useEffect(() => {
 		loadCustomers();
@@ -131,7 +134,7 @@ export default function CustomersPage() {
 			setIdDocs([]);
 			await loadCustomers();
 		} catch (err) {
-			setError(errorMessage(err, "Failed to onboard customer"));
+			setError(errorMessage(err, t("errors.onboard")));
 		}
 	};
 
@@ -144,7 +147,7 @@ export default function CustomersPage() {
 			await apiClient.updateCustomer(customerId, { onboarding_status });
 			await loadCustomers();
 		} catch (err) {
-			setError(errorMessage(err, "Failed to update status"));
+			setError(errorMessage(err, t("errors.updateStatus")));
 		}
 	};
 
@@ -157,18 +160,18 @@ export default function CustomersPage() {
 			await apiClient.updateCustomer(customerId, { kyc_risk_rating });
 			await loadCustomers();
 		} catch (err) {
-			setError(errorMessage(err, "Failed to update risk rating"));
+			setError(errorMessage(err, t("errors.updateRisk")));
 		}
 	};
 
 	const handleDelete = async (customerId: string) => {
-		if (!confirm("Delete this customer? This cannot be undone.")) return;
+		if (!confirm(t("actions.deleteConfirm"))) return;
 		try {
 			setError(null);
 			await apiClient.deleteCustomer(customerId);
 			await loadCustomers();
 		} catch (err) {
-			setError(errorMessage(err, "Failed to delete customer"));
+			setError(errorMessage(err, t("errors.delete")));
 		}
 	};
 
@@ -187,16 +190,14 @@ export default function CustomersPage() {
 			// before re-screening every customer against it.
 			const result = await checkForWatchlistUpdates(handle);
 			if (result === null) {
-				setSyncMessage(
-					"Screening engine is still starting — try again shortly.",
-				);
+				setSyncMessage(t("sync.enginePending"));
 				return;
 			}
 			setSyncMessage(syncSummaryText(result));
 			setLastSynced({ version: result.version, at: new Date().toISOString() });
 			await loadCustomers();
 		} catch (err) {
-			setError(errorMessage(err, "Failed to check for updates"));
+			setError(errorMessage(err, t("errors.checkUpdates")));
 		} finally {
 			setSyncing(false);
 		}
@@ -217,7 +218,7 @@ export default function CustomersPage() {
 			setEditing(null);
 			await loadCustomers();
 		} catch (err) {
-			setError(errorMessage(err, "Failed to save customer"));
+			setError(errorMessage(err, t("errors.save")));
 		}
 	};
 
@@ -242,14 +243,14 @@ export default function CustomersPage() {
 	return (
 		<div>
 			<div className="flex-between">
-				<h1>KYC Customer Onboarding</h1>
+				<h1>{t("header.title")}</h1>
 				<button
 					type="button"
 					onClick={handleCheckForUpdates}
 					disabled={syncing}
 					className="btn btn-secondary btn-sm"
 				>
-					{syncing ? "Checking…" : "Check for updates"}
+					{syncing ? t("header.checking") : t("header.checkUpdates")}
 				</button>
 			</div>
 
@@ -260,30 +261,35 @@ export default function CustomersPage() {
 			)}
 			{lastSynced && (
 				<p className="text-muted text-sm">
-					Last synced: {lastSynced.version} ·{" "}
-					{new Date(lastSynced.at).toLocaleTimeString()}
+					{t("sync.lastSynced", {
+						version: lastSynced.version,
+						time: new Date(lastSynced.at).toLocaleTimeString(),
+					})}
 				</p>
 			)}
 
-			{error && <div className="alert alert-error">Error: {error}</div>}
+			{error && (
+				<div className="alert alert-error">{t("alerts.error", { error })}</div>
+			)}
 
 			{lastResult && (
 				<OnboardResultAlert
 					result={lastResult}
 					onDismiss={() => setLastResult(null)}
+					t={t}
 				/>
 			)}
 
 			<form
 				onSubmit={handleOnboard}
-				aria-label="Onboard a customer"
+				aria-label={t("onboard.formLabel")}
 				className="card card-muted mb-lg"
 			>
-				<h3>Onboard a Customer</h3>
+				<h3>{t("onboard.heading")}</h3>
 				<div className="form-group form-grid">
 					<div>
 						<label htmlFor="customer-reference" className="form-label">
-							Customer Reference *
+							{t("onboard.fields.reference")}
 						</label>
 						<input
 							id="customer-reference"
@@ -298,7 +304,7 @@ export default function CustomersPage() {
 					</div>
 					<div>
 						<label htmlFor="customer-name" className="form-label">
-							Name *
+							{t("onboard.fields.name")}
 						</label>
 						<input
 							id="customer-name"
@@ -313,7 +319,7 @@ export default function CustomersPage() {
 				<div className="form-group form-grid">
 					<div>
 						<label htmlFor="customer-onboarded-by" className="form-label">
-							Onboarded By
+							{t("onboard.fields.onboardedBy")}
 						</label>
 						<input
 							id="customer-onboarded-by"
@@ -327,7 +333,7 @@ export default function CustomersPage() {
 					</div>
 					<div>
 						<label htmlFor="customer-country" className="form-label">
-							Country Code
+							{t("onboard.fields.country")}
 						</label>
 						<input
 							id="customer-country"
@@ -340,7 +346,7 @@ export default function CustomersPage() {
 					</div>
 					<div>
 						<label htmlFor="customer-dob" className="form-label">
-							Date of Birth
+							{t("onboard.fields.dob")}
 						</label>
 						<input
 							id="customer-dob"
@@ -354,17 +360,19 @@ export default function CustomersPage() {
 
 				<div className="form-group">
 					<div className="flex-between mb-sm">
-						<span className="form-label-bold">Identity Documents</span>
+						<span className="form-label-bold">
+							{t("onboard.documents.heading")}
+						</span>
 						<button
 							type="button"
 							onClick={addIdDocRow}
 							className="btn btn-secondary btn-sm"
 						>
-							+ Add Document
+							{t("onboard.documents.add")}
 						</button>
 					</div>
 					{idDocs.length === 0 ? (
-						<p className="text-muted text-sm">No documents added.</p>
+						<p className="text-muted text-sm">{t("onboard.documents.empty")}</p>
 					) : (
 						idDocs.map((row, index) => (
 							<div
@@ -375,8 +383,10 @@ export default function CustomersPage() {
 							>
 								<input
 									type="text"
-									aria-label={`Document type ${index + 1}`}
-									placeholder="Type (e.g. PASSPORT)"
+									aria-label={t("onboard.documents.typeAria", {
+										index: index + 1,
+									})}
+									placeholder={t("onboard.documents.typePlaceholder")}
 									value={row.doc_type}
 									onChange={(e) =>
 										updateIdDocRow(index, "doc_type", e.target.value)
@@ -385,8 +395,10 @@ export default function CustomersPage() {
 								/>
 								<input
 									type="text"
-									aria-label={`Document number ${index + 1}`}
-									placeholder="Number"
+									aria-label={t("onboard.documents.numberAria", {
+										index: index + 1,
+									})}
+									placeholder={t("onboard.documents.numberPlaceholder")}
 									value={row.number}
 									onChange={(e) =>
 										updateIdDocRow(index, "number", e.target.value)
@@ -395,8 +407,10 @@ export default function CustomersPage() {
 								/>
 								<input
 									type="text"
-									aria-label={`Issuing country ${index + 1}`}
-									placeholder="ISO2"
+									aria-label={t("onboard.documents.issuingCountryAria", {
+										index: index + 1,
+									})}
+									placeholder={t("onboard.documents.issuingCountryPlaceholder")}
 									maxLength={2}
 									value={row.issuing_country}
 									onChange={(e) =>
@@ -406,7 +420,9 @@ export default function CustomersPage() {
 								/>
 								<input
 									type="date"
-									aria-label={`Expiry ${index + 1}`}
+									aria-label={t("onboard.documents.expiryAria", {
+										index: index + 1,
+									})}
 									value={row.expiry}
 									onChange={(e) =>
 										updateIdDocRow(index, "expiry", e.target.value)
@@ -418,7 +434,7 @@ export default function CustomersPage() {
 									onClick={() => removeIdDocRow(index)}
 									className="btn btn-danger btn-sm"
 								>
-									Remove
+									{t("onboard.documents.remove")}
 								</button>
 							</div>
 						))
@@ -426,25 +442,25 @@ export default function CustomersPage() {
 				</div>
 
 				<button type="submit" className="btn btn-primary">
-					Onboard
+					{t("onboard.submit")}
 				</button>
 			</form>
 
-			<h2>Customers ({customers.length})</h2>
+			<h2>{t("list.title", { total: customers.length })}</h2>
 			{loading ? (
-				<p>Loading...</p>
+				<p>{t("list.loading")}</p>
 			) : customers.length === 0 ? (
-				<p>No customers onboarded yet. Onboard one to get started.</p>
+				<p>{t("list.empty")}</p>
 			) : (
 				<table className="table">
 					<thead>
 						<tr>
-							<th>Reference</th>
-							<th>Status</th>
-							<th>Risk</th>
-							<th>Onboarded By</th>
-							<th>Created</th>
-							<th className="table-cell-right">Actions</th>
+							<th>{t("list.columns.reference")}</th>
+							<th>{t("list.columns.status")}</th>
+							<th>{t("list.columns.risk")}</th>
+							<th>{t("list.columns.onboardedBy")}</th>
+							<th>{t("list.columns.created")}</th>
+							<th className="table-cell-right">{t("list.columns.actions")}</th>
 						</tr>
 					</thead>
 					<tbody>
@@ -460,7 +476,7 @@ export default function CustomersPage() {
 								</td>
 								<td>
 									<span className={riskBadgeClass(customer.kyc_risk_rating)}>
-										{customer.kyc_risk_rating ?? "UNRATED"}
+										{customer.kyc_risk_rating ?? t("list.unrated")}
 									</span>
 								</td>
 								<td>{customer.onboarded_by}</td>
@@ -468,7 +484,9 @@ export default function CustomersPage() {
 								<td className="table-cell-right">
 									<div className="flex-gap-sm">
 										<select
-											aria-label={`Status for ${customer.customer_reference}`}
+											aria-label={t("list.controls.statusAria", {
+												reference: customer.customer_reference,
+											})}
 											value={customer.onboarding_status}
 											onChange={(e) =>
 												handleStatusChange(
@@ -485,7 +503,9 @@ export default function CustomersPage() {
 											))}
 										</select>
 										<select
-											aria-label={`Risk for ${customer.customer_reference}`}
+											aria-label={t("list.controls.riskAria", {
+												reference: customer.customer_reference,
+											})}
 											value={customer.kyc_risk_rating ?? ""}
 											onChange={(e) =>
 												handleRiskChange(
@@ -496,7 +516,7 @@ export default function CustomersPage() {
 											className="form-select"
 										>
 											<option value="" disabled>
-												Risk…
+												{t("list.controls.riskPlaceholder")}
 											</option>
 											{RISK_RATINGS.map((r) => (
 												<option key={r} value={r}>
@@ -508,7 +528,9 @@ export default function CustomersPage() {
 											<>
 												<input
 													type="text"
-													aria-label={`Edit name for ${customer.customer_reference}`}
+													aria-label={t("list.controls.editNameAria", {
+														reference: customer.customer_reference,
+													})}
 													value={editing.name}
 													onChange={(e) =>
 														setEditing({ ...editing, name: e.target.value })
@@ -517,7 +539,9 @@ export default function CustomersPage() {
 												/>
 												<input
 													type="text"
-													aria-label={`Edit country for ${customer.customer_reference}`}
+													aria-label={t("list.controls.editCountryAria", {
+														reference: customer.customer_reference,
+													})}
 													value={editing.country}
 													maxLength={2}
 													onChange={(e) =>
@@ -530,20 +554,22 @@ export default function CustomersPage() {
 													onClick={handleEditSave}
 													className="btn btn-primary btn-sm"
 												>
-													Save
+													{t("actions.save")}
 												</button>
 												<button
 													type="button"
 													onClick={() => setEditing(null)}
 													className="btn btn-secondary btn-sm"
 												>
-													Cancel
+													{t("actions.cancel")}
 												</button>
 											</>
 										) : (
 											<button
 												type="button"
-												aria-label={`Edit ${customer.customer_reference}`}
+												aria-label={t("list.controls.editAria", {
+													reference: customer.customer_reference,
+												})}
 												onClick={() =>
 													setEditing({
 														customerId: customer.customer_id,
@@ -553,7 +579,7 @@ export default function CustomersPage() {
 												}
 												className="btn btn-secondary btn-sm"
 											>
-												Edit
+												{t("actions.edit")}
 											</button>
 										)}
 										<button
@@ -561,7 +587,7 @@ export default function CustomersPage() {
 											onClick={() => handleDelete(customer.customer_id)}
 											className="btn btn-danger btn-sm"
 										>
-											Delete
+											{t("actions.delete")}
 										</button>
 									</div>
 								</td>
@@ -577,25 +603,32 @@ export default function CustomersPage() {
 interface OnboardResultAlertProps {
 	result: CustomerOnboardResponse;
 	onDismiss: () => void;
+	t: TFunction;
 }
 
-function OnboardResultAlert({ result, onDismiss }: OnboardResultAlertProps) {
+function OnboardResultAlert({ result, onDismiss, t }: OnboardResultAlertProps) {
 	const hasMatch = result.match_entity_ids.length > 0;
 	return (
 		<div className={`alert ${hasMatch ? "alert-warning" : "alert-success"}`}>
 			<div className="flex-between">
 				<span>
 					{hasMatch ? (
-						<>
-							⚠ Onboarded <strong>{result.customer_reference}</strong> —
-							potential sanctions match ({result.match_entity_ids.length});
-							needs review.
-						</>
+						<Trans
+							i18nKey="onboard.result.match"
+							ns="customers"
+							values={{
+								reference: result.customer_reference,
+								matches: result.match_entity_ids.length,
+							}}
+							components={{ strong: <strong /> }}
+						/>
 					) : (
-						<>
-							✓ Onboarded <strong>{result.customer_reference}</strong> — no
-							sanctions matches.
-						</>
+						<Trans
+							i18nKey="onboard.result.clear"
+							ns="customers"
+							values={{ reference: result.customer_reference }}
+							components={{ strong: <strong /> }}
+						/>
 					)}
 				</span>
 				<button
@@ -603,7 +636,7 @@ function OnboardResultAlert({ result, onDismiss }: OnboardResultAlertProps) {
 					onClick={onDismiss}
 					className="btn btn-secondary btn-sm"
 				>
-					Dismiss
+					{t("onboard.result.dismiss")}
 				</button>
 			</div>
 		</div>

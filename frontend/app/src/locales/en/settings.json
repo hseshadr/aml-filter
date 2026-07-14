@@ -1,0 +1,55 @@
+{
+	"header": {
+		"title": "Settings"
+	},
+	"status": {
+		"loading": "Loading settings…"
+	},
+	"sensitivity": {
+		"title": "Screening sensitivity",
+		"description": "How closely a customer name must match a sanctioned name to flag.",
+		"ariaLabel": "Screening sensitivity",
+		"levels": {
+			"lenient": "Lenient",
+			"balanced": "Balanced",
+			"strict": "Strict"
+		}
+	},
+	"watchlists": {
+		"title": "Watchlists",
+		"description": "Which sanctions lists to screen against. Disabling a list removes its matches on the next re-screen."
+	},
+	"overrides": {
+		"title": "Per-list overrides",
+		"label": "Override for {{label}}",
+		"options": {
+			"default": "Use default",
+			"strict": "Strict",
+			"balanced": "Balanced",
+			"lenient": "Lenient"
+		}
+	},
+	"analyst": {
+		"title": "Analyst name",
+		"label": "Analyst name"
+	},
+	"cache": {
+		"title": "Cached lists",
+		"description": "Verified watchlists are cached on this device for fast cold starts and offline use. Clearing the cache frees space; the next load re-fetches and re-verifies every list.",
+		"button": "Clear cached lists",
+		"cleared": "Cached lists cleared — the next load re-fetches and re-verifies."
+	},
+	"banner": {
+		"error": "Error: {{error}}",
+		"unchanged": "Settings unchanged — no changes to apply.",
+		"rescanned": "Re-screened {{customers}} customers — {{newHits}} new hits, {{clearedHits}} cleared."
+	},
+	"buttons": {
+		"apply": "Apply"
+	},
+	"errors": {
+		"load": "Failed to load settings",
+		"apply": "Failed to apply settings",
+		"clearCache": "Failed to clear cached lists"
+	}
+}

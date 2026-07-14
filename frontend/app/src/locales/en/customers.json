@@ -1,0 +1,82 @@
+{
+	"header": {
+		"title": "KYC Customer Onboarding",
+		"checkUpdates": "Check for updates",
+		"checking": "Checking…"
+	},
+	"sync": {
+		"enginePending": "Screening engine is still starting — try again shortly.",
+		"lastSynced": "Last synced: {{version}} · {{time}}"
+	},
+	"alerts": {
+		"error": "Error: {{error}}"
+	},
+	"onboard": {
+		"formLabel": "Onboard a customer",
+		"heading": "Onboard a Customer",
+		"fields": {
+			"reference": "Customer Reference *",
+			"name": "Name *",
+			"onboardedBy": "Onboarded By",
+			"country": "Country Code",
+			"dob": "Date of Birth"
+		},
+		"documents": {
+			"heading": "Identity Documents",
+			"add": "+ Add Document",
+			"empty": "No documents added.",
+			"typeAria": "Document type {{index}}",
+			"typePlaceholder": "Type (e.g. PASSPORT)",
+			"numberAria": "Document number {{index}}",
+			"numberPlaceholder": "Number",
+			"issuingCountryAria": "Issuing country {{index}}",
+			"issuingCountryPlaceholder": "ISO2",
+			"expiryAria": "Expiry {{index}}",
+			"remove": "Remove"
+		},
+		"submit": "Onboard",
+		"result": {
+			"match": "⚠ Onboarded <strong>{{reference}}</strong> — potential sanctions match ({{matches}}); needs review.",
+			"clear": "✓ Onboarded <strong>{{reference}}</strong> — no sanctions matches.",
+			"dismiss": "Dismiss"
+		}
+	},
+	"list": {
+		"title": "Customers ({{total}})",
+		"loading": "Loading...",
+		"empty": "No customers onboarded yet. Onboard one to get started.",
+		"columns": {
+			"reference": "Reference",
+			"status": "Status",
+			"risk": "Risk",
+			"onboardedBy": "Onboarded By",
+			"created": "Created",
+			"actions": "Actions"
+		},
+		"unrated": "UNRATED",
+		"controls": {
+			"statusAria": "Status for {{reference}}",
+			"riskAria": "Risk for {{reference}}",
+			"riskPlaceholder": "Risk…",
+			"editNameAria": "Edit name for {{reference}}",
+			"editCountryAria": "Edit country for {{reference}}",
+			"editAria": "Edit {{reference}}"
+		}
+	},
+	"actions": {
+		"save": "Save",
+		"cancel": "Cancel",
+		"edit": "Edit",
+		"delete": "Delete",
+		"deleteConfirm": "Delete this customer? This cannot be undone."
+	},
+	"errors": {
+		"load": "Failed to load customers",
+		"onboard": "Failed to onboard customer",
+		"updateStatus": "Failed to update status",
+		"updateRisk": "Failed to update risk rating",
+		"delete": "Failed to delete customer",
+		"checkUpdates": "Failed to check for updates",
+		"save": "Failed to save customer"
+	}
+}
