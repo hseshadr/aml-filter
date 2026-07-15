@@ -14,7 +14,10 @@ import {
 // detector relies on OPFS getDirectory as the main-thread-safe proxy.
 const FULL: CapabilityScope = {
 	Worker: function Worker() {},
-	navigator: { storage: { getDirectory: () => {} } },
+	navigator: {
+		storage: { getDirectory: () => {} },
+		locks: { request: () => {} },
+	},
 };
 
 describe("detectCapabilities", () => {
@@ -22,6 +25,7 @@ describe("detectCapabilities", () => {
 		expect(detectCapabilities(FULL)).toEqual({
 			moduleWorker: true,
 			opfs: true,
+			webLocks: true,
 		});
 	});
 
@@ -39,6 +43,14 @@ describe("detectCapabilities", () => {
 		const caps = detectCapabilities({ ...FULL, navigator: undefined });
 		expect(caps.opfs).toBe(false);
 	});
+
+	it("reports Web Locks absent when cross-tab mutation serialization is unavailable", () => {
+		const caps = detectCapabilities({
+			...FULL,
+			navigator: { storage: { getDirectory: () => {} } },
+		});
+		expect(caps.webLocks).toBe(false);
+	});
 });
 
 describe("missingCapabilities + isEngineSupported", () => {
@@ -54,9 +66,10 @@ describe("missingCapabilities + isEngineSupported", () => {
 			navigator: undefined,
 		});
 		const missing = missingCapabilities(caps);
-		expect(missing.length).toBe(2);
+		expect(missing.length).toBe(3);
 		expect(missing.join(" ")).toMatch(/worker/i);
 		expect(missing.join(" ")).toMatch(/opfs|storage/i);
+		expect(missing.join(" ")).toMatch(/lock/i);
 		expect(isEngineSupported(caps)).toBe(false);
 	});
 });

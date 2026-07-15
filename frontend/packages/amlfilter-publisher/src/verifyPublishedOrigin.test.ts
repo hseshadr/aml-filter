@@ -156,6 +156,17 @@ describe("verifyPublishedOrigin against the committed demo origin", () => {
 			}),
 		).rejects.toThrow(/expected "2099-01-01"/);
 	});
+
+	it("rejects a published pointer without the expected monotonic sequence", async () => {
+		await expect(
+			verifyPublishedOrigin({
+				baseUrl: BASE,
+				fetchBytes: fixtureFetch(),
+				pubkey: PUBKEY,
+				expectSequence: 29_433_222_924,
+			}),
+		).rejects.toThrow(/sequence/i);
+	});
 });
 
 describe("parseVerifyArgs", () => {
@@ -167,11 +178,14 @@ describe("parseVerifyArgs", () => {
 			"public.key",
 			"--expect-version",
 			"2026-07-13",
+			"--expect-sequence",
+			"29433222924",
 		]);
 		expect(args).toEqual({
 			baseUrl: "https://aml-filter.com/bundle/origin",
 			pubkeyPath: "public.key",
 			expectVersion: "2026-07-13",
+			expectSequence: 29_433_222_924,
 			attempts: 10,
 			delaySeconds: 15,
 		});

@@ -13,7 +13,7 @@
 // drives (so the unit test can exercise stagedListsFromSources without running
 // edge-proc or a live fetch):
 //   pnpm --filter @amlfilter/publisher run build-real-bundle -- \
-//     --key signing.key --version 2026-06-23 --out <originDir> [--models <dir>]
+//     --key signing.key --version 2026-06-23 --sequence 123 --out <originDir> [--models <dir>]
 //
 // `edgeproc` is invoked via publishBundle(), which resolves the edge-proc
 // checkout from EDGEPROC_DIR (the CI sets it to the installed edge-proc). The
@@ -126,12 +126,13 @@ export async function stagedListsFromSources(
 /** One CLI run: stage the real lists then publish the signed bundle to outDir. */
 interface RealBundleArgs {
 	readonly version: string;
+	readonly sequence: number;
 	readonly keyPath: string;
 	readonly outDir: string;
 	readonly models: string;
 }
 
-function parseArgs(argv: readonly string[]): RealBundleArgs {
+export function parseRealBundleArgs(argv: readonly string[]): RealBundleArgs {
 	const map = new Map<string, string>();
 	for (let i = 0; i < argv.length; i += 2) {
 		const flag = argv[i];
@@ -141,13 +142,18 @@ function parseArgs(argv: readonly string[]): RealBundleArgs {
 		}
 		map.set(flag.slice(2), value);
 	}
-	for (const k of ["version", "key", "out"]) {
+	for (const k of ["version", "sequence", "key", "out"]) {
 		if (!map.has(k)) {
 			throw new Error(`missing required --${k}`);
 		}
 	}
+	const sequence = Number(map.get("sequence"));
+	if (!Number.isSafeInteger(sequence) || sequence < 0) {
+		throw new Error("--sequence must be a non-negative safe integer");
+	}
 	return {
 		version: map.get("version") as string,
+		sequence,
 		keyPath: resolve(map.get("key") as string),
 		outDir: resolve(map.get("out") as string),
 		models: map.get("models") ?? DEFAULT_MODELS,
@@ -157,7 +163,7 @@ function parseArgs(argv: readonly string[]): RealBundleArgs {
 /** Stage the real lists then publish the signed bundle to outDir. Drives the
  * real Node embedder + the real adapters; the thin entry script passes argv. */
 export async function runRealBundle(argv: readonly string[]): Promise<void> {
-	const args = parseArgs(argv);
+	const args = parseRealBundleArgs(argv);
 	const staged = await stagedListsFromSources(
 		BUNDLE_SOURCES,
 		createNodeEmbedder(args.models),
@@ -172,6 +178,7 @@ export async function runRealBundle(argv: readonly string[]): Promise<void> {
 			keyPath: args.keyPath,
 			bundleId: BUNDLE_ID,
 			version: args.version,
+			sequence: args.sequence,
 		});
 		// edge-proc also writes a producer-side CAS mirror (chunks/<aa>/<hash>,
 		// manifests/<hash>) next to the served contract. The sync tier consumes

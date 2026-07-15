@@ -49,19 +49,20 @@ serves over HTTPS works without further configuration.
 ## 3. Refreshing the lists
 
 The sanctions lists change frequently; screening against a stale copy can miss
-newly-listed entities. The OFAC list is regenerated and re-signed by the
-**`publish-watchlist` GitHub Action** (the workflow runs the single-list `publish` CLI
-for OFAC SDN; the committed demo **bundle** the app loads is rebuilt locally with
-`build-demo-bundle`)
+newly-listed entities. The real multi-list bundle is regenerated, re-signed, deployed,
+and live-verified by the **`publish-watchlist` GitHub Action**; the committed demo
+**bundle** is rebuilt locally with `build-demo-bundle`
 ([`../.github/workflows/publish-watchlist.yml`](../.github/workflows/publish-watchlist.yml)).
 
 **Trigger.** It runs **daily on a cron** (`0 6 * * *`, 06:00 UTC) and on manual
 **`workflow_dispatch`** (with an optional `version` stamp input that defaults to the run
 date).
 
-**What it does.** Install workspace deps → resolve the version stamp → fetch the live
-OFAC SDN list into `entities.jsonl` (via `fetchOfacJsonl`) → decode the signing key →
-run the publisher → scrub the key → upload the four signed files as a build artifact.
+**What it does.** Install workspace deps and pinned edge-proc → resolve the version
+stamp → fetch and embed the live source lists → publish the signed bundle with the
+repository-wide monotonic `run_id * 1000 + run_attempt` as its `sequence` → verify it against the
+pinned public key → build and deploy the same-origin SPA → re-fetch and verify the
+live pointer, manifest, and every chunk through the browser-compatible decode path.
 
 **The signing key.** The `WATCHLIST_SIGNING_KEY` repository secret holds the **raw
 32-byte Ed25519 seed, base64-encoded** (so it round-trips cleanly through a GitHub
@@ -70,18 +71,8 @@ exactly 32 bytes**. The key's public half is the `public.key` pinned in the app 
 that pairing is what makes in-tab verification meaningful, so never rotate one without
 the other.
 
-**The signed artifact.** For a single list, the publisher emits four static files into
-the out directory:
-
-```
-watchlist.json
-watchlist.json.sig
-watchlist.manifest.json
-watchlist.manifest.json.sig
-```
-
-The committed demo **bundle** (`build-demo-bundle`) packs those per-list files plus a
-`catalog.json` into the signed, content-addressed distribution the app loads at runtime:
+**The signed artifact.** The real and demo builders emit the same signed,
+content-addressed distribution the app loads at runtime:
 a signed `latest` pointer → a content-hashed `manifest` → a `chunk/` CAS, under
 `frontend/app/public/bundle/origin/`. See [`WATCHLIST_FORMAT.md`](WATCHLIST_FORMAT.md).
 
@@ -98,17 +89,16 @@ pnpm publish-list -- \
 ```
 
 (`pnpm publish-list` is an alias for `pnpm --filter @amlfilter/publisher run publish`.)
+This retired flat-wire CLI remains available for source-artifact tooling; it is not the
+bundle the browser loads. The production bundle builder requires an explicit monotonic
+`--sequence`; see the Cloudflare CLI path below.
 The wire format is documented in [`WATCHLIST_FORMAT.md`](WATCHLIST_FORMAT.md).
-
-**Honest note on delivery.** The Action currently **uploads the four signed files as a
-build artifact for review**. Actually getting them onto your static host — committing
-them back to the repo, or pushing them to your object store / CDN — is **left as the
-deployment choice**; wire that step to match wherever you host `dist/`.
 
 ## 4. How clients pick up a refresh
 
-Once a new bundle is live, browser clients **auto-detect the new `version`** (the signed
-`latest` pointer carries it), then delta-sync the changed chunks and **re-verify
+Once a new bundle is live, browser clients verify the signed `latest` pointer's
+repository-wide monotonic `sequence`, reject any rollback, then delta-sync the changed
+chunks and **re-verify
 fail-closed** against the pinned `public.key`, re-screening every customer. The durable
 OPFS cache is content-addressed, so unchanged chunks are reused and a new publish only
 fetches what changed. So the refresh flow is: rebuild + re-sign the bundle (the Action /
@@ -162,7 +152,8 @@ CDN host); leave it unset for the same-origin production default.
 cd frontend
 # 1. build + sign the real bundle straight into the SPA's public tree:
 pnpm --filter @amlfilter/publisher run build-real-bundle -- \
-  --version "$(date -u +%Y-%m-%d)" --key /path/to/signing.key \
+  --version "$(date -u +%Y-%m-%d)" --sequence <monotonic-integer> \
+  --key /path/to/signing.key \
   --out app/public/bundle/origin
 # 2. build the SPA same-origin (no VITE_BUNDLE_BASE_URL) and deploy:
 pnpm --filter aml-filter-app run build
@@ -172,6 +163,8 @@ npx wrangler pages deploy app/dist --project-name=aml-filter --branch=main
 **Custom domains.** In the Pages project → *Custom domains*, add both `aml-filter.com` and
 `www.aml-filter.com`. Make the apex canonical and send `www` → apex with a **Redirect Rule**
 (Rules → Redirect Rules: `www.aml-filter.com/*` → `https://aml-filter.com/$1`, 301).
+This redirect is host-level Cloudflare state and cannot be represented by the Pages
+`_redirects` file; verify it after every domain or project migration.
 
 > Pages serves over HTTPS automatically, which is the secure context the app needs for
 > WebCrypto signature verification and OPFS — nothing extra to configure. Because the bundle is
@@ -201,12 +194,21 @@ After a deploy, confirm it actually works — green CI is not enough:
   **same-origin** from `https://aml-filter.com/bundle/origin/…`.
 - Deep-link **`/customers`**, **`/review`**, and **`/settings`** and refresh each one to
   confirm the SPA fallback serves the app (no 404).
+- Confirm `https://www.aml-filter.com/<path>?<query>` returns a permanent redirect to
+  the same path and query on `https://aml-filter.com`.
+- Confirm the response carries the repository's CSP, `public.key` has
+  `application/octet-stream` plus revalidation, `latest` is `no-store`, and immutable
+  manifests/chunks have a one-year cache lifetime.
+- Fetch `/build.json` and confirm its `git_sha` is the exact reviewed commit and its
+  `github_run_id` is the deploying workflow run. Both workflows enforce this after
+  upload so a successful no-op cannot pass.
 
-> **CSP follow-up.** `_headers` deliberately ships **no** `Content-Security-Policy` — the app
-> loads WASM, spawns module/web workers, and fetches the same-origin bundle, so a wrong CSP
-> silently breaks the screen. If you add one later, it must at minimum allow `script-src 'self'`,
-> `wasm-unsafe-eval`, and `worker-src blob:` — and you must **browser-validate** the live
-> `/screen` flow (clean console) before shipping it.
+The checked-in `_headers` CSP is intentionally narrow: same-origin scripts, data, and
+connections; `wasm-unsafe-eval` for ONNX; and same-origin/blob workers. A unit guard
+keeps the inline JSON-LD hash synchronized, and the C1 Playwright lane applies that
+exact policy to the minified build so a worker/WASM regression fails before deploy.
+The complete threat/privacy, recovery, and numeric performance contract is in
+[`OPERATIONS.md`](OPERATIONS.md).
 
 ## Operational caveats
 

@@ -39,6 +39,9 @@ export type OriginFetch = (url: string) => Promise<Uint8Array>;
 interface PointerWire {
 	readonly manifest_hash: string;
 	readonly version: string;
+	readonly bundle_id?: string | null;
+	readonly channel?: string | null;
+	readonly sequence: number;
 	readonly signature: string;
 }
 
@@ -57,6 +60,7 @@ interface ManifestWire {
 
 export interface OriginVerifyReport {
 	readonly version: string;
+	readonly sequence: number;
 	readonly manifestHash: string;
 	readonly files: number;
 	readonly chunksVerified: number;
@@ -84,10 +88,12 @@ function assertPointerWire(value: unknown): asserts value is PointerWire {
 		typeof p !== "object" ||
 		typeof p.manifest_hash !== "string" ||
 		typeof p.version !== "string" ||
+		!Number.isSafeInteger(p.sequence) ||
+		(p.sequence as number) < 0 ||
 		typeof p.signature !== "string"
 	) {
 		throw new OriginVerifyError(
-			"published /latest pointer is missing manifest_hash/version/signature",
+			"published /latest pointer is missing manifest_hash/version/signature or a non-negative monotonic sequence",
 		);
 	}
 }
@@ -119,7 +125,11 @@ async function fetchAndVerifyPointer(
 	const pointer = parseJson<unknown>(raw, "/latest pointer");
 	assertPointerWire(pointer);
 	const message = canonicalBytes(pointer as unknown as JsonValue, {
-		exclude: { signature: true },
+		exclude: {
+			signature: true,
+			bundle_id: pointer.bundle_id == null,
+			channel: pointer.channel == null,
+		},
 	});
 	await verifyEd25519(pubkey, message, pointer.signature);
 	return pointer;
@@ -177,12 +187,18 @@ export async function verifyPublishedOrigin(args: {
 	readonly fetchBytes: OriginFetch;
 	readonly pubkey: Uint8Array;
 	readonly expectVersion?: string;
+	readonly expectSequence?: number;
 }): Promise<OriginVerifyReport> {
-	const { baseUrl, fetchBytes, pubkey, expectVersion } = args;
+	const { baseUrl, fetchBytes, pubkey, expectVersion, expectSequence } = args;
 	const pointer = await fetchAndVerifyPointer(baseUrl, fetchBytes, pubkey);
 	if (expectVersion !== undefined && pointer.version !== expectVersion) {
 		throw new OriginVerifyError(
 			`published pointer version is "${pointer.version}"; expected "${expectVersion}" — the deploy did not take (or has not propagated)`,
+		);
+	}
+	if (expectSequence !== undefined && pointer.sequence !== expectSequence) {
+		throw new OriginVerifyError(
+			`published pointer sequence is ${pointer.sequence}; expected ${expectSequence} — the deploy did not take (or has not propagated)`,
 		);
 	}
 	const manifest = await fetchAndVerifyManifest(baseUrl, fetchBytes, pointer);
@@ -190,6 +206,7 @@ export async function verifyPublishedOrigin(args: {
 	const compressedBytes = await verifyAllChunks(baseUrl, fetchBytes, hashes);
 	return {
 		version: pointer.version,
+		sequence: pointer.sequence,
 		manifestHash: pointer.manifest_hash,
 		files: manifest.files.length,
 		chunksVerified: hashes.length,
@@ -203,6 +220,7 @@ export interface VerifyCliArgs {
 	readonly baseUrl: string;
 	readonly pubkeyPath: string;
 	readonly expectVersion?: string;
+	readonly expectSequence?: number;
 	readonly attempts: number;
 	readonly delaySeconds: number;
 }
@@ -224,6 +242,7 @@ export function parseVerifyArgs(argv: ReadonlyArray<string>): VerifyCliArgs {
 		"base-url",
 		"pubkey",
 		"expect-version",
+		"expect-sequence",
 		"attempts",
 		"delay-seconds",
 	]);
@@ -239,16 +258,28 @@ export function parseVerifyArgs(argv: ReadonlyArray<string>): VerifyCliArgs {
 	}
 	const attempts = Number(values.get("attempts") ?? "10");
 	const delaySeconds = Number(values.get("delay-seconds") ?? "15");
+	const expectSequenceValue = values.get("expect-sequence");
+	const expectSequence =
+		expectSequenceValue === undefined ? undefined : Number(expectSequenceValue);
 	if (!Number.isInteger(attempts) || attempts < 1) {
 		throw new OriginVerifyError("--attempts must be a positive integer");
 	}
 	if (!Number.isFinite(delaySeconds) || delaySeconds < 0) {
 		throw new OriginVerifyError("--delay-seconds must be >= 0");
 	}
+	if (
+		expectSequence !== undefined &&
+		(!Number.isSafeInteger(expectSequence) || expectSequence < 0)
+	) {
+		throw new OriginVerifyError(
+			"--expect-sequence must be a non-negative safe integer",
+		);
+	}
 	return {
 		baseUrl: baseUrl.replace(/\/$/, ""),
 		pubkeyPath,
 		expectVersion: values.get("expect-version"),
+		expectSequence,
 		attempts,
 		delaySeconds,
 	};
@@ -300,9 +331,10 @@ export async function runVerifyPublishedOrigin(
 				fetchBytes,
 				pubkey,
 				expectVersion: args.expectVersion,
+				expectSequence: args.expectSequence,
 			});
 			log(
-				`published origin OK: version=${report.version} files=${report.files} ` +
+				`published origin OK: version=${report.version} sequence=${report.sequence} files=${report.files} ` +
 					`chunks=${report.chunksVerified} compressedBytes=${report.compressedBytes} ` +
 					`manifest=${report.manifestHash}`,
 			);

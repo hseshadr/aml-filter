@@ -56,6 +56,7 @@ const BUNDLE_ID = "amlfilter-watchlists";
 
 const V1_VERSION = "demo-1";
 const V2_VERSION = "demo-2";
+const V2_SEQUENCE = 2;
 
 /** One demo list to bundle: catalog identity, demo JSONL dir + slug, version. */
 interface DemoList {
@@ -134,6 +135,7 @@ async function main(): Promise<void> {
 		keyPath: KEY,
 		bundleId: BUNDLE_ID,
 		version: V2_VERSION,
+		sequence: V2_SEQUENCE,
 	});
 	// edge-proc also writes a producer-side CAS mirror (chunks/<aa>/<hash>,
 	// manifests/<hash>) next to the served contract. The sync tier consumes ONLY

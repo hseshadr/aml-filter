@@ -34,16 +34,18 @@ export interface VersionPointer {
 	/** Hex sha256 of the manifest's canonical bytes. */
 	readonly manifest_hash: string;
 	readonly version: string;
+	/** Optional edge-proc identity binding fields. Null is excluded from the
+	 * signature preimage for compatibility with legacy pointers. */
+	readonly bundle_id?: string | null;
+	readonly channel?: string | null;
 	/**
 	 * Monotonic anti-rollback counter: a publish increments it, and the sync tier
 	 * rejects any signature-valid pointer whose `sequence` is lower than the active
-	 * version's (see `syncIndex`). Optional for backward compatibility with
-	 * pre-versioning pointers already signed+deployed; a sequence-less pointer
-	 * cannot roll back a versioned active. It is part of the signed canonical bytes
-	 * (canonicalBytes signs every non-`signature` field), so no signing code
-	 * changes — a publisher that emits it simply signs one more field.
+	 * version's (see `syncIndex`). Required on every incoming pointer after the
+	 * production migration; a cached legacy active pointer may still upgrade once
+	 * to this sequenced chain. It is part of the signed canonical bytes.
 	 */
-	readonly sequence?: number;
+	readonly sequence: number;
 	/** ed25519 over canonicalBytes(self, exclude {signature}), base64. */
 	readonly signature: string;
 }

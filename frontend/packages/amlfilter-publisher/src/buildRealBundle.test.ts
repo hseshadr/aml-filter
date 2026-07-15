@@ -7,6 +7,7 @@
 
 import { describe, expect, test } from "vitest";
 import {
+	parseRealBundleArgs,
 	type RealBundleSourceSpec,
 	stagedListsFromSources,
 } from "./buildRealBundle.ts";
@@ -62,6 +63,48 @@ function throwingSource(id: string, title: string): WatchlistSource {
 }
 
 const DIM = 384; // matches EMBEDDING_DIM the fake embedder produces.
+
+describe("parseRealBundleArgs", () => {
+	test("requires and parses the monotonic sequence", () => {
+		expect(
+			parseRealBundleArgs([
+				"--version",
+				"2026-07-15",
+				"--sequence",
+				"29433222924",
+				"--key",
+				"signing.key",
+				"--out",
+				"origin",
+			]),
+		).toMatchObject({ sequence: 29_433_222_924 });
+	});
+
+	test("rejects a missing or malformed sequence", () => {
+		expect(() =>
+			parseRealBundleArgs([
+				"--version",
+				"2026-07-15",
+				"--key",
+				"signing.key",
+				"--out",
+				"origin",
+			]),
+		).toThrow(/missing required --sequence/i);
+		expect(() =>
+			parseRealBundleArgs([
+				"--version",
+				"2026-07-15",
+				"--sequence",
+				"today",
+				"--key",
+				"signing.key",
+				"--out",
+				"origin",
+			]),
+		).toThrow(/sequence.*non-negative safe integer/i);
+	});
+});
 
 describe("stagedListsFromSources", () => {
 	test("stages one list per source whose fetchRaw succeeds, in order", async () => {

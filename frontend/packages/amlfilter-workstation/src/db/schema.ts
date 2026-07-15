@@ -46,7 +46,8 @@ const MIGRATION_V1: ReadonlyArray<string> = [
 ];
 
 // v2 — additive only (no data loss): the material-change fingerprint + a
-// re-review flag on each match, plus an append-only match_events audit ledger.
+// re-review flag on each match, plus an append-only-during-lifecycle
+// match_events audit ledger (explicit customer deletion erases its rows).
 // review_state defaults CURRENT so every pre-existing row backfills to "clean";
 // material_fingerprint is nullable so migrated rows are flagged "never seen a
 // fingerprint" and adopt one silently on the first replaceMatches (no false

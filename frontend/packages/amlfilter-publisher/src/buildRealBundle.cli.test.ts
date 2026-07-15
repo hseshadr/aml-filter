@@ -20,6 +20,7 @@ const state = vi.hoisted(() => ({
 		originDir: string;
 		bundleId: string;
 		version: string;
+		sequence: number;
 		stagedEntries: string[];
 	}[],
 }));
@@ -39,12 +40,14 @@ vi.mock("./publishBundle.ts", async () => {
 			keyPath: string;
 			bundleId: string;
 			version: string;
+			sequence: number;
 		}): Promise<void> => {
 			state.publishCalls.push({
 				srcDir: input.srcDir,
 				originDir: input.originDir,
 				bundleId: input.bundleId,
 				version: input.version,
+				sequence: input.sequence,
 				stagedEntries: (await readdir(input.srcDir)).sort(),
 			});
 			// Mirror the tree `edgeproc publish` writes: the served contract
@@ -114,8 +117,18 @@ describe("runRealBundle argv contract", () => {
 		[["--version"], 'malformed argument near "--version"'],
 		[["version", "1"], 'malformed argument near "version"'],
 		[["--key", "k", "--out", "o"], "missing required --version"],
-		[["--version", "v", "--out", "o"], "missing required --key"],
-		[["--version", "v", "--key", "k"], "missing required --out"],
+		[
+			["--version", "v", "--sequence", "1", "--out", "o"],
+			"missing required --key",
+		],
+		[
+			["--version", "v", "--sequence", "1", "--key", "k"],
+			"missing required --out",
+		],
+		[
+			["--version", "v", "--key", "k", "--out", "o"],
+			"missing required --sequence",
+		],
 	])("rejects %j", async (argv, message) => {
 		await expect(runRealBundle(argv)).rejects.toThrow(message);
 	});
@@ -143,6 +156,8 @@ describe("runRealBundle with every feed down", () => {
 				runRealBundle([
 					"--version",
 					"v1",
+					"--sequence",
+					"1",
 					"--key",
 					join(dir, "signing.key"),
 					"--out",
@@ -203,6 +218,8 @@ describe("runRealBundle happy path", () => {
 		await runRealBundle([
 			"--version",
 			"2026-07-11",
+			"--sequence",
+			"12345",
 			"--key",
 			keyPath,
 			"--out",
@@ -213,6 +230,7 @@ describe("runRealBundle happy path", () => {
 		const call = state.publishCalls[0];
 		expect(call?.bundleId).toBe("amlfilter-watchlists");
 		expect(call?.version).toBe("2026-07-11");
+		expect(call?.sequence).toBe(12345);
 		expect(call?.originDir).toBe(outDir);
 		// stageBundle wrote catalog.json + one dir per fetched list before publish.
 		expect(call?.stagedEntries).toEqual([

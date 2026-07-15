@@ -87,6 +87,6 @@ describe("LandingPage", () => {
 
 	it("renders the footer credit", () => {
 		renderPage();
-		expect(screen.getByText(/portfolio demo/i)).toBeInTheDocument();
+		expect(screen.getByText(/portfolio engineering demo/i)).toBeInTheDocument();
 	});
 });

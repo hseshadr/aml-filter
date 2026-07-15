@@ -33,6 +33,7 @@ const ORIGIN = resolve(HERE, "../../../app/public/bundle/origin");
 
 const DEMO_GENERATED_AT = "2026-06-19T00:00:00Z";
 const DEMO_VERSION = "demo-1";
+const DEMO_SEQUENCE = 1;
 const BUNDLE_ID = "amlfilter-watchlists";
 
 /** One demo list to bundle: catalog identity + demo JSONL slug. */
@@ -82,6 +83,7 @@ async function main(): Promise<void> {
 		keyPath: KEY,
 		bundleId: BUNDLE_ID,
 		version: DEMO_VERSION,
+		sequence: DEMO_SEQUENCE,
 	});
 	// edge-proc also writes a producer-side CAS mirror (chunks/<aa>/<hash>,
 	// manifests/<hash>) next to the served contract. The sync tier consumes ONLY

@@ -1,10 +1,12 @@
 // Feature-detect whether this browser can run the local screening engine BEFORE
-// bootstrap tries to. The engine needs two capabilities an older iOS Safari or a
-// locked-down in-app WebView can lack, BOTH detectable from the main thread:
+// bootstrap tries to. The engine needs three capabilities an older iOS Safari or a
+// locked-down in-app WebView can lack, all detectable from the main thread:
 //
 //   - module Web Workers — the sync + embedder engines are module Workers;
 //   - OPFS (navigator.storage.getDirectory) — the durable content-addressed
 //     chunk store the delta-sync promotes into.
+//   - Web Locks — cross-tab sequencing for promotion and cache clearing. Without
+//     it, two live tabs could race a lower signed sequence over a newer one.
 //
 // NOTE on the Worker-only OPFS write path: the store writes chunks through
 // `createSyncAccessHandle`, which is `[Exposed=DedicatedWorker]` — it is NOT on
@@ -25,6 +27,7 @@
 export interface EngineCapabilities {
 	readonly moduleWorker: boolean;
 	readonly opfs: boolean;
+	readonly webLocks: boolean;
 }
 
 /** The globals the detector reads. Injectable so the pure detection is testable
@@ -34,6 +37,7 @@ export interface CapabilityScope {
 	readonly Worker?: unknown;
 	readonly navigator?: {
 		readonly storage?: { readonly getDirectory?: unknown };
+		readonly locks?: { readonly request?: unknown };
 	};
 }
 
@@ -41,6 +45,7 @@ export interface CapabilityScope {
 const CAPABILITY_LABELS: Readonly<Record<keyof EngineCapabilities, string>> = {
 	moduleWorker: "Web Workers",
 	opfs: "private file storage (OPFS)",
+	webLocks: "cross-tab Web Locks",
 };
 
 /** Pure capability detection over an injected scope (no real globals touched). */
@@ -48,6 +53,7 @@ export function detectCapabilities(scope: CapabilityScope): EngineCapabilities {
 	return {
 		moduleWorker: typeof scope.Worker === "function",
 		opfs: typeof scope.navigator?.storage?.getDirectory === "function",
+		webLocks: typeof scope.navigator?.locks?.request === "function",
 	};
 }
 

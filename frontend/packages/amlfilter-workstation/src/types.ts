@@ -14,9 +14,9 @@ export type MatchTier = "STRONG" | "POSSIBLE" | "WEAK";
 export type ReviewState = "CURRENT" | "CHANGED";
 
 /**
- * One append-only audit entry on a match's lifecycle. The match_events table is
- * insert-only (no UPDATE/DELETE), so the full history of a screened pair
- * survives even when its kyc_matches row is rotated by a replaceMatches.
+ * One append-only audit entry on a match's lifecycle. Lifecycle operations never
+ * rewrite history, so a screened pair survives match-row rotation. Explicit
+ * customer deletion erases the customer's events as the privacy boundary.
  */
 export type MatchEventType =
 	| "DETECTED"
@@ -189,7 +189,7 @@ export interface WorkstationStore {
 		notes?: string,
 	): Promise<ReviewRow>;
 	/**
-	 * The append-only audit trail for a match, ordered oldest-first. History
+	 * The append-only-during-lifecycle audit trail for a match, ordered oldest-first. History
 	 * survives match_id rotation: events are found by the current match_id OR by
 	 * the (customer_id, ofac_entity_id) pair, so a replaceMatches that re-issues
 	 * the row does not orphan its prior events.

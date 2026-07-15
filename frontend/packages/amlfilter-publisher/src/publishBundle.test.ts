@@ -13,6 +13,7 @@ describe("edgeprocPublishArgs", () => {
 			keyPath: "/abs/demo.key",
 			bundleId: "amlfilter-watchlists",
 			version: "demo-1",
+			sequence: 42,
 			edgeprocDir: "/abs/edge-proc",
 		});
 		expect(command).toBe("uv");
@@ -32,6 +33,8 @@ describe("edgeprocPublishArgs", () => {
 			"amlfilter-watchlists",
 			"--version",
 			"demo-1",
+			"--sequence",
+			"42",
 			"--pretty",
 		]);
 	});
@@ -43,7 +46,25 @@ describe("edgeprocPublishArgs", () => {
 			keyPath: "/k",
 			bundleId: "b",
 			version: "v",
+			sequence: 1,
 		});
 		expect(args[2]).toBe("/Users/harish/dev/oss/edge-proc");
+	});
+
+	test.each([
+		-1,
+		1.5,
+		Number.MAX_SAFE_INTEGER + 1,
+	])("rejects a non-monotonic sequence %s", (sequence) => {
+		expect(() =>
+			edgeprocPublishArgs({
+				srcDir: "/s",
+				originDir: "/o",
+				keyPath: "/k",
+				bundleId: "b",
+				version: "v",
+				sequence,
+			}),
+		).toThrow(/sequence.*non-negative safe integer/i);
 	});
 });

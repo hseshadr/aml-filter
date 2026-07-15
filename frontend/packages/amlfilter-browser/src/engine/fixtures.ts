@@ -84,7 +84,11 @@ function pointer(): VersionPointer {
  * fail-closed boot check, over the REAL committed pointer. */
 export function pointerMessage(): Uint8Array {
 	return canonicalBytes(pointer() as unknown as JsonValue, {
-		exclude: { signature: true },
+		exclude: {
+			signature: true,
+			bundle_id: pointer().bundle_id == null,
+			channel: pointer().channel == null,
+		},
 	});
 }
 

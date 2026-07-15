@@ -40,7 +40,8 @@ interface MatchEventInput {
 	readonly at: string;
 }
 
-/** Append one audit event. INSERT-only: match_events is never updated/deleted. */
+/** Append one audit event. Lifecycle writes are INSERT-only; explicit customer
+ * deletion erases that customer's ledger as part of the privacy boundary. */
 function appendEvent(db: SqlDatabase, event: MatchEventInput): void {
 	db.exec(
 		`INSERT INTO match_events (event_id, match_id, customer_id, ofac_entity_id,
@@ -240,7 +241,13 @@ function blankToNull(value: string | undefined): string | null {
 
 export function deleteCustomer(db: SqlDatabase, customerId: string): void {
 	requireCustomer(db, customerId);
-	db.exec("DELETE FROM customers WHERE customer_id = ?", [customerId]);
+	db.transaction(() => {
+		// match_events intentionally has no FK because SUPPRESSED events can outlive
+		// a match row. Customer deletion is the privacy boundary: erase that audit
+		// history (reviewer id/notes included) before the customer + cascaded matches.
+		db.exec("DELETE FROM match_events WHERE customer_id = ?", [customerId]);
+		db.exec("DELETE FROM customers WHERE customer_id = ?", [customerId]);
+	});
 }
 
 // Mirrors the validation the server applies at api/v1/review.py:148.

@@ -8,6 +8,33 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Bounded, accessible watchlist directory** — `/screen` no longer mounts the entire
+  real-list population as tens of thousands of dossier cards. It renders 24 cards per
+  page behind semantic Previous/Next controls, an announced visible range, and stable
+  focus behavior; a 31,348-entity regression fixture locks the DOM bound.
+- **Signed-pointer rollback prevention end to end** — `sequence` is now required on
+  every newly published pointer, supplied by both deployment workflows from the
+  repository-wide monotonic GitHub run/attempt composite, verified after live publication, and
+  rejected by the browser before manifest/chunk fetch when missing or stale. A cached
+  legacy sequence-less pointer may upgrade once; equal sequence is idempotent only for
+  the same pointer identity, while a different pointer reusing it is rejected before
+  manifest fetch.
+- **Production response contract** — Cloudflare Pages now ships a browser-validated,
+  worker/WASM-safe CSP without unsafe or network-wide escape hatches; explicit MIME and
+  cache rules for the trust root, mutable pointer, and immutable CAS; and no wildcard
+  CORS. A test derives the JSON-LD script hash so HTML/CSP drift fails locally.
+- **Honest public discovery** — the public pages and `llms.txt` no longer advertise a
+  private source repository as publicly accessible. `robots.txt` no longer contradicts
+  Cloudflare's managed training-bot policy, and deployment docs identify the external
+  `www` → apex redirect that must be verified on the host.
+- **Complete local customer deletion** — deleting a customer now atomically erases its
+  match-event ledger, reviewer identity, and notes as well as the customer/match rows;
+  the prior append-only table intentionally lacked a customer FK and retained that
+  private history indefinitely.
+- **Measurable production truth and performance** — deploys stamp and live-verify the
+  exact Git SHA/run id so a stale no-op cannot pass. A 31,348 × 384 retrieval benchmark
+  enforces fixed p50/p95 and memory budgets, while C1 enforces cold boot, warm search,
+  DOM/heap, single-model-request, zero third-party egress, and zero query-time network.
 - **Immutable CDN caching for the self-hosted model (`/models/*`)** — Cloudflare Pages
   served the ~23 MB pinned MiniLM model with `max-age=0, must-revalidate` and no
   Content-Length, so production re-downloaded it in full on every visit. A `_headers`

@@ -1,12 +1,13 @@
 # Cloudflare Pages response headers (pattern line, then indented `Name: Value` lines).
 #
-# Safe security headers only. We deliberately do NOT set:
+# Browser-validated security baseline. We deliberately do NOT set:
 #   - Cross-Origin-Embedder-Policy (COEP) / Cross-Origin-Opener-Policy (COOP):
 #     the signed watchlist bundle is now served SAME-ORIGIN from /bundle/origin,
 #     so cross-origin isolation buys nothing; left off to avoid regressions.
-#   - Content-Security-Policy (CSP): the app loads WASM, spawns web/module workers,
-#     and fetches the same-origin bundle; a wrong CSP silently breaks the screen.
-#     Left as a browser-validated follow-up (see docs/DEPLOY.md).
+# CSP permits only the exact capabilities the zero-server app needs: same-origin
+# scripts/data, WebAssembly compilation, and its module workers. The one sha256
+# source is the static JSON-LD block in index.html; executable inline script and
+# arbitrary eval remain blocked.
 #
 # HSTS: aml-filter.com is served HTTPS-only via Cloudflare Pages, so pin HTTPS for
 # a year (and cover subdomains) to close the first-visit SSL-strip / downgrade
@@ -19,6 +20,31 @@
   Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: geolocation=(), microphone=(), camera=()
   Strict-Transport-Security: max-age=31536000; includeSubDomains
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'sha256-yKYVStX0dESuKlmfAWNZc/z9swLCui2/0GrQiNi1lps='; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; worker-src 'self' blob:; child-src 'self' blob:; manifest-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'; upgrade-insecure-requests
+
+# The mutable pointer is always revalidated by the client and must never be
+# cached by an intermediary. Its referenced manifest/chunks are named by their
+# plaintext SHA-256, so those immutable representations are safe to cache forever.
+/bundle/origin/latest
+  Cache-Control: no-store
+  Content-Type: application/json; charset=utf-8
+/bundle/origin/manifest/*
+  Cache-Control: public, max-age=31536000, immutable
+  Content-Type: application/json; charset=utf-8
+/bundle/origin/chunk/*
+  Cache-Control: public, max-age=31536000, immutable
+  Content-Type: application/octet-stream
+
+# Exact deployment identity is mutable per release and must pierce edge/browser
+# caches so the post-deploy no-op/stale check observes the current artifact.
+/build.json
+  Cache-Control: no-store
+  Content-Type: application/json; charset=utf-8
+
+# Raw Ed25519 key bytes. nosniff makes the explicit binary MIME essential.
+/public.key
+  Content-Type: application/octet-stream
+  Cache-Control: no-cache, must-revalidate
 
 # The ~23 MB MiniLM model (+ tokenizer/config JSONs) under /models/ is pinned by
 # SHA-256 at build time (scripts/download-model.mjs) and never mutates in place,

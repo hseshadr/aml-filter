@@ -62,13 +62,19 @@ describe("static discovery artifacts", () => {
 			'script[type="application/ld+json"]',
 		)?.textContent;
 		expect(schema).toBeTruthy();
-		expect(JSON.parse(schema ?? "{}")).toMatchObject({
+		const structured = JSON.parse(schema ?? "{}") as Record<string, unknown>;
+		expect(structured).toMatchObject({
 			"@context": "https://schema.org",
 			"@type": "WebApplication",
 			name: "AML-Filter",
 			url: `${ORIGIN}/`,
 			applicationCategory: "BusinessApplication",
 		});
+		expect(structured.codeRepository).toBeUndefined();
+		expect(structured.license).toBeUndefined();
+		expect(readAppFile("index.html")).not.toContain(
+			"github.com/hseshadr/aml-filter",
+		);
 	});
 
 	test("robots.txt permits search and AI crawlers and advertises the sitemap", () => {
@@ -78,6 +84,11 @@ describe("static discovery artifacts", () => {
 		expect(robots).toContain("User-agent: OAI-SearchBot\nAllow: /");
 		expect(robots).toContain("User-agent: Claude-SearchBot\nAllow: /");
 		expect(robots).toContain("User-agent: PerplexityBot\nAllow: /");
+		// Search/fetch crawlers are allowed. Model-training crawlers are intentionally
+		// left to Cloudflare's managed Content Signals policy, so the static file never
+		// publishes an Allow that the edge prepends with a contradictory Disallow.
+		expect(robots).not.toContain("User-agent: GPTBot\nAllow: /");
+		expect(robots).not.toContain("User-agent: ClaudeBot\nAllow: /");
 		expect(robots).not.toContain("Disallow: /");
 		expect(robots).toContain(`Sitemap: ${ORIGIN}/sitemap.xml`);
 	});
@@ -100,9 +111,18 @@ describe("static discovery artifacts", () => {
 
 		expect(llms).toContain("# AML-Filter");
 		expect(llms).toContain(`[Screen a name](${ORIGIN}/screen)`);
-		expect(llms).toContain("https://github.com/hseshadr/aml-filter");
+		expect(llms).toContain("Source repository: currently private");
+		expect(llms).not.toContain("github.com/hseshadr/aml-filter");
 		expect(llms).toContain("not a compliance product");
 		expect(llms.split("\n").length).toBeLessThan(40);
+	});
+
+	test("the rendered app does not claim public source while the repository is private", () => {
+		const common = readAppFile("src/locales/en/common.json");
+		const footer = readAppFile("src/components/Footer.tsx");
+		expect(common).not.toContain("Open Source");
+		expect(common).not.toContain("<repoLink>");
+		expect(footer).not.toContain("github.com/hseshadr/aml-filter");
 	});
 });
 

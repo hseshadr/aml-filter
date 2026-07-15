@@ -286,10 +286,10 @@ async function readyBox(): Promise<HTMLInputElement> {
 }
 
 describe("ScreenPage — in-browser search", () => {
-	it("browses the whole list when the box is empty", async () => {
+	it("opens the paginated directory when the box is empty", async () => {
 		render(<ScreenPage />);
 		await waitFor(() =>
-			expect(screen.getByText(/Browsing all 2 entities/)).toBeTruthy(),
+			expect(screen.getByText("Showing 1–2 of 2 entities")).toBeTruthy(),
 		);
 		// "Ivan Fakovich" is also an example chip — scope to the card name.
 		expect(

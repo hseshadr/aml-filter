@@ -7,7 +7,7 @@
 		"review": "Review",
 		"settings": "Settings"
 	},
-	"layoutFooter": "AML-Filter v4 - Open Source AML Screening Engine",
+	"layoutFooter": "AML-Filter v4 — local-first sanctions screening",
 	"route": {
 		"loading": "Loading…"
 	},
@@ -20,8 +20,8 @@
 		"summary": "Re-screened {{scanned}} customer(s) — {{newHits}} new hit(s), {{clearedHits}} cleared."
 	},
 	"demoFooter": {
-		"line1": "This is a portfolio demo of <repoLink>aml-filter</repoLink> — it lets you search the public OFAC sanctions list entirely in this browser tab. No name you type ever leaves your device.",
-		"line2": "Data: U.S. Treasury OFAC Specially Designated Nationals (SDN) list, a public dataset. See the repo’s NOTICE for attribution. Not legal or compliance advice."
+		"line1": "AML-Filter is a portfolio engineering demo that searches public sanctions data entirely in this browser tab. No name you type ever leaves your device.",
+		"line2": "Data attribution: U.S. Treasury OFAC Specially Designated Nationals (SDN), plus the signed public lists named in the app. Not legal or compliance advice."
 	},
 	"workstation": {
 		"booting": "Opening the local KYC database…",

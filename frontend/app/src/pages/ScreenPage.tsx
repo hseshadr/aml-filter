@@ -2,15 +2,10 @@ import {
 	type BootStage,
 	canonicalize,
 	configFromEnv,
-	EMPTY_IDENTIFIERS,
 	EngineRuntime,
 	type Entity,
-	type EntityType,
 	engineSupport,
-	type Identifiers,
 	type Match,
-	type MatchReason,
-	type RiskCategory,
 } from "@amlfilter/browser";
 import type { TFunction } from "i18next";
 import {
@@ -24,6 +19,8 @@ import {
 import { useTranslation } from "react-i18next";
 import { Footer } from "../components/Footer";
 import { bootErrorMessage, deviceUnsupportedMessage } from "./bootErrorMessage";
+import { DossierCard, dossierFromMatch } from "./DossierCard";
+import { EntityDirectory } from "./EntityDirectory";
 
 // The backend-free OFAC screening page. On mount it fetches the signed JSON
 // watchlist (ed25519-verified, fail-closed) and warms the MiniLM embedder in a
@@ -125,64 +122,6 @@ function passesStrictness(
 	return (
 		trigramScore(match) >= level.minLexical || hasTokenContainment(match, query)
 	);
-}
-
-/** The unified view-model a card renders — from a browsed Entity or a scored Match. */
-interface Dossier {
-	readonly entity_id: string;
-	readonly primary_name: string;
-	/** Present only when the entity type is genuinely known. The signed watchlist
-	 * wire format (`WatchlistEntity`) carries no entity type, so every
-	 * bundle-materialized entity arrives with the engine's "PERSON" placeholder
-	 * (see `@amlfilter/browser` `watchlist.ts` `toEntity`). We therefore leave this
-	 * UNSET rather than fabricate a type — the card omits the label instead of
-	 * mislabeling organizations, vessels, and aircraft as people. */
-	readonly entity_type?: EntityType;
-	readonly risk_category: RiskCategory;
-	readonly aliases: ReadonlyArray<string>;
-	readonly dob: ReadonlyArray<string>;
-	readonly countries: ReadonlyArray<string>;
-	readonly nationalities: ReadonlyArray<string>;
-	readonly addresses: ReadonlyArray<string>;
-	readonly identifiers: Identifiers;
-	readonly score?: number;
-	readonly explanation?: string;
-	readonly reasons?: ReadonlyArray<MatchReason>;
-}
-
-function fromEntity(e: Entity): Dossier {
-	return {
-		entity_id: e.entity_id,
-		primary_name: e.primary_name,
-		// entity_type is intentionally omitted: the wire format carries none, so
-		// `e.entity_type` is always the "PERSON" placeholder (see Dossier).
-		risk_category: e.risk_category,
-		aliases: e.aliases.map((a) => a.name),
-		dob: e.dob,
-		countries: e.countries,
-		nationalities: e.nationalities ?? [],
-		addresses: e.addresses ?? [],
-		identifiers: e.identifiers ?? EMPTY_IDENTIFIERS,
-	};
-}
-
-function fromMatch(m: Match): Dossier {
-	return {
-		entity_id: m.entity_id,
-		primary_name: m.primary_name,
-		// entity_type is intentionally omitted: the wire format carries none, so
-		// `m.entity_type` is always the "PERSON" placeholder (see Dossier).
-		risk_category: m.risk_category,
-		aliases: m.aliases,
-		dob: m.dob,
-		countries: m.countries,
-		nationalities: m.nationalities,
-		addresses: m.addresses,
-		identifiers: m.identifiers,
-		score: m.score,
-		explanation: m.explanation,
-		reasons: m.reasons,
-	};
 }
 
 // The outcome of one screen call. A rejection is a FIRST-CLASS state, not a
@@ -547,18 +486,7 @@ function Results({
 	const { t } = useTranslation("screen");
 	// Empty box → browse the whole list (a directory, no scores).
 	if (query.length === 0) {
-		return (
-			<section className="screen-results">
-				<p className="screen-results__count">
-					{t("results.browsing", { total: entities.length })}
-				</p>
-				<ul className="screen-results__list">
-					{entities.map((entity) => (
-						<DossierCard key={entity.entity_id} dossier={fromEntity(entity)} />
-					))}
-				</ul>
-			</section>
-		);
+		return <EntityDirectory entities={entities} />;
 	}
 	if (search === null) {
 		return (
@@ -594,106 +522,12 @@ function Results({
 			</p>
 			<ul className="screen-results__list">
 				{search.matches.map((match) => (
-					<DossierCard key={match.entity_id} dossier={fromMatch(match)} />
+					<DossierCard
+						key={match.entity_id}
+						dossier={dossierFromMatch(match)}
+					/>
 				))}
 			</ul>
 		</section>
-	);
-}
-
-function idLines(
-	identifiers: Identifiers,
-	t: TFunction,
-): ReadonlyArray<string> {
-	const lines: string[] = [];
-	for (const p of identifiers.passport) {
-		lines.push(t("dossier.ids.passport", { value: p }));
-	}
-	for (const n of identifiers.national_id) {
-		lines.push(t("dossier.ids.nationalId", { value: n }));
-	}
-	// `label` here is the raw identifier-type key from the data (not UI copy), so
-	// it is rendered verbatim alongside its value.
-	for (const [label, values] of Object.entries(identifiers.other)) {
-		for (const v of values) {
-			lines.push(`${label} ${v}`);
-		}
-	}
-	return lines;
-}
-
-function DossierCard({ dossier }: { readonly dossier: Dossier }) {
-	const { t } = useTranslation("screen");
-	const ids = idLines(dossier.identifiers, t);
-	const places = [...new Set([...dossier.nationalities, ...dossier.countries])];
-	return (
-		<li className="match-card">
-			<div className="match-card__head">
-				<span className="match-card__name">{dossier.primary_name}</span>
-				{dossier.entity_type !== undefined && (
-					<span className="match-card__type">{dossier.entity_type}</span>
-				)}
-				{dossier.score !== undefined && (
-					<span className="match-card__score">{dossier.score.toFixed(3)}</span>
-				)}
-				<span className="match-card__badge">{dossier.risk_category}</span>
-			</div>
-
-			<dl className="match-card__facts">
-				{dossier.aliases.length > 0 && (
-					<Fact
-						label={t("dossier.facts.aka")}
-						value={dossier.aliases.join(", ")}
-					/>
-				)}
-				{dossier.dob.length > 0 && (
-					<Fact label={t("dossier.facts.dob")} value={dossier.dob.join(", ")} />
-				)}
-				{places.length > 0 && (
-					<Fact label={t("dossier.facts.country")} value={places.join(", ")} />
-				)}
-				{dossier.addresses.length > 0 && (
-					<Fact
-						label={t("dossier.facts.address")}
-						value={dossier.addresses.join("; ")}
-					/>
-				)}
-				{ids.length > 0 && (
-					<Fact label={t("dossier.facts.id")} value={ids.join(", ")} />
-				)}
-			</dl>
-
-			{dossier.explanation !== undefined && (
-				<p className="match-card__why">{dossier.explanation}</p>
-			)}
-			{dossier.reasons !== undefined && dossier.reasons.length > 0 && (
-				<details className="match-card__details">
-					<summary>{t("dossier.whyScore")}</summary>
-					<dl className="match-card__signals">
-						{dossier.reasons.map((reason) => (
-							<div className="match-card__signal" key={reason.signal}>
-								<dt>{reason.signal}</dt>
-								<dd>{reason.description ?? String(reason.value)}</dd>
-							</div>
-						))}
-					</dl>
-				</details>
-			)}
-		</li>
-	);
-}
-
-function Fact({
-	label,
-	value,
-}: {
-	readonly label: string;
-	readonly value: string;
-}) {
-	return (
-		<div className="match-card__fact">
-			<dt>{label}</dt>
-			<dd>{value}</dd>
-		</div>
 	);
 }

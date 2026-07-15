@@ -18,6 +18,7 @@ const INPUT = {
 	keyPath: "/abs/demo.key",
 	bundleId: "amlfilter-watchlists",
 	version: "demo-1",
+	sequence: 1,
 	edgeprocDir: "/abs/edge-proc",
 } as const;
 
@@ -73,6 +74,7 @@ describe("edgeprocPublishArgs env fallback", () => {
 			keyPath: "/k",
 			bundleId: "b",
 			version: "v",
+			sequence: 1,
 		});
 		expect(args[2]).toBe("/env/edge-proc");
 	});
