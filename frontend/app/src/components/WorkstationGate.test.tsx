@@ -166,6 +166,10 @@ describe("EngineStatusStrip (rendered inside WorkstationGate once ready)", () =>
 		);
 		// Wait until children (and therefore EngineStatusStrip) are mounted.
 		await screen.findByText("WORKSTATION CONTENT");
+		// engineBoot is invoked in a mount effect; wait for it so the captured
+		// onStage is assigned before we fire a stage (otherwise fireStage() is
+		// undefined under parallel-worker scheduling — a latent race, not a bug).
+		await waitFor(() => expect(handle.engineBoot).toHaveBeenCalled());
 
 		// downloading → "downloading the sanctions list…"
 		act(() => fireStage()({ kind: "downloading" }));
