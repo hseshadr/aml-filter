@@ -19,3 +19,14 @@
   Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: geolocation=(), microphone=(), camera=()
   Strict-Transport-Security: max-age=31536000; includeSubDomains
+
+# The ~23 MB MiniLM model (+ tokenizer/config JSONs) under /models/ is pinned by
+# SHA-256 at build time (scripts/download-model.mjs) and never mutates in place,
+# so a year-long immutable cache is safe. Without this rule Pages serves the
+# model with `max-age=0, must-revalidate` (and no Content-Length), forcing a
+# full re-download on every visit. A future weights bump must re-pin the digests
+# AND move the files to a new URL path — these URLs are cached as immutable.
+# Pages applies every matching block, so /models/* responses still carry the /*
+# security headers above.
+/models/*
+  Cache-Control: public, max-age=31536000, immutable

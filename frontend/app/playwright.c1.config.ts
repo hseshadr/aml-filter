@@ -19,7 +19,9 @@ import { defineConfig, devices } from "@playwright/test";
  * empty result for a nonsense name. `http://localhost` is a secure context, so
  * OPFS + WebCrypto work with no COOP/COEP.
  */
-const SPA_PORT = 4175;
+// Env-overridable like the kyc (E2E_KYC_SPA_PORT) and bundle (E2E_BUNDLE_SPA_PORT)
+// lanes, so parallel checkouts/worktrees can run this gate without port clashes.
+const SPA_PORT = Number(process.env.E2E_C1_SPA_PORT ?? 4175);
 
 export default defineConfig({
 	testDir: "tests/e2e-c1",

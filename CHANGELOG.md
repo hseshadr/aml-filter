@@ -6,6 +6,18 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Immutable CDN caching for the self-hosted model (`/models/*`)** — Cloudflare Pages
+  served the ~23 MB pinned MiniLM model with `max-age=0, must-revalidate` and no
+  Content-Length, so production re-downloaded it in full on every visit. A `_headers`
+  rule now caches `/models/*` as `public, max-age=31536000, immutable` (safe: the
+  weights are SHA-256-pinned at build time and never mutate in place), guarded by a
+  deploy-config test. Also graduates the stashed triple-fetch boot-hang diagnosis to
+  `.planning/debug/minified-browser-boot-hang.md` (its app-level fix shipped in #57)
+  and makes the C1 lane's preview port env-overridable (`E2E_C1_SPA_PORT`) like the
+  kyc/bundle lanes.
+
 ### Added
 
 - **Full SPA localization with i18next (#61)** — every user-facing string in the SPA is
