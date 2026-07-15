@@ -32,7 +32,10 @@ interface Oo1Db {
 
 interface SqliteModule {
 	readonly oo1: { readonly DB: new (filename: string) => Oo1Db };
-	installOpfsSAHPoolVfs(opts: { name: string }): Promise<SahPoolUtil>;
+	installOpfsSAHPoolVfs(opts: {
+		name: string;
+		forceReinitIfPreviouslyFailed?: boolean;
+	}): Promise<SahPoolUtil>;
 }
 
 /** The sahpool utility — exposes the persistent OPFS-backed DB constructor. */
@@ -50,14 +53,28 @@ type SqliteInit = (opts?: {
 	printErr?: (...args: ReadonlyArray<unknown>) => void;
 }) => Promise<SqliteModule>;
 
-async function loadSqlite(): Promise<SqliteModule> {
-	const init = sqlite3InitModule as unknown as SqliteInit;
-	return init({
-		print: () => undefined,
-		// Engine diagnostics (OPFS/constraint failures) must stay visible in the
-		// worker for a fail-closed tool — never mute printErr.
-		printErr: (...args) => console.error(...args),
-	});
+let sqliteModulePromise: Promise<SqliteModule> | null = null;
+
+// Memoized per JS realm: repeat sqlite3InitModule() calls return the SAME
+// bootstrapped sqlite3 object anyway (it caches globally, warning and burning
+// a redundant wasm instantiation per extra call) — so the worker's bounded
+// acquisition retry (db/acquire.ts) must re-run only installOpfsSAHPoolVfs,
+// not the module init. Reset on failure so a transient init error (e.g. wasm
+// fetch) stays retryable exactly as before.
+function loadSqlite(): Promise<SqliteModule> {
+	if (sqliteModulePromise === null) {
+		const init = sqlite3InitModule as unknown as SqliteInit;
+		sqliteModulePromise = init({
+			print: () => undefined,
+			// Engine diagnostics (OPFS/constraint failures) must stay visible in the
+			// worker for a fail-closed tool — never mute printErr.
+			printErr: (...args) => console.error(...args),
+		}).catch((error: unknown) => {
+			sqliteModulePromise = null;
+			throw error;
+		});
+	}
+	return sqliteModulePromise;
 }
 
 function wrapDb(db: Oo1Db): SqlDatabase {
@@ -84,12 +101,20 @@ export async function openMemoryDatabase(): Promise<SqlDatabase> {
  * The persistent opfs-sahpool database — worker-only (sync access handles).
  * Rejects when another tab already holds the handle pool; callers surface
  * that as a clear "already open in another tab" message.
+ *
+ * forceReinitIfPreviouslyFailed: sqlite-wasm memoizes the install promise per
+ * pool name INCLUDING rejections, so without this flag every later call in the
+ * same worker replays the first failure verbatim — which would turn the
+ * worker's bounded acquisition retry (db/acquire.ts) into a no-op.
  */
 export async function openPersistentDatabase(
 	poolName: string,
 	filename: string,
 ): Promise<SqlDatabase> {
 	const sqlite3 = await loadSqlite();
-	const pool = await sqlite3.installOpfsSAHPoolVfs({ name: poolName });
+	const pool = await sqlite3.installOpfsSAHPoolVfs({
+		name: poolName,
+		forceReinitIfPreviouslyFailed: true,
+	});
 	return wrapDb(new pool.OpfsSAHPoolDb(filename));
 }

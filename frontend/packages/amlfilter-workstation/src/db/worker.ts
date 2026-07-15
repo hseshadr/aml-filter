@@ -3,6 +3,7 @@
 // lives in operations.ts where it is unit-tested against in-memory SQLite.
 
 import { encodeWorkerError } from "../errors";
+import { acquirePool } from "./acquire";
 import {
 	createCustomer,
 	deleteCustomer,
@@ -32,19 +33,20 @@ let databasePromise: Promise<SqlDatabase> | null = null;
 // first await must share one openPersistentDatabase call. Memoizing only the
 // resolved value would let both racers pass the null guard — a double sahpool
 // VFS install, with the second pool acquisition clobbering the first.
+//
+// acquirePool absorbs the page-navigation handle-release race (transient
+// NoModificationAllowedError) with a short bounded retry; only persisting
+// contention — a genuinely open second tab (sahpool is single-connection) —
+// or a non-contention failure surfaces the "already open in another tab?"
+// message it wraps every rejection in.
 function openDb(): Promise<SqlDatabase> {
 	if (databasePromise === null) {
-		databasePromise = openPersistentDatabase(POOL_NAME, DB_FILENAME).catch(
-			(error) => {
-				databasePromise = null; // allow retry after a transient open failure
-				// sahpool is single-connection: a second tab cannot acquire the
-				// handle pool. Fail with a clear message instead of hanging.
-				const detail = error instanceof Error ? error.message : String(error);
-				throw new Error(
-					`could not open the local KYC database — is the workstation already open in another tab? (${detail})`,
-				);
-			},
-		);
+		databasePromise = acquirePool(() =>
+			openPersistentDatabase(POOL_NAME, DB_FILENAME),
+		).catch((error: unknown) => {
+			databasePromise = null; // allow retry after a transient open failure
+			throw error;
+		});
 	}
 	return databasePromise;
 }
