@@ -169,15 +169,24 @@ function OverrideSelect({
 function ResultBanner({
 	summary,
 	error,
+	onRetry,
 	t,
 }: {
 	readonly summary: RescanSummary | null;
 	readonly error: string | null;
+	readonly onRetry?: () => void;
 	readonly t: TFunction;
 }) {
 	if (error !== null) {
 		return (
-			<div className="alert alert-error">{t("banner.error", { error })}</div>
+			<div className="alert alert-error" role="alert">
+				<div>{t("banner.error", { error })}</div>
+				{onRetry !== undefined && (
+					<button type="button" className="btn btn-secondary" onClick={onRetry}>
+						{t("buttons.retry")}
+					</button>
+				)}
+			</div>
 		);
 	}
 	if (summary === null) return null;
@@ -243,9 +252,14 @@ export default function SettingsPage() {
 	const [summary, setSummary] = useState<RescanSummary | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [cacheCleared, setCacheCleared] = useState<boolean>(false);
+	const [loadAttempt, setLoadAttempt] = useState<number>(0);
+	const [loadFailed, setLoadFailed] = useState<boolean>(false);
 
+	// loadAttempt is an intentional trigger: retryLoad restarts the same load effect.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: loadAttempt is the explicit retry trigger
 	useEffect(() => {
 		let cancelled = false;
+		setLoadFailed(false);
 		async function load(): Promise<void> {
 			const config = await apiClient.getScreeningConfig();
 			const handle = await workstation();
@@ -263,12 +277,21 @@ export default function SettingsPage() {
 			setLoaded(true);
 		}
 		load().catch((err: unknown) => {
-			if (!cancelled) setError(errorMessage(err, t("errors.load")));
+			if (!cancelled) {
+				setLoadFailed(true);
+				setError(errorMessage(err, t("errors.load")));
+			}
 		});
 		return () => {
 			cancelled = true;
 		};
-	}, [t]);
+	}, [t, loadAttempt]);
+
+	function retryLoad(): void {
+		setError(null);
+		setLoaded(false);
+		setLoadAttempt((attempt) => attempt + 1);
+	}
 
 	function toggleWatchlist(id: string, next: boolean): void {
 		setEnabled((prev) => {
@@ -424,7 +447,12 @@ export default function SettingsPage() {
 				{t("buttons.apply")}
 			</button>
 
-			<ResultBanner summary={summary} error={error} t={t} />
+			<ResultBanner
+				summary={summary}
+				error={error}
+				onRetry={loadFailed ? retryLoad : undefined}
+				t={t}
+			/>
 		</div>
 	);
 }

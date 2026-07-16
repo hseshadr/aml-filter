@@ -128,6 +128,35 @@ describe("workstation boot", () => {
 		});
 	});
 
+	it("uses bounded streaming residency on a constrained browser without changing the selected lists", async () => {
+		const store = makeStore();
+		vi.mocked(store.getSetting).mockImplementation((key: string) =>
+			Promise.resolve(
+				key === "enabled_watchlists" ? JSON.stringify(["OFAC_SDN"]) : null,
+			),
+		);
+		const deps = {
+			...makeDeps(store),
+			memoryPolicy: () => "streaming" as const,
+		} as WorkstationDeps & { memoryPolicy: () => "eager" | "streaming" };
+		const handle = await workstation(deps);
+		await handle.engineBoot();
+		const [, , selection] = vi.mocked(deps.runtime.bootstrap).mock.calls[0];
+		expect(selection?.enabledLists).toEqual(["OFAC_SDN"]);
+		expect(selection?.residency).toBe("streaming");
+	});
+
+	it("keeps eager residency on a desktop policy for throughput", async () => {
+		const deps = {
+			...makeDeps(makeStore()),
+			memoryPolicy: () => "eager" as const,
+		} as WorkstationDeps & { memoryPolicy: () => "eager" | "streaming" };
+		const handle = await workstation(deps);
+		await handle.engineBoot();
+		const [, , selection] = vi.mocked(deps.runtime.bootstrap).mock.calls[0];
+		expect(selection?.residency).toBe("eager");
+	});
+
 	it("getEnabledLists returns the stored selection intersected with the catalog", async () => {
 		const store = makeStore();
 		vi.mocked(store.getSetting).mockImplementation((key: string) =>
@@ -157,6 +186,80 @@ describe("workstation boot", () => {
 		const handle = await workstation(deps);
 		await handle.clearListCache();
 		expect(deps.runtime.clearListCache).toHaveBeenCalledTimes(1);
+	});
+
+	it("serializes reload and clear-cache operations", async () => {
+		const events: string[] = [];
+		let releaseReload: (() => void) | undefined;
+		const deps = makeDeps(makeStore());
+		vi.mocked(deps.runtime.reload).mockImplementation(
+			() =>
+				new Promise((resolve) => {
+					events.push("reload");
+					releaseReload = () => resolve({ screen: vi.fn() });
+				}),
+		);
+		vi.mocked(deps.runtime.clearListCache).mockImplementation(async () => {
+			events.push("clear");
+		});
+		const handle = await workstation(deps);
+
+		const reload = handle.reloadWatchlist();
+		const clear = handle.clearListCache();
+		await vi.waitFor(() => expect(events).toEqual(["reload"]));
+		releaseReload?.();
+		await Promise.all([reload, clear]);
+		expect(events).toEqual(["reload", "clear"]);
+	});
+
+	it("serializes a settings apply before clear-cache", async () => {
+		const events: string[] = [];
+		let releaseApply: (() => void) | undefined;
+		const deps = makeDeps(makeStore());
+		vi.mocked(deps.runtime.reload).mockImplementation(
+			() =>
+				new Promise((resolve) => {
+					events.push("apply");
+					releaseApply = () => resolve({ screen: vi.fn() });
+				}),
+		);
+		vi.mocked(deps.runtime.clearListCache).mockImplementation(async () => {
+			events.push("clear");
+		});
+		const handle = await workstation(deps);
+		await handle.engineBoot();
+
+		const apply = handle.setEnabledLists(["OFAC_SDN"]);
+		const clear = handle.clearListCache();
+		await vi.waitFor(() => expect(events).toEqual(["apply"]));
+		releaseApply?.();
+		await Promise.all([apply, clear]);
+		expect(events).toEqual(["apply", "clear"]);
+	});
+
+	it("serializes a settings catalog read before clear-cache", async () => {
+		const events: string[] = [];
+		let releaseCatalog: (() => void) | undefined;
+		const deps = makeDeps(makeStore());
+		vi.mocked(deps.runtime.catalogLists).mockImplementation(
+			() =>
+				new Promise((resolve) => {
+					events.push("catalog");
+					releaseCatalog = () =>
+						resolve([{ id: "OFAC_SDN", title: "OFAC SDN" }]);
+				}),
+		);
+		vi.mocked(deps.runtime.clearListCache).mockImplementation(async () => {
+			events.push("clear");
+		});
+		const handle = await workstation(deps);
+
+		const read = handle.catalogLists();
+		const clear = handle.clearListCache();
+		await vi.waitFor(() => expect(events).toEqual(["catalog"]));
+		releaseCatalog?.();
+		await Promise.all([read, clear]);
+		expect(events).toEqual(["catalog", "clear"]);
 	});
 
 	it("setEnabledLists persists the selection, re-bootstraps, and rescans on a real change", async () => {

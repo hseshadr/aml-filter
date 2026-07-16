@@ -15,8 +15,10 @@
 **Browser support:** the supported production baseline is the current and previous
 desktop releases of Chrome, Edge, Firefox, and Safari 17+. The browser must expose
 module Workers, OPFS, WebCrypto, and Web Locks in a secure context. The app detects
-these before boot and shows an explicit unsupported-browser screen; mobile browsers
-and embedded WebViews are not part of the release contract.
+these before boot and shows an explicit unsupported-browser screen. Mobile Safari
+and Chrome use bounded one-list-at-a-time vector residency so the workstation does
+not overlap every watchlist with the ONNX/WASM model; desktop keeps eager residency
+for throughput. Embedded WebViews are not part of the release contract.
 
 ## TL;DR
 
@@ -200,7 +202,9 @@ list; the bounded streaming mode keeps metadata for every enabled list but loads
 screens, and disposes one vector index at a time (with a one-list cache and serialized
 queries). In either mode it embeds the query once, applies each threshold
 (`perList[id] ?? query.threshold ?? default`), then merges and re-ranks — a strong hit
-in *any* list surfaces.
+in *any* list surfaces. The workstation's deterministic browser memory policy selects
+streaming on iPhone/iPad/Android and devices reporting ≤4 GB, while desktop keeps
+eager residency; the persisted list selection and per-list thresholds are unchanged.
 
 The scorer (`computeScore` / `PRESETS`: `strict` / `balanced` / `lenient`) sums five
 signals — `name_vector`, `name_trigram`, `alias_match`, `dob_match`, `country_match` —
