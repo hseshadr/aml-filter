@@ -6,8 +6,8 @@
 # to `edgeproc publish` to chunk + Ed25519-sign it into the content-addressed
 # `origin/{latest, manifest/<hash>, chunk/<hash>}` layout the in-tab delta-sync
 # tier consumes — all signed with the production key held in the
-# WATCHLIST_SIGNING_KEY secret. A source whose fetchRaw throws (an upstream feed
-# is down) is logged-and-skipped, so one down feed never aborts the publish.
+# WATCHLIST_SIGNING_KEY secret. All four feeds must fetch, pass broad entity-count
+# anomaly bounds, and prove freshness; one unhealthy feed aborts the new publish.
 #
 # Delivery is SAME-ORIGIN (no R2, no separate lists.* host): the freshly-signed
 # bundle is written straight into the SPA's public/bundle/origin/ tree, so the
@@ -61,7 +61,7 @@ permissions:
 env:
   # edge-proc is NOT on PyPI; CI clones the public repo and `uv sync`s it.
   EDGEPROC_REPO: https://github.com/hseshadr/edge-proc
-  EDGEPROC_REF: v0.1.1
+  EDGEPROC_REF: v0.1.4
 
 jobs:
   publish:
@@ -87,13 +87,18 @@ jobs:
           done
           exit "$missing"
 
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
 
-      - uses: pnpm/action-setup@v6
+      - name: Record the exact revision being deployed
+        run: |
+          DEPLOY_SHA="$(git rev-parse HEAD)"
+          echo "DEPLOY_SHA=$DEPLOY_SHA" >> "$GITHUB_ENV"
+
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
         with:
           package_json_file: frontend/package.json
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version-file: frontend/.nvmrc
           cache: pnpm
@@ -102,12 +107,19 @@ jobs:
       - name: Install workspace deps
         run: pnpm install --frozen-lockfile
 
+      - name: Derive the next sequence from the verified LIVE pointer
+        run: |
+          SEQUENCE="$(pnpm --silent --filter @amlfilter/publisher run next-published-sequence -- \
+            --base-url https://aml-filter.com/bundle/origin \
+            --pubkey "$GITHUB_WORKSPACE/frontend/app/public/public.key")"
+          echo "SEQUENCE=$SEQUENCE" >> "$GITHUB_ENV"
+
       # Self-hosted MiniLM weights, fetched BEFORE any build. They feed BOTH the
       # Node embedder (real-bundle build) and the SPA prebuild. HF's CDN hard-429s
       # GitHub runner IPs, so we pull them from our own release instead.
       - name: Cache self-hosted model weights
         id: model-weights-cache
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: frontend/app/public/models
           key: model-weights-${{ runner.os }}-rel1-${{ hashFiles('frontend/app/scripts/download-model.mjs') }}
@@ -134,7 +146,7 @@ jobs:
       - name: Install uv
         # setup-uv publishes no floating major tag — full pin required
         # (ENGINEERING-STANDARDS §4; v8.3.2 as of 2026-07-11).
-        uses: astral-sh/setup-uv@v8.3.2
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
 
       - name: Install edge-proc
         working-directory: ${{ runner.temp }}
@@ -176,6 +188,7 @@ jobs:
           rm -rf "$ORIGIN"
           pnpm --filter @amlfilter/publisher run build-real-bundle -- \
             --version "$VERSION" \
+            --sequence "$SEQUENCE" \
             --key "$GITHUB_WORKSPACE/frontend/signing.key" \
             --out "$ORIGIN"
 
@@ -204,7 +217,12 @@ jobs:
       # /bundle/origin, which now holds the freshly-signed real bundle. Vite
       # copies public/bundle/origin into dist/bundle/origin.
       - name: Build the static SPA (same-origin bundle)
-        run: pnpm --filter aml-filter-app run build
+        run: |
+          pnpm --filter aml-filter-app run build
+          node app/scripts/build-identity.mjs stamp \
+            --dist app/dist \
+            --sha "$DEPLOY_SHA" \
+            --run-id "$GITHUB_RUN_ID"
 
       - name: Deploy to Cloudflare Pages
         # wrangler reads the API token + account id from the environment.
@@ -212,6 +230,13 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: npx wrangler@4.103.0 pages deploy app/dist --project-name=aml-filter --branch=main
+
+      - name: Verify the exact deployed revision (reject stale/no-op deploys)
+        run: |
+          node app/scripts/build-identity.mjs verify \
+            --url https://aml-filter.com/build.json \
+            --sha "$DEPLOY_SHA" \
+            --run-id "$GITHUB_RUN_ID"
 
       # Post-publish integrity gate: verify the LIVE origin through the exact
       # decode path the in-tab verifier enforces (fetch → zstd decompress →
@@ -226,4 +251,5 @@ jobs:
             --base-url https://aml-filter.com/bundle/origin \
             --pubkey "$GITHUB_WORKSPACE/frontend/app/public/public.key" \
             --expect-version "$VERSION" \
+            --expect-sequence "$SEQUENCE" \
             --attempts 10 --delay-seconds 15

@@ -36,9 +36,8 @@ const CASES = [
 	{
 		lang: "en",
 		strings: [
-			// common namespace — nav + layout footer, rendered on every route.
-			"Screen (in-browser)",
-			"Open Source AML Screening Engine",
+			// common namespace — the public demo footer.
+			"AML-Filter is a portfolio engineering demo",
 			// landing namespace — headline marketing copy (exact en/landing.json
 			// values: hero.title via <Trans> + hero.ctaPrimary).
 			"Sanctions screening that runs",
@@ -109,7 +108,7 @@ try {
 
 		await page.goto(BASE_URL, { waitUntil: "domcontentloaded" });
 		await page
-			.waitForSelector("text=Open Source AML Screening Engine", {
+			.waitForSelector("text=AML-Filter is a portfolio engineering demo", {
 				timeout: 15000,
 			})
 			.catch(() => {});

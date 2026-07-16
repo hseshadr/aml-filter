@@ -4,7 +4,7 @@
 	"version": "4.0.0",
 	"license": "MIT",
 	"type": "module",
-	"description": "Node-side signed-watchlist publisher: maps OFAC entities, precomputes name vectors (transformers.js), and emits the signed v3 wire artifact the browser tier syncs.",
+	"description": "Node-side OFAC/EU/UN/UK publisher: validates required feeds, precomputes name vectors, and emits the signed content-addressed bundle the browser delta-syncs.",
 	"exports": {
 		".": "./src/index.ts"
 	},
@@ -20,6 +20,7 @@
 		"build-real-bundle": "vite-node src/buildRealBundleMain.ts --",
 		"build-demo-bundle": "vite-node src/buildDemoBundle.ts",
 		"build-demo-bundle-v2": "vite-node src/buildDemoBundleV2.ts",
+		"next-published-sequence": "vite-node src/nextPublishedSequenceMain.ts --",
 		"verify-published-origin": "vite-node src/verifyPublishedOriginMain.ts --"
 	},
 	"dependencies": {

@@ -1,5 +1,51 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { openMemoryDatabase, type SqlDatabase } from "./sqlite";
+import {
+	configurePersistentPrivacy,
+	openMemoryDatabase,
+	type SqlDatabase,
+} from "./sqlite";
+
+function pragmaDatabase(
+	journalMode: string = "delete",
+	secureDelete: number = 1,
+): { readonly db: SqlDatabase; readonly executed: string[] } {
+	const executed: string[] = [];
+	return {
+		executed,
+		db: {
+			exec: (sql) => executed.push(sql),
+			selectObjects: (sql) => {
+				executed.push(sql);
+				return sql.includes("journal_mode")
+					? [{ journal_mode: journalMode }]
+					: [{ secure_delete: secureDelete }];
+			},
+			transaction: (fn) => fn(),
+			close: () => undefined,
+		},
+	};
+}
+
+describe("persistent privacy pragmas", () => {
+	it("enables secure deletion, truncates legacy WAL, and requires DELETE journaling", () => {
+		const { db, executed } = pragmaDatabase();
+		configurePersistentPrivacy(db);
+		expect(executed).toEqual([
+			"PRAGMA secure_delete = ON",
+			"PRAGMA wal_checkpoint(TRUNCATE)",
+			"PRAGMA journal_mode = DELETE",
+			"PRAGMA secure_delete",
+		]);
+	});
+
+	it.each([
+		["wal", 1, /journal mode.*wal/i],
+		["delete", 0, /secure_delete.*not enabled/i],
+	])("fails closed for mode=%s secure_delete=%s", (mode, secure, message) => {
+		const { db } = pragmaDatabase(mode as string, secure as number);
+		expect(() => configurePersistentPrivacy(db)).toThrow(message as RegExp);
+	});
+});
 
 describe("sqlite facade transactions", () => {
 	let db: SqlDatabase;

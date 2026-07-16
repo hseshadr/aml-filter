@@ -18,7 +18,7 @@ export default function Layout({ children }: LayoutProps) {
 							<img
 								src="/logo.svg"
 								alt={t("nav.brandAlt")}
-								style={{ height: "32px", width: "32px" }}
+								className="nav-brand__logo"
 							/>
 							{t("nav.brand")}
 						</Link>

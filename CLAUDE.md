@@ -236,7 +236,8 @@ alike; any signature or hash mismatch aborts the load, with no silent empty list
   mismatch — over fetched and cached bytes alike.
 - **Review once, re-review on material change**: a `material_fingerprint` gates whether a
   re-screened match stays suppressed or flags `CHANGED`; the `match_events` trail is
-  append-only.
+  append-only during the customer's lifecycle. Explicit customer deletion atomically
+  erases its matches, events, reviewer identity, and notes.
 
 ### Entry Points
 - Frontend app: `frontend/app/src/main.tsx`
@@ -248,11 +249,13 @@ alike; any signature or hash mismatch aborts the load, with no silent empty list
 
 Unit tests run under **Vitest**; end-to-end runs under **Playwright** in real Chromium.
 
-Two e2e lanes (`frontend/app`), both driving the **minified production build** against the
+Three e2e lanes (`frontend/app`), all driving the **minified production build** against the
 **committed signed demo catalog**:
 - `pnpm test:e2e:c1` — the browser-engine lane (incl. an offline-cache spec).
 - `pnpm test:e2e:kyc` — the **backend-free local-first journey**: onboard → auto-screen →
   review → resolve. Its webServers are `vite preview` + the static catalog server only.
+- `pnpm test:e2e:bundle` — the signed-bundle delta-sync lane: verify → OPFS → offline
+  reload.
 
 **Parity is frozen committed golden JSON snapshots** — the TS implementation is the source
 of truth (the former Python golden generators were deleted):

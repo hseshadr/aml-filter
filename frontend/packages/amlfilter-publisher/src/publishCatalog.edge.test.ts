@@ -1,6 +1,5 @@
-// publishCatalog edge behavior: a source that rejects with a NON-Error value is
-// still skipped with a stringified reason (the fail-soft policy never assumes
-// upstream code throws Error), and an omitted generatedAt stamps a fresh ISO
+// publishCatalog edge behavior: a source that rejects with a NON-Error value
+// still aborts with a stringified reason, and an omitted generatedAt stamps a fresh ISO
 // instant into the signed catalog. Also pins buildCatalog's comparator for
 // equal ids (stable order). Fake sources + fake embedder + throwaway key.
 
@@ -65,24 +64,31 @@ describe("publishCatalog edge cases", () => {
 		await rm(dir, { recursive: true, force: true });
 	});
 
-	test("skips a non-Error rejection with a stringified reason and stamps a fresh generatedAt", async () => {
-		const skips: string[] = [];
+	test("aborts on a non-Error rejection with a stringified reason", async () => {
+		await expect(
+			publishCatalog({
+				sources: [
+					{ source: goodSource, slug: "good" },
+					{ source: rudeSource, slug: "rude" },
+				],
+				version: "v1",
+				privateKey: TEST_KEY,
+				outDir: dir,
+				embedder: createFakeEmbedder(),
+			}),
+		).rejects.toThrow(/RUDE_LIST.*required feed.*boom-string/i);
+	});
+
+	test("stamps a fresh generatedAt when every source succeeds", async () => {
 		const before = Date.now();
 		const ids = await publishCatalog({
-			sources: [
-				{ source: goodSource, slug: "good" },
-				{ source: rudeSource, slug: "rude" },
-			],
+			sources: [{ source: goodSource, slug: "good" }],
 			version: "v1",
 			privateKey: TEST_KEY,
 			outDir: dir,
 			embedder: createFakeEmbedder(),
-			log: (m) => skips.push(m),
 		});
 		expect(ids).toEqual(["GOOD_LIST"]);
-		expect(skips).toEqual([
-			"skipping RUDE_LIST: fetchRaw failed (boom-string)",
-		]);
 		const catalog = JSON.parse(
 			await readFile(join(dir, "catalog.json"), "utf8"),
 		) as { generatedAt: string; lists: readonly { id: string }[] };

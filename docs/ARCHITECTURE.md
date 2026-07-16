@@ -181,6 +181,12 @@ rejected. If the network is down, the sync falls back to the cached active versi
 (`readActive`) and re-verifies it fail-closed, so the app screens **offline** with no
 network call. ("Clear cached lists" in `/settings` drops the store.)
 
+Cross-tab mutations use two bounded Web Locks. Syncs share a lifecycle lock while
+staging verified CAS bytes; clear takes that lock exclusively. A separate short
+exclusive promotion lock re-reads the active pointer immediately before writing it, so
+a slower lower-sequence tab cannot become the last writer. Lock acquisition aborts after
+10 seconds and surfaces a retryable timeout instead of hanging on a stale live tab.
+
 Entry point: `EngineRuntime.bootstrap()` drives the boot stages and yields a
 `ScreeningEngine`; `ScreeningEngine.screen({ name })` runs one screen and returns the
 scored, explained matches.
@@ -244,8 +250,9 @@ On a rescan (`replaceMatches` → `planReplacement`, `db/operations.ts`):
 - **Dropped** (entity no longer in the new set, e.g. a list was disabled) → a
   `SUPPRESSED` event is appended.
 
-Every transition is written to the append-only **`match_events`** audit trail
-(`appendEvent` is INSERT-only — `match_events` is never updated or deleted): event types
+Every transition is written to the append-only-during-lifecycle **`match_events`** audit
+trail (`appendEvent` is INSERT-only; explicit customer deletion removes that customer's
+events, reviewer identity, and notes in the same transaction): event types
 are `DETECTED`, `DISPOSITIONED`, `REOPENED`, `CHANGED`, `SUPPRESSED`. The review board's
 per-match **History drawer** reads this trail; `/settings` configures sensitivity,
 per-list thresholds, list selection, and the analyst name (persisted in the SQLite
@@ -309,12 +316,18 @@ tables that hold the workstation's state:
   `match_id` (nullable — null for a `SUPPRESSED` event), `customer_id` (NOT NULL),
   `ofac_entity_id` (NOT NULL), `event_type` (NOT NULL), `from_status`, `to_status`,
   `reviewer_id`, `notes`, `at` (NOT NULL). Indexed on `(match_id)` and
-  `(customer_id, ofac_entity_id)`. Written by `appendEvent` only — never updated or
-  deleted.
+  `(customer_id, ofac_entity_id)`. Lifecycle writes use `appendEvent` only; explicit
+  customer deletion removes the customer's ledger atomically with the customer row.
 - **`settings`** — `key` (PK), `value` (NOT NULL). Holds
   `last_synced_watchlist_version` (the rescan version pointer above), the screening
   sensitivity / per-list overrides, the enabled-watchlist selection, and the analyst
   name.
+
+The production OPFS connection enables SQLite `secure_delete`, truncates a legacy WAL,
+and requires rollback-journal `DELETE` mode before opening the schema. That overwrites
+deleted SQLite cells and prevents a reusable WAL from retaining committed customer
+pages. It does not promise forensic erasure from browser/OS storage, snapshots, or
+backups; clearing origin site data is the device-level privacy boundary.
 
 ## Match tiers (review triage)
 
@@ -349,9 +362,10 @@ stable.
 
 - **Explainability is non-negotiable.** Every match carries its full signal breakdown.
   Don't add a scoring path that returns a bare number.
-- **The lists are never bundled into the app.** Each is published from its official
-  source as a signed static file and verified at load time. Keep them out of the repo and
-  out of the app build.
+- **Watchlist bytes are trusted only after verification.** The repository commits a
+  small fictional signed demo bundle; production builds replace it with freshly
+  published official-source data. Fetched and cached bytes cross the trust boundary
+  only after the signature and every content hash verify.
 - **Same embedder, query and corpus.** The publisher (Node) and the browser (tab) must
   use the **same** model and the **same** `canonicalize()`, or vector similarity is
   meaningless. This is what makes precomputed vectors comparable to the live query.
@@ -359,7 +373,8 @@ stable.
   Ed25519 signatures verify against the pinned, same-origin public key — over fetched
   *and* cached bytes. Any signature or SHA-256 mismatch aborts the load — never a silent
   fallback to an unverified list.
-- **The audit trail is append-only.** `match_events` is INSERT-only; dispositions and
+- **The audit trail is append-only during the customer's lifecycle.** `match_events`
+  lifecycle writes are INSERT-only; dispositions and
   re-review transitions are recorded, never rewritten.
 - **Your data stays local.** KYC records live only in the in-tab SQLite-WASM/OPFS
   database; nothing is sent to a server.

@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FETCH_TIMEOUT_MS, fetchBytes, NetworkError } from "./fetchBytes";
 
+const EXPECTED_MAX_FETCH_BYTES = 1024 * 1024;
+
 afterEach(() => {
 	vi.useRealTimers();
 	vi.restoreAllMocks();
@@ -59,6 +61,77 @@ describe("fetchBytes timeout", () => {
 
 		const bytes = await fetchBytes("https://cdn.example/ok");
 		expect(Array.from(bytes)).toEqual([1, 2, 3]);
+	});
+
+	it("keeps the deadline active until a stalled response body finishes", async () => {
+		vi.useFakeTimers();
+		let bodyController: ReadableStreamDefaultController<Uint8Array> | undefined;
+		const body = new ReadableStream<Uint8Array>({
+			start(controller) {
+				bodyController = controller;
+			},
+		});
+		vi.stubGlobal(
+			"fetch",
+			vi.fn((_url: string, init?: RequestInit) => {
+				init?.signal?.addEventListener("abort", () => {
+					bodyController?.error(new DOMException("aborted", "AbortError"));
+				});
+				return Promise.resolve(new Response(body, { status: 200 }));
+			}),
+		);
+
+		const pending = fetchBytes("https://cdn.example/stalled-body");
+		const timedOut = expect(pending).rejects.toThrow(/timed out/i);
+		await vi.advanceTimersByTimeAsync(FETCH_TIMEOUT_MS);
+		await timedOut;
+	});
+});
+
+describe("fetchBytes resource ceilings", () => {
+	it("rejects an oversized declared Content-Length before reading the body", async () => {
+		const response = new Response(new Uint8Array([1]), {
+			status: 200,
+			headers: { "Content-Length": String(EXPECTED_MAX_FETCH_BYTES + 1) },
+		});
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(() => Promise.resolve(response)),
+		);
+
+		await expect(
+			fetchBytes("https://cdn.example/declared-too-large"),
+		).rejects.toThrow(/byte limit/i);
+	});
+
+	it("rejects a chunked body as soon as accumulated bytes exceed the ceiling", async () => {
+		const body = new ReadableStream<Uint8Array>({
+			start(controller) {
+				controller.enqueue(new Uint8Array(EXPECTED_MAX_FETCH_BYTES));
+				controller.enqueue(new Uint8Array([1]));
+				controller.close();
+			},
+		});
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(() => Promise.resolve(new Response(body, { status: 200 }))),
+		);
+
+		await expect(
+			fetchBytes("https://cdn.example/chunked-too-large"),
+		).rejects.toThrow(/byte limit/i);
+	});
+
+	it("accepts a body exactly at the byte ceiling", async () => {
+		const expected = new Uint8Array(EXPECTED_MAX_FETCH_BYTES);
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(() => Promise.resolve(new Response(expected, { status: 200 }))),
+		);
+
+		await expect(
+			fetchBytes("https://cdn.example/max-valid"),
+		).resolves.toHaveLength(EXPECTED_MAX_FETCH_BYTES);
 	});
 });
 

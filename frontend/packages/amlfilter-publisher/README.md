@@ -1,15 +1,17 @@
 # @amlfilter/publisher
 
-**TL;DR** — the Node-side tool that turns a list of sanctioned entities into the
-four signed static files the browser tier syncs and screens against, fully
-offline. No backend, no Postgres, no torch at runtime.
+**TL;DR** — the Node-side tool that fetches the required OFAC, UN, EU, and UK
+sanctions feeds, validates their size and freshness, precomputes name vectors, and
+emits the signed content-addressed bundle the browser delta-syncs. No application
+backend, Postgres, or Python ML runtime.
 
-It reads a source-entities JSONL, maps each record to the v3 wire shape
-(recomputing `name_canonical` with the **same** `canonicalize()` the browser
-uses), precomputes each entity's name embedding with transformers.js (the same
-`Xenova/all-MiniLM-L6-v2`, 384-dim model the browser runs), packs the vectors,
-and emits a **signed** `watchlist.json` + `watchlist.manifest.json` (each with a
-detached Ed25519 `.sig`). The wire contract is `docs/WATCHLIST_FORMAT.md`.
+Each `WatchlistSource` adapter maps upstream bytes into one neutral entity shape.
+Production requires all four feeds, broad source-specific entity-count bounds, and
+an upstream update timestamp no older than 90 days; any failed or implausible feed
+aborts publication. The publisher uses the browser's canonicalizer, embeds names with
+`Xenova/all-MiniLM-L6-v2` (384 dimensions), stages `catalog.json` plus per-list files,
+and delegates content-defined chunking and Ed25519 signing to edge-proc. The served
+contract is `latest` → `manifest/<hash>` → `chunk/<hash>`.
 
 ## Why precompute vectors?
 
@@ -21,27 +23,32 @@ The publisher does the heavy embedding once, at publish time, in Node.
 ```bash
 # from frontend/
 pnpm install
-pnpm --filter @amlfilter/publisher run build-demo
+pnpm --filter @amlfilter/publisher run build-demo-bundle
 ```
 
-That signs `fixtures/demo_entities.jsonl` (8 fake `DEMO_SDN` entities) with the
-demo key and writes the four files to `frontend/app/public/watchlist/`, which
-`vite preview` serves same-origin for the C1 e2e. `generatedAt` is pinned so the
-output is byte-stable. The demo key's public half is the committed
-`frontend/app/public/public.key`, so the artifact verifies in-tab.
+That rebuilds the deterministic demo CAS at
+`frontend/app/public/bundle/origin/`. The demo key's public half is the committed
+`frontend/app/public/public.key`, so the complete artifact verifies in-tab.
 
-## Publish your own list
+## Build the required live bundle
 
 ```bash
-pnpm --filter @amlfilter/publisher run publish -- \
-  --in ./entities.jsonl \
-  --version 2026-06-19 \
-  --key ./signing.key \      # raw 32-byte Ed25519 seed
-  --out ./public/watchlist \
-  --models ../app/public/models   # dir containing Xenova/all-MiniLM-L6-v2/...
+pnpm --filter @amlfilter/publisher run build-real-bundle -- \
+  --version 2026-07-15 \
+  --sequence 42 \
+  --key ./signing.key \
+  --out ../app/public/bundle/origin \
+  --models ../app/public/models
 ```
 
-## Programmatic API
+`--sequence` must be greater than the verified live signed pointer. Deployment uses
+`next-published-sequence` to fetch, verify, and increment that pointer instead of
+deriving order from a CI run identifier.
+
+The older `publish` command still emits the retired flat single-list artifact for
+source-tooling compatibility; the browser does not load it.
+
+## Programmatic single-list API (legacy flat artifact)
 
 ```ts
 import { publishWatchlist, createNodeEmbedder } from "@amlfilter/publisher";
@@ -58,14 +65,11 @@ await publishWatchlist({
 The `embedder` is injected: tests pass a fake (no 23 MB model), production passes
 `createNodeEmbedder`.
 
-## OFAC ingestion (`src/fetchOfac.ts`)
+## Source ingestion
 
-`fetchOfacJsonl(listVersion)` fetches the live OFAC `SDN.CSV` + `ALT.CSV` and maps
-`entity_id` / `primary_name` / `entity_type` / `aliases` **for real** (joining
-aliases by `ent_num`). **DOB and country are NOT extracted** — OFAC carries them
-only in freeform `Remarks` text, and reliable extraction is a marked `TODO`. The
-**demo** path (`demo_entities.jsonl`) is fully real and is what the tests and the
-committed artifact exercise.
+The live adapters and fixture-tested parsers are under `src/sources/`. OFAC joins
+`SDN.CSV` and `ALT.CSV`; UN and EU parse their consolidated XML; UK parses the OFSI
+CSV. Entity IDs are namespaced by source so identical upstream IDs cannot collide.
 
 ## Tests
 
@@ -75,9 +79,13 @@ pnpm --filter @amlfilter/publisher run test
 
 - **format** — contract keys, `dim === 384`, base64 vectors decode to
   `entities * 384` Float32 values, sorted countries, `dob[0] ?? null`, alias names.
-- **signature round-trip** — the demo key's public half equals `public.key`, signed
-  files verify via the browser's `verifyEd25519`, and a flipped byte fails closed
-  (`SignatureError`).
+- **signature and bundle round-trip** — the demo key's public half equals
+  `public.key`; pointer, manifest, chunks, and materialized files verify through the
+  browser decoder, and mutation fails closed.
 - **determinism** — same input ⇒ identical bytes.
+
+- **publication safety** — required-feed fetch/count/freshness failures abort;
+  sequences advance from the verified live pointer; compressed and expanded chunks
+  are bounded before allocation.
 
 Tests use a deterministic fake embedder; the real model is exercised by `build-demo`.

@@ -39,6 +39,9 @@ export type OriginFetch = (url: string) => Promise<Uint8Array>;
 interface PointerWire {
 	readonly manifest_hash: string;
 	readonly version: string;
+	readonly bundle_id?: string | null;
+	readonly channel?: string | null;
+	readonly sequence: number;
 	readonly signature: string;
 }
 
@@ -57,6 +60,7 @@ interface ManifestWire {
 
 export interface OriginVerifyReport {
 	readonly version: string;
+	readonly sequence: number;
 	readonly manifestHash: string;
 	readonly files: number;
 	readonly chunksVerified: number;
@@ -84,10 +88,12 @@ function assertPointerWire(value: unknown): asserts value is PointerWire {
 		typeof p !== "object" ||
 		typeof p.manifest_hash !== "string" ||
 		typeof p.version !== "string" ||
+		!Number.isSafeInteger(p.sequence) ||
+		(p.sequence as number) < 0 ||
 		typeof p.signature !== "string"
 	) {
 		throw new OriginVerifyError(
-			"published /latest pointer is missing manifest_hash/version/signature",
+			"published /latest pointer is missing manifest_hash/version/signature or a non-negative monotonic sequence",
 		);
 	}
 }
@@ -119,10 +125,44 @@ async function fetchAndVerifyPointer(
 	const pointer = parseJson<unknown>(raw, "/latest pointer");
 	assertPointerWire(pointer);
 	const message = canonicalBytes(pointer as unknown as JsonValue, {
-		exclude: { signature: true },
+		exclude: {
+			signature: true,
+			bundle_id: pointer.bundle_id == null,
+			channel: pointer.channel == null,
+		},
 	});
 	await verifyEd25519(pubkey, message, pointer.signature);
 	return pointer;
+}
+
+/** The only safe publish candidate is one greater than the currently served,
+ * signature-verified pointer. Workflow identity is deliberately irrelevant: an
+ * old workflow rerun still advances live state instead of rolling it back. */
+export function sequenceAfterLive(current: number): number {
+	if (!Number.isSafeInteger(current) || current < 0) {
+		throw new OriginVerifyError(
+			"live pointer sequence must be a non-negative safe integer",
+		);
+	}
+	if (current === Number.MAX_SAFE_INTEGER) {
+		throw new OriginVerifyError(
+			"live pointer sequence exhausted safe integer range",
+		);
+	}
+	return current + 1;
+}
+
+export async function nextPublishedSequence(args: {
+	readonly baseUrl: string;
+	readonly fetchBytes: OriginFetch;
+	readonly pubkey: Uint8Array;
+}): Promise<number> {
+	const pointer = await fetchAndVerifyPointer(
+		args.baseUrl,
+		args.fetchBytes,
+		args.pubkey,
+	);
+	return sequenceAfterLive(pointer.sequence);
 }
 
 async function fetchAndVerifyManifest(
@@ -177,12 +217,18 @@ export async function verifyPublishedOrigin(args: {
 	readonly fetchBytes: OriginFetch;
 	readonly pubkey: Uint8Array;
 	readonly expectVersion?: string;
+	readonly expectSequence?: number;
 }): Promise<OriginVerifyReport> {
-	const { baseUrl, fetchBytes, pubkey, expectVersion } = args;
+	const { baseUrl, fetchBytes, pubkey, expectVersion, expectSequence } = args;
 	const pointer = await fetchAndVerifyPointer(baseUrl, fetchBytes, pubkey);
 	if (expectVersion !== undefined && pointer.version !== expectVersion) {
 		throw new OriginVerifyError(
 			`published pointer version is "${pointer.version}"; expected "${expectVersion}" — the deploy did not take (or has not propagated)`,
+		);
+	}
+	if (expectSequence !== undefined && pointer.sequence !== expectSequence) {
+		throw new OriginVerifyError(
+			`published pointer sequence is ${pointer.sequence}; expected ${expectSequence} — the deploy did not take (or has not propagated)`,
 		);
 	}
 	const manifest = await fetchAndVerifyManifest(baseUrl, fetchBytes, pointer);
@@ -190,6 +236,7 @@ export async function verifyPublishedOrigin(args: {
 	const compressedBytes = await verifyAllChunks(baseUrl, fetchBytes, hashes);
 	return {
 		version: pointer.version,
+		sequence: pointer.sequence,
 		manifestHash: pointer.manifest_hash,
 		files: manifest.files.length,
 		chunksVerified: hashes.length,
@@ -203,6 +250,7 @@ export interface VerifyCliArgs {
 	readonly baseUrl: string;
 	readonly pubkeyPath: string;
 	readonly expectVersion?: string;
+	readonly expectSequence?: number;
 	readonly attempts: number;
 	readonly delaySeconds: number;
 }
@@ -224,6 +272,7 @@ export function parseVerifyArgs(argv: ReadonlyArray<string>): VerifyCliArgs {
 		"base-url",
 		"pubkey",
 		"expect-version",
+		"expect-sequence",
 		"attempts",
 		"delay-seconds",
 	]);
@@ -239,16 +288,28 @@ export function parseVerifyArgs(argv: ReadonlyArray<string>): VerifyCliArgs {
 	}
 	const attempts = Number(values.get("attempts") ?? "10");
 	const delaySeconds = Number(values.get("delay-seconds") ?? "15");
+	const expectSequenceValue = values.get("expect-sequence");
+	const expectSequence =
+		expectSequenceValue === undefined ? undefined : Number(expectSequenceValue);
 	if (!Number.isInteger(attempts) || attempts < 1) {
 		throw new OriginVerifyError("--attempts must be a positive integer");
 	}
 	if (!Number.isFinite(delaySeconds) || delaySeconds < 0) {
 		throw new OriginVerifyError("--delay-seconds must be >= 0");
 	}
+	if (
+		expectSequence !== undefined &&
+		(!Number.isSafeInteger(expectSequence) || expectSequence < 0)
+	) {
+		throw new OriginVerifyError(
+			"--expect-sequence must be a non-negative safe integer",
+		);
+	}
 	return {
 		baseUrl: baseUrl.replace(/\/$/, ""),
 		pubkeyPath,
 		expectVersion: values.get("expect-version"),
+		expectSequence,
 		attempts,
 		delaySeconds,
 	};
@@ -270,6 +331,55 @@ interface RunDeps {
 	readonly readFile?: (path: string) => Uint8Array;
 	readonly sleep?: (seconds: number) => Promise<void>;
 	readonly log?: (line: string) => void;
+}
+
+interface NextSequenceRunDeps {
+	readonly fetchBytes?: OriginFetch;
+	readonly readFile?: (path: string) => Uint8Array;
+	readonly log?: (line: string) => void;
+}
+
+function parseNextSequenceArgs(argv: ReadonlyArray<string>): {
+	readonly baseUrl: string;
+	readonly pubkeyPath: string;
+} {
+	if (argv.length !== 4) {
+		throw new OriginVerifyError("--base-url and --pubkey are required");
+	}
+	const values = new Map<string, string>();
+	for (let index = 0; index < argv.length; index += 2) {
+		const flag = argv[index];
+		const value = argv[index + 1];
+		if (!flag?.startsWith("--") || value === undefined) {
+			throw new OriginVerifyError("expected --flag value pairs");
+		}
+		values.set(flag.slice(2), value);
+	}
+	const baseUrl = values.get("base-url");
+	const pubkeyPath = values.get("pubkey");
+	if (baseUrl === undefined || pubkeyPath === undefined || values.size !== 2) {
+		throw new OriginVerifyError("--base-url and --pubkey are required");
+	}
+	return { baseUrl: baseUrl.replace(/\/$/, ""), pubkeyPath };
+}
+
+/** CLI runner used before every publish. Stdout is intentionally one decimal
+ * line so the shell can assign it to `SEQUENCE` without parsing logs. */
+export async function runNextPublishedSequence(
+	argv: ReadonlyArray<string>,
+	deps: NextSequenceRunDeps = {},
+): Promise<number> {
+	const args = parseNextSequenceArgs(argv);
+	const fetchBytes = deps.fetchBytes ?? httpFetchBytes;
+	const readFile =
+		deps.readFile ?? ((path: string) => new Uint8Array(readFileSync(path)));
+	const sequence = await nextPublishedSequence({
+		baseUrl: args.baseUrl,
+		fetchBytes,
+		pubkey: readFile(args.pubkeyPath),
+	});
+	(deps.log ?? ((line: string) => console.log(line)))(String(sequence));
+	return sequence;
 }
 
 const defaultSleep = (seconds: number): Promise<void> =>
@@ -300,9 +410,10 @@ export async function runVerifyPublishedOrigin(
 				fetchBytes,
 				pubkey,
 				expectVersion: args.expectVersion,
+				expectSequence: args.expectSequence,
 			});
 			log(
-				`published origin OK: version=${report.version} files=${report.files} ` +
+				`published origin OK: version=${report.version} sequence=${report.sequence} files=${report.files} ` +
 					`chunks=${report.chunksVerified} compressedBytes=${report.compressedBytes} ` +
 					`manifest=${report.manifestHash}`,
 			);

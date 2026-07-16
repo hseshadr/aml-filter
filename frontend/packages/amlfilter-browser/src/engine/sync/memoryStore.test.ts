@@ -41,7 +41,12 @@ describe("MemoryCacheStore content-address integrity", () => {
 		const hash = await store.putManifest(bytes);
 		expect(await store.getManifest(hash)).toEqual(bytes);
 		expect(await store.readActive()).toBeNull();
-		await store.promote({ manifest_hash: "h", version: "v1", signature: "s" });
+		await store.promote({
+			manifest_hash: "h",
+			version: "v1",
+			sequence: 1,
+			signature: "s",
+		});
 		expect((await store.readActive())?.version).toBe("v1");
 	});
 
@@ -63,7 +68,12 @@ describe("MemoryCacheStore content-address integrity", () => {
 		const manifestHash = await store.putManifest(
 			new TextEncoder().encode("{}"),
 		);
-		await store.promote({ manifest_hash: "h", version: "v1", signature: "s" });
+		await store.promote({
+			manifest_hash: "h",
+			version: "v1",
+			sequence: 1,
+			signature: "s",
+		});
 
 		await store.clear();
 

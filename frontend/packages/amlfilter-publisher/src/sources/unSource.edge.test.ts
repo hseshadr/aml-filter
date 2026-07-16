@@ -67,6 +67,14 @@ describe("unSource.fetchRaw", () => {
 		});
 	});
 
+	test("extracts the upstream generated date", () => {
+		expect(
+			unSource.sourceUpdatedAt?.({
+				[UN_RAW_FILE]: '<CONSOLIDATED_LIST dateGenerated="2026-07-01"/>',
+			}),
+		).toBe("2026-07-01");
+	});
+
 	test("rejects with the status on a non-OK response", async () => {
 		vi.stubGlobal(
 			"fetch",

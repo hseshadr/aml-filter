@@ -5,7 +5,7 @@
 // content-address, or demo-structure regression is caught here.
 //
 // The bundle layout (content-addressed, produced by `edgeproc publish`):
-//   latest                   — VersionPointer { manifest_hash, version, signature }
+//   latest                   — VersionPointer { manifest_hash, version, sequence, signature }
 //   manifest/<manifest_hash> — IndexManifest JSON; sha256(bytes) === <manifest_hash>
 //   chunk/<plaintext_hash>   — zstd-COMPRESSED chunk; sha256(decompress(bytes)) === <name>
 //
@@ -57,6 +57,7 @@ const EXPECTED_FILES = [
 interface VersionPointer {
 	readonly manifest_hash: string;
 	readonly version: string;
+	readonly sequence: number;
 	readonly signature: string;
 }
 
@@ -102,16 +103,19 @@ function flipFirstByte(bytes: Uint8Array): Uint8Array {
  * pointer signature is over precisely this message).
  */
 function pointerSignedMessage(pointer: VersionPointer): Uint8Array {
-	const sorted: Record<string, string> = {};
-	for (const key of ["manifest_hash", "version"].sort()) {
-		sorted[key] = pointer[key as "manifest_hash" | "version"];
-	}
-	return new TextEncoder().encode(JSON.stringify(sorted));
+	return new TextEncoder().encode(
+		JSON.stringify({
+			manifest_hash: pointer.manifest_hash,
+			sequence: pointer.sequence,
+			version: pointer.version,
+		}),
+	);
 }
 
 describe("committed signed demo bundle verifies against public.key", () => {
 	test("latest pointer signature verifies; a flipped message byte fails closed", async () => {
 		const pointer = await readPointer();
+		expect(pointer.sequence).toBe(1);
 		const message = pointerSignedMessage(pointer);
 		await expect(
 			verifyEd25519(await publicKey(), message, pointer.signature),

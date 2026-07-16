@@ -27,7 +27,9 @@ The app's bundle base URL defaults to **`/bundle/origin`** (overridable with
 
 1. Fetches **`latest`** (`cache: "no-store"` — the only mutable file) and verifies its
    detached Ed25519 `signature` against the pinned same-origin key
-   (`frontend/app/public/public.key`). **Fail-closed**: a bad signature aborts.
+   (`frontend/app/public/public.key`). **Fail-closed**: a bad signature aborts. The
+   signed monotonic `sequence` must not be lower than the active pointer's sequence,
+   so an authentically signed stale pointer cannot roll the browser back.
 2. Fetches **`manifest/<manifest_hash>`** and checks that the bytes hash to the
    `manifest_hash` the verified pointer named. Authenticity flows from the signed
    pointer → the content hash, so the manifest needs no separate `.sig`.
@@ -48,6 +50,9 @@ The trust anchor: a detached Ed25519 signature over the canonical bytes of the o
 {
   "manifest_hash": "9ca69ce7455f04b585c2d9210ce72d2c6ed242c0baf72a067550484b4eb2e434",
   "version": "demo-1",
+  "bundle_id": null,
+  "channel": null,
+  "sequence": 1,
   "signature": "u9kyIPD6PLGEV6KDmZF4HTtDNbOyKCgZG8RWWfWM9BC/+cGctgZXg9zu2KmjKY4jjCbuowpxRtpxXiGsYecTDQ=="
 }
 ```
@@ -56,7 +61,15 @@ The trust anchor: a detached Ed25519 signature over the canonical bytes of the o
 |------|---------|
 | `manifest_hash` | hex sha256 of the manifest's canonical bytes — the content address under `manifest/` |
 | `version` | the composite version stamp (also used for change-detection on poll) |
+| `bundle_id` / `channel` | optional edge-proc routing identity; null in the committed demo |
+| `sequence` | required non-negative safe integer; publisher workflows use `GitHub run_id * 1000 + run_attempt`, so a rerun cannot reuse a sequence for different bytes |
 | `signature` | base64 Ed25519 over `canonicalBytes(self, exclude {signature})` |
+
+An equal sequence is idempotent only when the pointer identity (manifest, version,
+bundle, and channel) is unchanged; reusing it for different bytes is rejected as a
+sequence collision. A lower sequence is rejected before any manifest or chunk is
+fetched. A sequence-less pointer already cached by a pre-sequence client may upgrade
+once to a sequenced pointer; new incoming pointers must carry a valid sequence.
 
 ## `manifest/<manifest_hash>` — the `IndexManifest`
 

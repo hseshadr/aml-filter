@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { expect, test } from "@playwright/test";
 
 /**
@@ -28,27 +29,68 @@ import { expect, test } from "@playwright/test";
 
 const MODEL_LOAD_TIMEOUT_MS = 160_000;
 const RESULT_TIMEOUT_MS = 30_000;
+const SEARCH_SLA_MS = 10_000;
+const MAX_RENDERED_DOM_NODES = 2_000;
+const MAX_JS_HEAP_BYTES = 512 * 1024 * 1024;
+
+function productionCsp(): string {
+	const headers = readFileSync(
+		new URL("../../public/_headers", import.meta.url),
+		"utf8",
+	);
+	const csp = headers.match(/^\s*Content-Security-Policy:\s*(.+)$/m)?.[1];
+	if (csp === undefined) {
+		throw new Error("public/_headers has no Content-Security-Policy");
+	}
+	return csp;
+}
 
 test("searches the sanctions list in-browser over the minified build, with full dossiers", async ({
 	page,
 }) => {
 	test.setTimeout(240_000);
+	const csp = productionCsp();
+	await page.route("**/*", async (route) => {
+		const response = await route.fetch();
+		await route.fulfill({
+			response,
+			headers: {
+				...response.headers(),
+				"content-security-policy": csp,
+			},
+		});
+	});
+	await page.addInitScript(() => {
+		const violations: string[] = [];
+		Object.defineProperty(window, "__cspViolations", { value: violations });
+		document.addEventListener("securitypolicyviolation", (event) => {
+			violations.push(`${event.violatedDirective}: ${event.blockedURI}`);
+		});
+	});
 
 	const errors: string[] = [];
+	const consoleMessages: string[] = [];
+	const requests: Array<{ readonly url: string; readonly body: string }> = [];
 	page.on("pageerror", (err) => errors.push(`pageerror: ${err.message}`));
 	page.on("console", (msg) => {
+		consoleMessages.push(msg.text());
 		if (msg.type() === "error") {
 			errors.push(`console.error: ${msg.text()}`);
 		}
 	});
 	let modelRequests = 0;
 	page.on("request", (request) => {
+		requests.push({ url: request.url(), body: request.postData() ?? "" });
 		if (request.url().endsWith("/onnx/model_quantized.onnx")) {
 			modelRequests += 1;
 		}
 	});
 
-	await page.goto("/screen", { waitUntil: "domcontentloaded" });
+	const bootStartedAt = Date.now();
+	const response = await page.goto("/screen", {
+		waitUntil: "domcontentloaded",
+	});
+	expect(response?.headers()["content-security-policy"]).toBe(csp);
 
 	const search = page.getByPlaceholder("Search a name, e.g. Ivan Fakovich");
 	await expect(search).toBeVisible();
@@ -71,12 +113,43 @@ test("searches the sanctions list in-browser over the minified build, with full 
 	if (outcome.kind === "error") {
 		throw new Error(`bootstrap errored: ${outcome.message}`);
 	}
+	const bootDurationMs = Date.now() - bootStartedAt;
+	expect(bootDurationMs, "cold boot SLA").toBeLessThanOrEqual(
+		MODEL_LOAD_TIMEOUT_MS,
+	);
 	expect(modelRequests, "the model must be fetched exactly once").toBe(1);
 
 	// --- browse: the empty box lists the whole demo list (discoverability) ---
 	await expect(
 		page.locator(".match-card__name", { hasText: "Ivan Fakovich" }),
 	).toBeVisible({ timeout: RESULT_TIMEOUT_MS });
+	const directory = page.getByRole("navigation", {
+		name: "Watchlist directory pages",
+	});
+	await expect(directory).toBeVisible();
+	expect(
+		await page.locator(".screen-results__list > .match-card").count(),
+	).toBeLessThanOrEqual(24);
+	expect(
+		await page.locator("*").count(),
+		"rendered DOM node budget",
+	).toBeLessThan(MAX_RENDERED_DOM_NODES);
+	await expect(
+		directory.getByRole("button", { name: "Previous page" }),
+	).toBeDisabled();
+	const usedJsHeapBytes = await page.evaluate(() => {
+		const memory = (
+			performance as Performance & {
+				readonly memory?: { readonly usedJSHeapSize: number };
+			}
+		).memory;
+		return memory?.usedJSHeapSize ?? null;
+	});
+	if (usedJsHeapBytes !== null) {
+		expect(usedJsHeapBytes, "post-boot JavaScript heap budget").toBeLessThan(
+			MAX_JS_HEAP_BYTES,
+		);
+	}
 
 	// A scored search card (browse cards carry no score; search cards do).
 	const scoredCard = page
@@ -84,8 +157,14 @@ test("searches the sanctions list in-browser over the minified build, with full 
 		.first();
 
 	// --- positive: exact sanctioned name → scored, explainable, full dossier ---
+	const queryNetworkStart = requests.length;
+	const searchStartedAt = Date.now();
 	await search.fill("Ivan Fakovich");
 	await expect(scoredCard).toBeVisible({ timeout: RESULT_TIMEOUT_MS });
+	const searchDurationMs = Date.now() - searchStartedAt;
+	expect(searchDurationMs, "warm in-tab search SLA").toBeLessThanOrEqual(
+		SEARCH_SLA_MS,
+	);
 	await expect(scoredCard.locator(".match-card__name")).toHaveText(
 		"Ivan Fakovich",
 	);
@@ -115,6 +194,47 @@ test("searches the sanctions list in-browser over the minified build, with full 
 	await expect(clear).toBeVisible({ timeout: RESULT_TIMEOUT_MS });
 	await expect(clear).toContainText(/no sanctions match/i);
 	expect(await page.locator(".match-card").count()).toBe(0);
+	expect(
+		requests.slice(queryNetworkStart),
+		"typing and scoring must make zero network requests",
+	).toEqual([]);
+	const pageOrigin = new URL(page.url()).origin;
+	const externalRequests = requests.filter(({ url }) => {
+		const parsed = new URL(url);
+		return (
+			["http:", "https:"].includes(parsed.protocol) &&
+			parsed.origin !== pageOrigin
+		);
+	});
+	expect(
+		externalRequests,
+		"runtime must make zero third-party requests",
+	).toEqual([]);
+	const observableOutput = [
+		...requests.flatMap(({ url, body }) => [url, body]),
+		...consoleMessages,
+	]
+		.join("\n")
+		.toLowerCase();
+	for (const pii of ["ivan fakovich", "fakovic", "zxqwqx vbnmlk"]) {
+		expect(
+			observableOutput,
+			`PII/query leaked to network or console: ${pii}`,
+		).not.toContain(pii);
+	}
+	const cspViolations = await page.evaluate(
+		() =>
+			(
+				window as unknown as {
+					readonly __cspViolations: readonly string[];
+				}
+			).__cspViolations,
+	);
 
+	expect(cspViolations, "production CSP violations").toEqual([]);
 	expect(errors, `in-browser errors:\n${errors.join("\n")}`).toEqual([]);
+	test.info().annotations.push({
+		type: "northstar-performance",
+		description: `cold boot ${bootDurationMs}ms; warm search ${searchDurationMs}ms; ${String(await page.locator("*").count())} DOM nodes; JS heap ${String(usedJsHeapBytes)} bytes; ${String(requests.length)} boot requests; 0 query requests`,
+	});
 });

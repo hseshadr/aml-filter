@@ -1,8 +1,7 @@
 // publishCatalog — the multi-list, real-fetch catalog producer (the production
-// path the publish CI drives). For each configured source it runs the adapter's
-// real fetchRaw(); a source whose fetchRaw throws (e.g. EU/UK, whose fetchRaw is
-// still scaffolded) is logged and SKIPPED, so the published catalog contains
-// exactly the lists that really fetched. Each succeeded list is published to
+// retired flat-wire path). Every configured source is required: all fetch and
+// parse before any output is written, so an unavailable or empty source aborts
+// instead of producing a misleading partial sanctions catalog. Each list is published to
 // <outDir>/<slug>/ with the production key, then a single signed catalog.json
 // (the trust anchor, same key) lists them.
 //
@@ -35,26 +34,39 @@ export interface PublishCatalogInput {
 	readonly embedder: Embedder;
 	/** ISO-8601 UTC instant; injected for deterministic test/demo output. */
 	readonly generatedAt?: string;
-	/** Where skip notices go (defaults to console.warn); injected in tests. */
-	readonly log?: (message: string) => void;
 }
 
-/** Fetch + parse + publish one source. Resolves to its catalog entry, or null
- * if the adapter's fetchRaw is not wired yet (logged and skipped). */
-async function publishOne(
+interface PreparedSource {
+	readonly spec: CatalogSourceSpec;
+	readonly sourceLines: ReturnType<WatchlistSource["parse"]>;
+}
+
+async function prepareOne(
 	spec: CatalogSourceSpec,
-	input: PublishCatalogInput,
-	log: (message: string) => void,
-): Promise<CatalogList | null> {
+	version: string,
+): Promise<PreparedSource> {
 	let raw: Awaited<ReturnType<WatchlistSource["fetchRaw"]>>;
 	try {
 		raw = await spec.source.fetchRaw();
-	} catch (err) {
-		const reason = err instanceof Error ? err.message : String(err);
-		log(`skipping ${spec.source.id}: fetchRaw failed (${reason})`);
-		return null;
+	} catch (error) {
+		const reason = error instanceof Error ? error.message : String(error);
+		throw new Error(
+			`${spec.source.id}: required feed fetch failed: ${reason}`,
+			{ cause: error },
+		);
 	}
-	const sourceLines = spec.source.parse(raw, input.version);
+	const sourceLines = spec.source.parse(raw, version);
+	if (sourceLines.length === 0) {
+		throw new Error(`${spec.source.id}: required feed parsed zero entities`);
+	}
+	return { spec, sourceLines };
+}
+
+async function publishOne(
+	prepared: PreparedSource,
+	input: PublishCatalogInput,
+): Promise<CatalogList> {
+	const { spec, sourceLines } = prepared;
 	const manifest = await publishWatchlist({
 		sourceLines,
 		version: input.version,
@@ -73,22 +85,20 @@ async function publishOne(
 	};
 }
 
-/** Publish every source whose fetchRaw succeeds, then write the signed catalog
- * listing exactly those. Returns the ids actually published (sorted by id, as
- * the catalog stores them). Throws if no source fetched. */
+/** Require every source, then publish and sign the complete flat catalog. */
 export async function publishCatalog(
 	input: PublishCatalogInput,
 ): Promise<readonly string[]> {
-	const log = input.log ?? ((m) => console.warn(m));
-	const entries: CatalogList[] = [];
-	for (const spec of input.sources) {
-		const entry = await publishOne(spec, input, log);
-		if (entry !== null) {
-			entries.push(entry);
-		}
+	if (input.sources.length === 0) {
+		throw new Error("no required sources configured");
 	}
-	if (entries.length === 0) {
-		throw new Error("no lists fetched — refusing to publish an empty catalog");
+	const prepared: PreparedSource[] = [];
+	for (const spec of input.sources) {
+		prepared.push(await prepareOne(spec, input.version));
+	}
+	const entries: CatalogList[] = [];
+	for (const source of prepared) {
+		entries.push(await publishOne(source, input));
 	}
 	const generatedAt = input.generatedAt ?? new Date().toISOString();
 	const catalog = buildCatalog(entries, generatedAt);

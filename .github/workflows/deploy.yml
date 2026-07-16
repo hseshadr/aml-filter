@@ -46,7 +46,7 @@ concurrency:
 env:
   # edge-proc is NOT on PyPI; CI clones the public repo and `uv sync`s it.
   EDGEPROC_REPO: https://github.com/hseshadr/edge-proc
-  EDGEPROC_REF: v0.1.1
+  EDGEPROC_REF: v0.1.4
 
 jobs:
   # Only auto-deploy when the triggering CI run succeeded on main. For a manual
@@ -106,17 +106,22 @@ jobs:
           exit "$missing"
 
       - name: Checkout code
-        uses: actions/checkout@v7
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           # Deploy the exact commit that passed CI (auto-run); HEAD for manual.
           ref: ${{ github.event.workflow_run.head_sha || github.ref }}
 
+      - name: Record the exact revision being deployed
+        run: |
+          DEPLOY_SHA="$(git rev-parse HEAD)"
+          echo "DEPLOY_SHA=$DEPLOY_SHA" >> "$GITHUB_ENV"
+
       # Reads the pinned pnpm version from frontend/package.json "packageManager".
-      - uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
         with:
           package_json_file: frontend/package.json
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version-file: frontend/.nvmrc
           cache: pnpm
@@ -125,12 +130,19 @@ jobs:
       - name: Install workspace
         run: pnpm -C frontend install --frozen-lockfile
 
+      - name: Derive the next sequence from the verified LIVE pointer
+        run: |
+          SEQUENCE="$(pnpm --silent -C frontend --filter @amlfilter/publisher run next-published-sequence -- \
+            --base-url https://aml-filter.com/bundle/origin \
+            --pubkey "$GITHUB_WORKSPACE/frontend/app/public/public.key")"
+          echo "SEQUENCE=$SEQUENCE" >> "$GITHUB_ENV"
+
       # Self-hosted MiniLM weights, fetched BEFORE the build (same as CI). They feed
       # BOTH the Node embedder (real-bundle build) and the SPA prebuild. HF's CDN
       # hard-429s GitHub runner IPs, so pull them from our own release instead.
       - name: Cache self-hosted model weights
         id: model-weights-cache
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: frontend/app/public/models
           key: model-weights-${{ runner.os }}-rel1-${{ hashFiles('frontend/app/scripts/download-model.mjs') }}
@@ -152,7 +164,7 @@ jobs:
 
       # edge-proc chunks + signs the staged tree (not on PyPI → clone + uv sync).
       - name: Install uv
-        uses: astral-sh/setup-uv@v8.3.2
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
 
       - name: Install edge-proc
         working-directory: ${{ runner.temp }}
@@ -178,10 +190,12 @@ jobs:
       - name: Build + sign the real watchlist bundle (same-origin)
         run: |
           VERSION="$(date -u +%Y-%m-%d)"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
           ORIGIN="$GITHUB_WORKSPACE/frontend/app/public/bundle/origin"
           rm -rf "$ORIGIN"
           pnpm -C frontend --filter @amlfilter/publisher run build-real-bundle -- \
             --version "$VERSION" \
+            --sequence "$SEQUENCE" \
             --key "$GITHUB_WORKSPACE/frontend/signing.key" \
             --out "$ORIGIN"
 
@@ -209,7 +223,12 @@ jobs:
       # Same-origin SPA build: no VITE_BUNDLE_BASE_URL → runtime defaults to
       # /bundle/origin (which now holds the freshly-signed real bundle).
       - name: Build the static SPA (same-origin bundle)
-        run: pnpm -C frontend --filter aml-filter-app run build
+        run: |
+          pnpm -C frontend --filter aml-filter-app run build
+          node frontend/app/scripts/build-identity.mjs stamp \
+            --dist frontend/app/dist \
+            --sha "$DEPLOY_SHA" \
+            --run-id "$GITHUB_RUN_ID"
 
       - name: Deploy to Cloudflare Pages
         # wrangler reads the API token + account id from the environment.
@@ -217,3 +236,22 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: npx wrangler@4.103.0 pages deploy frontend/app/dist --project-name=aml-filter --branch=main
+
+      - name: Verify the exact deployed revision (reject stale/no-op deploys)
+        run: |
+          node frontend/app/scripts/build-identity.mjs verify \
+            --url https://aml-filter.com/build.json \
+            --sha "$DEPLOY_SHA" \
+            --run-id "$GITHUB_RUN_ID"
+
+      # Verify the public origin through the browser-equivalent decode path. The
+      # expected version and sequence bind this check to the bundle from this
+      # exact run, so a stale or partially propagated deploy cannot pass.
+      - name: Verify the LIVE published origin (client decode path)
+        run: |
+          pnpm -C frontend --filter @amlfilter/publisher run verify-published-origin -- \
+            --base-url https://aml-filter.com/bundle/origin \
+            --pubkey "$GITHUB_WORKSPACE/frontend/app/public/public.key" \
+            --expect-version "$VERSION" \
+            --expect-sequence "$SEQUENCE" \
+            --attempts 10 --delay-seconds 15

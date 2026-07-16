@@ -44,9 +44,15 @@ export interface WatchlistSource {
 	readonly title: string;
 	/** Fetch the raw list bytes off the network (real URLs). */
 	fetchRaw(): Promise<RawListBytes>;
+	/** Extract the upstream list's publication/update instant from its payload or
+	 * transport metadata. Production publication rejects unprovably stale data. */
+	sourceUpdatedAt?(raw: RawListBytes): string | undefined;
 	/** Map raw bytes to neutral source lines — deterministic, no network. */
 	parse(raw: RawListBytes, listVersion: string): SourceLine[];
 }
+
+/** Reserved raw-map entry for a transport-provided upstream update instant. */
+export const SOURCE_UPDATED_AT_KEY = "__amlfilter_source_updated_at";
 
 /** Build the namespaced entity_id every adapter must stamp. */
 export function namespacedId(listId: string, rawId: string): string {

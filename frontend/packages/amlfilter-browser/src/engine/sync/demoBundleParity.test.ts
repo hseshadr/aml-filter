@@ -200,7 +200,11 @@ describe("committed demo bundle ↔ in-browser sync tier", () => {
 		// over the canonical (signature-excluded) bytes so a re-sign-without-re-pin
 		// (or vice versa) is unambiguous in the failure.
 		const message = canonicalBytes(pointer as unknown as JsonValue, {
-			exclude: { signature: true },
+			exclude: {
+				signature: true,
+				bundle_id: pointer.bundle_id == null,
+				channel: pointer.channel == null,
+			},
 		});
 		await expect(
 			realVerify(message, pointer.signature),

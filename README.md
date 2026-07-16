@@ -8,9 +8,15 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue.svg)](https://www.typescriptlang.org/)
 [![Node 22.13](https://img.shields.io/badge/node-22.13-green.svg)](frontend/.nvmrc)
 
-▶ **Try it now at [aml-filter.com](https://aml-filter.com)** — the whole app runs in your browser tab, no server and no signup. Prefer to self-host? **[Run it locally in ~10 minutes](#quickstart--clone-to-screening-in-10-minutes)** (clone, `pnpm install`, `pnpm --filter aml-filter-app dev`).
+▶ **Try it now at [aml-filter.com](https://aml-filter.com)** — the whole app runs in your browser tab, no server and no signup. Collaborators with repository access can **[run it locally in ~10 minutes](#quickstart--clone-to-screening-in-10-minutes)** (clone, `pnpm install`, `pnpm --filter aml-filter-app dev`).
 
-> **Live at [`aml-filter.com`](https://aml-filter.com)** — hosted on Cloudflare Pages, screening entirely in your browser (the signed watchlist bundle is served same-origin). Everything also works on a cold local clone with no backend; [`docs/DEPLOY.md`](docs/DEPLOY.md) covers hosting your own copy.
+> **Live at [`aml-filter.com`](https://aml-filter.com)** — hosted on Cloudflare Pages, screening entirely in your browser (the signed watchlist bundle is served same-origin). The source repository is currently private; collaborators with access can run a cold local clone with no backend. [`docs/DEPLOY.md`](docs/DEPLOY.md) covers self-hosting.
+
+**Browser support:** the supported production baseline is the current and previous
+desktop releases of Chrome, Edge, Firefox, and Safari 17+. The browser must expose
+module Workers, OPFS, WebCrypto, and Web Locks in a secure context. The app detects
+these before boot and shows an explicit unsupported-browser screen; mobile browsers
+and embedded WebViews are not part of the release contract.
 
 ## TL;DR
 
@@ -27,7 +33,9 @@
   list. Load customers at `/customers`, work the matches at `/review`.
 - **Core invariants** — verify-before-parse on every byte (any signature/hash mismatch
   aborts — fetched and cached alike); customer data never leaves the browser; reviews are
-  append-only (`match_events`) and only re-open when the match **materially** changes;
+  append-only during a customer's lifecycle (`match_events`) and only re-open when the
+  match **materially** changes; deleting a customer atomically removes that ledger from
+  the application database too;
   the TS scorer is parity-locked by frozen golden fixtures; `pnpm gate` == CI, literally.
 
 Banks and businesses are legally required to check that the people they deal with
@@ -50,8 +58,13 @@ browser tab — no server, no signup, no database to run.** Open the app and it:
    black box; a reviewer can always see why.
 4. **Gives reviewers an auditable workflow.** Each match is reviewed once; a re-screen
    only re-flags it (**CHANGED — needs re-review**) when the underlying data materially
-   changes. Every disposition is written to an append-only audit trail you can open per
-   match. Sensitivity (Strict / Balanced / Lenient) and per-list thresholds are
+   changes. Every disposition is appended to an audit trail you can open per match;
+   deleting the customer removes its matches and audit history in the same transaction.
+   SQLite `secure_delete=ON` overwrites deleted cells, and the persistent database uses
+   rollback-journal `DELETE` mode instead of a reusable WAL. Browser/OS storage may still
+   retain forensic remnants or backups outside the app's control; clearing site data is
+   the authoritative device-level reset. Sensitivity
+   (Strict / Balanced / Lenient) and per-list thresholds are
    configurable.
 5. **Keeps both sides in sync.** A new list version re-screens all your customers;
    editing a customer re-screens that one customer.
@@ -66,7 +79,8 @@ so the app works **offline** — and re-verified fail-closed on every load.
 
 ## Quickstart — clone to screening in ~10 minutes
 
-You need [Node 22.13](frontend/.nvmrc) and [pnpm](https://pnpm.io/). Everything runs
+This local path requires collaborator access to the private repository. You need
+[Node 22.13](frontend/.nvmrc) and [pnpm](https://pnpm.io/). Everything runs
 from the `frontend/` directory (the pnpm workspace is rooted there — there is no root
 `package.json`).
 
@@ -145,10 +159,11 @@ bundle**: a signed `latest` pointer → a content-hashed `manifest` → deduplic
 Entity IDs are namespaced per list (`OFAC_SDN:…`, `EU_CONSOLIDATED:…`). The wire format
 is documented in [`docs/WATCHLIST_FORMAT.md`](docs/WATCHLIST_FORMAT.md).
 
-Four adapters ship: **OFAC SDN** and **UN** fetch live (`fetchRaw` is real); **EU** and
-**UK/OFSI** have their real endpoint URLs wired but `fetchRaw` is **scaffolded** (EU
-needs a rotating access token, UK needs its asset path confirmed — each has a `TODO`).
-All four `parse()` implementations are real and fixture-tested.
+Four live adapters ship: **OFAC SDN**, **UN**, **EU**, and **UK/OFSI**. A production
+publish requires every adapter to fetch successfully, produce a source-specific
+plausible entity count, and prove an upstream update time within 90 days. Any missing,
+empty, truncated, stale, or future-dated feed aborts the new bundle; a partial sanctions
+set is never signed.
 
 ```bash
 # from frontend/
@@ -232,7 +247,8 @@ The lists are distributed as plain **signed static files** on any host or CDN �
 application server in the path. In the browser:
 
 - The engine fetches the signed **`latest` pointer** — the bundle's trust anchor — and
-  verifies its detached Ed25519 signature first.
+  verifies its detached Ed25519 signature first. Its signed, repository-wide monotonic
+  `sequence` prevents a valid older pointer from rolling back an active bundle.
 - It then fetches the content-addressed **`manifest`** and each **`chunk`** the manifest
   names, verifying every byte (Ed25519 + SHA-256) before materializing the catalog and
   lists.
@@ -279,6 +295,8 @@ This README is the canonical index.
 - [`docs/WATCHLIST_FORMAT.md`](docs/WATCHLIST_FORMAT.md) — the signed catalog + per-list
   wire format.
 - [`docs/DEPLOY.md`](docs/DEPLOY.md) — publishing and hosting the signed catalog + list files.
+- [`docs/OPERATIONS.md`](docs/OPERATIONS.md) — threat/privacy data flow, numeric SLA and
+  performance budgets, recovery behavior, and exact-deployment proof.
 - [`docs/diagrams/`](docs/diagrams/) — d2 sources + rendered SVGs.
 
 ## Repo layout

@@ -1,4 +1,5 @@
-import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { readdirSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -13,6 +14,7 @@ import { describe, expect, it } from "vitest";
 // This guard locks all three at the source files Pages copies from public/.
 const appDir = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const publicDir = resolve(appDir, "public");
+const repoDir = resolve(appDir, "..", "..");
 
 /**
  * Parse the Cloudflare Pages `_headers` grammar: an unindented non-comment line
@@ -84,5 +86,143 @@ describe("Cloudflare Pages deploy config", () => {
 		// catch-all security block, never replace it.
 		expect(rules.get("/*")).toContain("X-Frame-Options: DENY");
 		expect(rules.get("/*")).toContain("X-Content-Type-Options: nosniff");
+	});
+
+	it("ships a worker/WASM-safe CSP without broad script or network escape hatches", () => {
+		const rules = headerRules(
+			readFileSync(resolve(publicDir, "_headers"), "utf8"),
+		);
+		const csp = rules
+			.get("/*")
+			?.find((header) => header.startsWith("Content-Security-Policy:"));
+
+		expect(csp).toContain("default-src 'self'");
+		expect(csp).toContain("script-src 'self' 'wasm-unsafe-eval'");
+		expect(csp).toContain("worker-src 'self' blob:");
+		expect(csp).toContain("connect-src 'self'");
+		expect(csp).toContain("object-src 'none'");
+		expect(csp).toContain("frame-ancestors 'none'");
+		expect(csp).not.toContain("'unsafe-eval'");
+		expect(csp).not.toContain("'unsafe-inline'");
+		expect(csp).not.toContain("https:");
+	});
+
+	it("keeps the JSON-LD integrity hash synchronized with the CSP", () => {
+		const rules = headerRules(
+			readFileSync(resolve(publicDir, "_headers"), "utf8"),
+		);
+		const csp = rules
+			.get("/*")
+			?.find((header) => header.startsWith("Content-Security-Policy:"));
+		const html = readFileSync(resolve(appDir, "index.html"), "utf8");
+		const jsonLd = html.match(
+			/<script type="application\/ld\+json">([\s\S]*?)<\/script>/,
+		)?.[1];
+
+		expect(jsonLd).toBeDefined();
+		const hash = createHash("sha256")
+			.update(jsonLd ?? "")
+			.digest("base64");
+		expect(csp).toContain(`'sha256-${hash}'`);
+	});
+
+	it("keeps React markup compatible with style-src self", () => {
+		const layout = readFileSync(
+			resolve(appDir, "src/components/Layout.tsx"),
+			"utf8",
+		);
+		expect(layout).not.toContain("style={{");
+	});
+
+	it("needs no cross-origin data access in the same-origin production contract", () => {
+		const headers = readFileSync(resolve(publicDir, "_headers"), "utf8");
+		const activeHeaders = headers
+			.split("\n")
+			.filter((line) => !line.trimStart().startsWith("#"));
+		expect(activeHeaders.join("\n")).not.toMatch(
+			/Access-Control-Allow-Origin\s*:/i,
+		);
+	});
+
+	it("serves trust metadata with explicit MIME and cache semantics", () => {
+		const rules = headerRules(
+			readFileSync(resolve(publicDir, "_headers"), "utf8"),
+		);
+		expect(rules.get("/public.key")).toContain(
+			"Content-Type: application/octet-stream",
+		);
+		expect(rules.get("/public.key")).toContain(
+			"Cache-Control: no-cache, must-revalidate",
+		);
+		expect(rules.get("/bundle/origin/latest")).toContain(
+			"Cache-Control: no-store",
+		);
+		expect(rules.get("/build.json")).toEqual([
+			"Cache-Control: no-store",
+			"Content-Type: application/json; charset=utf-8",
+		]);
+		for (const pattern of [
+			"/bundle/origin/manifest/*",
+			"/bundle/origin/chunk/*",
+		]) {
+			expect(rules.get(pattern)).toContain(
+				"Cache-Control: public, max-age=31536000, immutable",
+			);
+		}
+	});
+
+	it("publishes and verifies a repository-wide monotonic workflow sequence", () => {
+		const deploy = readFileSync(
+			resolve(repoDir, ".github/workflows/deploy.yml"),
+			"utf8",
+		);
+		const nightly = readFileSync(
+			resolve(repoDir, ".github/workflows/publish-watchlist.yml"),
+			"utf8",
+		);
+		for (const workflow of [deploy, nightly]) {
+			expect(workflow).not.toContain("GITHUB_RUN_ID * 1000");
+			expect(workflow).toContain("next-published-sequence");
+			expect(workflow).toContain("https://aml-filter.com/bundle/origin");
+			expect(workflow).toMatch(
+				/next-published-sequence[\s\S]{0,400}--pubkey "\$GITHUB_WORKSPACE\/frontend\/app\/public\/public\.key"/,
+			);
+			expect(workflow).toContain('--sequence "$SEQUENCE"');
+			expect(workflow).toContain("verify-published-origin");
+			expect(workflow).toContain('--expect-sequence "$SEQUENCE"');
+		}
+	});
+
+	it("stamps and verifies the exact deployed commit so a no-op cannot pass", () => {
+		for (const workflow of ["deploy.yml", "publish-watchlist.yml"]) {
+			const yaml = readFileSync(
+				resolve(repoDir, ".github/workflows", workflow),
+				"utf8",
+			);
+			expect(yaml).toContain("build-identity.mjs stamp");
+			expect(yaml).toContain("build-identity.mjs verify");
+			expect(yaml).toContain("https://aml-filter.com/build.json");
+			expect(yaml).toContain('DEPLOY_SHA="$(git rev-parse HEAD)"');
+		}
+	});
+
+	it("pins every third-party workflow action to an immutable commit", () => {
+		const workflowsDir = resolve(repoDir, ".github/workflows");
+		const actionUse = /^\s*uses:\s*([^\s#]+)(?:\s+#\s*(.+))?$/gm;
+		for (const file of readdirSync(workflowsDir).filter((name) =>
+			/\.ya?ml$/.test(name),
+		)) {
+			const yaml = readFileSync(resolve(workflowsDir, file), "utf8");
+			for (const match of yaml.matchAll(actionUse)) {
+				const target = match[1] ?? "";
+				if (target.startsWith("./")) {
+					continue;
+				}
+				expect(target, `${file}: ${target}`).toMatch(/^[^@]+@[0-9a-f]{40}$/);
+				expect(match[2], `${file}: ${target} needs a version comment`).toMatch(
+					/^v\d/,
+				);
+			}
+		}
 	});
 });

@@ -35,6 +35,9 @@ interface SyncArgs {
 	 * Fires once per fetched chunk so the boot banner can show n/total instead of
 	 * looking frozen; a warm re-sync fetches nothing and emits nothing. */
 	readonly onProgress?: OnSyncProgress;
+	/** Cross-tab exclusive section for the final active-pointer re-check and
+	 * promotion. Production supplies a bounded Web Lock; pure tests may omit it. */
+	readonly promoteExclusive?: <T>(operation: () => Promise<T>) => Promise<T>;
 }
 
 const DECODER = new TextDecoder();
@@ -68,11 +71,73 @@ function isRollback(active: VersionPointer, incoming: VersionPointer): boolean {
 	if (incoming.sequence === undefined) {
 		return true;
 	}
-	return incoming.sequence < active.sequence;
+	if (incoming.sequence !== active.sequence) {
+		return incoming.sequence < active.sequence;
+	}
+	// Equality is idempotent only for the SAME signed pointer identity. Without
+	// this check, a workflow rerun (or replay) could reuse a sequence for different
+	// bytes and later roll between them without crossing the monotonic guard.
+	return !(
+		incoming.manifest_hash === active.manifest_hash &&
+		incoming.version === active.version &&
+		(incoming.bundle_id ?? null) === (active.bundle_id ?? null) &&
+		(incoming.channel ?? null) === (active.channel ?? null)
+	);
+}
+
+function assertNotRollback(
+	active: VersionPointer | null,
+	incoming: VersionPointer,
+): void {
+	if (active === null || !isRollback(active, incoming)) {
+		return;
+	}
+	throw new RollbackError(
+		`refusing to promote version "${incoming.version}" (sequence ${String(
+			incoming.sequence,
+		)}) over active sequence ${String(active.sequence)} — rollback rejected`,
+	);
+}
+
+function immediately<T>(operation: () => Promise<T>): Promise<T> {
+	return operation();
 }
 
 function parseJson<T>(bytes: Uint8Array): T {
 	return JSON.parse(DECODER.decode(bytes)) as T;
+}
+
+function assertVersionPointer(value: unknown): asserts value is VersionPointer {
+	const pointer = value as Partial<VersionPointer> | null;
+	if (
+		pointer === null ||
+		typeof pointer !== "object" ||
+		typeof pointer.manifest_hash !== "string" ||
+		typeof pointer.version !== "string" ||
+		typeof pointer.signature !== "string"
+	) {
+		throw new IntegrityError(
+			"signed latest pointer is missing manifest_hash/version/signature",
+		);
+	}
+	if (
+		!Number.isSafeInteger(pointer.sequence) ||
+		(pointer.sequence as number) < 0
+	) {
+		throw new IntegrityError(
+			"signed latest pointer is missing a non-negative monotonic sequence",
+		);
+	}
+}
+
+function pointerSigningBytes(pointer: VersionPointer): Uint8Array {
+	return canonicalBytes(pointer as unknown as JsonValue, {
+		exclude: {
+			signature: true,
+			bundle_id: pointer.bundle_id == null,
+			channel: pointer.channel == null,
+		},
+	});
 }
 
 /** Fetch `/latest` and verify its detached signature (fail-closed). The `/latest`
@@ -87,12 +152,11 @@ async function fetchPointer(
 	fetchBytes: FetchBytes,
 	verify: Verify,
 ): Promise<VersionPointer> {
-	const pointer = parseJson<VersionPointer>(
+	const pointer = parseJson<unknown>(
 		await fetchBytes(`${baseUrl}/latest`, { cache: "no-store" }),
 	);
-	const message = canonicalBytes(pointer as unknown as JsonValue, {
-		exclude: { signature: true },
-	});
+	assertVersionPointer(pointer);
+	const message = pointerSigningBytes(pointer);
 	await verify(message, pointer.signature);
 	return pointer;
 }
@@ -347,13 +411,7 @@ export async function syncIndex(args: SyncArgs): Promise<SyncResult> {
 	// backward. Checked BEFORE any manifest/chunk fetch so a replayed downgrade
 	// costs nothing and promotes nothing (fail-closed).
 	const active = await store.readActive();
-	if (active !== null && isRollback(active, pointer)) {
-		throw new RollbackError(
-			`refusing to promote version "${pointer.version}" (sequence ${String(
-				pointer.sequence,
-			)}) over active sequence ${String(active.sequence)} — rollback rejected`,
-		);
-	}
+	assertNotRollback(active, pointer);
 	const manifest = await fetchManifest(baseUrl, pointer, fetchBytes, store);
 	const { missing, reused } = await missingChunks(manifest, store);
 	// Quota preflight: refuse fail-fast (QuotaError) before fetching any chunk if
@@ -374,7 +432,14 @@ export async function syncIndex(args: SyncArgs): Promise<SyncResult> {
 	// chunks are verified here, and each file's sha256 is checked once at
 	// materialize BEFORE its bytes are used.
 	await verifyReusedChunks(manifest, missing, store);
-	await store.promote(pointer);
+	// The optimistic gate above avoids needless bundle work for an obvious replay.
+	// Re-read under the cross-tab promotion lock immediately before the write: a
+	// newer tab may have promoted while this tab downloaded and verified chunks.
+	const promoteExclusive = args.promoteExclusive ?? immediately;
+	await promoteExclusive(async () => {
+		assertNotRollback(await store.readActive(), pointer);
+		await store.promote(pointer);
+	});
 	return {
 		version: pointer.version,
 		manifestHash: pointer.manifest_hash,

@@ -94,7 +94,7 @@ describe("publishCatalog", () => {
 		);
 	}
 
-	test("publishes only the lists whose fetchRaw succeeds; skips the thrower", async () => {
+	test("fails closed when any configured source cannot be fetched", async () => {
 		const sources: readonly { source: WatchlistSource; slug: string }[] = [
 			{
 				source: fakeSource("OFAC_SDN", "OFAC SDN", "Ivan Fakovich"),
@@ -103,25 +103,17 @@ describe("publishCatalog", () => {
 			{ source: fakeSource("UN_CONSOLIDATED", "UN", "Jane Roe"), slug: "un" },
 			{ source: throwingSource("EU_CONSOLIDATED", "EU"), slug: "eu" },
 		];
-		const succeeded = await publishCatalog({
-			sources,
-			version: "test-1",
-			privateKey: await demoKey(),
-			outDir: dir,
-			embedder: createFakeEmbedder(),
-			generatedAt: FIXED_AT,
-		});
-
-		expect(succeeded).toEqual(["OFAC_SDN", "UN_CONSOLIDATED"]);
-
-		const cat = await readCatalog();
-		expect(cat.schema).toBe(1);
-		// Catalog lists exactly the two that fetched, sorted by id, never the thrower.
-		expect(cat.lists.map((l) => l.id)).toEqual(["OFAC_SDN", "UN_CONSOLIDATED"]);
-		expect(cat.lists.map((l) => l.path)).toEqual(["ofac/", "un/"]);
-		for (const l of cat.lists) {
-			expect(l.version).toBe("test-1");
-		}
+		await expect(
+			publishCatalog({
+				sources,
+				version: "test-1",
+				privateKey: await demoKey(),
+				outDir: dir,
+				embedder: createFakeEmbedder(),
+				generatedAt: FIXED_AT,
+			}),
+		).rejects.toThrow(/EU_CONSOLIDATED.*required feed/i);
+		await expect(readCatalog()).rejects.toThrow();
 	});
 
 	test("signs the catalog and every per-list artifact verifiably against the demo key", async () => {
@@ -131,7 +123,7 @@ describe("publishCatalog", () => {
 				slug: "ofac",
 			},
 			{ source: fakeSource("UN_CONSOLIDATED", "UN", "Jane Roe"), slug: "un" },
-			{ source: throwingSource("UK_OFSI", "UK"), slug: "uk" },
+			{ source: fakeSource("UK_OFSI", "UK", "Example UK"), slug: "uk" },
 		];
 		await publishCatalog({
 			sources,
@@ -143,13 +135,13 @@ describe("publishCatalog", () => {
 		});
 
 		await verifyPair("", "catalog.json");
-		for (const slug of ["ofac", "un"]) {
+		for (const slug of ["ofac", "un", "uk"]) {
 			await verifyPair(slug, "watchlist.json");
 			await verifyPair(slug, "watchlist.manifest.json");
 		}
 	});
 
-	test("fails closed when every source's fetchRaw throws", async () => {
+	test("fails closed when the first source's fetchRaw throws", async () => {
 		const sources: readonly { source: WatchlistSource; slug: string }[] = [
 			{ source: throwingSource("EU_CONSOLIDATED", "EU"), slug: "eu" },
 			{ source: throwingSource("UK_OFSI", "UK"), slug: "uk" },
@@ -163,6 +155,6 @@ describe("publishCatalog", () => {
 				embedder: createFakeEmbedder(),
 				generatedAt: FIXED_AT,
 			}),
-		).rejects.toThrow(/no lists/i);
+		).rejects.toThrow(/EU_CONSOLIDATED.*required feed/i);
 	});
 });

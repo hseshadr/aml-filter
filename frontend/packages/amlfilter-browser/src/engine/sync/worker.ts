@@ -6,6 +6,12 @@
 
 import { verifyEd25519 } from "../crypto";
 import { fetchBytes } from "./fetchBytes";
+import {
+	type WebLockManager,
+	withClearLifecycleLock,
+	withPromotionLock,
+	withSyncLifecycleLock,
+} from "./mutationLock";
 import { OpfsCacheStore } from "./opfsStore";
 import type {
 	ClearRequest,
@@ -30,6 +36,10 @@ function store(): Promise<OpfsCacheStore> {
 	return storePromise;
 }
 
+function lockManager(): WebLockManager | undefined {
+	return navigator.locks as unknown as WebLockManager | undefined;
+}
+
 async function loadPubkey(pubkeyUrl: string): Promise<Uint8Array> {
 	// The pinned trust root is the one input the whole fail-closed verify hangs
 	// on; fetch it fresh (no-store) so a stale cached key can never be the thing
@@ -38,29 +48,35 @@ async function loadPubkey(pubkeyUrl: string): Promise<Uint8Array> {
 }
 
 async function handleSync(req: SyncRequest): Promise<EngineResponse> {
-	void navigator.storage.persist?.().catch(() => false); // best-effort, never blocks
-	const cacheStore = await store();
-	const pubkey = await loadPubkey(req.pubkeyUrl);
-	const result = await syncIndex({
-		baseUrl: req.baseUrl,
-		store: cacheStore,
-		fetchBytes,
-		verify: (message, signature) => verifyEd25519(pubkey, message, signature),
-		// Storage-quota preflight seam: refuse fail-fast with a QuotaError if the
-		// device can't hold the bundle, instead of fetching tens of MB only for the
-		// first OPFS write to throw. Guarded — a browser without estimate() reports
-		// nothing, which the preflight treats best-effort (proceed).
-		estimateStorage: () =>
-			navigator.storage?.estimate?.() ?? Promise.resolve({}),
-		// One-way per-chunk progress back to the main thread so the boot banner
-		// shows n/total during the long cold sync instead of looking frozen.
-		onProgress: (progress) => {
-			self.postMessage({ kind: "sync-progress", id: req.id, progress });
-		},
+	return withSyncLifecycleLock(lockManager(), async () => {
+		void navigator.storage.persist?.().catch(() => false); // best-effort, never blocks
+		const cacheStore = await store();
+		const pubkey = await loadPubkey(req.pubkeyUrl);
+		const result = await syncIndex({
+			baseUrl: req.baseUrl,
+			store: cacheStore,
+			fetchBytes,
+			verify: (message, signature) => verifyEd25519(pubkey, message, signature),
+			// Storage-quota preflight seam: refuse fail-fast with a QuotaError if the
+			// device can't hold the bundle, instead of fetching tens of MB only for the
+			// first OPFS write to throw. Guarded — a browser without estimate() reports
+			// nothing, which the preflight treats best-effort (proceed).
+			estimateStorage: () =>
+				navigator.storage?.estimate?.() ?? Promise.resolve({}),
+			// One-way per-chunk progress back to the main thread so the boot banner
+			// shows n/total during the long cold sync instead of looking frozen.
+			onProgress: (progress) => {
+				self.postMessage({ kind: "sync-progress", id: req.id, progress });
+			},
+			// The lock is held only for the final active-pointer re-read + write;
+			// downloads and verification remain concurrent across tabs.
+			promoteExclusive: (operation) =>
+				withPromotionLock(lockManager(), operation),
+		});
+		const raw = await cacheStore.getManifest(result.manifestHash);
+		activeManifest = JSON.parse(DECODER.decode(raw)) as IndexManifest;
+		return { ok: true, id: req.id, kind: "sync", result };
 	});
-	const raw = await cacheStore.getManifest(result.manifestHash);
-	activeManifest = JSON.parse(DECODER.decode(raw)) as IndexManifest;
-	return { ok: true, id: req.id, kind: "sync", result };
 }
 
 async function handleReadFile(req: ReadFileRequest): Promise<EngineResponse> {
@@ -70,10 +86,12 @@ async function handleReadFile(req: ReadFileRequest): Promise<EngineResponse> {
 }
 
 async function handleClear(req: ClearRequest): Promise<EngineResponse> {
-	await (await store()).clear();
-	// The cleared store has no active manifest; force a re-read on the next sync.
-	activeManifest = null;
-	return { ok: true, id: req.id, kind: "clear" };
+	return withClearLifecycleLock(lockManager(), async () => {
+		await (await store()).clear();
+		// The cleared store has no active manifest; force a re-read on the next sync.
+		activeManifest = null;
+		return { ok: true, id: req.id, kind: "clear" };
+	});
 }
 
 async function loadActiveManifest(): Promise<IndexManifest> {

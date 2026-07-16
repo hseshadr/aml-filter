@@ -541,6 +541,11 @@
 	gap: var(--spacing-sm);
 }
 
+.nav-brand__logo {
+	width: 2rem;
+	height: 2rem;
+}
+
 .nav-link {
 	text-decoration: none;
 	color: var(--color-text);

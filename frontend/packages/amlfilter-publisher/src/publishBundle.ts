@@ -20,6 +20,8 @@ export interface PublishBundleInput {
 	readonly keyPath: string;
 	readonly bundleId: string;
 	readonly version: string;
+	/** Repository-wide monotonic publish counter, signed into /latest. */
+	readonly sequence: number;
 	/** edge-proc checkout; defaults to DEFAULT_EDGEPROC_DIR / EDGEPROC_DIR. */
 	readonly edgeprocDir?: string;
 }
@@ -34,6 +36,9 @@ export interface EdgeprocCommand {
 export function edgeprocPublishArgs(
 	input: PublishBundleInput,
 ): EdgeprocCommand {
+	if (!Number.isSafeInteger(input.sequence) || input.sequence < 0) {
+		throw new Error("sequence must be a non-negative safe integer");
+	}
 	const edgeprocDir =
 		input.edgeprocDir ?? process.env.EDGEPROC_DIR ?? DEFAULT_EDGEPROC_DIR;
 	return {
@@ -54,6 +59,8 @@ export function edgeprocPublishArgs(
 			input.bundleId,
 			"--version",
 			input.version,
+			"--sequence",
+			String(input.sequence),
 			"--pretty",
 		],
 	};

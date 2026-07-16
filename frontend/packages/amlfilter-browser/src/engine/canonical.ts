@@ -18,8 +18,9 @@ export type JsonValue =
 	| { readonly [key: string]: JsonValue };
 
 interface CanonicalOptions {
-	/** Top-level keys to drop (mirrors Python `exclude=`), e.g. `{ signature: true }`. */
-	readonly exclude?: Readonly<Record<string, true>>;
+	/** Top-level keys to drop when true (mirrors Python `exclude=`), e.g.
+	 * `{ signature: true, channel: pointer.channel == null }`. */
+	readonly exclude?: Readonly<Record<string, boolean>>;
 }
 
 function isPlainObject(

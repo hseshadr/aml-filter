@@ -34,6 +34,13 @@
 	},
 	"results": {
 		"browsing": "Browsing all {{total}} entities on the demo list — searched entirely in your browser.",
+		"directoryRange": "Showing {{start}}–{{end}} of {{total}} entities",
+		"pagination": {
+			"ariaLabel": "Watchlist directory pages",
+			"previous": "Previous page",
+			"next": "Next page",
+			"page": "Page {{page}} of {{total}}"
+		},
 		"searching": "Searching…",
 		"searchError": "Screening failed — this name was NOT cleared. {{detail}}. Edit the name to try again.",
 		"noMatch": "No sanctions match “{{query}}”. Screened in {{ms}} ms.",

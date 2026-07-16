@@ -8,6 +8,9 @@ scorer all run in the browser. No server, no database, nothing to provision.
 Clone → install → run → screen a name → work it in the review board. About **ten
 minutes**, mostly the first build fetching the embedding-model weights.
 
+> The source repository is currently private. The clone path below requires collaborator
+> access; the public live demo remains available at <https://aml-filter.com>.
+
 > Reminder: aml-filter is a portfolio demo, **not** a compliance product. See
 > [`../NOTICE`](../NOTICE).
 
@@ -15,6 +18,8 @@ minutes**, mostly the first build fetching the embedding-model weights.
 
 - **Node 22.13.0** (see [`../frontend/.nvmrc`](../frontend/.nvmrc); `nvm use` picks it up)
 - **pnpm** (`corepack enable` provides the pinned version)
+- **A supported desktop browser** — current or previous Chrome, Edge, Firefox, or
+  Safari 17+, with module Workers, OPFS, WebCrypto, and Web Locks enabled
 
 That's the whole list. There is no backend to install.
 
@@ -38,9 +43,10 @@ storage.
 Go to **`/screen`**. On first visit the page:
 
 1. boots the **MiniLM** embedder once (cached after the first load),
-2. syncs the committed **signed catalog** into the tab — it verifies `catalog.json`
-   first, then each enabled list it points at (Ed25519 + SHA-256, fail-closed — a
-   tampered or unsigned file aborts the load),
+2. syncs the committed **signed bundle** into the tab — it verifies the Ed25519
+   `latest` pointer, content-addressed manifest and compressed chunks before parsing
+   the materialized `catalog.json` and enabled lists (fail-closed — a tampered,
+   oversized, stale, or unsigned artifact aborts the load),
 3. is then ready to screen names across all enabled lists entirely in-tab.
 
 Type a sanctioned-ish name (something close to a demo entry) and submit. You get a
@@ -62,7 +68,7 @@ Go to **`/settings`** to configure the screening run. It persists to the local S
   rescan.
 - **Per-list overrides** — tighten or loosen the threshold for one list independently.
 - **Analyst name** — stamped on the dispositions you record.
-- **Clear cached lists** — drops the durable IndexedDB list cache; the next load
+- **Clear cached lists** — drops the durable OPFS bundle cache; the next load
   re-fetches and re-verifies fail-closed.
 
 ## 4. Onboard a customer and work a match (`/customers` → `/review`)
@@ -83,7 +89,11 @@ SQLite-WASM database persisted in your browser's OPFS — local to the tab, no s
    disposition and stays suppressed — you don't re-review it. If the matched entity's
    identity data changed, the match is flagged **CHANGED — needs re-review** (keeping the
    prior disposition) and shows up under "Needs review" / "Changed only". Every
-   transition is appended to the immutable `match_events` audit trail.
+   transition is appended to the `match_events` audit trail. Deleting that customer
+   atomically removes the customer, matches, reviewer notes, and event history from the
+   application database. The persistent connection enables SQLite `secure_delete` and
+   disables reusable WAL journaling; browser/OS forensic remnants remain outside the
+   app's guarantee, so clear this origin's site data for the device-level reset.
 
 Everything — onboarding, screening, and the review decision — happens in the browser
 against the in-tab database and the signed lists.
@@ -107,32 +117,30 @@ the live data, see [`DEPLOY.md`](DEPLOY.md) and the wire format in
 
 ## 6. Run the gate
 
-There is no single `gate` script — run these four commands from `frontend/`, in order:
+Run the same canonical gate CI runs, from `frontend/`:
 
 ```bash
 cd frontend
-pnpm -r run lint          # Biome lint + format check across the workspace
-pnpm -r run typecheck     # tsc across the workspace
-pnpm -r run test          # Vitest across all packages (incl. the frozen scoring +
-                          #   tiering golden parity tests vs. the source of truth)
-pnpm -r run build         # production build across the workspace
+pnpm gate
 ```
 
-These mirror what CI runs. The golden parity tests are the guard that the in-browser
-scorer and tier classifier stay byte-for-byte faithful to their reference output.
+This runs lint, strict typechecking, thresholded coverage, production builds, i18n
+verification, and all three real-browser lanes. The golden parity tests guard the
+in-browser scorer and tier classifier against their frozen reference output.
 
 ### End-to-end browser lanes
 
-Two Playwright lanes drive the **real minified build** against the **committed signed
-demo catalog** in real Chromium (from `frontend/app`):
+Three Playwright lanes drive the **real minified build** against the **committed signed
+demo bundle** in real Chromium (from `frontend/app`):
 
 ```bash
 cd frontend/app
 pnpm test:e2e:c1     # the in-tab C1 screening lane (boot → verify → screen)
 pnpm test:e2e:kyc    # the backend-free KYC journey: onboard → auto-screen → review → resolve
+pnpm test:e2e:bundle # signed-bundle delta sync: verify → OPFS → offline reload
 ```
 
-CI runs both. A green build is **not** proof the app works — these lanes are the
+CI runs all three. A green build is **not** proof the app works — these lanes are the
 guard that the actual demo bundle verifies and screens in a real browser.
 
 ## Production build + preview (browser-validation path)

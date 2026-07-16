@@ -211,6 +211,31 @@ describe("recordMatches", () => {
 		expect(listReviewMatches(db, {})).toHaveLength(0);
 	});
 
+	it("deleting the customer also erases its audit events and reviewer notes", () => {
+		const customer = createCustomer(db, {
+			customer_reference: "R-PRIVATE",
+			name: "Private Person",
+		});
+		const [match] = recordMatches(db, customer.customer_id, [makeTiered()]);
+		if (match === undefined) throw new Error("match missing");
+		resolveMatch(
+			db,
+			match.match_id,
+			"FALSE_POSITIVE",
+			"analyst@example.test",
+			"Contains private review context",
+		);
+		expect(getMatchEvents(db, match.match_id)).not.toHaveLength(0);
+
+		deleteCustomer(db, customer.customer_id);
+
+		expect(
+			db.selectObjects("SELECT * FROM match_events WHERE customer_id = ?", [
+				customer.customer_id,
+			]),
+		).toEqual([]);
+	});
+
 	it("returns the persisted rows even when 100+ higher-scored matches exist elsewhere", () => {
 		// Regression: the return read used the board-paginated query (LIMIT 100,
 		// score DESC, no customer filter), so once the table held 100 stronger
