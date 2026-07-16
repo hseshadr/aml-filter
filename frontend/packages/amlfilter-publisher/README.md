@@ -43,7 +43,9 @@ pnpm --filter @amlfilter/publisher run build-real-bundle -- \
 
 `--sequence` must be greater than the verified live signed pointer. Deployment uses
 `next-published-sequence` to fetch, verify, and increment that pointer instead of
-deriving order from a CI run identifier.
+deriving order from a CI run identifier. If the live origin predates sequence
+versioning, its verified sequence-less pointer is treated as zero for the first
+publish only; newly emitted pointers always carry a sequence.
 
 The older `publish` command still emits the retired flat single-list artifact for
 source-tooling compatibility; the browser does not load it.

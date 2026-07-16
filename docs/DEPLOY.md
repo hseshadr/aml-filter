@@ -59,10 +59,12 @@ and live-verified by the **`publish-watchlist` GitHub Action**; the committed de
 date).
 
 **What it does.** Install workspace deps and pinned edge-proc → resolve the version
-stamp → fetch and embed the live source lists → publish the signed bundle with the
-repository-wide monotonic `run_id * 1000 + run_attempt` as its `sequence` → verify it against the
-pinned public key → build and deploy the same-origin SPA → re-fetch and verify the
-live pointer, manifest, and every chunk through the browser-compatible decode path.
+stamp → fetch and embed the live source lists → fetch and signature-verify the live
+`latest` pointer, deriving the next `sequence` by incrementing it (a pre-sequence
+legacy pointer is treated as the zero baseline for this one-way migration) → publish
+the signed bundle → verify it against the pinned public key → build and deploy the
+same-origin SPA → re-fetch and verify the live pointer, manifest, and every chunk
+through the browser-compatible decode path.
 
 **The signing key.** The `WATCHLIST_SIGNING_KEY` repository secret holds the **raw
 32-byte Ed25519 seed, base64-encoded** (so it round-trips cleanly through a GitHub

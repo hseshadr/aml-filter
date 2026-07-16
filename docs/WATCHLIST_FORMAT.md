@@ -62,7 +62,7 @@ The trust anchor: a detached Ed25519 signature over the canonical bytes of the o
 | `manifest_hash` | hex sha256 of the manifest's canonical bytes — the content address under `manifest/` |
 | `version` | the composite version stamp (also used for change-detection on poll) |
 | `bundle_id` / `channel` | optional edge-proc routing identity; null in the committed demo |
-| `sequence` | required non-negative safe integer; publisher workflows use `GitHub run_id * 1000 + run_attempt`, so a rerun cannot reuse a sequence for different bytes |
+| `sequence` | required non-negative safe integer on new pointers; the publisher derives it as one greater than the signature-verified live pointer. During the one-way first-publish migration, a valid pre-sequence pointer is treated as zero by `next-published-sequence`; all emitted pointers and incoming browser pointers remain sequenced |
 | `signature` | base64 Ed25519 over `canonicalBytes(self, exclude {signature})` |
 
 An equal sequence is idempotent only when the pointer identity (manifest, version,

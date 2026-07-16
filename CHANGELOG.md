@@ -13,12 +13,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   page behind semantic Previous/Next controls, an announced visible range, and stable
   focus behavior; a 31,348-entity regression fixture locks the DOM bound.
 - **Signed-pointer rollback prevention end to end** — `sequence` is now required on
-  every newly published pointer, supplied by both deployment workflows from the
-  repository-wide monotonic GitHub run/attempt composite, verified after live publication, and
-  rejected by the browser before manifest/chunk fetch when missing or stale. A cached
-  legacy sequence-less pointer may upgrade once; equal sequence is idempotent only for
-  the same pointer identity, while a different pointer reusing it is rejected before
-  manifest fetch.
+  every newly published pointer, derived by both deployment workflows from the
+  signature-verified live pointer, verified after live publication, and rejected by
+  the browser before manifest/chunk fetch when missing or stale. A verified
+  sequence-less live pointer is treated as zero only while bootstrapping the first
+  sequence-aware publish; a cached legacy pointer may upgrade once; equal sequence is
+  idempotent only for the same pointer identity, while a different pointer reusing it
+  is rejected before manifest fetch.
 - **Production response contract** — Cloudflare Pages now ships a browser-validated,
   worker/WASM-safe CSP without unsafe or network-wide escape hatches; explicit MIME and
   cache rules for the trust root, mutable pointer, and immutable CAS; and no wildcard
