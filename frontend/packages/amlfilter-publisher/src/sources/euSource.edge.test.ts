@@ -73,6 +73,14 @@ describe("euSource.fetchRaw", () => {
 		});
 	});
 
+	test("extracts the upstream generation instant", () => {
+		expect(
+			euSource.sourceUpdatedAt?.({
+				[EU_RAW_FILE]: '<export generationDate="2026-07-01T10:11:12Z"/>',
+			}),
+		).toBe("2026-07-01T10:11:12Z");
+	});
+
 	test("rejects with the status on a non-OK response", async () => {
 		vi.stubGlobal(
 			"fetch",

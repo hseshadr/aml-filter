@@ -97,6 +97,9 @@ export const euSource: WatchlistSource = {
 		}
 		return { [EU_RAW_FILE]: await res.text() };
 	},
+	sourceUpdatedAt(raw: RawListBytes): string | undefined {
+		return elements(raw[EU_RAW_FILE] ?? "", "export")[0]?.attrs.generationDate;
+	},
 	parse(raw: RawListBytes, listVersion: string): SourceLine[] {
 		const xml = raw[EU_RAW_FILE] ?? "";
 		return elements(xml, "sanctionEntity").map((el) => ({

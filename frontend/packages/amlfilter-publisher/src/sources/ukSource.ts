@@ -151,6 +151,15 @@ export const ukSource: WatchlistSource = {
 		}
 		return { [UK_RAW_FILE]: await res.text() };
 	},
+	sourceUpdatedAt(raw: RawListBytes): string | undefined {
+		const firstLine = (raw[UK_RAW_FILE] ?? "").split(/\r?\n/, 1)[0];
+		const value = firstLine?.match(/^Last Updated,(\d{2})\/(\d{2})\/(\d{4})$/);
+		if (value === null || value === undefined) {
+			return undefined;
+		}
+		const [, day, month, year] = value;
+		return `${year}-${month}-${day}T00:00:00.000Z`;
+	},
 	parse(raw: RawListBytes, listVersion: string): SourceLine[] {
 		const rows = parseRows(raw[UK_RAW_FILE] ?? "");
 		return [...groupRows(rows).values()].map((g) => foldGroup(g, listVersion));

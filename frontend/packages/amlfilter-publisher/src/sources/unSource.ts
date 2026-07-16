@@ -81,6 +81,10 @@ export const unSource: WatchlistSource = {
 		}
 		return { [UN_RAW_FILE]: await res.text() };
 	},
+	sourceUpdatedAt(raw: RawListBytes): string | undefined {
+		return elements(raw[UN_RAW_FILE] ?? "", "CONSOLIDATED_LIST")[0]?.attrs
+			.dateGenerated;
+	},
 	parse(raw: RawListBytes, listVersion: string): SourceLine[] {
 		const xml = raw[UN_RAW_FILE] ?? "";
 		const persons = elements(xml, "INDIVIDUAL").map((el) =>

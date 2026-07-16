@@ -91,6 +91,30 @@ function wrapDb(db: Oo1Db): SqlDatabase {
 	};
 }
 
+/**
+ * Harden a persistent customer database before schema or customer access.
+ * `secure_delete` overwrites deleted SQLite cells. A truncating checkpoint
+ * retires any legacy WAL, then DELETE journaling prevents committed PII from
+ * lingering in a reusable WAL file. If the VFS cannot honor either boundary,
+ * opening fails closed instead of overstating deletion guarantees.
+ */
+export function configurePersistentPrivacy(db: SqlDatabase): void {
+	db.exec("PRAGMA secure_delete = ON");
+	db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+	const journalMode = db.selectObjects("PRAGMA journal_mode = DELETE")[0]
+		?.journal_mode;
+	if (journalMode !== "delete") {
+		throw new Error(
+			`persistent SQLite journal mode is ${String(journalMode)}; expected delete`,
+		);
+	}
+	const secureDelete = db.selectObjects("PRAGMA secure_delete")[0]
+		?.secure_delete;
+	if (secureDelete !== 1) {
+		throw new Error("persistent SQLite secure_delete is not enabled");
+	}
+}
+
 /** An in-memory database — the unit-test seam (Node-safe, no OPFS). */
 export async function openMemoryDatabase(): Promise<SqlDatabase> {
 	const sqlite3 = await loadSqlite();
@@ -116,5 +140,7 @@ export async function openPersistentDatabase(
 		name: poolName,
 		forceReinitIfPreviouslyFailed: true,
 	});
-	return wrapDb(new pool.OpfsSAHPoolDb(filename));
+	const database = wrapDb(new pool.OpfsSAHPoolDb(filename));
+	configurePersistentPrivacy(database);
+	return database;
 }

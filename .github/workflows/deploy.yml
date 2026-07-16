@@ -106,7 +106,7 @@ jobs:
           exit "$missing"
 
       - name: Checkout code
-        uses: actions/checkout@v7
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           # Deploy the exact commit that passed CI (auto-run); HEAD for manual.
           ref: ${{ github.event.workflow_run.head_sha || github.ref }}
@@ -114,16 +114,14 @@ jobs:
       - name: Record the exact revision being deployed
         run: |
           DEPLOY_SHA="$(git rev-parse HEAD)"
-          SEQUENCE="$((GITHUB_RUN_ID * 1000 + GITHUB_RUN_ATTEMPT))"
           echo "DEPLOY_SHA=$DEPLOY_SHA" >> "$GITHUB_ENV"
-          echo "SEQUENCE=$SEQUENCE" >> "$GITHUB_ENV"
 
       # Reads the pinned pnpm version from frontend/package.json "packageManager".
-      - uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
         with:
           package_json_file: frontend/package.json
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version-file: frontend/.nvmrc
           cache: pnpm
@@ -132,12 +130,19 @@ jobs:
       - name: Install workspace
         run: pnpm -C frontend install --frozen-lockfile
 
+      - name: Derive the next sequence from the verified LIVE pointer
+        run: |
+          SEQUENCE="$(pnpm --silent -C frontend --filter @amlfilter/publisher run next-published-sequence -- \
+            --base-url https://aml-filter.com/bundle/origin \
+            --pubkey "$GITHUB_WORKSPACE/frontend/app/public/public.key")"
+          echo "SEQUENCE=$SEQUENCE" >> "$GITHUB_ENV"
+
       # Self-hosted MiniLM weights, fetched BEFORE the build (same as CI). They feed
       # BOTH the Node embedder (real-bundle build) and the SPA prebuild. HF's CDN
       # hard-429s GitHub runner IPs, so pull them from our own release instead.
       - name: Cache self-hosted model weights
         id: model-weights-cache
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: frontend/app/public/models
           key: model-weights-${{ runner.os }}-rel1-${{ hashFiles('frontend/app/scripts/download-model.mjs') }}
@@ -159,7 +164,7 @@ jobs:
 
       # edge-proc chunks + signs the staged tree (not on PyPI → clone + uv sync).
       - name: Install uv
-        uses: astral-sh/setup-uv@v8.3.2
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
 
       - name: Install edge-proc
         working-directory: ${{ runner.temp }}

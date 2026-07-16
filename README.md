@@ -34,7 +34,8 @@ and embedded WebViews are not part of the release contract.
 - **Core invariants** — verify-before-parse on every byte (any signature/hash mismatch
   aborts — fetched and cached alike); customer data never leaves the browser; reviews are
   append-only during a customer's lifecycle (`match_events`) and only re-open when the
-  match **materially** changes; deleting a customer atomically erases that ledger too;
+  match **materially** changes; deleting a customer atomically removes that ledger from
+  the application database too;
   the TS scorer is parity-locked by frozen golden fixtures; `pnpm gate` == CI, literally.
 
 Banks and businesses are legally required to check that the people they deal with
@@ -58,7 +59,11 @@ browser tab — no server, no signup, no database to run.** Open the app and it:
 4. **Gives reviewers an auditable workflow.** Each match is reviewed once; a re-screen
    only re-flags it (**CHANGED — needs re-review**) when the underlying data materially
    changes. Every disposition is appended to an audit trail you can open per match;
-   deleting the customer erases its matches and audit history together. Sensitivity
+   deleting the customer removes its matches and audit history in the same transaction.
+   SQLite `secure_delete=ON` overwrites deleted cells, and the persistent database uses
+   rollback-journal `DELETE` mode instead of a reusable WAL. Browser/OS storage may still
+   retain forensic remnants or backups outside the app's control; clearing site data is
+   the authoritative device-level reset. Sensitivity
    (Strict / Balanced / Lenient) and per-list thresholds are
    configurable.
 5. **Keeps both sides in sync.** A new list version re-screens all your customers;
@@ -154,10 +159,11 @@ bundle**: a signed `latest` pointer → a content-hashed `manifest` → deduplic
 Entity IDs are namespaced per list (`OFAC_SDN:…`, `EU_CONSOLIDATED:…`). The wire format
 is documented in [`docs/WATCHLIST_FORMAT.md`](docs/WATCHLIST_FORMAT.md).
 
-Four adapters ship: **OFAC SDN** and **UN** fetch live (`fetchRaw` is real); **EU** and
-**UK/OFSI** have their real endpoint URLs wired but `fetchRaw` is **scaffolded** (EU
-needs a rotating access token, UK needs its asset path confirmed — each has a `TODO`).
-All four `parse()` implementations are real and fixture-tested.
+Four live adapters ship: **OFAC SDN**, **UN**, **EU**, and **UK/OFSI**. A production
+publish requires every adapter to fetch successfully, produce a source-specific
+plausible entity count, and prove an upstream update time within 90 days. Any missing,
+empty, truncated, stale, or future-dated feed aborts the new bundle; a partial sanctions
+set is never signed.
 
 ```bash
 # from frontend/

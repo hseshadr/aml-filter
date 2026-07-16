@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -181,8 +181,11 @@ describe("Cloudflare Pages deploy config", () => {
 			"utf8",
 		);
 		for (const workflow of [deploy, nightly]) {
-			expect(workflow).toContain(
-				'SEQUENCE="$((GITHUB_RUN_ID * 1000 + GITHUB_RUN_ATTEMPT))"',
+			expect(workflow).not.toContain("GITHUB_RUN_ID * 1000");
+			expect(workflow).toContain("next-published-sequence");
+			expect(workflow).toContain("https://aml-filter.com/bundle/origin");
+			expect(workflow).toMatch(
+				/next-published-sequence[\s\S]{0,400}--pubkey "\$GITHUB_WORKSPACE\/frontend\/app\/public\/public\.key"/,
 			);
 			expect(workflow).toContain('--sequence "$SEQUENCE"');
 			expect(workflow).toContain("verify-published-origin");
@@ -200,6 +203,26 @@ describe("Cloudflare Pages deploy config", () => {
 			expect(yaml).toContain("build-identity.mjs verify");
 			expect(yaml).toContain("https://aml-filter.com/build.json");
 			expect(yaml).toContain('DEPLOY_SHA="$(git rev-parse HEAD)"');
+		}
+	});
+
+	it("pins every third-party workflow action to an immutable commit", () => {
+		const workflowsDir = resolve(repoDir, ".github/workflows");
+		const actionUse = /^\s*uses:\s*([^\s#]+)(?:\s+#\s*(.+))?$/gm;
+		for (const file of readdirSync(workflowsDir).filter((name) =>
+			/\.ya?ml$/.test(name),
+		)) {
+			const yaml = readFileSync(resolve(workflowsDir, file), "utf8");
+			for (const match of yaml.matchAll(actionUse)) {
+				const target = match[1] ?? "";
+				if (target.startsWith("./")) {
+					continue;
+				}
+				expect(target, `${file}: ${target}`).toMatch(/^[^@]+@[0-9a-f]{40}$/);
+				expect(match[2], `${file}: ${target} needs a version comment`).toMatch(
+					/^v\d/,
+				);
+			}
 		}
 	});
 });

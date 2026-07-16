@@ -251,7 +251,7 @@ On a rescan (`replaceMatches` → `planReplacement`, `db/operations.ts`):
   `SUPPRESSED` event is appended.
 
 Every transition is written to the append-only-during-lifecycle **`match_events`** audit
-trail (`appendEvent` is INSERT-only; explicit customer deletion erases that customer's
+trail (`appendEvent` is INSERT-only; explicit customer deletion removes that customer's
 events, reviewer identity, and notes in the same transaction): event types
 are `DETECTED`, `DISPOSITIONED`, `REOPENED`, `CHANGED`, `SUPPRESSED`. The review board's
 per-match **History drawer** reads this trail; `/settings` configures sensitivity,
@@ -317,11 +317,17 @@ tables that hold the workstation's state:
   `ofac_entity_id` (NOT NULL), `event_type` (NOT NULL), `from_status`, `to_status`,
   `reviewer_id`, `notes`, `at` (NOT NULL). Indexed on `(match_id)` and
   `(customer_id, ofac_entity_id)`. Lifecycle writes use `appendEvent` only; explicit
-  customer deletion erases the customer's ledger atomically with the customer row.
+  customer deletion removes the customer's ledger atomically with the customer row.
 - **`settings`** — `key` (PK), `value` (NOT NULL). Holds
   `last_synced_watchlist_version` (the rescan version pointer above), the screening
   sensitivity / per-list overrides, the enabled-watchlist selection, and the analyst
   name.
+
+The production OPFS connection enables SQLite `secure_delete`, truncates a legacy WAL,
+and requires rollback-journal `DELETE` mode before opening the schema. That overwrites
+deleted SQLite cells and prevents a reusable WAL from retaining committed customer
+pages. It does not promise forensic erasure from browser/OS storage, snapshots, or
+backups; clearing origin site data is the device-level privacy boundary.
 
 ## Match tiers (review triage)
 

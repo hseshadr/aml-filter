@@ -3,10 +3,9 @@
 // stage them with stageBundle(), then shell out to `edgeproc publish` to chunk +
 // Ed25519-sign the staging tree into the content-addressed
 // `origin/{latest, manifest/<hash>, chunk/<hash>}` layout the in-tab sync tier
-// consumes. This is the BUNDLE analogue of publishCatalog: same real adapters,
-// same fail-soft "log-and-skip a source whose fetchRaw throws" policy, same Node
-// embedder — but the output is the signed bundle (the only catalog path the app
-// loads), not the retired JSON `catalog.json` / per-list-dir tree.
+// consumes. This production path is fail-closed: OFAC, UN, EU, and UK must all
+// fetch, parse to plausible non-zero counts, and prove freshness before a new
+// signed bundle can be emitted.
 //
 // Run from frontend/ (the publish CI does this) via the thin
 // `buildRealBundleMain.ts` entry — this module is the importable library it
@@ -47,6 +46,16 @@ export interface RealBundleSourceSpec {
 	readonly source: WatchlistSource;
 	/** The per-list staging subdir, also the bundle's list slug. */
 	readonly slug: string;
+	readonly health: {
+		readonly minimumEntities: number;
+		readonly maximumEntities: number;
+		readonly maximumAgeMs: number;
+	};
+}
+
+export interface RealBundleDependencies {
+	readonly sources?: readonly RealBundleSourceSpec[];
+	readonly now?: () => Date;
 }
 
 /** The bundle id stamped into the signed pointer (matches the demo bundle). */
@@ -56,32 +65,106 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 /** Default model mirror: repo frontend/app/public/models. */
 const DEFAULT_MODELS = resolve(HERE, "../../../app/public/models");
 
-/** The production bundle sources, in catalog order (all four fetch live today). */
-const BUNDLE_SOURCES: readonly RealBundleSourceSpec[] = [
-	{ source: ofacSource, slug: "ofac" },
-	{ source: unSource, slug: "un" },
-	{ source: euSource, slug: "eu" },
-	{ source: ukSource, slug: "uk" },
+const MAX_FEED_AGE_MS = 90 * 24 * 60 * 60 * 1_000;
+const MAX_FUTURE_SKEW_MS = 24 * 60 * 60 * 1_000;
+
+/** Required sources with deliberately broad anomaly bounds. */
+export const BUNDLE_SOURCES: readonly RealBundleSourceSpec[] = [
+	{
+		source: ofacSource,
+		slug: "ofac",
+		health: {
+			minimumEntities: 5_000,
+			maximumEntities: 100_000,
+			maximumAgeMs: MAX_FEED_AGE_MS,
+		},
+	},
+	{
+		source: unSource,
+		slug: "un",
+		health: {
+			minimumEntities: 100,
+			maximumEntities: 10_000,
+			maximumAgeMs: MAX_FEED_AGE_MS,
+		},
+	},
+	{
+		source: euSource,
+		slug: "eu",
+		health: {
+			minimumEntities: 500,
+			maximumEntities: 50_000,
+			maximumAgeMs: MAX_FEED_AGE_MS,
+		},
+	},
+	{
+		source: ukSource,
+		slug: "uk",
+		health: {
+			minimumEntities: 500,
+			maximumEntities: 50_000,
+			maximumAgeMs: MAX_FEED_AGE_MS,
+		},
+	},
 ];
 
-/** Fetch + parse + embed one source into a StagedList, or null if its fetchRaw
- * throws (the upstream feed is down or the adapter is unwired — logged + skipped,
- * exactly like publishCatalog, so a single down feed never aborts the publish). */
+function requirePlausibleCount(
+	spec: RealBundleSourceSpec,
+	count: number,
+): void {
+	const { minimumEntities, maximumEntities } = spec.health;
+	if (count < minimumEntities || count > maximumEntities) {
+		throw new Error(
+			`${spec.source.id}: entity count ${count} is outside plausible range ${minimumEntities}..${maximumEntities}`,
+		);
+	}
+}
+
+function requireFreshSource(
+	spec: RealBundleSourceSpec,
+	raw: Awaited<ReturnType<WatchlistSource["fetchRaw"]>>,
+	now: Date,
+): void {
+	const updatedAt = spec.source.sourceUpdatedAt?.(raw)?.trim();
+	if (updatedAt === undefined || updatedAt === "") {
+		throw new Error(`${spec.source.id}: freshness timestamp is missing`);
+	}
+	const updatedAtMs = Date.parse(updatedAt);
+	if (!Number.isFinite(updatedAtMs)) {
+		throw new Error(`${spec.source.id}: freshness timestamp is invalid`);
+	}
+	const ageMs = now.getTime() - updatedAtMs;
+	if (ageMs < -MAX_FUTURE_SKEW_MS) {
+		throw new Error(`${spec.source.id}: freshness timestamp is in the future`);
+	}
+	if (ageMs > spec.health.maximumAgeMs) {
+		const maximumDays = spec.health.maximumAgeMs / (24 * 60 * 60 * 1_000);
+		throw new Error(
+			`${spec.source.id}: freshness age exceeds ${maximumDays} days`,
+		);
+	}
+}
+
+/** Fetch, validate, parse, and embed one required source. */
 async function stageOneSource(
 	spec: RealBundleSourceSpec,
 	embedder: Embedder,
 	version: string,
-	log: (message: string) => void,
-): Promise<StagedList | null> {
+	now: Date,
+): Promise<StagedList> {
 	let raw: Awaited<ReturnType<WatchlistSource["fetchRaw"]>>;
 	try {
 		raw = await spec.source.fetchRaw();
-	} catch (err) {
-		const reason = err instanceof Error ? err.message : String(err);
-		log(`skipping ${spec.source.id}: fetchRaw failed (${reason})`);
-		return null;
+	} catch (error) {
+		const reason = error instanceof Error ? error.message : String(error);
+		throw new Error(
+			`${spec.source.id}: required feed fetch failed: ${reason}`,
+			{ cause: error },
+		);
 	}
+	requireFreshSource(spec, raw, now);
 	const lines = spec.source.parse(raw, version);
+	requirePlausibleCount(spec, lines.length);
 	const entities: WatchlistEntity[] = lines.map((line, i) =>
 		toWatchlistEntity(line, i + 1),
 	);
@@ -101,24 +184,17 @@ async function stageOneSource(
 	};
 }
 
-/** Build a StagedList for every source whose fetchRaw succeeds, preserving the
- * configured order. Throws if NONE fetched (an empty bundle is never published).
- * Pure glue over the injected sources + embedder — no edge-proc, no file IO. */
+/** Validate and stage every required source, preserving configured order. */
 export async function stagedListsFromSources(
 	specs: readonly RealBundleSourceSpec[],
 	embedder: Embedder,
 	version: string,
-	log: (message: string) => void = (m) => process.stderr.write(`${m}\n`),
+	_log?: (message: string) => void,
+	now: () => Date = () => new Date(),
 ): Promise<readonly StagedList[]> {
 	const staged: StagedList[] = [];
 	for (const spec of specs) {
-		const list = await stageOneSource(spec, embedder, version, log);
-		if (list !== null) {
-			staged.push(list);
-		}
-	}
-	if (staged.length === 0) {
-		throw new Error("no source fetched — refusing to stage an empty bundle");
+		staged.push(await stageOneSource(spec, embedder, version, now()));
 	}
 	return staged;
 }
@@ -162,12 +238,17 @@ export function parseRealBundleArgs(argv: readonly string[]): RealBundleArgs {
 
 /** Stage the real lists then publish the signed bundle to outDir. Drives the
  * real Node embedder + the real adapters; the thin entry script passes argv. */
-export async function runRealBundle(argv: readonly string[]): Promise<void> {
+export async function runRealBundle(
+	argv: readonly string[],
+	dependencies: RealBundleDependencies = {},
+): Promise<void> {
 	const args = parseRealBundleArgs(argv);
 	const staged = await stagedListsFromSources(
-		BUNDLE_SOURCES,
+		dependencies.sources ?? BUNDLE_SOURCES,
 		createNodeEmbedder(args.models),
 		args.version,
+		undefined,
+		dependencies.now,
 	);
 	const staging = await mkdtemp(join(tmpdir(), "aml-real-bundle-"));
 	try {

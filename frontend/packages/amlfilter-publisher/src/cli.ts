@@ -8,9 +8,8 @@
 //
 //   amlfilter-publish publish-catalog --version <v> --key <privkey-file> \
 //                     --out <dir> [--models <dir>]
-//       Multi-list: run each adapter's real fetchRaw(), publish the lists that
-//       fetched to <out>/<slug>/, and write a signed catalog.json listing them.
-//       A source whose fetchRaw is not wired yet (EU/UK) is logged and skipped.
+//       Legacy flat multi-list: require every adapter, publish each list to
+//       <out>/<slug>/, and write one signed catalog.json listing all four.
 //
 // --key is a raw 32-byte Ed25519 seed file. --models is the directory that
 // CONTAINS the Xenova/all-MiniLM-L6-v2/... layout (defaults to the repo's
@@ -40,9 +39,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
  * frontend/packages/amlfilter-publisher/src/cli.ts). */
 const DEFAULT_MODELS = resolve(HERE, "../../../app/public/models");
 
-/** The production catalog sources, in catalog order. OFAC + UN have a real
- * fetchRaw today; EU + UK are scaffolded and will be logged-and-skipped until
- * their fetchRaw is wired — so the published catalog reflects what truly fetched. */
+/** The required legacy flat-catalog sources, in catalog order. */
 const CATALOG_SOURCES: readonly CatalogSourceSpec[] = [
 	{ source: ofacSource, slug: "ofac" },
 	{ source: unSource, slug: "un" },
@@ -109,7 +106,6 @@ async function runPublishCatalog(argv: readonly string[]): Promise<void> {
 		privateKey,
 		outDir: args.out,
 		embedder: createNodeEmbedder(args.models),
-		log: (m) => process.stderr.write(`${m}\n`),
 	});
 	process.stdout.write(
 		`published catalog v${args.version} (${published.length} lists: ${published.join(", ")}) -> ${args.out}\n`,

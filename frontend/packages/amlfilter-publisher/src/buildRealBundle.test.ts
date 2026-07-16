@@ -1,12 +1,13 @@
 // buildRealBundle's pure glue: fetch each configured source via its adapter,
 // parse + map to wire entities, embed the canonical names, and shape one
-// StagedList per list whose fetchRaw succeeded — skipping (logging) a source
-// whose fetchRaw throws (mirrors publishCatalog's fail-soft policy). The test
+// StagedList per required list whose fetchRaw and source-health checks succeed.
+// Any missing, empty, implausibly sized, or stale feed aborts the new bundle. The test
 // injects FAKE sources (no network) and the FAKE embedder (no 23 MB model), so
 // it exercises only the staging glue, never edge-proc and never a live fetch.
 
 import { describe, expect, test } from "vitest";
 import {
+	BUNDLE_SOURCES,
 	parseRealBundleArgs,
 	type RealBundleSourceSpec,
 	stagedListsFromSources,
@@ -19,6 +20,13 @@ import type {
 } from "./sources/source.ts";
 
 const VERSION = "2026-06-23";
+const NOW = new Date("2026-07-15T00:00:00.000Z");
+
+const HEALTH = {
+	minimumEntities: 1,
+	maximumEntities: 2,
+	maximumAgeMs: 30 * 24 * 60 * 60 * 1_000,
+} as const;
 
 /** A source whose fetchRaw resolves and parses to one PERSON line. */
 function fakeSource(id: string, title: string, name: string): WatchlistSource {
@@ -26,7 +34,10 @@ function fakeSource(id: string, title: string, name: string): WatchlistSource {
 		id,
 		title,
 		async fetchRaw(): Promise<RawListBytes> {
-			return { "list.txt": name };
+			return { "list.txt": name, updatedAt: "2026-07-01T00:00:00.000Z" };
+		},
+		sourceUpdatedAt(raw: RawListBytes): string | undefined {
+			return raw.updatedAt;
 		},
 		parse(raw: RawListBytes, listVersion: string): SourceLine[] {
 			const primary = raw["list.txt"] ?? "";
@@ -47,8 +58,7 @@ function fakeSource(id: string, title: string, name: string): WatchlistSource {
 	};
 }
 
-/** A source whose fetchRaw throws — stands in for an upstream feed that is down
- * (or a scaffolded adapter); publishCatalog logs-and-skips these. */
+/** A source whose fetchRaw throws — stands in for a required upstream outage. */
 function throwingSource(id: string, title: string): WatchlistSource {
 	return {
 		id,
@@ -107,21 +117,38 @@ describe("parseRealBundleArgs", () => {
 });
 
 describe("stagedListsFromSources", () => {
-	test("stages one list per source whose fetchRaw succeeds, in order", async () => {
+	const spec = (
+		source: WatchlistSource,
+		slug: string,
+		health = HEALTH,
+	): RealBundleSourceSpec => ({ source, slug, health });
+
+	test("production requires OFAC, UN, EU, and UK with non-trivial bounds", () => {
+		expect(BUNDLE_SOURCES.map(({ source }) => source.id)).toEqual([
+			"OFAC_SDN",
+			"UN_CONSOLIDATED",
+			"EU_CONSOLIDATED",
+			"UK_OFSI",
+		]);
+		for (const { source, health } of BUNDLE_SOURCES) {
+			expect(source.sourceUpdatedAt).toBeTypeOf("function");
+			expect(health.minimumEntities).toBeGreaterThan(1);
+			expect(health.maximumEntities).toBeGreaterThan(health.minimumEntities);
+			expect(health.maximumAgeMs).toBeGreaterThan(0);
+		}
+	});
+
+	test("stages every healthy required source, in order", async () => {
 		const specs: readonly RealBundleSourceSpec[] = [
-			{
-				source: fakeSource("OFAC_SDN", "OFAC SDN", "Ivan Fakovich"),
-				slug: "ofac",
-			},
-			{
-				source: fakeSource("UN_CONSOLIDATED", "UN Consolidated", "Jane Roe"),
-				slug: "un",
-			},
+			spec(fakeSource("OFAC_SDN", "OFAC SDN", "Ivan Fakovich"), "ofac"),
+			spec(fakeSource("UN_CONSOLIDATED", "UN Consolidated", "Jane Roe"), "un"),
 		];
 		const staged = await stagedListsFromSources(
 			specs,
 			createFakeEmbedder(),
 			VERSION,
+			undefined,
+			() => NOW,
 		);
 		expect(staged.map((l) => l.listId)).toEqual([
 			"OFAC_SDN",
@@ -133,15 +160,14 @@ describe("stagedListsFromSources", () => {
 
 	test("maps source lines to wire entities and embeds canonical names", async () => {
 		const specs: readonly RealBundleSourceSpec[] = [
-			{
-				source: fakeSource("OFAC_SDN", "OFAC SDN", "Ivan Fakovich"),
-				slug: "ofac",
-			},
+			spec(fakeSource("OFAC_SDN", "OFAC SDN", "Ivan Fakovich"), "ofac"),
 		];
 		const [list] = await stagedListsFromSources(
 			specs,
 			createFakeEmbedder(),
 			VERSION,
+			undefined,
+			() => NOW,
 		);
 		if (list === undefined) {
 			throw new Error("expected one staged list");
@@ -166,34 +192,60 @@ describe("stagedListsFromSources", () => {
 		expect(list.vectors).toHaveLength(DIM);
 	});
 
-	test("logs-and-skips a source whose fetchRaw throws (fail-soft)", async () => {
-		const logged: string[] = [];
+	test("fails closed when any required source cannot be fetched", async () => {
 		const specs: readonly RealBundleSourceSpec[] = [
-			{
-				source: fakeSource("OFAC_SDN", "OFAC SDN", "Ivan Fakovich"),
-				slug: "ofac",
-			},
-			{
-				source: throwingSource("EU_CONSOLIDATED", "EU Consolidated"),
-				slug: "eu",
-			},
-		];
-		const staged = await stagedListsFromSources(
-			specs,
-			createFakeEmbedder(),
-			VERSION,
-			(m) => logged.push(m),
-		);
-		expect(staged.map((l) => l.listId)).toEqual(["OFAC_SDN"]);
-		expect(logged.join("\n")).toMatch(/EU_CONSOLIDATED/);
-	});
-
-	test("throws when no source fetched (never stage an empty bundle)", async () => {
-		const specs: readonly RealBundleSourceSpec[] = [
-			{ source: throwingSource("OFAC_SDN", "OFAC SDN"), slug: "ofac" },
+			spec(fakeSource("OFAC_SDN", "OFAC SDN", "Ivan Fakovich"), "ofac"),
+			spec(throwingSource("EU_CONSOLIDATED", "EU Consolidated"), "eu"),
 		];
 		await expect(
-			stagedListsFromSources(specs, createFakeEmbedder(), VERSION, () => {}),
-		).rejects.toThrow(/no source fetched/i);
+			stagedListsFromSources(
+				specs,
+				createFakeEmbedder(),
+				VERSION,
+				undefined,
+				() => NOW,
+			),
+		).rejects.toThrow(/EU_CONSOLIDATED.*required feed.*fetchRaw not wired/i);
+	});
+
+	test.each([
+		["empty", 0, HEALTH, /entity count 0.*plausible range 1\.\.2/i],
+		["too large", 3, HEALTH, /entity count 3.*plausible range 1\.\.2/i],
+	])("rejects a %s required source", async (_label, count, health, message) => {
+		const source = fakeSource("OFAC_SDN", "OFAC SDN", "Ivan Fakovich");
+		const originalParse = source.parse.bind(source);
+		source.parse = (raw, version) =>
+			Array.from(
+				{ length: count as number },
+				() => originalParse(raw, version)[0],
+			).filter((line): line is SourceLine => line !== undefined);
+		await expect(
+			stagedListsFromSources(
+				[spec(source, "ofac", health as typeof HEALTH)],
+				createFakeEmbedder(),
+				VERSION,
+				undefined,
+				() => NOW,
+			),
+		).rejects.toThrow(message as RegExp);
+	});
+
+	test.each([
+		["missing", undefined, /freshness timestamp is missing/i],
+		["invalid", "not-a-date", /freshness timestamp is invalid/i],
+		["stale", "2026-01-01T00:00:00.000Z", /freshness.*exceeds.*30 days/i],
+		["future", "2026-07-17T00:00:00.000Z", /freshness.*future/i],
+	])("rejects a %s freshness timestamp", async (_label, updatedAt, message) => {
+		const source = fakeSource("OFAC_SDN", "OFAC SDN", "Ivan Fakovich");
+		source.sourceUpdatedAt = () => updatedAt;
+		await expect(
+			stagedListsFromSources(
+				[spec(source, "ofac")],
+				createFakeEmbedder(),
+				VERSION,
+				undefined,
+				() => NOW,
+			),
+		).rejects.toThrow(message as RegExp);
 	});
 });

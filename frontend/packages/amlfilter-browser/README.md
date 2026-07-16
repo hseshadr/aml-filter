@@ -1,16 +1,20 @@
 # @amlfilter/browser
 
-**The in-browser screening engine of aml-filter — OFAC name screening that runs entirely in the tab, with no backend.**
+**The in-browser screening engine of AML-Filter — multi-list sanctions screening that runs entirely in the tab, with no backend.**
 
-It fetches a signed OFAC watchlist same-origin, verifies its detached Ed25519 signature **fail-closed** against a pinned public key, decodes the precomputed name vectors, embeds the query name in-tab (transformers.js MiniLM, `Xenova/all-MiniLM-L6-v2`, 384-dim), runs a brute-force cosine search, and produces an **explainable** weighted score — all locally. The wire contract is `docs/WATCHLIST_FORMAT.md`; the `@amlfilter/publisher` package produces the signed files this consumer reads.
+It delta-syncs a same-origin OFAC/EU/UN/UK bundle, verifies the signed pointer,
+manifest, compressed chunks, and materialized files **fail-closed** against a pinned
+Ed25519 public key and SHA-256 content addresses, embeds the query in-tab with MiniLM,
+and produces an explainable weighted score. Verified bytes are cached in OPFS for
+offline reuse; customer queries never enter that public-data cache.
 
 > aml-filter is an engineering-portfolio demonstration. It is **not** legal advice and **not** a compliance product — see the root `NOTICE` and `LICENSE`.
 
 ## Two export surfaces
 
-### `.` — domain screening (OFAC)
+### `.` — domain screening
 
-The full OFAC tier: bootstrap the engine over the signed watchlist and screen names.
+Bootstrap the engine over the signed multi-list bundle and screen names.
 
 ```ts
 import { EngineRuntime } from "@amlfilter/browser";
@@ -19,11 +23,14 @@ const engine = await EngineRuntime.bootstrap();
 const result = await engine.screen({ name: "Some Name" });
 ```
 
-This surface owns the OFAC domain: entity/alias types, the explainable scoring presets (`computeScore` / `PRESETS`, five weighted signals), the embedder seam, and the `ScreeningEngine`.
+This surface owns entity/alias types, the explainable scoring presets (`computeScore` /
+`PRESETS`, five weighted signals), the embedder seam, and `ScreeningEngine`.
 
-### `./engine` — the fail-closed crypto primitives
+### `./engine` — fail-closed bundle and crypto primitives
 
-After the v3 pivot to a single signed JSON watchlist, the heavy chunked-CAS sync tier (OPFS store, GearCDC chunk reassembly, zstd, the sync Worker) is **gone** — the browser fetches one signed file and verifies it. What remains reusable, and what the publisher's round-trip test pins against, is the fail-closed Ed25519 primitive plus a content hash, with **zero** domain coupling (no screening, no embeddings, no OFAC):
+The domain-neutral engine surface includes Ed25519/SHA-256 verification plus the
+bounded fetch, zstd decode, content-addressed delta-sync, OPFS store, and Worker client.
+The publisher/browser parity tests pin this shared contract:
 
 ```ts
 import { verifyEd25519, sha256Hex, SignatureError } from "@amlfilter/browser/engine";

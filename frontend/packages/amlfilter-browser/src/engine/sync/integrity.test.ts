@@ -1,28 +1,40 @@
-// The shared fail-closed content-address rule both CacheStore implementations
-// route reads through: a chunk's name IS sha256(plaintext). The mismatch arm is
-// unreachable through a well-behaved store (ingest already rejects bad bytes),
-// so it is pinned here directly — it is the last line of defense against a
-// corrupted or tampered stored object.
-
+import { Zstd } from "@hpcc-js/wasm-zstd";
 import { describe, expect, it } from "vitest";
 import { sha256Hex } from "../crypto";
-import { IntegrityError, verifyPlaintext } from "./integrity";
+import { decompressAndVerify, IntegrityError } from "./integrity";
 
-const PLAINTEXT = new TextEncoder().encode("verified watchlist bytes");
+const EXPECTED_MAX_COMPRESSED_CHUNK_BYTES = 512 * 1024;
+const EXPECTED_MAX_DECOMPRESSED_CHUNK_BYTES = 256 * 1024;
 
-describe("verifyPlaintext content-address rule", () => {
-	it("accepts plaintext whose sha256 matches the chunk name", async () => {
-		const trueHash = await sha256Hex(PLAINTEXT);
-		await expect(verifyPlaintext(trueHash, PLAINTEXT)).resolves.toBeUndefined();
+describe("decompressAndVerify resource ceilings", () => {
+	it("rejects compressed input beyond the transport-independent chunk ceiling", async () => {
+		const oversized = new Uint8Array(EXPECTED_MAX_COMPRESSED_CHUNK_BYTES + 1);
+
+		await expect(
+			decompressAndVerify("0".repeat(64), oversized),
+		).rejects.toThrow(/compressed byte limit/i);
 	});
 
-	it("rejects plaintext whose sha256 differs from the chunk name (fail-closed)", async () => {
-		const wrongHash = "0".repeat(64);
-		await expect(verifyPlaintext(wrongHash, PLAINTEXT)).rejects.toBeInstanceOf(
-			IntegrityError,
-		);
-		await expect(verifyPlaintext(wrongHash, PLAINTEXT)).rejects.toThrow(
-			/failed content-address check/,
-		);
+	it("rejects a valid zstd frame whose declared output exceeds the chunk ceiling", async () => {
+		const zstd = await Zstd.load();
+		const plaintext = new Uint8Array(EXPECTED_MAX_DECOMPRESSED_CHUNK_BYTES + 1);
+		const compressed = zstd.compress(plaintext);
+
+		await expect(
+			decompressAndVerify(await sha256Hex(plaintext), compressed),
+		).rejects.toBeInstanceOf(IntegrityError);
+		await expect(
+			decompressAndVerify(await sha256Hex(plaintext), compressed),
+		).rejects.toThrow(/decompressed byte limit/i);
+	});
+
+	it("accepts and verifies a chunk exactly at the decompressed ceiling", async () => {
+		const zstd = await Zstd.load();
+		const plaintext = new Uint8Array(EXPECTED_MAX_DECOMPRESSED_CHUNK_BYTES);
+		const compressed = zstd.compress(plaintext);
+
+		await expect(
+			decompressAndVerify(await sha256Hex(plaintext), compressed),
+		).resolves.toHaveLength(EXPECTED_MAX_DECOMPRESSED_CHUNK_BYTES);
 	});
 });

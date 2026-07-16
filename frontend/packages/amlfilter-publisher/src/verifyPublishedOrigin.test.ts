@@ -12,6 +12,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { IntegrityError, SignatureError } from "@amlfilter/browser/engine";
 import { describe, expect, it } from "vitest";
+import * as originVerifier from "./verifyPublishedOrigin.ts";
 import {
 	httpFetchBytes,
 	type OriginFetch,
@@ -166,6 +167,95 @@ describe("verifyPublishedOrigin against the committed demo origin", () => {
 				expectSequence: 29_433_222_924,
 			}),
 		).rejects.toThrow(/sequence/i);
+	});
+});
+
+describe("next published monotonic sequence", () => {
+	type SequenceModule = {
+		readonly sequenceAfterLive: (current: number) => number;
+		readonly nextPublishedSequence: (args: {
+			readonly baseUrl: string;
+			readonly fetchBytes: OriginFetch;
+			readonly pubkey: Uint8Array;
+		}) => Promise<number>;
+		readonly runNextPublishedSequence: (
+			argv: ReadonlyArray<string>,
+			deps: {
+				readonly fetchBytes: OriginFetch;
+				readonly readFile: (path: string) => Uint8Array;
+				readonly log: (line: string) => void;
+			},
+		) => Promise<number>;
+	};
+	const sequenceModule = originVerifier as unknown as Partial<SequenceModule>;
+
+	it("increments the verified live pointer, independent of an older workflow run id", async () => {
+		expect(sequenceModule.sequenceAfterLive).toBeTypeOf("function");
+		const live = JSON.parse(
+			new TextDecoder().decode(await fixtureFetch()(`${BASE}/latest`)),
+		) as { sequence: number };
+		expect(sequenceModule.sequenceAfterLive?.(live.sequence)).toBe(
+			live.sequence + 1,
+		);
+		// A rerun of an old GitHub workflow still derives from LIVE state; no run id
+		// participates in this operation.
+		expect(sequenceModule.sequenceAfterLive?.(50_000)).toBe(50_001);
+	});
+
+	it("fetches and signature-verifies the live pointer before incrementing", async () => {
+		expect(sequenceModule.nextPublishedSequence).toBeTypeOf("function");
+		const live = JSON.parse(
+			new TextDecoder().decode(await fixtureFetch()(`${BASE}/latest`)),
+		) as { sequence: number };
+		await expect(
+			sequenceModule.nextPublishedSequence?.({
+				baseUrl: BASE,
+				fetchBytes: fixtureFetch(),
+				pubkey: PUBKEY,
+			}),
+		).resolves.toBe(live.sequence + 1);
+	});
+
+	it("rejects a tampered live pointer instead of deriving from it", async () => {
+		const fetchBytes = tamper(
+			fixtureFetch(),
+			(url) => url.endsWith("/latest"),
+			(bytes) => {
+				const pointer = JSON.parse(new TextDecoder().decode(bytes)) as {
+					sequence: number;
+				};
+				pointer.sequence += 1;
+				return new TextEncoder().encode(JSON.stringify(pointer));
+			},
+		);
+		await expect(
+			sequenceModule.nextPublishedSequence?.({
+				baseUrl: BASE,
+				fetchBytes,
+				pubkey: PUBKEY,
+			}),
+		).rejects.toBeInstanceOf(SignatureError);
+	});
+
+	it("refuses to overflow JavaScript's safe-integer sequence space", () => {
+		expect(() =>
+			sequenceModule.sequenceAfterLive?.(Number.MAX_SAFE_INTEGER),
+		).toThrow(/safe integer/i);
+	});
+
+	it("prints one shell-safe decimal candidate for workflow consumption", async () => {
+		expect(sequenceModule.runNextPublishedSequence).toBeTypeOf("function");
+		const lines: string[] = [];
+		const sequence = await sequenceModule.runNextPublishedSequence?.(
+			["--base-url", BASE, "--pubkey", join(APP_PUBLIC, "public.key")],
+			{
+				fetchBytes: fixtureFetch(),
+				readFile: () => PUBKEY,
+				log: (line) => lines.push(line),
+			},
+		);
+		expect(lines).toEqual([String(sequence)]);
+		expect(sequence).toBeGreaterThan(0);
 	});
 });
 

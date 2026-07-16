@@ -135,6 +135,36 @@ async function fetchAndVerifyPointer(
 	return pointer;
 }
 
+/** The only safe publish candidate is one greater than the currently served,
+ * signature-verified pointer. Workflow identity is deliberately irrelevant: an
+ * old workflow rerun still advances live state instead of rolling it back. */
+export function sequenceAfterLive(current: number): number {
+	if (!Number.isSafeInteger(current) || current < 0) {
+		throw new OriginVerifyError(
+			"live pointer sequence must be a non-negative safe integer",
+		);
+	}
+	if (current === Number.MAX_SAFE_INTEGER) {
+		throw new OriginVerifyError(
+			"live pointer sequence exhausted safe integer range",
+		);
+	}
+	return current + 1;
+}
+
+export async function nextPublishedSequence(args: {
+	readonly baseUrl: string;
+	readonly fetchBytes: OriginFetch;
+	readonly pubkey: Uint8Array;
+}): Promise<number> {
+	const pointer = await fetchAndVerifyPointer(
+		args.baseUrl,
+		args.fetchBytes,
+		args.pubkey,
+	);
+	return sequenceAfterLive(pointer.sequence);
+}
+
 async function fetchAndVerifyManifest(
 	baseUrl: string,
 	fetchBytes: OriginFetch,
@@ -301,6 +331,55 @@ interface RunDeps {
 	readonly readFile?: (path: string) => Uint8Array;
 	readonly sleep?: (seconds: number) => Promise<void>;
 	readonly log?: (line: string) => void;
+}
+
+interface NextSequenceRunDeps {
+	readonly fetchBytes?: OriginFetch;
+	readonly readFile?: (path: string) => Uint8Array;
+	readonly log?: (line: string) => void;
+}
+
+function parseNextSequenceArgs(argv: ReadonlyArray<string>): {
+	readonly baseUrl: string;
+	readonly pubkeyPath: string;
+} {
+	if (argv.length !== 4) {
+		throw new OriginVerifyError("--base-url and --pubkey are required");
+	}
+	const values = new Map<string, string>();
+	for (let index = 0; index < argv.length; index += 2) {
+		const flag = argv[index];
+		const value = argv[index + 1];
+		if (!flag?.startsWith("--") || value === undefined) {
+			throw new OriginVerifyError("expected --flag value pairs");
+		}
+		values.set(flag.slice(2), value);
+	}
+	const baseUrl = values.get("base-url");
+	const pubkeyPath = values.get("pubkey");
+	if (baseUrl === undefined || pubkeyPath === undefined || values.size !== 2) {
+		throw new OriginVerifyError("--base-url and --pubkey are required");
+	}
+	return { baseUrl: baseUrl.replace(/\/$/, ""), pubkeyPath };
+}
+
+/** CLI runner used before every publish. Stdout is intentionally one decimal
+ * line so the shell can assign it to `SEQUENCE` without parsing logs. */
+export async function runNextPublishedSequence(
+	argv: ReadonlyArray<string>,
+	deps: NextSequenceRunDeps = {},
+): Promise<number> {
+	const args = parseNextSequenceArgs(argv);
+	const fetchBytes = deps.fetchBytes ?? httpFetchBytes;
+	const readFile =
+		deps.readFile ?? ((path: string) => new Uint8Array(readFileSync(path)));
+	const sequence = await nextPublishedSequence({
+		baseUrl: args.baseUrl,
+		fetchBytes,
+		pubkey: readFile(args.pubkeyPath),
+	});
+	(deps.log ?? ((line: string) => console.log(line)))(String(sequence));
+	return sequence;
 }
 
 const defaultSleep = (seconds: number): Promise<void> =>

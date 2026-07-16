@@ -1,5 +1,5 @@
-// runRealBundle end-to-end, offline: the argv contract, the fail-soft "skip a
-// source whose fetch fails / refuse an empty bundle" policy, and the happy-path
+// runRealBundle end-to-end, offline: the argv contract, fail-closed required
+// source policy, and the happy-path
 // orchestration (stage -> publish -> drop the producer-side CAS mirror -> clean
 // the staging dir). The two heavyweight boundaries are replaced at their module
 // seams: createNodeEmbedder (the 23 MB MiniLM) with the deterministic fake
@@ -12,7 +12,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { runRealBundle } from "./buildRealBundle.ts";
+import { BUNDLE_SOURCES, runRealBundle } from "./buildRealBundle.ts";
 
 const state = vi.hoisted(() => ({
 	publishCalls: [] as {
@@ -65,7 +65,7 @@ vi.mock("./publishBundle.ts", async () => {
 const SDN_CSV = `12345,"DOE, John",individual,PROGRAM,-0-,-0-,-0-,-0-,-0-,-0-,-0-,"DOB 01 Jan 1970; nationality Cuba"\n`;
 const ALT_CSV = `12345,1,aka,"Johnny D",-0-\n`;
 const UN_XML = [
-	"<CONSOLIDATED_LIST>",
+	'<CONSOLIDATED_LIST dateGenerated="2026-07-01">',
 	"<INDIVIDUALS><INDIVIDUAL>",
 	"<DATAID>101</DATAID>",
 	"<FIRST_NAME>Test</FIRST_NAME><SECOND_NAME>Person</SECOND_NAME>",
@@ -76,7 +76,7 @@ const UN_XML = [
 	"</CONSOLIDATED_LIST>",
 ].join("");
 const EU_XML = [
-	"<export>",
+	'<export generationDate="2026-07-01T00:00:00.000Z">',
 	'<sanctionEntity logicalId="55">',
 	'<subjectType code="person"/>',
 	'<nameAlias wholeName="Eu Person"/>',
@@ -107,7 +107,9 @@ function stubFetchRoutes(
 					statusText: "Not Found",
 				});
 			}
-			return new Response(hit[1]);
+			return new Response(hit[1], {
+				headers: { "Last-Modified": "Wed, 01 Jul 2026 00:00:00 GMT" },
+			});
 		}),
 	);
 }
@@ -134,22 +136,19 @@ describe("runRealBundle argv contract", () => {
 	});
 });
 
-describe("runRealBundle with every feed down", () => {
+describe("runRealBundle with a required feed down", () => {
 	afterEach(() => {
 		vi.unstubAllGlobals();
 		vi.restoreAllMocks();
 	});
 
-	test("logs one skip per source to stderr, then refuses the empty bundle", async () => {
+	test("fails immediately and does not publish a partial bundle", async () => {
 		vi.stubGlobal(
 			"fetch",
 			vi.fn(async (): Promise<Response> => {
 				throw new Error("network down");
 			}),
 		);
-		const stderrSpy = vi
-			.spyOn(process.stderr, "write")
-			.mockImplementation(() => true);
 		const dir = await mkdtemp(join(tmpdir(), "aml-real-cli-"));
 		try {
 			await expect(
@@ -165,23 +164,11 @@ describe("runRealBundle with every feed down", () => {
 					"--models",
 					join(dir, "models"),
 				]),
-			).rejects.toThrow(
-				"no source fetched — refusing to stage an empty bundle",
-			);
+			).rejects.toThrow(/OFAC_SDN.*required feed.*network down/i);
 		} finally {
 			await rm(dir, { recursive: true, force: true });
 		}
-		const written = stderrSpy.mock.calls.map((c) => String(c[0])).join("");
-		for (const id of [
-			"OFAC_SDN",
-			"UN_CONSOLIDATED",
-			"EU_CONSOLIDATED",
-			"UK_OFSI",
-		]) {
-			expect(written).toContain(
-				`skipping ${id}: fetchRaw failed (network down)`,
-			);
-		}
+		expect(state.publishCalls).toHaveLength(0);
 	});
 });
 
@@ -215,16 +202,25 @@ describe("runRealBundle happy path", () => {
 			.spyOn(process.stdout, "write")
 			.mockImplementation(() => true);
 
-		await runRealBundle([
-			"--version",
-			"2026-07-11",
-			"--sequence",
-			"12345",
-			"--key",
-			keyPath,
-			"--out",
-			outDir,
-		]);
+		await runRealBundle(
+			[
+				"--version",
+				"2026-07-11",
+				"--sequence",
+				"12345",
+				"--key",
+				keyPath,
+				"--out",
+				outDir,
+			],
+			{
+				sources: BUNDLE_SOURCES.map((spec) => ({
+					...spec,
+					health: { ...spec.health, minimumEntities: 1 },
+				})),
+				now: () => new Date("2026-07-15T00:00:00.000Z"),
+			},
+		);
 
 		expect(state.publishCalls).toHaveLength(1);
 		const call = state.publishCalls[0];

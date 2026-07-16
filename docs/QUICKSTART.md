@@ -43,9 +43,10 @@ storage.
 Go to **`/screen`**. On first visit the page:
 
 1. boots the **MiniLM** embedder once (cached after the first load),
-2. syncs the committed **signed catalog** into the tab — it verifies `catalog.json`
-   first, then each enabled list it points at (Ed25519 + SHA-256, fail-closed — a
-   tampered or unsigned file aborts the load),
+2. syncs the committed **signed bundle** into the tab — it verifies the Ed25519
+   `latest` pointer, content-addressed manifest and compressed chunks before parsing
+   the materialized `catalog.json` and enabled lists (fail-closed — a tampered,
+   oversized, stale, or unsigned artifact aborts the load),
 3. is then ready to screen names across all enabled lists entirely in-tab.
 
 Type a sanctioned-ish name (something close to a demo entry) and submit. You get a
@@ -89,7 +90,10 @@ SQLite-WASM database persisted in your browser's OPFS — local to the tab, no s
    identity data changed, the match is flagged **CHANGED — needs re-review** (keeping the
    prior disposition) and shows up under "Needs review" / "Changed only". Every
    transition is appended to the `match_events` audit trail. Deleting that customer
-   atomically erases the customer, matches, reviewer notes, and event history.
+   atomically removes the customer, matches, reviewer notes, and event history from the
+   application database. The persistent connection enables SQLite `secure_delete` and
+   disables reusable WAL journaling; browser/OS forensic remnants remain outside the
+   app's guarantee, so clear this origin's site data for the device-level reset.
 
 Everything — onboarding, screening, and the review decision — happens in the browser
 against the in-tab database and the signed lists.
