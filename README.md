@@ -23,7 +23,8 @@ for throughput. Embedded WebViews are not part of the release contract.
 ## Northstar status (verified 2026-07-16)
 
 **The production path now treats mobile memory as a first-class constraint.** The
-live build is commit `13211cf` and its deploy workflow passed. On mobile, the
+live build reported commit `13211cf` at this verification (its deploy workflow
+passed). On mobile, the
 workstation serializes engine boot, keeps one list resident at a time, and disposes
 workers/models before retry or cache clear; desktop retains the faster eager path.
 The retry UI reports an explicit out-of-memory failure instead of leaving a half-live
