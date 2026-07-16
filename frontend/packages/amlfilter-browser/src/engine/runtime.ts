@@ -328,6 +328,9 @@ export class EngineRuntime {
 	// The active selection + thresholds, carried across reload so a re-bootstrap
 	// with no override reuses the last enabled set / score floors.
 	#selection: RuntimeSelection = {};
+	// Serialize the complete lifecycle boundary. A cache clear must not race a
+	// reload/bootstrap and leave an engine pointing at a half-cleared bundle.
+	#lifecycleTail: Promise<void> = Promise.resolve();
 	// The cold-sync download progress sink for the CURRENT boot only. Set for the
 	// duration of #build so the (memoized, once-called) openBundleSource threads
 	// per-chunk ticks to onStage; undefined on reload/poll opens (no banner).
@@ -354,14 +357,25 @@ export class EngineRuntime {
 	 * WORKER (sync access handles are Worker-only) via {@link RuntimeDeps.clearCache}
 	 * (whose default opens a bundle source at the same-origin default origin and
 	 * calls `.clear()`). The memoized bundle source is then dropped so the next
-	 * load re-syncs from the now-empty store (re-fetches + re-verifies). Safe to
-	 * call any time — the running engine is untouched; the store is a load-time
-	 * optimization only.
+	 * load re-syncs from the now-empty store (re-fetches + re-verifies). The
+	 * lifecycle queue waits for any in-flight boot/reload, then disposes the
+	 * running engine and model worker so the next load starts cleanly.
 	 */
 	public async clearListCache(): Promise<void> {
-		await this.#deps.clearCache();
-		// Force the next load to re-sync from the cleared OPFS store.
-		this.#bundleSource = null;
+		return this.#enqueue(async () => {
+			await this.#deps.clearCache();
+			// Release vectors and metadata immediately, then force the next load to
+			// re-sync from the cleared OPFS store. The optional embedder disposer
+			// terminates the WASM worker when the host provides it.
+			this.#ready?.dispose();
+			this.#ready = null;
+			this.#version = null;
+			this.#disposeEmbedder();
+			this.#embedder = null;
+			this.#config = null;
+			this.#enginePromise = null;
+			this.#bundleSource = null;
+		});
 	}
 
 	/**
@@ -383,12 +397,17 @@ export class EngineRuntime {
 			// forever. On expiry the boot rejects → the memo clears → the UI shows
 			// its error banner + Retry (maps to future bundle.timeout).
 			const deadlineMs = bootTimeoutMs(import.meta.env);
-			this.#enginePromise = withTimeout(
-				this.#build(config, onStage),
-				deadlineMs,
-				`loading the screening engine timed out after ${deadlineMs}ms`,
-			).catch((error) => {
+			const build = this.#enqueue(() =>
+				withTimeout(
+					this.#build(config, onStage),
+					deadlineMs,
+					`loading the screening engine timed out after ${deadlineMs}ms`,
+				),
+			);
+			this.#enginePromise = build.catch((error) => {
 				// Let a failed (or timed-out) bootstrap be retried by clearing the memo.
+				this.#disposeEmbedder();
+				this.#embedder = null;
 				this.#enginePromise = null;
 				throw error;
 			});
@@ -399,7 +418,11 @@ export class EngineRuntime {
 	/** EVERY list in the signed catalog as `{id, title}` — the real selectable set
 	 * the UI offers (the catalog is the source of truth for which lists exist).
 	 * Requires a prior successful bootstrap (the pinned-key config is captured then). */
-	public async catalogLists(): Promise<ReadonlyArray<CatalogListInfo>> {
+	public catalogLists(): Promise<ReadonlyArray<CatalogListInfo>> {
+		return this.#enqueue(() => this.#catalogLists());
+	}
+
+	async #catalogLists(): Promise<ReadonlyArray<CatalogListInfo>> {
 		if (this.#config === null) {
 			throw new Error("catalogLists() requires a successful bootstrap first");
 		}
@@ -421,7 +444,13 @@ export class EngineRuntime {
 	 * prior successful bootstrap (the embedder + pinned-key config are captured
 	 * then); calling reload before that throws.
 	 */
-	public async reload(
+	public reload(
+		selection?: RuntimeSelection,
+	): Promise<MultiListScreeningEngine> {
+		return this.#enqueue(() => this.#reload(selection));
+	}
+
+	async #reload(
 		selection?: RuntimeSelection,
 	): Promise<MultiListScreeningEngine> {
 		if (this.#embedder === null || this.#config === null) {
@@ -455,6 +484,21 @@ export class EngineRuntime {
 		return engine;
 	}
 
+	/** Queue an operation after the current bootstrap/reload/clear boundary. */
+	#enqueue<T>(operation: () => Promise<T>): Promise<T> {
+		const run = this.#lifecycleTail.then(operation);
+		this.#lifecycleTail = run.then(
+			() => undefined,
+			() => undefined,
+		);
+		return run;
+	}
+
+	/** Release an optional model/WASM worker without making disposal mandatory. */
+	#disposeEmbedder(): void {
+		this.#embedder?.dispose?.();
+	}
+
 	/**
 	 * Cheap new-publish poll: fetch + verify (fail-closed) the catalog + EACH
 	 * list's tiny manifest (no vectors, no model) and return the SAME composite
@@ -462,7 +506,11 @@ export class EngineRuntime {
 	 * two; a bumped per-list version OR a list add/remove changes the stamp.
 	 * Requires a prior bootstrap (the pinned-key config is captured then).
 	 */
-	public async fetchPublishedVersion(): Promise<string> {
+	public fetchPublishedVersion(): Promise<string> {
+		return this.#enqueue(() => this.#fetchPublishedVersion());
+	}
+
+	async #fetchPublishedVersion(): Promise<string> {
 		if (this.#config === null) {
 			throw new Error(
 				"fetchPublishedVersion() requires a successful bootstrap first",

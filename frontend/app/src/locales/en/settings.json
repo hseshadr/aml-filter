@@ -45,7 +45,8 @@
 		"rescanned": "Re-screened {{customers}} customers — {{newHits}} new hits, {{clearedHits}} cleared."
 	},
 	"buttons": {
-		"apply": "Apply"
+		"apply": "Apply",
+		"retry": "Retry"
 	},
 	"errors": {
 		"load": "Failed to load settings",

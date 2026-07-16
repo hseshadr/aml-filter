@@ -777,6 +777,110 @@ describe("EngineRuntime.clearListCache + cache-aware deps", () => {
 		expect(clearCache).toHaveBeenCalledTimes(1);
 	});
 
+	it("disposes the active engine and resets the boot memo after clearing", async () => {
+		let opens = 0;
+		const dispose = vi.fn();
+		const makeEmbedder = vi.fn(() => ({
+			...instantEmbedder(),
+			dispose,
+		}));
+		const runtime = new EngineRuntime({
+			makeEmbedder,
+			clearCache: () => Promise.resolve(),
+			openBundleSource: (baseUrl, pubkeyUrl) => {
+				opens += 1;
+				return bundleSourceOf([["OFAC_SDN", `v${opens}`]])(baseUrl, pubkeyUrl);
+			},
+		});
+		const first = await runtime.bootstrap(CONFIG);
+		await runtime.clearListCache();
+		expect(runtime.engine()).toBeNull();
+		expect(first.allEntities()).toEqual([]);
+		expect(dispose).toHaveBeenCalledTimes(1);
+
+		const second = await runtime.bootstrap(CONFIG);
+		expect(second).not.toBe(first);
+		expect(opens).toBe(2);
+		expect(makeEmbedder).toHaveBeenCalledTimes(2);
+	});
+
+	it("serializes a clear-cache request behind an in-flight reload", async () => {
+		const events: string[] = [];
+		let opens = 0;
+		let releaseReload: (() => void) | undefined;
+		const runtime = new EngineRuntime({
+			makeEmbedder: () => instantEmbedder(),
+			clearCache: async () => {
+				events.push("clear");
+			},
+			openBundleSource: (baseUrl, pubkeyUrl) => {
+				opens += 1;
+				if (opens === 1) {
+					events.push("boot-open");
+					return bundleSourceOf([["OFAC_SDN", "v1"]])(baseUrl, pubkeyUrl);
+				}
+				events.push("reload-open");
+				return new Promise<BundleSource>((resolve) => {
+					releaseReload = () =>
+						resolve(
+							fakeBundleSource(catalogOf([["OFAC_SDN", "v2"]]), () =>
+								fakeLoaded(),
+							),
+						);
+				});
+			},
+		});
+		await runtime.bootstrap(CONFIG);
+
+		const reload = runtime.reload();
+		const clear = runtime.clearListCache();
+		await Promise.resolve();
+		expect(events).toEqual(["boot-open", "reload-open"]);
+		releaseReload?.();
+		await reload;
+		await clear;
+		expect(events).toEqual(["boot-open", "reload-open", "clear"]);
+		expect(runtime.engine()).toBeNull();
+	});
+
+	it("serializes a published-version poll before cache clear", async () => {
+		const events: string[] = [];
+		let opens = 0;
+		let releasePoll: (() => void) | undefined;
+		const runtime = new EngineRuntime({
+			makeEmbedder: () => instantEmbedder(),
+			clearCache: async () => {
+				events.push("clear");
+			},
+			openBundleSource: (baseUrl, pubkeyUrl) => {
+				opens += 1;
+				if (opens === 1) {
+					events.push("boot-open");
+					return bundleSourceOf([["OFAC_SDN", "v1"]])(baseUrl, pubkeyUrl);
+				}
+				events.push("poll-open");
+				return new Promise<BundleSource>((resolve) => {
+					releasePoll = () =>
+						resolve(
+							fakeBundleSource(catalogOf([["OFAC_SDN", "v2"]]), () =>
+								fakeLoaded(),
+							),
+						);
+				});
+			},
+		});
+		await runtime.bootstrap(CONFIG);
+
+		const poll = runtime.fetchPublishedVersion();
+		const clear = runtime.clearListCache();
+		await vi.waitFor(() => expect(events).toEqual(["boot-open", "poll-open"]));
+		releasePoll?.();
+		await expect(poll).resolves.toBe("OFAC_SDN@v2");
+		await clear;
+		expect(events).toEqual(["boot-open", "poll-open", "clear"]);
+		expect(runtime.engine()).toBeNull();
+	});
+
 	it("defaultRuntimeDeps exposes a clearCache seam (cache-aware by default)", () => {
 		expect(typeof defaultRuntimeDeps().clearCache).toBe("function");
 	});

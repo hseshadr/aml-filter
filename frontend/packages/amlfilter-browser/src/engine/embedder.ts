@@ -110,6 +110,8 @@ export const EMBEDDING_DTYPE = "q8";
 /** Embeds a query string into a normalized 384-d vector. */
 export interface Embedder {
 	embed(text: string): Promise<Float32Array>;
+	/** Release model state when a runtime is explicitly evicted. */
+	dispose?(): void;
 }
 
 /** Model-download progress, surfaced once per transformers.js "progress" event. */
@@ -192,6 +194,10 @@ class PipelineEmbedder implements Embedder {
 			);
 		}
 		return vector;
+	}
+
+	public dispose(): void {
+		this.#extract = undefined;
 	}
 }
 

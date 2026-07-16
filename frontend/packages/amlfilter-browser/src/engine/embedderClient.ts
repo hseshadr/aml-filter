@@ -26,6 +26,7 @@ export interface WorkerLike {
 		type: "message",
 		listener: (event: MessageEvent<WorkerMessage>) => void,
 	): void;
+	terminate?(): void;
 }
 
 /** Spawns the embedder Worker as an ES module. */
@@ -100,6 +101,14 @@ class WorkerEmbedder implements Embedder {
 			this.#pending.set(id, { resolve, reject });
 			this.#worker.postMessage({ id, text }, []);
 		});
+	}
+
+	public dispose(): void {
+		for (const pending of this.#pending.values()) {
+			pending.reject(new Error("embedder has been disposed"));
+		}
+		this.#pending.clear();
+		this.#worker.terminate?.();
 	}
 }
 

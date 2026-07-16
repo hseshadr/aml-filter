@@ -43,7 +43,7 @@ export interface StreamingListSource {
 
 /** A multi-list, in-tab screen: one embed, N lists, one scoring contract. */
 export class MultiListScreeningEngine {
-	readonly #lists: ReadonlyArray<ListEngine>;
+	readonly #lists: ListEngine[];
 	readonly #embedder: Embedder;
 	readonly #thresholds: ListThresholds;
 	#resident: {
@@ -58,13 +58,16 @@ export class MultiListScreeningEngine {
 		embedder: Embedder,
 		thresholds: ListThresholds,
 	) {
-		this.#lists = lists;
+		this.#lists = [...lists];
 		this.#embedder = embedder;
 		this.#thresholds = thresholds;
 	}
 
 	/** Every entity across every list — backs the search UI's browse view. */
 	public allEntities(): ReadonlyArray<Entity> {
+		if (this.#disposed) {
+			return [];
+		}
 		return this.#lists.flatMap(
 			(l) =>
 				l.engine?.allEntities() ?? [...(l.source?.entities.values() ?? [])],
@@ -91,12 +94,18 @@ export class MultiListScreeningEngine {
 
 	/** Release the one cached streamed index and any eager indexes. */
 	public dispose(): void {
+		if (this.#disposed) {
+			return;
+		}
 		this.#disposed = true;
 		this.#resident?.engine.dispose();
 		this.#resident = null;
 		for (const list of this.#lists) {
 			list.engine?.dispose();
 		}
+		// Drop metadata references as well as vector matrices. This matters on
+		// mobile where the entity maps and WASM model compete for the same tab heap.
+		this.#lists.length = 0;
 	}
 
 	/** Serialize screens so two mobile queries cannot materialize indexes together. */

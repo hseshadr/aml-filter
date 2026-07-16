@@ -32,6 +32,7 @@ import {
 	type WorkstationStore,
 } from "@amlfilter/workstation";
 import type { WorkstationServices } from "./localApi";
+import { type EngineResidency, residencyForBrowser } from "./memoryPolicy";
 
 /** The engine surface the boot path needs (ScreeningEngine satisfies it). */
 export interface EngineHandle {
@@ -64,6 +65,8 @@ export interface RuntimePort {
 export interface WorkstationDeps {
 	readonly spawnStore: () => WorkstationStore;
 	readonly runtime: RuntimePort;
+	/** Override the device policy in tests or an explicitly managed shell. */
+	readonly memoryPolicy?: () => EngineResidency;
 }
 
 export interface WorkstationHandle extends WorkstationServices {
@@ -93,8 +96,8 @@ export interface WorkstationHandle extends WorkstationServices {
 		ids: ReadonlyArray<string>,
 	) => Promise<RescanSummary>;
 	/** Drop every durably-cached list blob (the "Clear cached lists" affordance).
-	 * The running engine is untouched; the next cold load simply re-fetches +
-	 * re-verifies the lists from the network. */
+	 * The lifecycle boundary disposes the running engine/model first; the next
+	 * operation re-fetches and re-verifies the lists from the network. */
 	readonly clearListCache: () => Promise<void>;
 }
 
@@ -146,9 +149,10 @@ async function build(deps: WorkstationDeps): Promise<WorkstationHandle> {
 		// runtime's job (it only applies a floor to a list that loaded). Passing the
 		// override keys is harmless, so the catalog ids aren't needed here.
 		const thresholds = toListThresholds(config, Object.keys(config.overrides));
+		const residency = deps.memoryPolicy?.() ?? residencyForBrowser();
 		return enabledLists === undefined
-			? { thresholds }
-			: { enabledLists, thresholds };
+			? { thresholds, residency }
+			: { enabledLists, thresholds, residency };
 	};
 
 	const bootEngine = async (onStage?: OnStage): Promise<EngineHandle> =>
@@ -157,6 +161,15 @@ async function build(deps: WorkstationDeps): Promise<WorkstationHandle> {
 			onStage,
 			await currentSelection(),
 		);
+	let operationTail: Promise<void> = Promise.resolve();
+	const serial = <T>(operation: () => Promise<T>): Promise<T> => {
+		const run = operationTail.then(operation);
+		operationTail = run.then(
+			() => undefined,
+			() => undefined,
+		);
+		return run;
+	};
 	const screener: NameScreener = {
 		screen: async (query: ScreenQuery): Promise<ScreenResponse> =>
 			(await bootEngine()).screen(query),
@@ -168,45 +181,49 @@ async function build(deps: WorkstationDeps): Promise<WorkstationHandle> {
 		onboarding: new LocalOnboardingService(store, screener),
 		rescan,
 		watchlistVersion: (): string | null => deps.runtime.version(),
-		engineBoot: async (onStage?: OnStage): Promise<void> => {
-			await bootEngine(onStage);
-		},
+		engineBoot: (onStage?: OnStage): Promise<void> =>
+			serial(async () => {
+				await bootEngine(onStage);
+			}),
 		fetchPublishedVersion: (): Promise<string> =>
-			deps.runtime.fetchPublishedVersion(),
-		reloadWatchlist: async (): Promise<void> => {
-			// Plain new-publish reload: keep the active selection + thresholds.
-			await deps.runtime.reload(await currentSelection());
-		},
-		catalogLists: async (): Promise<ReadonlyArray<CatalogListInfo>> => {
-			// catalogLists()/reload() need the pinned-key config captured at bootstrap;
-			// join the (memoized) engine boot first so a Settings visit before the
-			// background boot finishes doesn't throw "requires a successful bootstrap".
-			await bootEngine();
-			return deps.runtime.catalogLists();
-		},
-		getEnabledLists: async (): Promise<ReadonlyArray<string>> => {
-			await bootEngine();
-			return loadEnabledLists(store, await deps.runtime.catalogListIds());
-		},
-		setEnabledLists: async (
-			ids: ReadonlyArray<string>,
-		): Promise<RescanSummary> => {
-			await bootEngine();
-			const catalogIds = await deps.runtime.catalogListIds();
-			const before = await loadEnabledLists(store, catalogIds);
-			// Intersect the requested set with the catalog so the change check and the
-			// persisted value match what the runtime will actually load.
-			const after = catalogIds.filter((id) => ids.includes(id));
-			if (sameIdSet(before, after)) {
-				return { customersScanned: 0, newHits: 0, clearedHits: 0 };
-			}
-			await saveEnabledLists(store, after);
-			// Re-bootstrap over the new set (reuses the warm embedder), then re-screen:
-			// a now-disabled list's matches vanish from the result and are SUPPRESSED.
-			await deps.runtime.reload(await currentSelection(after));
-			return rescan.rescanAll();
-		},
-		clearListCache: (): Promise<void> => deps.runtime.clearListCache(),
+			serial(() => deps.runtime.fetchPublishedVersion()),
+		reloadWatchlist: (): Promise<void> =>
+			serial(async () => {
+				// Plain new-publish reload: keep the active selection + thresholds.
+				await deps.runtime.reload(await currentSelection());
+			}),
+		catalogLists: (): Promise<ReadonlyArray<CatalogListInfo>> =>
+			serial(async () => {
+				// catalogLists()/reload() need the pinned-key config captured at bootstrap;
+				// join the (memoized) engine boot first so a Settings visit before the
+				// background boot finishes doesn't throw "requires a successful bootstrap".
+				await bootEngine();
+				return deps.runtime.catalogLists();
+			}),
+		getEnabledLists: (): Promise<ReadonlyArray<string>> =>
+			serial(async () => {
+				await bootEngine();
+				return loadEnabledLists(store, await deps.runtime.catalogListIds());
+			}),
+		setEnabledLists: (ids: ReadonlyArray<string>): Promise<RescanSummary> =>
+			serial(async () => {
+				await bootEngine();
+				const catalogIds = await deps.runtime.catalogListIds();
+				const before = await loadEnabledLists(store, catalogIds);
+				// Intersect the requested set with the catalog so the change check and the
+				// persisted value match what the runtime will actually load.
+				const after = catalogIds.filter((id) => ids.includes(id));
+				if (sameIdSet(before, after)) {
+					return { customersScanned: 0, newHits: 0, clearedHits: 0 };
+				}
+				await saveEnabledLists(store, after);
+				// Re-bootstrap over the new set (reuses the warm embedder), then re-screen:
+				// a now-disabled list's matches vanish from the result and are SUPPRESSED.
+				await deps.runtime.reload(await currentSelection(after));
+				return rescan.rescanAll();
+			}),
+		clearListCache: (): Promise<void> =>
+			serial(() => deps.runtime.clearListCache()),
 	};
 }
 

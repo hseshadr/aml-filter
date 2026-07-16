@@ -95,6 +95,21 @@ describe("SettingsPage interactions", () => {
 				await screen.findByText(/failed to load settings/i),
 			).toBeInTheDocument();
 		});
+
+		it("offers a retry after a WASM memory failure", async () => {
+			mockCatalogLists
+				.mockRejectedValueOnce(new Error("[wasm] RangeError: Out of memory"))
+				.mockResolvedValueOnce(FOUR_LISTS);
+
+			render(<SettingsPage />);
+
+			expect(await screen.findByText(/out of memory/i)).toBeInTheDocument();
+			fireEvent.click(screen.getByRole("button", { name: /retry/i }));
+			await waitFor(() => expect(mockCatalogLists).toHaveBeenCalledTimes(2));
+			expect(
+				await screen.findByRole("radio", { name: "Balanced" }),
+			).toBeInTheDocument();
+		});
 	});
 
 	describe("sensitivity keyboard roving", () => {
