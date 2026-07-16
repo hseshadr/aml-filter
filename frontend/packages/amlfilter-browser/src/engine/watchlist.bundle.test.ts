@@ -14,6 +14,7 @@ import {
 	type BundleListFiles,
 	buildLoadedFromBundleFiles,
 	buildLoadedWatchlist,
+	decodeVectorBytes,
 	type Watchlist,
 	type WatchlistEntity,
 	WatchlistFormatError,
@@ -120,6 +121,23 @@ function axisZeroEmbedder(): Embedder {
 }
 
 describe("buildLoadedFromBundleFiles — entities + vectors round trip", () => {
+	it("uses an aligned transferred vector buffer without copying it", () => {
+		const bytes = fixtureVectorBytes();
+		const matrix = decodeVectorBytes(bytes, DIM, 2);
+		expect(matrix.buffer).toBe(bytes.buffer);
+		expect(matrix.byteOffset).toBe(bytes.byteOffset);
+	});
+
+	it("copies an unaligned vector buffer to preserve Float32 alignment", () => {
+		const aligned = fixtureVectorBytes();
+		const wrapped = new Uint8Array(aligned.byteLength + 1);
+		wrapped.set(aligned, 1);
+		const unaligned = wrapped.subarray(1);
+		const matrix = decodeVectorBytes(unaligned, DIM, 2);
+		expect(matrix.buffer).not.toBe(unaligned.buffer);
+		expect(matrix.byteOffset).toBe(0);
+	});
+
 	it("parses entities.jsonl into the id->Entity map with the wire projection", () => {
 		const loaded = buildLoadedFromBundleFiles(fixtureBundleFiles());
 		expect(loaded.listId).toBe("OFAC_SDN");

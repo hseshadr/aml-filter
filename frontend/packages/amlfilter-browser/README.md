@@ -26,6 +26,21 @@ const result = await engine.screen({ name: "Some Name" });
 This surface owns entity/alias types, the explainable scoring presets (`computeScore` /
 `PRESETS`, five weighted signals), the embedder seam, and `ScreeningEngine`.
 
+For memory-constrained browsers, opt into bounded residency. Metadata remains available
+for the directory, while one selected list's vector index is loaded and released at a
+time; overlapping screens are serialized and a single most-recent index is retained:
+
+```ts
+const engine = await runtime.bootstrap(config, onStage, {
+	residency: "streaming",
+	enabledLists: ["OFAC_SDN", "EU_CONSOLIDATED"],
+});
+```
+
+The default remains `"eager"` for desktop throughput. The public `/screen` route uses
+the streaming mode with OFAC SDN selected, matching its visible OFAC-only copy and
+keeping iOS Safari within its tab/WebAssembly memory budget.
+
 ### `./engine` — fail-closed bundle and crypto primitives
 
 The domain-neutral engine surface includes Ed25519/SHA-256 verification plus the

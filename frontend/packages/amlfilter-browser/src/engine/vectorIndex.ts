@@ -31,10 +31,11 @@ function normalize(vector: Float32Array): Float32Array {
 
 /** Loaded, query-ready vector index over the decoded watchlist vectors. */
 export class VectorIndex {
-	readonly #matrix: Float32Array;
-	readonly #ids: ReadonlyArray<string>;
+	#matrix: Float32Array;
+	#ids: ReadonlyArray<string>;
 	readonly #dim: number;
-	readonly #ntotal: number;
+	#ntotal: number;
+	#disposed = false;
 
 	public constructor(
 		matrix: Float32Array,
@@ -60,6 +61,14 @@ export class VectorIndex {
 		return this.#dim;
 	}
 
+	/** Release the matrix and row ids after a streamed list has been scored. */
+	public dispose(): void {
+		this.#matrix = new Float32Array(0);
+		this.#ids = [];
+		this.#ntotal = 0;
+		this.#disposed = true;
+	}
+
 	public idAt(row: number): string {
 		const id = this.#ids[row];
 		if (id === undefined) {
@@ -74,6 +83,9 @@ export class VectorIndex {
 	 * is exact and plenty fast for the OFAC list's ~10^4 rows.
 	 */
 	public search(queryVec: Float32Array, k: number): ReadonlyArray<VectorHit> {
+		if (this.#disposed) {
+			throw new Error("vector index has been disposed");
+		}
 		if (queryVec.length !== this.#dim) {
 			throw new Error(
 				`query vector has ${queryVec.length} dims; index is ${this.#dim}`,

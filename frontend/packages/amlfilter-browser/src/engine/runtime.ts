@@ -29,8 +29,10 @@ import {
 import { createWorkerEmbedder, spawnEmbedderWorker } from "./embedderClient";
 import {
 	createMultiListScreeningEngine,
+	createStreamingMultiListScreeningEngine,
 	type ListThresholds,
 	type MultiListScreeningEngine,
+	type StreamingListSource,
 } from "./multiEngine";
 import { PRESETS } from "./scoring";
 import type { OnSyncProgress, SyncProgress } from "./sync/types";
@@ -39,6 +41,7 @@ import type {
 	WatchlistCatalog,
 	WatchlistCatalogEntry,
 } from "./watchlist";
+import { WatchlistFormatError } from "./watchlist";
 
 /** Any non-empty string warms the ONNX session; content is discarded. */
 const WARMUP_PROMPT = "warm up the model";
@@ -188,6 +191,8 @@ export interface RuntimeConfig {
 export interface RuntimeSelection {
 	readonly enabledLists?: ReadonlyArray<string>;
 	readonly thresholds?: ListThresholds;
+	/** Keep only one list's vector index resident while screening. */
+	readonly residency?: "eager" | "streaming";
 }
 
 /** A selectable catalog list, surfaced to the settings UI for toggling. */
@@ -430,15 +435,23 @@ export class EngineRuntime {
 		// Drop the memoized bundle sync so a reload re-runs the signed delta-sync
 		// (picking up a republished `/latest`).
 		this.#bundleSource = null;
-		const loaded = await this.#loadEnabledLists(this.#config);
-		const engine = createMultiListScreeningEngine(
-			loaded,
-			this.#embedder,
-			this.#thresholds(),
-		);
+		const previous = this.#ready;
+		const engine =
+			this.#selection.residency === "streaming"
+				? createStreamingMultiListScreeningEngine(
+						await this.#loadStreamingSources(this.#config),
+						this.#embedder,
+						this.#thresholds(),
+					)
+				: createMultiListScreeningEngine(
+						await this.#loadEnabledLists(this.#config),
+						this.#embedder,
+						this.#thresholds(),
+					);
 		this.#ready = engine;
 		this.#version = compositeVersion(engine.listVersions());
 		this.#enginePromise = Promise.resolve(engine);
+		previous?.dispose();
 		return engine;
 	}
 
@@ -542,6 +555,40 @@ export class EngineRuntime {
 		return loaded;
 	}
 
+	/** Load entity metadata only; vector files are fetched on each screen call. */
+	async #loadStreamingSources(
+		config: RuntimeConfig,
+	): Promise<ReadonlyArray<StreamingListSource>> {
+		const source = await this.#bundleSourceFor(config, config.bundleBaseUrl);
+		if (source.loadListMetadata === undefined) {
+			throw new Error(
+				"streaming residency is unavailable for this bundle source",
+			);
+		}
+		const catalog = source.loadCatalog();
+		const enabled = this.#selection.enabledLists;
+		const entries =
+			enabled === undefined
+				? catalog.lists
+				: catalog.lists.filter((entry) => enabled.includes(entry.id));
+		const sources: StreamingListSource[] = [];
+		for (const entry of entries) {
+			const metadata = await source.loadListMetadata(entry);
+			if (metadata.listId !== entry.id || metadata.version !== entry.version) {
+				throw new WatchlistFormatError(
+					`bundle list ${entry.id} metadata skew: catalog ${entry.version}, metadata ${metadata.listId}@${metadata.version}`,
+				);
+			}
+			sources.push({
+				listId: metadata.listId,
+				version: metadata.version,
+				entities: metadata.entities,
+				load: () => source.loadList(entry),
+			});
+		}
+		return sources;
+	}
+
 	async #build(
 		config: RuntimeConfig,
 		onStage: OnStage,
@@ -562,14 +609,19 @@ export class EngineRuntime {
 		// after so reload/poll opens carry no banner sink.
 		this.#onSyncProgress = (progress) =>
 			onStage({ kind: "downloading", progress });
-		let loaded: LoadedWatchlist[];
+		let loaded: LoadedWatchlist[] | undefined;
+		let streamingSources: ReadonlyArray<StreamingListSource> | undefined;
 		try {
-			loaded = await this.#loadEnabledLists(config);
+			if (this.#selection.residency === "streaming") {
+				streamingSources = await this.#loadStreamingSources(config);
+			} else {
+				loaded = await this.#loadEnabledLists(config);
+			}
 		} finally {
 			this.#onSyncProgress = undefined;
 		}
 		const versions: Record<string, string> = {};
-		for (const l of loaded) {
+		for (const l of loaded ?? streamingSources ?? []) {
 			versions[l.listId] = l.version;
 		}
 		this.#version = compositeVersion(versions);
@@ -599,11 +651,18 @@ export class EngineRuntime {
 			`loading the name-matching model timed out after ${timeoutMs}ms`,
 		);
 
-		const engine = createMultiListScreeningEngine(
-			loaded,
-			embedder,
-			this.#thresholds(),
-		);
+		const engine =
+			streamingSources !== undefined
+				? createStreamingMultiListScreeningEngine(
+						streamingSources,
+						embedder,
+						this.#thresholds(),
+					)
+				: createMultiListScreeningEngine(
+						loaded ?? [],
+						embedder,
+						this.#thresholds(),
+					);
 		this.#ready = engine;
 		onStage({ kind: "ready" });
 		return engine;

@@ -86,6 +86,11 @@ export class ScreeningEngine {
 		return [...this.#entities.values()];
 	}
 
+	/** Release the vector matrix when this engine was created for one streamed list. */
+	public dispose(): void {
+		this.#index.dispose();
+	}
+
 	/** Screen a query name against the synced bundle, in-tab (no backend). */
 	public async screen(
 		query: ScreenQuery,

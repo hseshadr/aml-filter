@@ -98,6 +98,13 @@ export interface LoadedWatchlist {
 	readonly listId: string;
 }
 
+/** Entity metadata retained by the bounded-residency streaming engine. */
+export interface LoadedWatchlistMetadata {
+	readonly entities: ReadonlyMap<string, Entity>;
+	readonly version: string;
+	readonly listId: string;
+}
+
 const DECODER = new TextDecoder();
 
 /** Decode a base64 string into raw bytes (browser atob, no Buffer dependency). */
@@ -342,7 +349,7 @@ function parseEntitiesJsonl(jsonl: string): WatchlistEntity[] {
  * count against the entity count (the binary mirror of decodeVectors' base64
  * check). Copies into a fresh 4-byte-aligned buffer (the materialized bytes may
  * sit at an unaligned byteOffset). */
-function decodeVectorBytes(
+export function decodeVectorBytes(
 	bytes: Uint8Array,
 	dim: number,
 	entityCount: number,
@@ -350,6 +357,19 @@ function decodeVectorBytes(
 	if (bytes.byteLength !== entityCount * dim * FLOAT32_BYTES) {
 		throw new WatchlistFormatError(
 			`vectors.f32 is ${bytes.byteLength} bytes; expected ${entityCount * dim * FLOAT32_BYTES} (${entityCount} entities * ${dim} dim * ${FLOAT32_BYTES})`,
+		);
+	}
+	// Sync worker responses are transferred with ownership of their backing
+	// buffer. Reuse that buffer whenever the view is aligned: copying a large
+	// list here creates a second full matrix at the exact point where iOS Safari
+	// is already close to its WebAssembly/tab memory ceiling. Materialized views
+	// can still be unaligned in tests or alternate clients, so retain the safe
+	// aligned-copy fallback for that case.
+	if (bytes.byteOffset % Float32Array.BYTES_PER_ELEMENT === 0) {
+		return new Float32Array(
+			bytes.buffer,
+			bytes.byteOffset,
+			bytes.byteLength / Float32Array.BYTES_PER_ELEMENT,
 		);
 	}
 	return new Float32Array(bytes.slice().buffer);
@@ -363,6 +383,30 @@ export interface BundleListFiles {
 	readonly vectorsF32: Uint8Array;
 	/** Raw bytes of `<slug>/meta.json` (the per-list BundleListMeta). */
 	readonly meta: Uint8Array;
+}
+
+/** Build browseable metadata without materializing the vector matrix. */
+export function buildLoadedWatchlistMetadataFromBundleFiles(
+	files: Pick<BundleListFiles, "entitiesJsonl" | "meta">,
+): LoadedWatchlistMetadata {
+	const meta: unknown = JSON.parse(DECODER.decode(files.meta));
+	assertBundleListMeta(meta);
+	if (meta.dim !== EXPECTED_DIM) {
+		throw new WatchlistFormatError(
+			`bundle list ${meta.listId} dim is ${meta.dim}; expected ${EXPECTED_DIM}`,
+		);
+	}
+	const wireEntities = parseEntitiesJsonl(DECODER.decode(files.entitiesJsonl));
+	if (wireEntities.length !== meta.entitiesCount) {
+		throw new WatchlistFormatError(
+			`bundle list ${meta.listId}: entities.jsonl has ${wireEntities.length} lines; meta.json says ${meta.entitiesCount}`,
+		);
+	}
+	const entities = new Map<string, Entity>();
+	for (const wire of wireEntities) {
+		entities.set(wire.entity_id, toEntity(wire));
+	}
+	return { entities, listId: meta.listId, version: meta.version };
 }
 
 /**
