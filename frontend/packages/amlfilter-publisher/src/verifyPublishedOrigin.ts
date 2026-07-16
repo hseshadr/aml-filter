@@ -41,7 +41,8 @@ interface PointerWire {
 	readonly version: string;
 	readonly bundle_id?: string | null;
 	readonly channel?: string | null;
-	readonly sequence: number;
+	/** Absent only for a pre-sequence pointer during first-publish migration. */
+	readonly sequence?: number;
 	readonly signature: string;
 }
 
@@ -81,15 +82,20 @@ function parseJson<T>(bytes: Uint8Array, what: string): T {
 	}
 }
 
-function assertPointerWire(value: unknown): asserts value is PointerWire {
+function assertPointerWire(
+	value: unknown,
+	allowLegacySequence = false,
+): asserts value is PointerWire {
 	const p = value as Partial<PointerWire> | null;
+	const sequenceValid =
+		(p?.sequence === undefined && allowLegacySequence) ||
+		(Number.isSafeInteger(p?.sequence) && (p?.sequence as number) >= 0);
 	if (
 		p === null ||
 		typeof p !== "object" ||
 		typeof p.manifest_hash !== "string" ||
 		typeof p.version !== "string" ||
-		!Number.isSafeInteger(p.sequence) ||
-		(p.sequence as number) < 0 ||
+		!sequenceValid ||
 		typeof p.signature !== "string"
 	) {
 		throw new OriginVerifyError(
@@ -120,10 +126,11 @@ async function fetchAndVerifyPointer(
 	baseUrl: string,
 	fetchBytes: OriginFetch,
 	pubkey: Uint8Array,
+	allowLegacySequence = false,
 ): Promise<PointerWire> {
 	const raw = await fetchBytes(`${baseUrl}/latest`);
 	const pointer = parseJson<unknown>(raw, "/latest pointer");
-	assertPointerWire(pointer);
+	assertPointerWire(pointer, allowLegacySequence);
 	const message = canonicalBytes(pointer as unknown as JsonValue, {
 		exclude: {
 			signature: true,
@@ -161,8 +168,12 @@ export async function nextPublishedSequence(args: {
 		args.baseUrl,
 		args.fetchBytes,
 		args.pubkey,
+		true,
 	);
-	return sequenceAfterLive(pointer.sequence);
+	// A valid pre-sequence pointer is the zero baseline. This branch is only for
+	// the one-way first publish; all newly emitted pointers carry a sequence and
+	// the post-publish verifier remains strict.
+	return sequenceAfterLive(pointer.sequence ?? 0);
 }
 
 async function fetchAndVerifyManifest(
@@ -221,6 +232,11 @@ export async function verifyPublishedOrigin(args: {
 }): Promise<OriginVerifyReport> {
 	const { baseUrl, fetchBytes, pubkey, expectVersion, expectSequence } = args;
 	const pointer = await fetchAndVerifyPointer(baseUrl, fetchBytes, pubkey);
+	if (pointer.sequence === undefined) {
+		throw new OriginVerifyError(
+			"published /latest pointer is missing a non-negative monotonic sequence",
+		);
+	}
 	if (expectVersion !== undefined && pointer.version !== expectVersion) {
 		throw new OriginVerifyError(
 			`published pointer version is "${pointer.version}"; expected "${expectVersion}" — the deploy did not take (or has not propagated)`,

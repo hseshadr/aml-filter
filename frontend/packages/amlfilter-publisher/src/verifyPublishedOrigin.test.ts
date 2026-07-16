@@ -29,6 +29,12 @@ const BASE = "https://origin.test/bundle/origin";
 
 const PUBKEY = new Uint8Array(readFileSync(join(APP_PUBLIC, "public.key")));
 
+// The live Pages origin was published before the monotonic sequence field was
+// introduced. Keep this exact signed pointer as a migration fixture: the first
+// sequence-aware publish must be able to verify it and derive sequence 1.
+const LEGACY_LATEST =
+	'{"manifest_hash":"9ca69ce7455f04b585c2d9210ce72d2c6ed242c0baf72a067550484b4eb2e434","version":"demo-1","signature":"TgCmN5VLFh6J6OFdNIAakEKuqrQbM9wOolPRxu4Ro8udgnF9f+9UuP4hDtKg7DOhhIg/THwF5uiggJStoDK9Bw=="}';
+
 /** An OriginFetch backed by the committed demo origin tree. */
 function fixtureFetch(): OriginFetch {
 	return (url: string) => {
@@ -40,6 +46,15 @@ function fixtureFetch(): OriginFetch {
 			new Uint8Array(readFileSync(join(ORIGIN_DIR, ...rel))),
 		);
 	};
+}
+
+/** The same origin tree with its pre-sequence signed /latest pointer. */
+function legacyFixtureFetch(): OriginFetch {
+	const current = fixtureFetch();
+	return (url: string) =>
+		url === `${BASE}/latest`
+			? Promise.resolve(new TextEncoder().encode(LEGACY_LATEST))
+			: current(url);
 }
 
 function demoVersion(): string {
@@ -214,6 +229,16 @@ describe("next published monotonic sequence", () => {
 				pubkey: PUBKEY,
 			}),
 		).resolves.toBe(live.sequence + 1);
+	});
+
+	it("migrates a verified pre-sequence live pointer from zero", async () => {
+		await expect(
+			sequenceModule.nextPublishedSequence?.({
+				baseUrl: BASE,
+				fetchBytes: legacyFixtureFetch(),
+				pubkey: PUBKEY,
+			}),
+		).resolves.toBe(1);
 	});
 
 	it("rejects a tampered live pointer instead of deriving from it", async () => {
