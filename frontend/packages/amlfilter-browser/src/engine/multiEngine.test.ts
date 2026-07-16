@@ -8,8 +8,10 @@ import { describe, expect, it, vi } from "vitest";
 import type { Embedder } from "./embedder";
 import {
 	createMultiListScreeningEngine,
+	createStreamingMultiListScreeningEngine,
 	type ListThresholds,
 } from "./multiEngine";
+import { VectorIndex } from "./vectorIndex";
 import { buildLoadedWatchlist, type Watchlist } from "./watchlist";
 
 const DIM = 384;
@@ -160,6 +162,178 @@ describe("MultiListScreeningEngine — single-embed guarantee", () => {
 		const engine = createMultiListScreeningEngine(lists, embedder, DEFAULT);
 		await engine.screen({ name: "ivan fako" });
 		expect(embed).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe("MultiListScreeningEngine — streaming residency", () => {
+	it("keeps metadata browseable and loads one vector index at a time", async () => {
+		const a = buildLoadedWatchlist(
+			oneEntityList("A", "v1", "A:1", "ivan fako"),
+		);
+		const b = buildLoadedWatchlist(
+			oneEntityList("B", "v1", "B:1", "ivan fako"),
+		);
+		let active = 0;
+		let peak = 0;
+		const source = (loaded: typeof a) => ({
+			listId: loaded.listId,
+			version: loaded.version,
+			entities: loaded.entities,
+			load: async () => {
+				active += 1;
+				peak = Math.max(peak, active);
+				await Promise.resolve();
+				const originalDispose = loaded.index.dispose.bind(loaded.index);
+				loaded.index.dispose = () => {
+					active -= 1;
+					originalDispose();
+				};
+				return loaded;
+			},
+		});
+		const engine = createStreamingMultiListScreeningEngine(
+			[source(a), source(b)],
+			axisZeroEmbedder(),
+			DEFAULT,
+		);
+
+		expect(engine.allEntities().map((entity) => entity.entity_id)).toEqual([
+			"A:1",
+			"B:1",
+		]);
+		const result = await engine.screen({ name: "ivan fako" });
+		expect(result.matches).toHaveLength(2);
+		expect(peak).toBe(1);
+		expect(active).toBe(1);
+		engine.dispose();
+		expect(active).toBe(0);
+	});
+
+	it("releases a streamed index when screening fails", async () => {
+		const loaded = buildLoadedWatchlist(
+			oneEntityList("A", "v1", "A:1", "ivan fako"),
+		);
+		const dispose = vi.spyOn(loaded.index, "dispose");
+		const engine = createStreamingMultiListScreeningEngine(
+			[
+				{
+					listId: loaded.listId,
+					version: loaded.version,
+					entities: loaded.entities,
+					load: async () => {
+						throw new Error("list failed");
+					},
+				},
+			],
+			axisZeroEmbedder(),
+			DEFAULT,
+		);
+		await expect(engine.screen({ name: "ivan fako" })).rejects.toThrow(
+			/list failed/,
+		);
+		expect(dispose).not.toHaveBeenCalled();
+	});
+
+	it("disposes a streamed index when scoring throws", async () => {
+		const loaded = {
+			index: new VectorIndex(new Float32Array(1), ["A:1"], 1),
+			entities: new Map(),
+			version: "v1",
+			listId: "A",
+		};
+		const dispose = vi.spyOn(loaded.index, "dispose");
+		const engine = createStreamingMultiListScreeningEngine(
+			[
+				{
+					listId: "A",
+					version: "v1",
+					entities: loaded.entities,
+					load: async () => loaded,
+				},
+			],
+			axisZeroEmbedder(),
+			DEFAULT,
+		);
+		await expect(engine.screen({ name: "ivan fako" })).rejects.toThrow(
+			/query vector/,
+		);
+		expect(dispose).toHaveBeenCalledTimes(1);
+	});
+
+	it("serializes overlapping screens so streamed indexes never overlap", async () => {
+		const loaded = buildLoadedWatchlist(
+			oneEntityList("A", "v1", "A:1", "ivan fako"),
+		);
+		let resolveLoad: (() => void) | undefined;
+		let active = 0;
+		let peak = 0;
+		const engine = createStreamingMultiListScreeningEngine(
+			[
+				{
+					listId: loaded.listId,
+					version: loaded.version,
+					entities: loaded.entities,
+					load: async () => {
+						active += 1;
+						peak = Math.max(peak, active);
+						await new Promise<void>((resolve) => {
+							resolveLoad = resolve;
+						});
+						const next = buildLoadedWatchlist(
+							oneEntityList("A", "v1", "A:1", "ivan fako"),
+						);
+						const dispose = next.index.dispose.bind(next.index);
+						next.index.dispose = () => {
+							active -= 1;
+							dispose();
+						};
+						return next;
+					},
+				},
+			],
+			axisZeroEmbedder(),
+			DEFAULT,
+		);
+		const first = engine.screen({ name: "ivan fako" });
+		const second = engine.screen({ name: "ivan fako" });
+		await vi.waitFor(() => expect(resolveLoad).toBeDefined());
+		resolveLoad?.();
+		await Promise.all([first, second]);
+		expect(peak).toBe(1);
+		expect(active).toBe(1);
+		engine.dispose();
+		expect(active).toBe(0);
+	});
+
+	it("releases a list that finishes loading after engine disposal", async () => {
+		const loaded = buildLoadedWatchlist(
+			oneEntityList("A", "v1", "A:1", "ivan fako"),
+		);
+		const dispose = vi.spyOn(loaded.index, "dispose");
+		let resolveLoad: (() => void) | undefined;
+		const engine = createStreamingMultiListScreeningEngine(
+			[
+				{
+					listId: loaded.listId,
+					version: loaded.version,
+					entities: loaded.entities,
+					load: async () => {
+						await new Promise<void>((resolve) => {
+							resolveLoad = resolve;
+						});
+						return loaded;
+					},
+				},
+			],
+			axisZeroEmbedder(),
+			DEFAULT,
+		);
+		const pending = engine.screen({ name: "ivan fako" });
+		await vi.waitFor(() => expect(resolveLoad).toBeDefined());
+		engine.dispose();
+		resolveLoad?.();
+		await expect(pending).rejects.toThrow(/disposed/);
+		expect(dispose).toHaveBeenCalledTimes(1);
 	});
 });
 

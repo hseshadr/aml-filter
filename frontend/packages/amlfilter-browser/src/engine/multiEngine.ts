@@ -29,7 +29,16 @@ export interface ListThresholds {
 interface ListEngine {
 	readonly listId: string;
 	readonly version: string;
-	readonly engine: ScreeningEngine;
+	readonly engine?: ScreeningEngine;
+	readonly source?: StreamingListSource;
+}
+
+/** Metadata plus a one-shot loader used by the bounded-residency path. */
+export interface StreamingListSource {
+	readonly listId: string;
+	readonly version: string;
+	readonly entities: ReadonlyMap<string, Entity>;
+	readonly load: () => Promise<LoadedWatchlist>;
 }
 
 /** A multi-list, in-tab screen: one embed, N lists, one scoring contract. */
@@ -37,6 +46,12 @@ export class MultiListScreeningEngine {
 	readonly #lists: ReadonlyArray<ListEngine>;
 	readonly #embedder: Embedder;
 	readonly #thresholds: ListThresholds;
+	#resident: {
+		readonly listId: string;
+		readonly engine: ScreeningEngine;
+	} | null = null;
+	#screenTail: Promise<void> = Promise.resolve();
+	#disposed = false;
 
 	public constructor(
 		lists: ReadonlyArray<ListEngine>,
@@ -50,7 +65,10 @@ export class MultiListScreeningEngine {
 
 	/** Every entity across every list — backs the search UI's browse view. */
 	public allEntities(): ReadonlyArray<Entity> {
-		return this.#lists.flatMap((l) => l.engine.allEntities());
+		return this.#lists.flatMap(
+			(l) =>
+				l.engine?.allEntities() ?? [...(l.source?.entities.values() ?? [])],
+		);
 	}
 
 	/** Each list's loaded version, keyed by list id — for the composite stamp. */
@@ -71,24 +89,92 @@ export class MultiListScreeningEngine {
 		);
 	}
 
-	/** Screen across every list with a single shared query embedding. */
-	public async screen(
+	/** Release the one cached streamed index and any eager indexes. */
+	public dispose(): void {
+		this.#disposed = true;
+		this.#resident?.engine.dispose();
+		this.#resident = null;
+		for (const list of this.#lists) {
+			list.engine?.dispose();
+		}
+	}
+
+	/** Serialize screens so two mobile queries cannot materialize indexes together. */
+	public screen(
 		query: ScreenQuery,
 		options: ScreenOptions = {},
+	): Promise<ScreenResponse> {
+		const run = this.#screenTail.then(() => {
+			if (this.#disposed) {
+				throw new Error("multi-list engine has been disposed");
+			}
+			return this.#screenNow(query, options);
+		});
+		this.#screenTail = run.then(
+			() => undefined,
+			() => undefined,
+		);
+		return run;
+	}
+
+	/** Screen across every list with a single shared query embedding. */
+	async #screenNow(
+		query: ScreenQuery,
+		options: ScreenOptions,
 	): Promise<ScreenResponse> {
 		const start = Date.now();
 		const queryVec = await this.#embedder.embed(query.name);
 		const matches: Match[] = [];
 		const versions: Record<string, string> = {};
-		for (const { listId, engine } of this.#lists) {
-			const threshold = this.#thresholdFor(listId, query);
-			const res = engine.screenWithVector(
-				{ ...query, threshold },
-				queryVec,
-				options,
-			);
-			matches.push(...res.matches);
-			Object.assign(versions, res.list_versions_used);
+		for (const list of this.#lists) {
+			if (this.#disposed) {
+				throw new Error("multi-list engine has been disposed");
+			}
+			let engine = list.engine;
+			let streamed = false;
+			try {
+				if (engine === undefined) {
+					if (this.#resident?.listId !== list.listId) {
+						this.#resident?.engine.dispose();
+						this.#resident = null;
+						const loaded = await list.source?.load();
+						if (loaded === undefined) {
+							throw new Error(`list ${list.listId} has no loader`);
+						}
+						if (this.#disposed) {
+							loaded.index.dispose();
+							throw new Error("multi-list engine has been disposed");
+						}
+						if (
+							loaded.listId !== list.listId ||
+							loaded.version !== list.version
+						) {
+							loaded.index.dispose();
+							throw new Error(`streamed list ${list.listId} metadata mismatch`);
+						}
+						this.#resident = {
+							listId: list.listId,
+							engine: createScreeningEngine(loaded, this.#embedder),
+						};
+					}
+					engine = this.#resident?.engine;
+					streamed = true;
+				}
+				const threshold = this.#thresholdFor(list.listId, query);
+				const res = engine.screenWithVector(
+					{ ...query, threshold },
+					queryVec,
+					options,
+				);
+				matches.push(...res.matches);
+				Object.assign(versions, res.list_versions_used);
+			} catch (error) {
+				if (streamed && this.#resident?.listId === list.listId) {
+					this.#resident.engine.dispose();
+					this.#resident = null;
+				}
+				throw error;
+			}
 		}
 		matches.sort((a, b) => b.score - a.score);
 		return {
@@ -112,4 +198,21 @@ export function createMultiListScreeningEngine(
 		engine: createScreeningEngine(loaded, embedder),
 	}));
 	return new MultiListScreeningEngine(lists, embedder, thresholds);
+}
+
+/** Build a multi-list engine that releases each vector index after screening. */
+export function createStreamingMultiListScreeningEngine(
+	sources: ReadonlyArray<StreamingListSource>,
+	embedder: Embedder,
+	thresholds: ListThresholds,
+): MultiListScreeningEngine {
+	return new MultiListScreeningEngine(
+		sources.map((source) => ({
+			listId: source.listId,
+			version: source.version,
+			source,
+		})),
+		embedder,
+		thresholds,
+	);
 }

@@ -194,10 +194,13 @@ precomputed name vectors → embeds the query or customer name in-tab
 (transformers.js MiniLM, `Xenova/all-MiniLM-L6-v2`, 384-dim) → runs a brute-force cosine
 search → scores each candidate with an explainable weighted scorer.
 
-The `MultiListScreeningEngine` (`engine/multiEngine.ts`) holds **one vector index per
-list over a single shared embedder**: it embeds the query once, screens each enabled
-list, applies its threshold (`perList[id] ?? query.threshold ?? default`), then merges
-and re-ranks — a strong hit in *any* list surfaces.
+The `MultiListScreeningEngine` (`engine/multiEngine.ts`) uses one shared embedder and
+supports two residency modes. The default eager mode holds one vector index per enabled
+list; the bounded streaming mode keeps metadata for every enabled list but loads,
+screens, and disposes one vector index at a time (with a one-list cache and serialized
+queries). In either mode it embeds the query once, applies each threshold
+(`perList[id] ?? query.threshold ?? default`), then merges and re-ranks — a strong hit
+in *any* list surfaces.
 
 The scorer (`computeScore` / `PRESETS`: `strict` / `balanced` / `lenient`) sums five
 signals — `name_vector`, `name_trigram`, `alias_match`, `dob_match`, `country_match` —

@@ -201,7 +201,15 @@ export function ScreenPage() {
 		started.current = true;
 		const config = configFromEnv(import.meta.env);
 		runtime
-			.bootstrap(config, (stage) => setPhase({ kind: "booting", stage }))
+			// The public route promises OFAC screening. Keep its boot bounded to that
+			// list instead of eagerly materializing every signed catalog list; the
+			// latter exceeds iOS Safari's tab/WASM memory budget before the model is
+			// ready. The workstation/settings flow remains the configurable multi-list
+			// surface.
+			.bootstrap(config, (stage) => setPhase({ kind: "booting", stage }), {
+				enabledLists: ["OFAC_SDN"],
+				residency: "streaming",
+			})
 			.then(() => {
 				if (!alive.current) {
 					return;

@@ -20,6 +20,7 @@ import {
 import { VectorIndex } from "./vectorIndex";
 import type {
 	LoadedWatchlist,
+	LoadedWatchlistMetadata,
 	WatchlistCatalog,
 	WatchlistCatalogEntry,
 } from "./watchlist";
@@ -496,6 +497,51 @@ describe("EngineRuntime enabledLists selection + thresholds", () => {
 				.sort(),
 		).toEqual(["OFAC_SDN:E", "UN_CONSOLIDATED:E"]);
 		expect(runtime.version()).toBe("OFAC_SDN@demo-1|UN_CONSOLIDATED@demo-1");
+	});
+
+	it("supports bounded streaming residency without loading vectors at boot", async () => {
+		const catalog = catalogOf([
+			["EU_CONSOLIDATED", "demo-1"],
+			["OFAC_SDN", "demo-1"],
+		]);
+		const loadedIds: string[] = [];
+		const metadataIds: string[] = [];
+		const source: BundleSource = {
+			loadCatalog: () => catalog,
+			loadListMetadata: async (entry): Promise<LoadedWatchlistMetadata> => {
+				metadataIds.push(entry.id);
+				const loaded = loadedAt(entry.version, `${entry.id}:E`, entry.id);
+				return {
+					entities: loaded.entities,
+					listId: loaded.listId,
+					version: loaded.version,
+				};
+			},
+			loadList: async (entry) => {
+				loadedIds.push(entry.id);
+				return loadedAt(entry.version, `${entry.id}:E`, entry.id);
+			},
+			version: () => "fake",
+			clear: () => Promise.resolve(),
+		};
+		const runtime = new EngineRuntime({
+			makeEmbedder: () => instantEmbedder(),
+			clearCache: () => Promise.resolve(),
+			openBundleSource: () => Promise.resolve(source),
+		});
+		const engine = await runtime.bootstrap(CONFIG, () => {}, {
+			residency: "streaming",
+		});
+		expect(metadataIds).toEqual(["EU_CONSOLIDATED", "OFAC_SDN"]);
+		expect(loadedIds).toEqual([]);
+		expect(engine.allEntities()).toHaveLength(2);
+		await engine.screen({ name: "EU_CONSOLIDATED:E" });
+		expect(loadedIds).toEqual(["EU_CONSOLIDATED", "OFAC_SDN"]);
+		loadedIds.length = 0;
+		metadataIds.length = 0;
+		await runtime.reload();
+		expect(loadedIds).toEqual([]);
+		expect(metadataIds).toEqual(["EU_CONSOLIDATED", "OFAC_SDN"]);
 	});
 
 	it("loads every list when enabledLists is absent (today's behavior)", async () => {

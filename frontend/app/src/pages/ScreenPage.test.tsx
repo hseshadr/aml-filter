@@ -136,6 +136,11 @@ const observedThresholds: Array<number | undefined> = [];
 // the Date-of-birth input threads its YYYY-MM-DD value through to screening.
 const observedDobs: Array<string | undefined> = [];
 
+// The public screen is intentionally bounded to the OFAC list. The route's
+// copy promises OFAC screening, and loading every signed list on iOS can exceed
+// Safari's tab/WASM memory ceiling before the model is ready.
+const observedSelections: Array<unknown> = [];
+
 // The page builds its own EngineRuntime; mock the module so the test drives a
 // deterministic engine with no Worker/bundle/model.
 vi.mock("@amlfilter/browser", async (importActual) => {
@@ -143,7 +148,12 @@ vi.mock("@amlfilter/browser", async (importActual) => {
 	// exactly as the engine's trigram does — only the runtime/engine is faked.
 	const actual = await importActual<typeof import("@amlfilter/browser")>();
 	class EngineRuntime {
-		bootstrap(): Promise<void> {
+		bootstrap(
+			_config: unknown,
+			_onStage?: unknown,
+			selection?: unknown,
+		): Promise<void> {
+			observedSelections.push(selection);
 			return Promise.resolve();
 		}
 		engine() {
@@ -274,6 +284,7 @@ afterEach(() => {
 	cleanup();
 	observedThresholds.length = 0;
 	observedDobs.length = 0;
+	observedSelections.length = 0;
 });
 
 // Wait until the search box is enabled (boot resolved) and return it.
@@ -286,6 +297,15 @@ async function readyBox(): Promise<HTMLInputElement> {
 }
 
 describe("ScreenPage — in-browser search", () => {
+	it("boots the public screen with the bounded OFAC selection", async () => {
+		render(<ScreenPage />);
+		await waitFor(() =>
+			expect(observedSelections).toEqual([
+				{ enabledLists: ["OFAC_SDN"], residency: "streaming" },
+			]),
+		);
+	});
+
 	it("opens the paginated directory when the box is empty", async () => {
 		render(<ScreenPage />);
 		await waitFor(() =>

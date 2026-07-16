@@ -80,10 +80,12 @@ function originFetch(): {
 function memoryClient(): {
 	deps: BundleSourceDeps;
 	chunkRequests: () => ReadonlyArray<string>;
+	readPaths: () => ReadonlyArray<string>;
 } {
 	const store = new MemoryCacheStore();
 	const { fetchBytes, chunkRequests } = originFetch();
 	let manifest: IndexManifest | null = null;
+	const paths: string[] = [];
 	const client: BundleEngineClient = {
 		async sync(baseUrl, _pubkeyUrl) {
 			const result = await syncIndex({
@@ -99,6 +101,7 @@ function memoryClient(): {
 			return result;
 		},
 		readFile(path) {
+			paths.push(path);
 			if (manifest === null) {
 				return Promise.reject(new Error("sync first"));
 			}
@@ -108,7 +111,11 @@ function memoryClient(): {
 			return store.clear();
 		},
 	};
-	return { deps: { createClient: () => client }, chunkRequests };
+	return {
+		deps: { createClient: () => client },
+		chunkRequests,
+		readPaths: () => paths,
+	};
 }
 
 const PUBKEY_URL = "https://app.example/public.key";
@@ -170,6 +177,27 @@ describe("openBundleSource — over the committed demo bundle", () => {
 		expect(names).toContain("ivan fakovich");
 		// vectors decoded into the index (one row per entity).
 		expect(loaded.index.ntotal).toBe(loaded.entities.size);
+	});
+
+	it("loads list metadata without materializing vectors", async () => {
+		const { deps, readPaths } = memoryClient();
+		const source = await openBundleSource("/o", PUBKEY_URL, deps);
+		const ofacEntry = source
+			.loadCatalog()
+			.lists.find((l) => l.id === "OFAC_SDN");
+		if (ofacEntry === undefined) {
+			throw new Error("OFAC list missing from the committed bundle catalog");
+		}
+		if (source.loadListMetadata === undefined) {
+			throw new Error("metadata loader missing");
+		}
+		const metadata = await source.loadListMetadata(ofacEntry);
+		expect(metadata.listId).toBe("OFAC_SDN");
+		expect(metadata.entities.size).toBe(ofacEntry.entitiesCount);
+		expect(readPaths()).toEqual(
+			expect.arrayContaining(["ofac/entities.jsonl", "ofac/meta.json"]),
+		);
+		expect(readPaths()).not.toContain("ofac/vectors.f32");
 	});
 
 	it("reuses cached chunks on a second open into the same store (delta sync)", async () => {

@@ -55,8 +55,10 @@ export {
 // --- the multi-list screen: one warm embedder, N signed lists, one contract ---
 export {
 	createMultiListScreeningEngine,
+	createStreamingMultiListScreeningEngine,
 	type ListThresholds,
 	MultiListScreeningEngine,
+	type StreamingListSource,
 } from "./engine/multiEngine";
 // --- the canonical-name pipeline (shared by the engine and the UI's gates) ---
 export { canonicalize, normalizeDob } from "./engine/normalize";
@@ -102,7 +104,9 @@ export {
 	type BundleListMeta,
 	buildLoadedFromBundleFiles,
 	buildLoadedWatchlist,
+	buildLoadedWatchlistMetadataFromBundleFiles,
 	type LoadedWatchlist,
+	type LoadedWatchlistMetadata,
 	type Watchlist,
 	type WatchlistCatalog,
 	type WatchlistCatalogEntry,

@@ -22,7 +22,9 @@ import { EngineClient } from "./sync/client";
 import type { OnSyncProgress, SyncResult } from "./sync/types";
 import {
 	buildLoadedFromBundleFiles,
+	buildLoadedWatchlistMetadataFromBundleFiles,
 	type LoadedWatchlist,
+	type LoadedWatchlistMetadata,
 	type WatchlistCatalog,
 	type WatchlistCatalogEntry,
 	WatchlistFormatError,
@@ -144,6 +146,10 @@ export interface BundleSource {
 	/** Build ONE list's LoadedWatchlist from its materialized bundle files,
 	 * cross-checking the catalog/meta versions (fail-closed). */
 	loadList(entry: WatchlistCatalogEntry): Promise<LoadedWatchlist>;
+	/** Build browseable entity metadata without materializing vectors. */
+	loadListMetadata?(
+		entry: WatchlistCatalogEntry,
+	): Promise<LoadedWatchlistMetadata>;
 	/** The promoted bundle version (the signed `/latest` pointer's version). */
 	version(): string;
 	/** Drop the durable store (every chunk + manifest + the active pointer) — the
@@ -196,10 +202,30 @@ export async function openBundleSource(
 		}
 		return loaded;
 	};
+	const loadListMetadata = async (
+		entry: WatchlistCatalogEntry,
+	): Promise<LoadedWatchlistMetadata> => {
+		const slug = slugOf(entry);
+		const [entitiesJsonl, meta] = await Promise.all([
+			client.readFile(`${slug}/entities.jsonl`),
+			client.readFile(`${slug}/meta.json`),
+		]);
+		const loaded = buildLoadedWatchlistMetadataFromBundleFiles({
+			entitiesJsonl,
+			meta,
+		});
+		if (loaded.version !== entry.version || loaded.listId !== entry.id) {
+			throw new WatchlistFormatError(
+				`bundle list ${entry.id} metadata skew: catalog ${entry.version}, metadata ${loaded.listId}@${loaded.version}`,
+			);
+		}
+		return loaded;
+	};
 
 	return {
 		loadCatalog: () => catalog,
 		loadList,
+		loadListMetadata,
 		version: () => result.version,
 		clear: () => client.clear(),
 	};
