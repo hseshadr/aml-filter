@@ -20,6 +20,29 @@ and Chrome use bounded one-list-at-a-time vector residency so the workstation do
 not overlap every watchlist with the ONNX/WASM model; desktop keeps eager residency
 for throughput. Embedded WebViews are not part of the release contract.
 
+## Northstar status (verified 2026-07-16)
+
+**The production path now treats mobile memory as a first-class constraint.** The
+live build is commit `cd732f2` and its deploy workflow passed. On mobile, the
+workstation serializes engine boot, keeps one list resident at a time, and disposes
+workers/models before retry or cache clear; desktop retains the faster eager path.
+The retry UI reports an explicit out-of-memory failure instead of leaving a half-live
+screening engine behind.
+
+Proof that stays close to the code:
+
+```bash
+cd frontend
+pnpm gate
+curl -fsSL https://aml-filter.com/build.json
+```
+
+The repository gate covers 304 browser tests and 271 application tests, plus
+typecheck, lint, build, i18n, KYC, and bundle checks. A production iPhone-sized
+browser smoke reached `/settings` with a roughly 26 MB JS heap and no console errors.
+The app is still a reference implementation, not legal or regulatory advice, and
+embedded WebViews remain outside the release contract.
+
 ## TL;DR
 
 - **What it is** — a sanctions-screening + KYC-review workstation that runs 100% in the
