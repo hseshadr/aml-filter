@@ -41,6 +41,7 @@
 	},
 	"banner": {
 		"error": "Error: {{error}}",
+		"applied": "Settings applied — no customers needed re-screening.",
 		"unchanged": "Settings unchanged — no changes to apply.",
 		"rescanned": "Re-screened {{customers}} customers — {{newHits}} new hits, {{clearedHits}} cleared."
 	},

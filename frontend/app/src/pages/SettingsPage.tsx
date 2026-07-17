@@ -169,11 +169,16 @@ function OverrideSelect({
 function ResultBanner({
 	summary,
 	error,
+	appliedChange,
 	onRetry,
 	t,
 }: {
 	readonly summary: RescanSummary | null;
 	readonly error: string | null;
+	/** Whether the apply that produced `summary` actually changed anything. A
+	 * zero-customer book rescans 0 customers even for a REAL change, so the
+	 * summary alone cannot distinguish "applied" from "nothing to apply". */
+	readonly appliedChange: boolean;
 	readonly onRetry?: () => void;
 	readonly t: TFunction;
 }) {
@@ -193,7 +198,7 @@ function ResultBanner({
 	if (summary.customersScanned === 0) {
 		return (
 			<div className="alert alert-success" role="status">
-				{t("banner.unchanged")}
+				{appliedChange ? t("banner.applied") : t("banner.unchanged")}
 			</div>
 		);
 	}
@@ -237,6 +242,40 @@ function combineSummaries(
 	return EMPTY_SUMMARY;
 }
 
+/** What the form holds vs what the device is actually running. `analystName`
+ * is kept TRIMMED (that is what Apply persists). */
+interface SettingsSnapshot {
+	readonly sensitivity: Sensitivity;
+	readonly overrides: Overrides;
+	readonly analystName: string;
+	readonly enabled: ReadonlySet<string>;
+}
+
+function overridesEqual(a: Overrides, b: Overrides): boolean {
+	const keys = Object.keys(a);
+	return (
+		keys.length === Object.keys(b).length && keys.every((k) => a[k] === b[k])
+	);
+}
+
+function sameSet(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
+	return a.size === b.size && [...a].every((id) => b.has(id));
+}
+
+/** Whether applying `draft` changes anything vs the applied snapshot. A blank
+ * analyst name is never persisted, so it never counts as a change. */
+function snapshotsDiffer(
+	draft: SettingsSnapshot,
+	applied: SettingsSnapshot,
+): boolean {
+	return (
+		draft.sensitivity !== applied.sensitivity ||
+		!overridesEqual(draft.overrides, applied.overrides) ||
+		(draft.analystName !== "" && draft.analystName !== applied.analystName) ||
+		!sameSet(draft.enabled, applied.enabled)
+	);
+}
+
 export default function SettingsPage() {
 	const { t } = useTranslation("settings");
 	const [sensitivity, setSensitivity] = useState<Sensitivity>("balanced");
@@ -254,6 +293,11 @@ export default function SettingsPage() {
 	const [cacheCleared, setCacheCleared] = useState<boolean>(false);
 	const [loadAttempt, setLoadAttempt] = useState<number>(0);
 	const [loadFailed, setLoadFailed] = useState<boolean>(false);
+	// The last loaded-or-applied snapshot. The rescan summary alone cannot say
+	// whether Apply changed anything (a zero-customer book always rescans 0),
+	// so the confirmation banner diffs the draft against this baseline.
+	const [baseline, setBaseline] = useState<SettingsSnapshot | null>(null);
+	const [appliedChange, setAppliedChange] = useState<boolean>(false);
 
 	// loadAttempt is an intentional trigger: retryLoad restarts the same load effect.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: loadAttempt is the explicit retry trigger
@@ -274,6 +318,12 @@ export default function SettingsPage() {
 			setAnalystName(stored ?? "");
 			setCatalog(lists);
 			setEnabled(new Set(enabledList));
+			setBaseline({
+				sensitivity: config.sensitivity,
+				overrides: { ...config.overrides },
+				analystName: stored ?? "",
+				enabled: new Set(enabledList),
+			});
 			setLoaded(true);
 		}
 		load().catch((err: unknown) => {
@@ -308,6 +358,13 @@ export default function SettingsPage() {
 	async function persist(): Promise<void> {
 		const handle = await workstation();
 		const trimmed = analystName.trim();
+		const draft: SettingsSnapshot = {
+			sensitivity,
+			overrides,
+			analystName: trimmed,
+			enabled,
+		};
+		const changed = baseline === null || snapshotsDiffer(draft, baseline);
 		if (trimmed) {
 			await handle.store.setSetting(ANALYST_NAME_KEY, trimmed);
 		}
@@ -319,6 +376,15 @@ export default function SettingsPage() {
 		);
 		const config: ScreeningConfig = { sensitivity, overrides };
 		const configSummary = await apiClient.setScreeningConfig(config);
+		// Everything persisted: the draft is now what the device runs (a blank
+		// name was not persisted, so the baseline keeps the previous one).
+		setBaseline({
+			sensitivity,
+			overrides: { ...overrides },
+			analystName: trimmed !== "" ? trimmed : (baseline?.analystName ?? ""),
+			enabled: new Set(enabled),
+		});
+		setAppliedChange(changed);
 		setSummary(combineSummaries(selectionSummary, configSummary));
 	}
 
@@ -450,6 +516,7 @@ export default function SettingsPage() {
 			<ResultBanner
 				summary={summary}
 				error={error}
+				appliedChange={appliedChange}
 				onRetry={loadFailed ? retryLoad : undefined}
 				t={t}
 			/>
