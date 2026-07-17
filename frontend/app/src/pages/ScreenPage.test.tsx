@@ -58,15 +58,18 @@ const ivanMatch = {
 
 // Build a Match-like double carrying a name_trigram reason of the given value,
 // so the strictness gate (which reads that reason) can be driven deterministically.
+// `score` drives the presentation split: below Balanced's 0.40 display line a
+// kept match renders grouped under the low-confidence disclosure, not primary.
 function matchWithTrigram(
 	over: { entity_id: string; primary_name: string },
 	trigram: number,
+	score = 0.301,
 ): typeof ivanMatch {
 	return {
 		...ivanMatch,
 		entity_id: over.entity_id,
 		primary_name: over.primary_name,
-		score: 0.301,
+		score,
 		reasons: [
 			{
 				signal: "name_vector",
@@ -93,10 +96,28 @@ function matchWithTrigram(
 const ivanCloseMatch = matchWithTrigram(
 	{ entity_id: "DEMO:IVAN", primary_name: "Ivan Fakovich" },
 	0.667,
+	// A realistic close-hit combined score — comfortably above Balanced's 0.40
+	// display line, so the intended hit renders as a PRIMARY match card.
+	0.55,
 );
 const hassanNoiseMatch = matchWithTrigram(
 	{ entity_id: "DEMO:HASSAN", primary_name: "Hassan Pretendi" },
 	0.261,
+);
+// The live-observed junk shape ("Zzyzx Nobody" → 0.32–0.36 fuzz): nonsense
+// whose fuzz PASSES the lexical gate (trigram ≥ 0.35) yet lands in the
+// 0.30–0.40 combined band. At Balanced these must render grouped under the
+// collapsed low-confidence disclosure — never as primary match cards. At
+// Lenient they stay primary (show-everything preserved).
+const zzyzxFuzzOne = matchWithTrigram(
+	{ entity_id: "DEMO:ZZ1", primary_name: "Zzyzx Impostor One" },
+	0.36,
+	0.362,
+);
+const zzyzxFuzzTwo = matchWithTrigram(
+	{ entity_id: "DEMO:ZZ2", primary_name: "Zzyzx Impostor Two" },
+	0.36,
+	0.322,
 );
 // The token-containment case: a short query ("bank") against a long org name has
 // a tiny trigram (~0.267 < 0.35) yet must be KEPT because the query token "bank"
@@ -112,6 +133,9 @@ const bankMatch = matchWithTrigram(
 const bancoMatch = matchWithTrigram(
 	{ entity_id: "DEMO:BANCO", primary_name: "Banco Nacional De Cuba" },
 	0.2,
+	// Above the display line so the card renders primary — this double exists
+	// for the type-badge assertion, not the confidence split.
+	0.45,
 );
 
 // Two distinguishable matches for the stale-cancellation test. The "slow"
@@ -225,6 +249,25 @@ vi.mock("@amlfilter/browser", async (importActual) => {
 							list_versions_used: {},
 							execution_time_ms: 3,
 							matches: [bancoMatch],
+						});
+					}
+					// "zzyzx": ONLY sub-line fuzz — the pure junk-query case. Every
+					// candidate passes the gate but sits below the 0.40 display line.
+					if (lower.includes("zzyzx")) {
+						return Promise.resolve({
+							request_id: "zzyzx",
+							list_versions_used: {},
+							execution_time_ms: 3,
+							matches: [zzyzxFuzzOne, zzyzxFuzzTwo],
+						});
+					}
+					// "nobody ivan": a strong hit ALONGSIDE sub-line fuzz — the mixed case.
+					if (lower.includes("nobody ivan")) {
+						return Promise.resolve({
+							request_id: "mixed",
+							list_versions_used: {},
+							execution_time_ms: 3,
+							matches: [ivanCloseMatch, zzyzxFuzzOne],
 						});
 					}
 					// Delay-aware branches drive the stale-result test: "slow"
@@ -456,14 +499,92 @@ describe("ScreenPage — in-browser search", () => {
 		const box = await readyBox();
 		// "bank" vs "Madeupistan Imaginary Bank": trigram 0.267 < 0.35, but the
 		// query token "bank" equals an entity name token → KEPT at Balanced.
+		// Its combined score (0.301) sits below the 0.40 display line, so it is
+		// presented inside the low-confidence disclosure — kept, not dropped.
 		fireEvent.change(box, { target: { value: "bank" } });
+		const name = await waitFor(() =>
+			screen.getByText("Madeupistan Imaginary Bank", {
+				selector: ".match-card__name",
+			}),
+		);
+		expect(name.closest("details.screen-results__low")).not.toBeNull();
+	});
+
+	it("groups sub-line fuzz under a collapsed disclosure at Balanced (the 'Zzyzx Nobody' case)", async () => {
+		render(<ScreenPage />);
+		const box = await readyBox();
+		fireEvent.change(box, { target: { value: "Zzyzx Nobody" } });
+		// The disclosure summary counts the grouped candidates and names the level.
 		await waitFor(() =>
 			expect(
-				screen.getByText("Madeupistan Imaginary Bank", {
-					selector: ".match-card__name",
-				}),
+				screen.getByText(
+					"2 low-confidence candidates (below Balanced threshold)",
+				),
 			).toBeTruthy(),
 		);
+		// No primary match cards: the count line is absent and an honest
+		// nothing-above-the-line headline renders in its place.
+		expect(screen.queryByText(/potential match/)).toBeNull();
+		expect(
+			screen.getByText(/No match above the Balanced threshold/),
+		).toBeTruthy();
+		// Every candidate is KEPT (recall) but sits INSIDE the disclosure,
+		// which starts collapsed.
+		const details = document.querySelector(
+			"details.screen-results__low",
+		) as HTMLDetailsElement;
+		expect(details.open).toBe(false);
+		for (const fuzz of ["Zzyzx Impostor One", "Zzyzx Impostor Two"]) {
+			const card = screen.getByText(fuzz, { selector: ".match-card__name" });
+			expect(card.closest("details.screen-results__low")).toBe(details);
+		}
+	});
+
+	it("keeps a strong hit as a primary card while grouping sub-line fuzz (the mixed case)", async () => {
+		render(<ScreenPage />);
+		const box = await readyBox();
+		fireEvent.change(box, { target: { value: "nobody ivan" } });
+		// The count line counts ONLY primary matches (1, not 2).
+		await waitFor(() =>
+			expect(screen.getByText(/1 potential match/)).toBeTruthy(),
+		);
+		const strong = screen.getByText("Ivan Fakovich", {
+			selector: ".match-card__name",
+		});
+		expect(strong.closest("details")).toBeNull();
+		// The fuzz is grouped, not interleaved with the primary card.
+		const fuzz = screen.getByText("Zzyzx Impostor One", {
+			selector: ".match-card__name",
+		});
+		expect(fuzz.closest("details.screen-results__low")).not.toBeNull();
+		expect(
+			screen.getByText("1 low-confidence candidate (below Balanced threshold)"),
+		).toBeTruthy();
+	});
+
+	it("renders every candidate as a primary card at Lenient (show-everything preserved)", async () => {
+		render(<ScreenPage />);
+		const box = await readyBox();
+		fireEvent.change(box, { target: { value: "Zzyzx Nobody" } });
+		await waitFor(() =>
+			expect(
+				screen.getByText(
+					"2 low-confidence candidates (below Balanced threshold)",
+				),
+			).toBeTruthy(),
+		);
+		fireEvent.click(screen.getByRole("radio", { name: /lenient/i }));
+		// Lenient declares no display line: both fuzz candidates become primary
+		// cards, the disclosure disappears, and the count line counts them all.
+		await waitFor(() =>
+			expect(screen.getByText(/2 potential matches/)).toBeTruthy(),
+		);
+		expect(screen.queryByText(/low-confidence candidate/)).toBeNull();
+		expect(document.querySelector("details.screen-results__low")).toBeNull();
+		for (const fuzz of ["Zzyzx Impostor One", "Zzyzx Impostor Two"]) {
+			const card = screen.getByText(fuzz, { selector: ".match-card__name" });
+			expect(card.closest("details")).toBeNull();
+		}
 	});
 
 	it("renders an optional Date-of-birth input alongside the search box", async () => {

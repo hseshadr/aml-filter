@@ -343,6 +343,27 @@ Boundaries are inclusive on the lower edge of each tier. The TS implementation i
 **source of truth**, parity-locked by a **frozen committed golden** snapshot
 (`tiering.parity.test.ts`) so any unintended drift in a tier boundary fails CI.
 
+## Search-layer strictness (`/screen` presentation)
+
+`app/src/pages/strictness.ts` owns the public screen's Lenient / Balanced / Strict
+control. Like tiering, it layers **on top of** the scoring contract — it never changes
+a score, and it never drops a match the engine returned:
+
+| level | engine floor | min `name_trigram` | display line |
+| --- | --- | --- | --- |
+| lenient | 0.30 | — | — (every match is a primary card) |
+| balanced | 0.30 | 0.35 | 0.40 (`BALANCED_LOW_CONFIDENCE_LINE`) |
+| strict | 0.40 | 0.50 | — (engine floor already enforces 0.40) |
+
+A Balanced result below the display line passed the search gate but sits in the
+0.30–0.40 band that is mostly embedding-baseline fuzz, so it renders **grouped under a
+collapsed "low-confidence candidates" disclosure** instead of as a primary match card —
+recall preserved (the analyst expands to inspect every kept candidate), junk
+de-emphasized. Lenient keeps the classic show-everything rendering; Strict is
+unchanged. The token-containment escape hatch (a query token exactly matching an
+entity-name token, e.g. `bank`) keeps a match in the results but does **not** exempt it
+from the display line.
+
 ## Parity / correctness
 
 Both the **scoring** output (score, reasons, each reason's plain-language description)
