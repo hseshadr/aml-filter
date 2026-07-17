@@ -251,4 +251,76 @@ describe("SettingsPage interactions", () => {
 			);
 		});
 	});
+
+	// A rescan over a zero-customer book returns customersScanned: 0 even when
+	// the config WAS saved — the banner must confirm the apply, and say
+	// "unchanged" only when the form truly matches what is already applied.
+	// (Live bug: every Apply on a fresh device reported "Settings unchanged".)
+	describe("apply confirmation", () => {
+		it("a changed sensitivity confirms 'applied' even when zero customers re-screened", async () => {
+			await renderLoaded();
+
+			fireEvent.click(screen.getByRole("radio", { name: "Strict" }));
+			fireEvent.click(screen.getByRole("button", { name: /apply/i }));
+
+			expect(await screen.findByText(/settings applied/i)).toBeInTheDocument();
+			expect(screen.queryByText(/settings unchanged/i)).toBeNull();
+			// The change really was persisted, not skipped.
+			await waitFor(() =>
+				expect(mockClient.setScreeningConfig).toHaveBeenCalledWith({
+					sensitivity: "strict",
+					overrides: {},
+				}),
+			);
+		});
+
+		it("an analyst-name-only change confirms 'applied', not 'unchanged'", async () => {
+			await renderLoaded();
+
+			fireEvent.change(screen.getByLabelText(/analyst name/i), {
+				target: { value: "Avery Analyst" },
+			});
+			fireEvent.click(screen.getByRole("button", { name: /apply/i }));
+
+			expect(await screen.findByText(/settings applied/i)).toBeInTheDocument();
+			expect(screen.queryByText(/settings unchanged/i)).toBeNull();
+		});
+
+		it("a per-list override change confirms 'applied', not 'unchanged'", async () => {
+			await renderLoaded();
+
+			fireEvent.change(screen.getByLabelText(/override for OFAC SDN/i), {
+				target: { value: "strict" },
+			});
+			fireEvent.click(screen.getByRole("button", { name: /apply/i }));
+
+			expect(await screen.findByText(/settings applied/i)).toBeInTheDocument();
+			expect(screen.queryByText(/settings unchanged/i)).toBeNull();
+		});
+
+		it("Apply with no edits reports 'unchanged'", async () => {
+			await renderLoaded();
+
+			fireEvent.click(screen.getByRole("button", { name: /apply/i }));
+
+			expect(
+				await screen.findByText(/settings unchanged/i),
+			).toBeInTheDocument();
+			expect(screen.queryByText(/settings applied/i)).toBeNull();
+		});
+
+		it("a second Apply without further edits reports 'unchanged'", async () => {
+			await renderLoaded();
+
+			fireEvent.click(screen.getByRole("radio", { name: "Strict" }));
+			fireEvent.click(screen.getByRole("button", { name: /apply/i }));
+			await screen.findByText(/settings applied/i);
+
+			fireEvent.click(screen.getByRole("button", { name: /apply/i }));
+
+			expect(
+				await screen.findByText(/settings unchanged/i),
+			).toBeInTheDocument();
+		});
+	});
 });
