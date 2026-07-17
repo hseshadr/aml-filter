@@ -24,7 +24,9 @@ import { expect, test } from "@playwright/test";
  * (OFAC_SDN:0001) surfaces as a strong, explainable hit. It asserts: the empty
  * box browses the whole list (now the union of all bundle lists); an exact name
  * and a TYPO both surface a real, explainable, scored hit with the watchlist's
- * DOB; nonsense returns no match — all with NO in-page errors.
+ * DOB; a kept-but-weak candidate renders under the collapsed Balanced
+ * low-confidence disclosure (never as a primary card) while a confident hit
+ * still leads primary; nonsense returns no match — all with NO in-page errors.
  */
 
 const MODEL_LOAD_TIMEOUT_MS = 160_000;
@@ -177,6 +179,9 @@ test("searches the sanctions list in-browser over the minified build, with full 
 	).toBeGreaterThan(0);
 	// the dossier carries the DOB the v3 watchlist publishes for this entity.
 	await expect(scoredCard).toContainText("1971-03-14");
+	// A confident hit (0.75, above Balanced's 0.40 display line) leads as a
+	// PRIMARY card; nothing here is low-confidence, so no disclosure renders.
+	await expect(page.locator("details.screen-results__low")).toHaveCount(0);
 
 	// --- fuzzy: a TYPO still finds the target (vector + trigram) ---
 	await search.fill("");
@@ -186,6 +191,72 @@ test("searches the sanctions list in-browser over the minified build, with full 
 			hasText: "Ivan Fakovich",
 		}),
 	).toBeVisible({ timeout: RESULT_TIMEOUT_MS });
+
+	// --- low-confidence: a kept-but-weak candidate must not lead ---
+	// "Imaginary" is KEPT by the token-containment escape hatch (it is a token
+	// of "Madeupistan Imaginary Bank") but its combined score (~0.33) sits below
+	// Balanced's 0.40 display line. Honest render: NO primary card, an explicit
+	// nothing-above-the-line headline (which is NOT the green clear), and ONE
+	// collapsed disclosure the analyst can expand — recall preserved, fuzz
+	// de-emphasized. This is the calibrated fix for the live "Zzyzx Nobody" /
+	// "John Smith" junk-card reports against the full SDN.
+	await search.fill("");
+	await search.fill("Imaginary");
+	const disclosure = page.locator("details.screen-results__low");
+	await expect(disclosure).toBeVisible({ timeout: RESULT_TIMEOUT_MS });
+	await expect(
+		disclosure.locator("summary.screen-results__low-summary"),
+	).toHaveText("1 low-confidence candidate (below Balanced threshold)");
+	// Collapsed by default: the grouped card is in the DOM but not visible,
+	// and there is no primary count line — only the honest headline.
+	await expect(disclosure).toHaveJSProperty("open", false);
+	expect(await page.locator(".match-card:visible").count()).toBe(0);
+	await expect(page.locator(".screen-results__count")).toHaveCount(0);
+	await expect(page.locator(".screen-results__none")).toHaveText(
+		/No match above the Balanced threshold/,
+	);
+	await expect(page.locator(".screen-results--clear")).toHaveCount(0);
+	// Expanding reveals the full scored, explainable dossier (recall intact).
+	await disclosure.locator("summary.screen-results__low-summary").click();
+	await expect(disclosure).toHaveJSProperty("open", true);
+	const groupedCard = disclosure.locator(".match-card");
+	await expect(groupedCard).toHaveCount(1);
+	await expect(groupedCard.locator(".match-card__name")).toHaveText(
+		"Madeupistan Imaginary Bank",
+	);
+	const groupedScore = Number.parseFloat(
+		(await groupedCard.locator(".match-card__score").textContent()) ?? "",
+	);
+	expect(
+		groupedScore,
+		"grouped candidate scores below the 0.40 line",
+	).toBeLessThan(0.4);
+	expect(groupedScore, "a real score, never fabricated").toBeGreaterThan(0);
+
+	// --- mixed: a confident hit leads primary while sub-line fuzz stays grouped ---
+	await search.fill("");
+	await search.fill("Olga Notrealova bank");
+	const primaryList = page.locator(
+		"section.screen-results > ul.screen-results__list",
+	);
+	await expect(
+		primaryList.locator(".match-card__name", { hasText: "Olga Notrealova" }),
+	).toBeVisible({ timeout: RESULT_TIMEOUT_MS });
+	await expect(page.locator(".screen-results__count")).toHaveText(
+		/1 potential match/,
+	);
+	await expect(
+		disclosure.locator("summary.screen-results__low-summary"),
+	).toHaveText("1 low-confidence candidate (below Balanced threshold)");
+
+	// --- junk: "Zzyzx Nobody" against this 3-entity demo list yields nothing at
+	// all → the clean clear (against the full SDN its sub-line fuzz would render
+	// grouped under the disclosure above, never as primary cards) ---
+	await search.fill("");
+	await search.fill("Zzyzx Nobody");
+	const junkClear = page.locator(".screen-results--clear");
+	await expect(junkClear).toBeVisible({ timeout: RESULT_TIMEOUT_MS });
+	expect(await page.locator(".match-card:visible").count()).toBe(0);
 
 	// --- negative: nonsense yields a clean no-match ---
 	await search.fill("");
@@ -216,7 +287,14 @@ test("searches the sanctions list in-browser over the minified build, with full 
 	]
 		.join("\n")
 		.toLowerCase();
-	for (const pii of ["ivan fakovich", "fakovic", "zxqwqx vbnmlk"]) {
+	for (const pii of [
+		"ivan fakovich",
+		"fakovic",
+		"zxqwqx vbnmlk",
+		"imaginary",
+		"olga notrealova bank",
+		"zzyzx nobody",
+	]) {
 		expect(
 			observableOutput,
 			`PII/query leaked to network or console: ${pii}`,

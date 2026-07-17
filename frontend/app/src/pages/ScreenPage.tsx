@@ -1,6 +1,5 @@
 import {
 	type BootStage,
-	canonicalize,
 	configFromEnv,
 	EngineRuntime,
 	type Entity,
@@ -21,6 +20,14 @@ import { Footer } from "../components/Footer";
 import { bootErrorMessage, deviceUnsupportedMessage } from "./bootErrorMessage";
 import { DossierCard, dossierFromMatch } from "./DossierCard";
 import { EntityDirectory } from "./EntityDirectory";
+import {
+	LEVEL,
+	partitionByConfidence,
+	passesStrictness,
+	STRICTNESS_LEVELS,
+	type Strictness,
+	type StrictnessLevel,
+} from "./strictness";
 
 // The backend-free OFAC screening page. On mount it fetches the signed JSON
 // watchlist (ed25519-verified, fail-closed) and warms the MiniLM embedder in a
@@ -56,73 +63,11 @@ const DEBOUNCE_MS = 180;
 
 const EXAMPLE_QUERIES = ["Ivan Fakovich", "fakovic", "Olga", "bank"] as const;
 
-// How closely a name must match to surface as a search hit. The embedder gives
-// any two short names a ~0.45 baseline cosine, so the combined-score `floor`
-// alone lets vector noise through; the `minLexical` gate (on the discriminating
-// name_trigram signal) is what actually hides it. This is a SEARCH-LAYER control
-// only — it never touches the parity-locked scoring contract. Defaults to
-// Balanced. Floors/minLexicals were tuned against the real trigram data.
-type Strictness = "lenient" | "balanced" | "strict";
-
-interface StrictnessLevel {
-	readonly level: Strictness;
-	/** Passed to engine.screen as the combined-score `threshold`. */
-	readonly floor: number;
-	/** Minimum name_trigram a match must clear (unless a token matches). */
-	readonly minLexical: number;
-}
-
-// The visible per-level labels live in screen.json under `strictness.levels.*`,
-// keyed by `level`; the control renders them with t() at their button.
-const STRICTNESS_LEVELS: ReadonlyArray<StrictnessLevel> = [
-	{ level: "lenient", floor: 0.3, minLexical: 0.0 },
-	{ level: "balanced", floor: 0.3, minLexical: 0.35 },
-	{ level: "strict", floor: 0.4, minLexical: 0.5 },
-];
-
-const LEVEL: Readonly<Record<Strictness, StrictnessLevel>> = {
-	lenient: STRICTNESS_LEVELS[0],
-	balanced: STRICTNESS_LEVELS[1],
-	strict: STRICTNESS_LEVELS[2],
-};
-
-/** The match's name_trigram signal value (the discriminating lexical signal), or 0. */
-function trigramScore(match: Match): number {
-	const reason = match.reasons.find((r) => r.signal === "name_trigram");
-	return typeof reason?.value === "number" ? reason.value : 0;
-}
-
-/** Canonical whitespace tokens of a name, mirroring the engine's trigram canonicalization. */
-function nameTokens(name: string): ReadonlySet<string> {
-	const canonical = canonicalize(name);
-	return new Set(canonical.length === 0 ? [] : canonical.split(" "));
-}
-
-/** True when any canonical query token exactly equals a canonical entity-name token. */
-function hasTokenContainment(match: Match, query: string): boolean {
-	const entityTokens = nameTokens(match.primary_name);
-	for (const token of nameTokens(query)) {
-		if (entityTokens.has(token)) {
-			return true;
-		}
-	}
-	return false;
-}
-
-/**
- * The search-layer gate: keep a match when its trigram clears the level's
- * minLexical, OR a query token exactly matches an entity name token (the
- * short-keyword escape hatch, e.g. "bank" vs a long org name).
- */
-function passesStrictness(
-	match: Match,
-	query: string,
-	level: StrictnessLevel,
-): boolean {
-	return (
-		trigramScore(match) >= level.minLexical || hasTokenContainment(match, query)
-	);
-}
+// The strictness levels (named floors/gates/display lines with their declared
+// ranges and rationale) and the gate/partition helpers live in ./strictness —
+// a pure, unit-tested module. This is a SEARCH-LAYER control only: it never
+// touches the parity-locked scoring contract, and it never drops a match the
+// engine returned (recall preserved; weak results are grouped, not hidden).
 
 // The outcome of one screen call. A rejection is a FIRST-CLASS state, not a
 // dropped promise: an unscreened name must never fall through to the no-match
@@ -345,7 +290,12 @@ export function ScreenPage() {
 			</div>
 
 			{phase.kind === "ready" && (
-				<Results query={query.trim()} entities={entities} search={search} />
+				<Results
+					query={query.trim()}
+					entities={entities}
+					search={search}
+					level={LEVEL[strictness]}
+				/>
 			)}
 			<Footer />
 		</div>
@@ -486,10 +436,12 @@ function Results({
 	query,
 	entities,
 	search,
+	level,
 }: {
 	readonly query: string;
 	readonly entities: ReadonlyArray<Entity>;
 	readonly search: SearchOutcome | null;
+	readonly level: StrictnessLevel;
 }) {
 	const { t } = useTranslation("screen");
 	// Empty box → browse the whole list (a directory, no scores).
@@ -519,23 +471,66 @@ function Results({
 			</div>
 		);
 	}
+	// The honest split: matches at/above the level's display line lead as
+	// primary cards; the rest stay fully inspectable behind a collapsed
+	// disclosure (recall preserved, sub-line fuzz de-emphasized). At Lenient
+	// and Strict the line is 0, so every match is primary — unchanged.
+	const { primary, lowConfidence } = partitionByConfidence(
+		search.matches,
+		level,
+	);
+	const levelLabel = t(`strictness.levels.${level.level}`);
 	return (
 		<section className="screen-results" aria-live="polite">
-			<p className="screen-results__count">
-				{t("results.matchCount", {
-					n: search.matches.length,
-					suffix: search.matches.length === 1 ? "" : "es",
-					ms: search.ms,
-				})}
-			</p>
-			<ul className="screen-results__list">
-				{search.matches.map((match) => (
-					<DossierCard
-						key={match.entity_id}
-						dossier={dossierFromMatch(match)}
-					/>
-				))}
-			</ul>
+			{primary.length > 0 ? (
+				<>
+					<p className="screen-results__count">
+						{t("results.matchCount", {
+							n: primary.length,
+							suffix: primary.length === 1 ? "" : "es",
+							ms: search.ms,
+						})}
+					</p>
+					<ul className="screen-results__list">
+						{primary.map((match) => (
+							<DossierCard
+								key={match.entity_id}
+								dossier={dossierFromMatch(match)}
+							/>
+						))}
+					</ul>
+				</>
+			) : (
+				// Everything the engine returned sits below the display line: say so
+				// honestly instead of leading with fuzz — and never phrase it as a
+				// clear, because the grouped candidates below are still unreviewed.
+				<p className="screen-results__none">
+					{t("results.noPrimaryMatch", {
+						query,
+						level: levelLabel,
+						ms: search.ms,
+					})}
+				</p>
+			)}
+			{lowConfidence.length > 0 && (
+				<details className="screen-results__low">
+					<summary className="screen-results__low-summary">
+						{t("results.lowConfidenceCount", {
+							n: lowConfidence.length,
+							suffix: lowConfidence.length === 1 ? "" : "s",
+							level: levelLabel,
+						})}
+					</summary>
+					<ul className="screen-results__list">
+						{lowConfidence.map((match) => (
+							<DossierCard
+								key={match.entity_id}
+								dossier={dossierFromMatch(match)}
+							/>
+						))}
+					</ul>
+				</details>
+			)}
 		</section>
 	);
 }

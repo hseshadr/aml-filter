@@ -44,7 +44,9 @@
 		"searching": "Searching…",
 		"searchError": "Screening failed — this name was NOT cleared. {{detail}}. Edit the name to try again.",
 		"noMatch": "No sanctions match “{{query}}”. Screened in {{ms}} ms.",
-		"matchCount": "{{n}} potential match{{suffix}} — screened in {{ms}} ms, in your browser."
+		"matchCount": "{{n}} potential match{{suffix}} — screened in {{ms}} ms, in your browser.",
+		"noPrimaryMatch": "No match above the {{level}} threshold for “{{query}}”. Screened in {{ms}} ms.",
+		"lowConfidenceCount": "{{n}} low-confidence candidate{{suffix}} (below {{level}} threshold)"
 	},
 	"dossier": {
 		"facts": {
