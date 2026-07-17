@@ -39,6 +39,11 @@ vi.mock("@amlfilter/browser", () => {
 					}),
 			};
 		}
+		dispose(): Promise<void> {
+			// The page disposes its page-owned runtime on real unmount (deferred one
+			// macrotask); a resolved no-op keeps that teardown inert here.
+			return Promise.resolve();
+		}
 	}
 	return {
 		EngineRuntime,

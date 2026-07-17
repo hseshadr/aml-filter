@@ -886,6 +886,85 @@ describe("EngineRuntime.clearListCache + cache-aware deps", () => {
 	});
 });
 
+describe("EngineRuntime.dispose (page-unmount release)", () => {
+	function instantEmbedder(): Embedder {
+		return { embed: () => Promise.resolve(new Float32Array(1)) };
+	}
+
+	it("releases the engine and model worker WITHOUT clearing the durable cache", async () => {
+		let opens = 0;
+		const clearCache = vi.fn(() => Promise.resolve());
+		const dispose = vi.fn();
+		const makeEmbedder = vi.fn(() => ({
+			...instantEmbedder(),
+			dispose,
+		}));
+		const runtime = new EngineRuntime({
+			makeEmbedder,
+			clearCache,
+			openBundleSource: (baseUrl, pubkeyUrl) => {
+				opens += 1;
+				return bundleSourceOf([["OFAC_SDN", `v${opens}`]])(baseUrl, pubkeyUrl);
+			},
+		});
+		const first = await runtime.bootstrap(CONFIG);
+		await runtime.dispose();
+
+		// Engine vectors + model worker released…
+		expect(runtime.engine()).toBeNull();
+		expect(runtime.version()).toBeNull();
+		expect(first.allEntities()).toEqual([]);
+		expect(dispose).toHaveBeenCalledTimes(1);
+		// …but the durable OPFS bundle store is untouched — unlike clearListCache,
+		// a page unmount must not force the next visit into a full re-download.
+		expect(clearCache).not.toHaveBeenCalled();
+
+		// The instance stays usable: a later bootstrap re-boots from scratch.
+		const second = await runtime.bootstrap(CONFIG);
+		expect(second).not.toBe(first);
+		expect(opens).toBe(2);
+		expect(makeEmbedder).toHaveBeenCalledTimes(2);
+	});
+
+	it("a dispose issued during an in-flight boot waits for it, then tears it down", async () => {
+		const dispose = vi.fn();
+		let releaseBoot: (() => void) | undefined;
+		const runtime = new EngineRuntime({
+			makeEmbedder: () => ({ ...instantEmbedder(), dispose }),
+			clearCache: () => Promise.resolve(),
+			openBundleSource: () =>
+				new Promise<BundleSource>((resolve) => {
+					releaseBoot = () =>
+						resolve(
+							fakeBundleSource(catalogOf([["OFAC_SDN", "v1"]]), () =>
+								fakeLoaded(),
+							),
+						);
+				}),
+		});
+		const boot = runtime.bootstrap(CONFIG);
+		const disposed = runtime.dispose();
+		await vi.waitFor(() => expect(releaseBoot).toBeDefined());
+		// The lifecycle queue serializes: nothing is torn down mid-boot.
+		expect(dispose).not.toHaveBeenCalled();
+		releaseBoot?.();
+		await boot;
+		await disposed;
+		expect(runtime.engine()).toBeNull();
+		expect(dispose).toHaveBeenCalledTimes(1);
+	});
+
+	it("dispose before any bootstrap is a safe no-op", async () => {
+		const runtime = new EngineRuntime({
+			makeEmbedder: () => instantEmbedder(),
+			clearCache: () => Promise.resolve(),
+			openBundleSource: bundleSourceOf([["OFAC_SDN", "v"]]),
+		});
+		await expect(runtime.dispose()).resolves.toBeUndefined();
+		expect(runtime.engine()).toBeNull();
+	});
+});
+
 describe("configFromEnv", () => {
 	it("defaults the bundle base URL and pins the pubkey same-origin", () => {
 		const config = configFromEnv({});

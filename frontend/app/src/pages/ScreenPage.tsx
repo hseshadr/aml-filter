@@ -130,6 +130,33 @@ export function ScreenPage() {
 		};
 	}, []);
 
+	// The pending deferred-disposal timer for the page-owned runtime (see the
+	// effect below); a ref so the StrictMode replay can cancel the teardown the
+	// throwaway first pass scheduled.
+	const disposeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+	// Release the page-owned runtime (embedder Worker + ONNX WASM heap + resident
+	// vectors) when the page REALLY leaves the DOM. Without this, SPA navigation
+	// to /settings or any workstation route leaves TWO live runtimes — this one
+	// plus the workstation's module-level one — keeping ~2× the ~23 MB model heap
+	// for the rest of the session (an OOM trigger under iOS Safari's tab budget).
+	// Disposal is deferred one macrotask and canceled on re-entry: StrictMode's
+	// dev mount→unmount→remount replays this effect body before the zero-delay
+	// timer fires, so the throwaway first pass never tears down the runtime the
+	// surviving mount keeps using (the `started` boot guard would never re-boot
+	// it). On a real unmount no replay follows, the timer fires, and dispose —
+	// serialized on the runtime's lifecycle queue — waits out any in-flight boot
+	// before terminating its workers; the durable list cache is untouched.
+	useEffect(() => {
+		if (disposeTimer.current !== null) {
+			clearTimeout(disposeTimer.current);
+			disposeTimer.current = null;
+		}
+		return () => {
+			disposeTimer.current = setTimeout(() => void runtime.dispose(), 0);
+		};
+	}, [runtime]);
+
 	// bootNonce is not read in the body — it is the intentional re-fire trigger:
 	// Retry resets the `started` guard and bumps the nonce so this effect re-runs
 	// the boot. Listed as a dep so that re-fire actually happens.

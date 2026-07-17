@@ -379,6 +379,30 @@ export class EngineRuntime {
 	}
 
 	/**
+	 * Release the running engine (resident vectors + metadata) and the model
+	 * worker WITHOUT touching the durable OPFS bundle store — the page-unmount
+	 * counterpart to {@link clearListCache}. A page that owns its runtime calls
+	 * this when it leaves the DOM so its embedder Worker + ONNX WASM heap don't
+	 * outlive it; the untouched store keeps the next visit a warm re-sync, not a
+	 * full re-download. The lifecycle queue waits for any in-flight
+	 * boot/reload first, so a dispose during boot tears the fresh engine down
+	 * instead of racing it; the instance stays usable (a later bootstrap
+	 * re-boots from scratch). Idempotent.
+	 */
+	public async dispose(): Promise<void> {
+		return this.#enqueue(async () => {
+			this.#ready?.dispose();
+			this.#ready = null;
+			this.#version = null;
+			this.#disposeEmbedder();
+			this.#embedder = null;
+			this.#config = null;
+			this.#enginePromise = null;
+			this.#bundleSource = null;
+		});
+	}
+
+	/**
 	 * Build (or reuse) the engine over the synced bundle, reporting progress. An
 	 * optional {@link RuntimeSelection} restricts the loaded lists (`enabledLists`)
 	 * and sets the per-list score floors (`thresholds`); both default to "all lists,
