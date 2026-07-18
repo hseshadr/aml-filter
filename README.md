@@ -20,15 +20,18 @@ and Chrome use bounded one-list-at-a-time vector residency so the workstation do
 not overlap every watchlist with the ONNX/WASM model; desktop keeps eager residency
 for throughput. Embedded WebViews are not part of the release contract.
 
-## Northstar status (verified 2026-07-16)
+## Northstar status (verified 2026-07-18)
 
 **The production path now treats mobile memory as a first-class constraint.** The
-live build reported commit `13211cf` at this verification (its deploy workflow
-passed). On mobile, the
+prior 2026-07-16 snapshot recorded `13211cf`; the current live build is commit
+`0ccdde9e5b92c2b5ffb4814ed985bab1211e3de7`, with hosted CI run `29663365260`
+and deploy run `29663515611` both passing for that exact SHA. On mobile, the
 workstation serializes engine boot, keeps one list resident at a time, and disposes
 workers/models before retry or cache clear; desktop retains the faster eager path.
 The retry UI reports an explicit out-of-memory failure instead of leaving a half-live
-screening engine behind.
+screening engine behind. The canonical `www.aml-filter.com` host returns a 308 to
+the apex while preserving path and query; the Pages worker normalizes hostname case
+and a trailing DNS dot before making that redirect comparison.
 
 Proof that stays close to the code:
 
