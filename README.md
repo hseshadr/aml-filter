@@ -23,15 +23,17 @@ for throughput. Embedded WebViews are not part of the release contract.
 ## Northstar status (verified 2026-07-18)
 
 **The production path now treats mobile memory as a first-class constraint.** The
-prior 2026-07-16 snapshot recorded `13211cf`; the current live build is commit
-`0ccdde9e5b92c2b5ffb4814ed985bab1211e3de7`, with hosted CI run `29663365260`
-and deploy run `29663515611` both passing for that exact SHA. On mobile, the
-workstation serializes engine boot, keeps one list resident at a time, and disposes
-workers/models before retry or cache clear; desktop retains the faster eager path.
-The retry UI reports an explicit out-of-memory failure instead of leaving a half-live
-screening engine behind. The canonical `www.aml-filter.com` host returns a 308 to
-the apex while preserving path and query; the Pages worker normalizes hostname case
-and a trailing DNS dot before making that redirect comparison.
+current live build is commit
+`7f011e8d6b25248ce494dc89503454e9a80aabd5`, with hosted CI run `29664977625`
+and deploy run `29665131679` both passing for that exact SHA. On mobile, the
+workstation serializes engine boot, keeps one list resident at a time, and
+immediately cancels and disposes in-flight workers/models on route exit, retry, and
+cache clear; desktop retains the faster eager path. Reloads reuse the warm embedder
+and replace indexes in an explicit build → swap → dispose order. The retry UI reports
+an explicit out-of-memory failure instead of leaving a half-live screening engine
+behind. The canonical `www.aml-filter.com` host returns a 308 to the apex while
+preserving path and query; the Pages worker normalizes hostname case and a trailing
+DNS dot before making that redirect comparison.
 
 Proof that stays close to the code:
 
@@ -41,9 +43,12 @@ pnpm gate
 curl -fsSL https://aml-filter.com/build.json
 ```
 
-The repository gate covers 304 browser tests and 271 application tests, plus
-typecheck, lint, build, i18n, KYC, and bundle checks. A production iPhone-sized
-browser smoke reached `/settings` with a roughly 26 MB JS heap and no console errors.
+The repository gate covers 321 browser-package tests and 241 application tests, plus
+typecheck, lint, build, i18n, KYC, bundle, and Android Chromium + desktop mobile
+smoke checks. Playwright WebKit is kept as a local/macOS profile but explicitly skips
+when its emulator lacks OPFS/SQLite; a physical iPhone fresh-tab check remains the
+owner-gated acceptance step. A production iPhone-sized browser smoke previously
+reached `/settings` with a roughly 26 MB JS heap and no console errors.
 The app is still a reference implementation, not legal or regulatory advice, and
 embedded WebViews remain outside the release contract.
 
