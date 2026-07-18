@@ -155,6 +155,8 @@ export interface BundleSource {
 	/** Drop the durable store (every chunk + manifest + the active pointer) — the
 	 * "Clear cached lists" affordance; the next sync re-fetches + re-verifies. */
 	clear(): Promise<void>;
+	/** Terminate the source's sync Worker when this memoized source is evicted. */
+	dispose?(): void;
 }
 
 /**
@@ -222,6 +224,14 @@ export async function openBundleSource(
 			}
 			return loaded;
 		};
+		let disposed = false;
+		const dispose = (): void => {
+			if (disposed) {
+				return;
+			}
+			disposed = true;
+			client.terminate?.();
+		};
 
 		return {
 			loadCatalog: () => catalog,
@@ -232,9 +242,10 @@ export async function openBundleSource(
 				try {
 					await client.clear();
 				} finally {
-					client.terminate?.();
+					dispose();
 				}
 			},
+			dispose,
 		};
 	} catch (error) {
 		// A failed bootstrap must not strand an OPFS Worker. The runtime retries by

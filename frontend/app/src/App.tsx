@@ -59,7 +59,7 @@ function App() {
 							<Route
 								path="/settings"
 								element={
-									<WorkstationGate>
+									<WorkstationGate bootEngine={false}>
 										<SettingsPage />
 									</WorkstationGate>
 								}

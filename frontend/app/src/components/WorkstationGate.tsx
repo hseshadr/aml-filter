@@ -36,13 +36,18 @@ type GatePhase =
 
 interface WorkstationGateProps {
 	children: ReactNode;
+	/** Settings only needs signed catalog metadata; defer model boot until Apply. */
+	readonly bootEngine?: boolean;
 }
 
 function messageOf(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
 }
 
-export default function WorkstationGate({ children }: WorkstationGateProps) {
+export default function WorkstationGate({
+	children,
+	bootEngine = true,
+}: WorkstationGateProps) {
 	const { t } = useTranslation(["common", "errors"]);
 	const [phase, setPhase] = useState<GatePhase>({ kind: "booting" });
 	const [nonce, setNonce] = useState(0);
@@ -140,7 +145,7 @@ export default function WorkstationGate({ children }: WorkstationGateProps) {
 
 	return (
 		<>
-			<EngineStatusStrip />
+			{bootEngine && <EngineStatusStrip />}
 			{children}
 		</>
 	);

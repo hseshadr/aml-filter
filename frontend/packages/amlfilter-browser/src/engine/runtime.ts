@@ -179,6 +179,10 @@ export interface RuntimeConfig {
 	readonly bundleBaseUrl: string;
 }
 
+function sameRuntimeConfig(a: RuntimeConfig, b: RuntimeConfig): boolean {
+	return a.pubkeyUrl === b.pubkeyUrl && a.bundleBaseUrl === b.bundleBaseUrl;
+}
+
 /**
  * Optional selection + scoring knobs for a bootstrap / re-bootstrap. `enabledLists`,
  * when present, restricts the load to catalog lists whose id is in the set (a stored
@@ -369,18 +373,25 @@ export class EngineRuntime {
 	public async clearListCache(): Promise<void> {
 		return this.#enqueue(async () => {
 			this.#generation += 1;
-			await this.#deps.clearCache();
-			// Release vectors and metadata immediately, then force the next load to
-			// re-sync from the cleared OPFS store. The optional embedder disposer
-			// terminates the WASM worker when the host provides it.
-			this.#ready?.dispose();
-			this.#ready = null;
-			this.#version = null;
-			this.#disposeEmbedder();
-			this.#embedder = null;
-			this.#config = null;
-			this.#enginePromise = null;
+			const source = this.#bundleSource;
 			this.#bundleSource = null;
+			// Evict the active sync Worker before clearCache opens its temporary
+			// worker, keeping the peak worker/WASM footprint bounded on mobile.
+			await this.#disposeBundleSource(source);
+			try {
+				await this.#deps.clearCache();
+			} finally {
+				// Release vectors and metadata immediately, then force the next load to
+				// re-sync from the cleared OPFS store. The optional embedder disposer
+				// terminates the WASM worker when the host provides it.
+				this.#ready?.dispose();
+				this.#ready = null;
+				this.#version = null;
+				this.#disposeEmbedder();
+				this.#embedder = null;
+				this.#config = null;
+				this.#enginePromise = null;
+			}
 		});
 	}
 
@@ -398,6 +409,9 @@ export class EngineRuntime {
 	public async dispose(): Promise<void> {
 		return this.#enqueue(async () => {
 			this.#generation += 1;
+			const source = this.#bundleSource;
+			this.#bundleSource = null;
+			await this.#disposeBundleSource(source);
 			this.#ready?.dispose();
 			this.#ready = null;
 			this.#version = null;
@@ -405,7 +419,6 @@ export class EngineRuntime {
 			this.#embedder = null;
 			this.#config = null;
 			this.#enginePromise = null;
-			this.#bundleSource = null;
 		});
 	}
 
@@ -443,7 +456,9 @@ export class EngineRuntime {
 				this.#embedder = null;
 				this.#config = null;
 				this.#enginePromise = null;
+				const source = this.#bundleSource;
 				this.#bundleSource = null;
+				void this.#disposeBundleSource(source);
 				throw error;
 			});
 		}
@@ -452,9 +467,40 @@ export class EngineRuntime {
 
 	/** EVERY list in the signed catalog as `{id, title}` — the real selectable set
 	 * the UI offers (the catalog is the source of truth for which lists exist).
-	 * Requires a prior successful bootstrap (the pinned-key config is captured then). */
-	public catalogLists(): Promise<ReadonlyArray<CatalogListInfo>> {
-		return this.#enqueue(() => this.#catalogLists());
+	 * A config allows settings to read signed metadata before loading the model. */
+	public catalogLists(
+		config?: RuntimeConfig,
+	): Promise<ReadonlyArray<CatalogListInfo>> {
+		return this.#enqueue(async () => {
+			let replaced: Promise<BundleSource> | null = null;
+			if (
+				config !== undefined &&
+				this.#config !== null &&
+				!sameRuntimeConfig(this.#config, config)
+			) {
+				if (this.#enginePromise !== null) {
+					throw new Error("runtime config cannot change after bootstrap");
+				}
+				// A catalog-only settings read may have memoized a source for a prior
+				// origin; drop it before accepting the new trust/config boundary.
+				replaced = this.#bundleSource;
+				this.#bundleSource = null;
+				this.#config = config;
+			}
+			if (this.#config === null) {
+				if (config === undefined) {
+					throw new Error(
+						"catalogLists() requires a runtime config before bootstrap",
+					);
+				}
+				this.#config = config;
+			}
+			try {
+				return await this.#catalogLists();
+			} finally {
+				await this.#disposeBundleSource(replaced);
+			}
+		});
 	}
 
 	async #catalogLists(): Promise<ReadonlyArray<CatalogListInfo>> {
@@ -466,8 +512,10 @@ export class EngineRuntime {
 	}
 
 	/** Just the ids of every catalog list (the selectable set, sans titles). */
-	public async catalogListIds(): Promise<ReadonlyArray<string>> {
-		return (await this.catalogLists()).map((list) => list.id);
+	public async catalogListIds(
+		config?: RuntimeConfig,
+	): Promise<ReadonlyArray<string>> {
+		return (await this.catalogLists(config)).map((list) => list.id);
 	}
 
 	/**
@@ -497,26 +545,38 @@ export class EngineRuntime {
 			this.#selection = selection;
 		}
 		// Drop the memoized bundle sync so a reload re-runs the signed delta-sync
-		// (picking up a republished `/latest`).
+		// (picking up a republished `/latest`). Keep the old source alive until the
+		// replacement engine has been built, because streamed loaders close over it.
+		const previousSource = this.#bundleSource;
 		this.#bundleSource = null;
 		const previous = this.#ready;
-		const engine =
-			this.#selection.residency === "streaming"
-				? createStreamingMultiListScreeningEngine(
-						await this.#loadStreamingSources(this.#config),
-						this.#embedder,
-						this.#thresholds(),
-					)
-				: createMultiListScreeningEngine(
-						await this.#loadEnabledLists(this.#config),
-						this.#embedder,
-						this.#thresholds(),
-					);
-		this.#ready = engine;
-		this.#version = compositeVersion(engine.listVersions());
-		this.#enginePromise = Promise.resolve(engine);
-		previous?.dispose();
-		return engine;
+		try {
+			const engine =
+				this.#selection.residency === "streaming"
+					? createStreamingMultiListScreeningEngine(
+							await this.#loadStreamingSources(this.#config),
+							this.#embedder,
+							this.#thresholds(),
+						)
+					: createMultiListScreeningEngine(
+							await this.#loadEnabledLists(this.#config),
+							this.#embedder,
+							this.#thresholds(),
+						);
+			this.#ready = engine;
+			this.#version = compositeVersion(engine.listVersions());
+			this.#enginePromise = Promise.resolve(engine);
+			previous?.dispose();
+			await this.#disposeBundleSource(previousSource);
+			return engine;
+		} catch (error) {
+			// Keep the previous engine/source usable when a refresh fails. Evict only
+			// the partially-built replacement and restore the memoized old source.
+			const failedSource = this.#bundleSource;
+			this.#bundleSource = previousSource;
+			await this.#disposeBundleSource(failedSource);
+			throw error;
+		}
 	}
 
 	/** Queue an operation after the current bootstrap/reload/clear boundary. */
@@ -532,6 +592,20 @@ export class EngineRuntime {
 	/** Release an optional model/WASM worker without making disposal mandatory. */
 	#disposeEmbedder(): void {
 		this.#embedder?.dispose?.();
+	}
+
+	/** Evict a memoized source without letting cleanup errors mask the operation. */
+	async #disposeBundleSource(
+		source: Promise<BundleSource> | null,
+	): Promise<void> {
+		if (source === null) {
+			return;
+		}
+		try {
+			(await source).dispose?.();
+		} catch {
+			// Source load failures are already surfaced by the owning operation.
+		}
 	}
 
 	/**
@@ -553,16 +627,23 @@ export class EngineRuntime {
 		}
 		// A FRESH delta-sync (no-store `/latest`) is the version signal — its signed
 		// pointer version is the authoritative published stamp, and the catalog's
-		// per-entry versions detect a bumped list or an add/remove. Drop the memo
-		// first so the poll re-fetches `/latest` rather than reusing the boot-time
-		// sync.
-		this.#bundleSource = null;
-		const catalog = await this.#loadCatalog(this.#config);
-		const versions: Record<string, string> = {};
-		for (const entry of catalog.lists) {
-			versions[entry.id] = entry.version;
+		// per-entry versions detect a bumped list or an add/remove. Keep the active
+		// memoized source alive: streamed engines retain loaders that close over it.
+		// Open a short-lived poll source instead, then terminate only that source.
+		const pollSource = await this.#deps.openBundleSource(
+			this.#config.bundleBaseUrl,
+			this.#config.pubkeyUrl,
+		);
+		try {
+			const catalog = pollSource.loadCatalog();
+			const versions: Record<string, string> = {};
+			for (const entry of catalog.lists) {
+				versions[entry.id] = entry.version;
+			}
+			return compositeVersion(versions);
+		} finally {
+			pollSource.dispose?.();
 		}
-		return compositeVersion(versions);
 	}
 
 	/** The active per-list score floors: the configured thresholds, or the
@@ -686,6 +767,11 @@ export class EngineRuntime {
 		// Capture the config up front so the catalog/list loaders (JSON or bundle)
 		// and the post-bootstrap methods (catalogLists/fetchPublishedVersion/reload)
 		// see it. A failed build clears the bootstrap memo, so a retry re-runs this.
+		if (this.#config !== null && !sameRuntimeConfig(this.#config, config)) {
+			const previousSource = this.#bundleSource;
+			this.#bundleSource = null;
+			await this.#disposeBundleSource(previousSource);
+		}
 		this.#config = config;
 		// Ask the browser to keep the cache + OPFS durable ONCE up front
 		// (best-effort, guarded — a no-op where unsupported). The cache-aware

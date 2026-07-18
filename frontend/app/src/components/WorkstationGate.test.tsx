@@ -96,6 +96,21 @@ beforeEach(() => {
 });
 
 describe("WorkstationGate", () => {
+	it("can render a DB-gated route without eagerly booting the screening model", async () => {
+		const handle = makeHandle("Avery Analyst");
+		// biome-ignore lint/suspicious/noExplicitAny: structural fake for the mocked seam
+		mockWorkstation.mockResolvedValue(handle as any);
+		render(
+			<WorkstationGate bootEngine={false}>
+				<div>SETTINGS CONTENT</div>
+			</WorkstationGate>,
+		);
+		await waitFor(() =>
+			expect(screen.getByText("SETTINGS CONTENT")).toBeInTheDocument(),
+		);
+		expect(handle.engineBoot).not.toHaveBeenCalled();
+	});
+
 	it("renders children straight away when the analyst name is already set", async () => {
 		// biome-ignore lint/suspicious/noExplicitAny: structural fake for the mocked seam
 		mockWorkstation.mockResolvedValue(makeHandle("Avery Analyst") as any);

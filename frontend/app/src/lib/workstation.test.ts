@@ -128,6 +128,25 @@ describe("workstation boot", () => {
 		});
 	});
 
+	it("bounds a fresh streaming workstation boot to OFAC when no list selection is stored", async () => {
+		const deps = {
+			...makeDeps(makeStore()),
+			memoryPolicy: () => "streaming" as const,
+		} as WorkstationDeps & { memoryPolicy: () => "eager" | "streaming" };
+		const handle = await workstation(deps);
+		await handle.engineBoot();
+		const [, , selection] = vi.mocked(deps.runtime.bootstrap).mock.calls[0];
+		expect(selection?.enabledLists).toEqual(["OFAC_SDN"]);
+	});
+
+	it("keeps the all-list default for an eager desktop workstation", async () => {
+		const deps = makeDeps(makeStore());
+		const handle = await workstation(deps);
+		await handle.engineBoot();
+		const [, , selection] = vi.mocked(deps.runtime.bootstrap).mock.calls[0];
+		expect(selection?.enabledLists).toBeUndefined();
+	});
+
 	it("uses bounded streaming residency on a constrained browser without changing the selected lists", async () => {
 		const store = makeStore();
 		vi.mocked(store.getSetting).mockImplementation((key: string) =>
@@ -169,6 +188,17 @@ describe("workstation boot", () => {
 		const handle = await workstation(makeDeps(store));
 		await handle.engineBoot(); // catalog ids become known after a boot
 		expect(await handle.getEnabledLists()).toEqual(["OFAC_SDN"]);
+	});
+
+	it("reads settings catalog and enabled lists without bootstrapping the model", async () => {
+		const deps = {
+			...makeDeps(makeStore()),
+			memoryPolicy: () => "streaming" as const,
+		} as WorkstationDeps & { memoryPolicy: () => "eager" | "streaming" };
+		const handle = await workstation(deps);
+		await expect(handle.catalogLists()).resolves.toHaveLength(2);
+		await expect(handle.getEnabledLists()).resolves.toEqual(["OFAC_SDN"]);
+		expect(deps.runtime.bootstrap).not.toHaveBeenCalled();
 	});
 
 	it("catalogLists delegates to the runtime (id + title)", async () => {
@@ -267,7 +297,7 @@ describe("workstation boot", () => {
 		const deps = makeDeps(store);
 		const handle = await workstation(deps);
 		await handle.engineBoot();
-		// Default (unset) = all catalog ids; disabling EU_CONSOLIDATED is a change.
+		// Eager desktop default (unset) = all catalog ids; disabling EU_CONSOLIDATED is a change.
 		const summary = await handle.setEnabledLists(["OFAC_SDN"]);
 		expect(store.setSetting).toHaveBeenCalledWith(
 			"enabled_watchlists",
@@ -290,7 +320,7 @@ describe("workstation boot", () => {
 		const deps = makeDeps(store);
 		const handle = await workstation(deps);
 		await handle.engineBoot();
-		// Re-selecting all catalog ids matches the default → no reload, no rescan.
+		// Re-selecting all catalog ids matches the eager desktop default → no reload, no rescan.
 		await handle.setEnabledLists(["EU_CONSOLIDATED", "OFAC_SDN"]);
 		expect(deps.runtime.reload).not.toHaveBeenCalled();
 		expect(store.setSetting).not.toHaveBeenCalled();

@@ -37,12 +37,14 @@ type LoadedFor = (entry: WatchlistCatalogEntry) => LoadedWatchlist;
 function fakeBundleSource(
 	catalog: WatchlistCatalog,
 	loadedFor: LoadedFor,
+	dispose: () => void = () => {},
 ): BundleSource {
 	return {
 		loadCatalog: () => catalog,
 		loadList: (entry) => Promise.resolve(loadedFor(entry)),
 		version: () => "fake",
 		clear: () => Promise.resolve(),
+		dispose,
 	};
 }
 
@@ -443,6 +445,35 @@ describe("EngineRuntime.reload", () => {
 		expect(makeEmbedder).toHaveBeenCalledTimes(1);
 	});
 
+	it("disposes the replaced bundle source after reload and on runtime dispose", async () => {
+		let opens = 0;
+		const firstDispose = vi.fn();
+		const secondDispose = vi.fn();
+		const runtime = new EngineRuntime({
+			makeEmbedder: () => instantEmbedder(),
+			clearCache: () => Promise.resolve(),
+			openBundleSource: () => {
+				opens += 1;
+				const dispose = opens === 1 ? firstDispose : secondDispose;
+				return Promise.resolve(
+					fakeBundleSource(
+						catalogOf([["OFAC_SDN", `demo-${opens}`]]),
+						() => loadedAt(`demo-${opens}`, `OFAC_SDN:${opens}`),
+						dispose,
+					),
+				);
+			},
+		});
+
+		await runtime.bootstrap(CONFIG);
+		await runtime.reload();
+		expect(firstDispose).toHaveBeenCalledTimes(1);
+		expect(secondDispose).not.toHaveBeenCalled();
+
+		await runtime.dispose();
+		expect(secondDispose).toHaveBeenCalledTimes(1);
+	});
+
 	it("fetchPublishedVersion returns a DIFFERENT composite when a list version bumps", async () => {
 		// Boot opens the source over demo-1; fetchPublishedVersion nulls the memo
 		// and re-opens, drawing the bumped demo-2 catalog from the queue.
@@ -458,10 +489,70 @@ describe("EngineRuntime.reload", () => {
 		expect(published).not.toBe(runtime.version());
 	});
 
+	it("disposes only the temporary source used by a published-version poll", async () => {
+		let opens = 0;
+		const firstDispose = vi.fn();
+		const pollDispose = vi.fn();
+		const runtime = new EngineRuntime({
+			makeEmbedder: () => instantEmbedder(),
+			clearCache: () => Promise.resolve(),
+			openBundleSource: () => {
+				opens += 1;
+				return Promise.resolve(
+					fakeBundleSource(
+						catalogOf([["OFAC_SDN", `demo-${opens}`]]),
+						() => loadedAt(`demo-${opens}`, `OFAC_SDN:${opens}`),
+						opens === 1 ? firstDispose : pollDispose,
+					),
+				);
+			},
+		});
+
+		await runtime.bootstrap(CONFIG);
+		await runtime.fetchPublishedVersion();
+		expect(firstDispose).not.toHaveBeenCalled();
+		expect(pollDispose).toHaveBeenCalledTimes(1);
+		expect(runtime.engine()).not.toBeNull();
+	});
+
 	it("throws if reload is called before a successful bootstrap", async () => {
 		const { deps } = depsForCatalogs([catalogOf([["OFAC_SDN", "demo-1"]])]);
 		const runtime = new EngineRuntime(deps);
 		await expect(runtime.reload()).rejects.toThrow();
+	});
+
+	it("reads the signed catalog before model bootstrap when settings supplies config", async () => {
+		const makeEmbedder = vi.fn(() => instantEmbedder());
+		const runtime = new EngineRuntime({
+			makeEmbedder,
+			clearCache: () => Promise.resolve(),
+			openBundleSource: bundleSourceFromCatalogs(
+				[catalogOf([["OFAC_SDN", "demo-1"]])],
+				() => fakeLoaded(),
+			),
+		});
+
+		expect(await runtime.catalogLists(CONFIG)).toEqual([
+			{ id: "OFAC_SDN", title: "OFAC_SDN" },
+		]);
+		expect(await runtime.catalogListIds()).toEqual(["OFAC_SDN"]);
+		expect(runtime.engine()).toBeNull();
+		expect(makeEmbedder).not.toHaveBeenCalled();
+	});
+
+	it("does not silently switch trust origins after the engine is booted", async () => {
+		const runtime = new EngineRuntime({
+			makeEmbedder: () => instantEmbedder(),
+			clearCache: () => Promise.resolve(),
+			openBundleSource: bundleSourceOf([["OFAC_SDN", "demo-1"]]),
+		});
+		await runtime.bootstrap(CONFIG);
+		await expect(
+			runtime.catalogLists({
+				...CONFIG,
+				bundleBaseUrl: "/another-origin",
+			}),
+		).rejects.toThrow(/cannot change after bootstrap/);
 	});
 
 	it("throws if fetchPublishedVersion is called before a successful bootstrap", async () => {
@@ -825,6 +916,27 @@ describe("EngineRuntime.clearListCache + cache-aware deps", () => {
 		expect(clearCache).toHaveBeenCalledTimes(1);
 	});
 
+	it("evicts the bundle source when model bootstrap fails", async () => {
+		const sourceDispose = vi.fn();
+		const runtime = new EngineRuntime({
+			makeEmbedder: () => ({
+				embed: () => Promise.reject(new Error("warmup failed")),
+			}),
+			clearCache: () => Promise.resolve(),
+			openBundleSource: () =>
+				Promise.resolve(
+					fakeBundleSource(
+						catalogOf([["OFAC_SDN", "v1"]]),
+						() => fakeLoaded(),
+						sourceDispose,
+					),
+				),
+		});
+
+		await expect(runtime.bootstrap(CONFIG)).rejects.toThrow(/warmup failed/);
+		await vi.waitFor(() => expect(sourceDispose).toHaveBeenCalledTimes(1));
+	});
+
 	it("disposes the active engine and resets the boot memo after clearing", async () => {
 		let opens = 0;
 		const dispose = vi.fn();
@@ -850,6 +962,26 @@ describe("EngineRuntime.clearListCache + cache-aware deps", () => {
 		expect(second).not.toBe(first);
 		expect(opens).toBe(2);
 		expect(makeEmbedder).toHaveBeenCalledTimes(2);
+	});
+
+	it("disposes the active bundle source while clearing the cache", async () => {
+		const sourceDispose = vi.fn();
+		const runtime = new EngineRuntime({
+			makeEmbedder: () => instantEmbedder(),
+			clearCache: () => Promise.resolve(),
+			openBundleSource: () =>
+				Promise.resolve(
+					fakeBundleSource(
+						catalogOf([["OFAC_SDN", "v1"]]),
+						() => fakeLoaded(),
+						sourceDispose,
+					),
+				),
+		});
+
+		await runtime.bootstrap(CONFIG);
+		await runtime.clearListCache();
+		expect(sourceDispose).toHaveBeenCalledTimes(1);
 	});
 
 	it("serializes a clear-cache request behind an in-flight reload", async () => {
@@ -1093,7 +1225,7 @@ describe("EngineRuntime bootstrap memo + bundle-source retry", () => {
 			openBundleSource: bundleSourceOf([["OFAC_SDN", "1"]]),
 		});
 		await expect(runtime.catalogLists()).rejects.toThrow(
-			/requires a successful bootstrap/,
+			/requires a runtime config before bootstrap/,
 		);
 	});
 });

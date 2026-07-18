@@ -22,7 +22,6 @@ import {
 	DbClient,
 	LocalMatchTracker,
 	LocalOnboardingService,
-	loadEnabledLists,
 	loadScreeningConfig,
 	type NameScreener,
 	RescanService,
@@ -54,9 +53,9 @@ export interface RuntimePort {
 	 * optional selection re-bootstraps for a new enabled set / thresholds. */
 	reload(selection?: RuntimeSelection): Promise<EngineHandle>;
 	/** Every list `{id, title}` in the signed catalog — the selectable set. */
-	catalogLists(): Promise<ReadonlyArray<CatalogListInfo>>;
+	catalogLists(config?: RuntimeConfig): Promise<ReadonlyArray<CatalogListInfo>>;
 	/** Just the ids of every catalog list. */
-	catalogListIds(): Promise<ReadonlyArray<string>>;
+	catalogListIds(config?: RuntimeConfig): Promise<ReadonlyArray<string>>;
 	/** Drop every durably-cached list blob; the next load re-fetches + re-verifies. */
 	clearListCache(): Promise<void>;
 }
@@ -86,7 +85,7 @@ export interface WorkstationHandle extends WorkstationServices {
 	 * Watchlists settings section renders a toggle for. */
 	readonly catalogLists: () => Promise<ReadonlyArray<CatalogListInfo>>;
 	/** The currently enabled watchlist ids (stored selection ∩ live catalog;
-	 * defaults to all catalog ids when never configured). */
+	 * constrained/mobile browsers default to OFAC only; desktop keeps all lists). */
 	readonly getEnabledLists: () => Promise<ReadonlyArray<string>>;
 	/** Persist a new enabled-watchlist set, re-bootstrap the engine over it (reuses
 	 * the warm embedder), and re-screen every customer when the set actually changed
@@ -133,8 +132,10 @@ async function build(deps: WorkstationDeps): Promise<WorkstationHandle> {
 	// The persisted selection (raw stored enabled ids) + thresholds the engine is
 	// loaded with. `enabledLists` is the RAW stored set — the runtime intersects it
 	// with the catalog (and silently skips ids the catalog doesn't have); an UNSET
-	// selection is `undefined` → load every list (today's default). Thresholds map
+	// selection keeps every list on desktop, but is bounded to OFAC on streaming
+	// mobile-capable browsers. Thresholds map
 	// the global sensitivity + per-list overrides onto the engine's score floors.
+	const runtimeConfig = configFromEnv(import.meta.env);
 	const currentSelection = async (
 		enabledOverride?: ReadonlyArray<string>,
 	): Promise<RuntimeSelection> => {
@@ -144,23 +145,24 @@ async function build(deps: WorkstationDeps): Promise<WorkstationHandle> {
 		]);
 		// An explicit set (just-applied by setEnabledLists) wins over the persisted
 		// value, so a re-bootstrap doesn't depend on a read-after-write round-trip.
-		const enabledLists = enabledOverride ?? parseEnabledLists(rawEnabled);
+		const residency = deps.memoryPolicy?.() ?? residencyForBrowser();
+		const parsedEnabled = parseEnabledLists(rawEnabled);
+		const enabledLists =
+			enabledOverride ??
+			(parsedEnabled === undefined && residency === "streaming"
+				? ["OFAC_SDN"]
+				: parsedEnabled);
 		// The override map is small; scoping perList to the loaded ids is the
 		// runtime's job (it only applies a floor to a list that loaded). Passing the
 		// override keys is harmless, so the catalog ids aren't needed here.
 		const thresholds = toListThresholds(config, Object.keys(config.overrides));
-		const residency = deps.memoryPolicy?.() ?? residencyForBrowser();
 		return enabledLists === undefined
 			? { thresholds, residency }
 			: { enabledLists, thresholds, residency };
 	};
 
 	const bootEngine = async (onStage?: OnStage): Promise<EngineHandle> =>
-		deps.runtime.bootstrap(
-			configFromEnv(import.meta.env),
-			onStage,
-			await currentSelection(),
-		);
+		deps.runtime.bootstrap(runtimeConfig, onStage, await currentSelection());
 	let operationTail: Promise<void> = Promise.resolve();
 	const serial = <T>(operation: () => Promise<T>): Promise<T> => {
 		const run = operationTail.then(operation);
@@ -193,23 +195,16 @@ async function build(deps: WorkstationDeps): Promise<WorkstationHandle> {
 				await deps.runtime.reload(await currentSelection());
 			}),
 		catalogLists: (): Promise<ReadonlyArray<CatalogListInfo>> =>
-			serial(async () => {
-				// catalogLists()/reload() need the pinned-key config captured at bootstrap;
-				// join the (memoized) engine boot first so a Settings visit before the
-				// background boot finishes doesn't throw "requires a successful bootstrap".
-				await bootEngine();
-				return deps.runtime.catalogLists();
-			}),
+			serial(() => deps.runtime.catalogLists(runtimeConfig)),
 		getEnabledLists: (): Promise<ReadonlyArray<string>> =>
 			serial(async () => {
-				await bootEngine();
-				return loadEnabledLists(store, await deps.runtime.catalogListIds());
+				const catalogIds = await deps.runtime.catalogListIds(runtimeConfig);
+				return effectiveEnabledIds(store, catalogIds, deps);
 			}),
 		setEnabledLists: (ids: ReadonlyArray<string>): Promise<RescanSummary> =>
 			serial(async () => {
-				await bootEngine();
-				const catalogIds = await deps.runtime.catalogListIds();
-				const before = await loadEnabledLists(store, catalogIds);
+				const catalogIds = await deps.runtime.catalogListIds(runtimeConfig);
+				const before = await effectiveEnabledIds(store, catalogIds, deps);
 				// Intersect the requested set with the catalog so the change check and the
 				// persisted value match what the runtime will actually load.
 				const after = catalogIds.filter((id) => ids.includes(id));
@@ -217,9 +212,14 @@ async function build(deps: WorkstationDeps): Promise<WorkstationHandle> {
 					return { customersScanned: 0, newHits: 0, clearedHits: 0 };
 				}
 				await saveEnabledLists(store, after);
-				// Re-bootstrap over the new set (reuses the warm embedder), then re-screen:
-				// a now-disabled list's matches vanish from the result and are SUPPRESSED.
-				await deps.runtime.reload(await currentSelection(after));
+				// A settings-only visit has no model yet: first boot over the new set.
+				// Existing workstation routes already have a warm engine, so reload it
+				// over the new set and reuse its embedder.
+				if (deps.runtime.version() === null) {
+					await bootEngine();
+				} else {
+					await deps.runtime.reload(await currentSelection(after));
+				}
 				return rescan.rescanAll();
 			}),
 		clearListCache: (): Promise<void> =>
@@ -239,9 +239,24 @@ function sameIdSet(
 	return b.every((id) => set.has(id));
 }
 
+/** Resolve an unset selection without forcing the engine/model to boot. */
+async function effectiveEnabledIds(
+	store: WorkstationStore,
+	catalogIds: ReadonlyArray<string>,
+	deps: WorkstationDeps,
+): Promise<ReadonlyArray<string>> {
+	const parsed = parseEnabledLists(
+		await store.getSetting("enabled_watchlists"),
+	);
+	const residency = deps.memoryPolicy?.() ?? residencyForBrowser();
+	const selected =
+		parsed ?? (residency === "streaming" ? ["OFAC_SDN"] : catalogIds);
+	return catalogIds.filter((id) => selected.includes(id));
+}
+
 /** Parse the persisted `enabled_watchlists` value: a JSON string array, or
- * `undefined` for an unset/malformed value (→ the runtime loads every list). A
- * persisted empty array is honored as "disable everything". */
+ * `undefined` for an unset/malformed value. A persisted empty array is honored
+ * as "disable everything"; callers apply the device-specific safe default. */
 function parseEnabledLists(
 	raw: string | null,
 ): ReadonlyArray<string> | undefined {

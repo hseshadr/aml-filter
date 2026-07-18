@@ -15,7 +15,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
 	type BundleEngineClient,
 	type BundleSourceDeps,
@@ -121,6 +121,25 @@ function memoryClient(): {
 const PUBKEY_URL = "https://app.example/public.key";
 
 describe("openBundleSource — over the committed demo bundle", () => {
+	it("disposes the sync client exactly once when the source is evicted", async () => {
+		const { deps: baseDeps } = memoryClient();
+		const inner = baseDeps.createClient();
+		const terminate = vi.fn();
+		const source = await openBundleSource("/o", PUBKEY_URL, {
+			createClient: () => ({
+				sync: (baseUrl, pubkeyUrl, progress) =>
+					inner.sync(baseUrl, pubkeyUrl, progress),
+				readFile: (path) => inner.readFile(path),
+				clear: () => inner.clear(),
+				terminate,
+			}),
+		});
+
+		source.dispose?.();
+		source.dispose?.();
+		expect(terminate).toHaveBeenCalledTimes(1);
+	});
+
 	it("syncs, materializes the catalog, and reports the signed version", async () => {
 		const { deps } = memoryClient();
 		const source = await openBundleSource("/o", PUBKEY_URL, deps);
