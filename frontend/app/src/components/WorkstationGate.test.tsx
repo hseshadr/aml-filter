@@ -7,11 +7,12 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { checkForWatchlistUpdates } from "../lib/sync";
-import { workstation } from "../lib/workstation";
+import { retainWorkstationRuntime, workstation } from "../lib/workstation";
 import WorkstationGate, { WATCHLIST_POLL_INTERVAL_MS } from "./WorkstationGate";
 
 vi.mock("../lib/workstation", () => ({
 	workstation: vi.fn(),
+	retainWorkstationRuntime: vi.fn(() => vi.fn()),
 }));
 
 // Mock the sync module so the recurring poll's call to checkForWatchlistUpdates
@@ -26,6 +27,7 @@ vi.mock("../lib/sync", async (importOriginal) => {
 });
 
 const mockWorkstation = vi.mocked(workstation);
+const mockRetainWorkstationRuntime = vi.mocked(retainWorkstationRuntime);
 const mockCheckForWatchlistUpdates = vi.mocked(checkForWatchlistUpdates);
 
 type OnStage = Parameters<ReturnType<typeof makeHandle>["engineBoot"]>[0];
@@ -108,6 +110,53 @@ describe("WorkstationGate", () => {
 		await waitFor(() =>
 			expect(screen.getByText("SETTINGS CONTENT")).toBeInTheDocument(),
 		);
+		expect(handle.engineBoot).not.toHaveBeenCalled();
+	});
+
+	it("releases the shared workstation runtime when the gate unmounts", async () => {
+		const handle = makeHandle("Avery Analyst");
+		const release = vi.fn();
+		mockRetainWorkstationRuntime.mockReturnValueOnce(release);
+		// biome-ignore lint/suspicious/noExplicitAny: structural fake for the mocked seam
+		mockWorkstation.mockResolvedValue(handle as any);
+		const { unmount } = render(
+			<WorkstationGate bootEngine={false}>
+				<div>SETTINGS CONTENT</div>
+			</WorkstationGate>,
+		);
+		await waitFor(() =>
+			expect(screen.getByText("SETTINGS CONTENT")).toBeInTheDocument(),
+		);
+
+		unmount();
+
+		expect(release).toHaveBeenCalledTimes(1);
+	});
+
+	it("does not start an engine boot after the status strip unmounts", async () => {
+		const handle = makeHandle("Avery Analyst");
+		let resolveStrip!: (value: typeof handle) => void;
+		mockWorkstation
+			.mockResolvedValueOnce(handle as unknown as never)
+			.mockReturnValueOnce(
+				new Promise((resolve) => {
+					resolveStrip = resolve as unknown as (value: typeof handle) => void;
+				}),
+			);
+		const { unmount } = render(
+			<WorkstationGate>
+				<div>WORKSTATION CONTENT</div>
+			</WorkstationGate>,
+		);
+		await screen.findByText("WORKSTATION CONTENT");
+		unmount();
+
+		resolveStrip(handle);
+		await act(async () => {
+			await Promise.resolve();
+			await Promise.resolve();
+		});
+
 		expect(handle.engineBoot).not.toHaveBeenCalled();
 	});
 

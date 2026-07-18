@@ -58,6 +58,8 @@ export interface RuntimePort {
 	catalogListIds(config?: RuntimeConfig): Promise<ReadonlyArray<string>>;
 	/** Drop every durably-cached list blob; the next load re-fetches + re-verifies. */
 	clearListCache(): Promise<void>;
+	/** Release the model/index owned by the workstation routes. */
+	dispose?(): Promise<void>;
 }
 
 /** Seams for tests; defaulted to the real DB Worker + EngineRuntime. */
@@ -98,6 +100,8 @@ export interface WorkstationHandle extends WorkstationServices {
 	 * The lifecycle boundary disposes the running engine/model first; the next
 	 * operation re-fetches and re-verifies the lists from the network. */
 	readonly clearListCache: () => Promise<void>;
+	/** Release the shared model/index when no workstation route is mounted. */
+	readonly disposeEngine: () => Promise<void>;
 }
 
 const defaultDeps: WorkstationDeps = {
@@ -106,6 +110,47 @@ const defaultDeps: WorkstationDeps = {
 };
 
 let handlePromise: Promise<WorkstationHandle> | null = null;
+let workstationLeaseCount = 0;
+let workstationReleaseTimer: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * Retain the module-level workstation runtime for a mounted gate. The delayed
+ * final release makes route changes and React StrictMode effect replay safe: a
+ * new gate can acquire the lease before the old gate tears down the model.
+ */
+export function retainWorkstationRuntime(): () => void {
+	workstationLeaseCount += 1;
+	if (workstationReleaseTimer !== null) {
+		clearTimeout(workstationReleaseTimer);
+		workstationReleaseTimer = null;
+	}
+	let released = false;
+	return () => {
+		if (released) {
+			return;
+		}
+		released = true;
+		workstationLeaseCount = Math.max(0, workstationLeaseCount - 1);
+		if (workstationLeaseCount !== 0) {
+			return;
+		}
+		workstationReleaseTimer = setTimeout(() => {
+			workstationReleaseTimer = null;
+			if (workstationLeaseCount !== 0 || handlePromise === null) {
+				return;
+			}
+			void handlePromise.then(
+				(handle) => {
+					if (workstationLeaseCount === 0) {
+						return handle.disposeEngine();
+					}
+					return undefined;
+				},
+				() => undefined,
+			);
+		}, 0);
+	};
+}
 
 /** Boot (or reuse) the local workstation. First call wins; failures retry. */
 export function workstation(
@@ -224,6 +269,8 @@ async function build(deps: WorkstationDeps): Promise<WorkstationHandle> {
 			}),
 		clearListCache: (): Promise<void> =>
 			serial(() => deps.runtime.clearListCache()),
+		disposeEngine: (): Promise<void> =>
+			deps.runtime.dispose?.() ?? Promise.resolve(),
 	};
 }
 

@@ -19,7 +19,11 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { checkForWatchlistUpdates, runWatchlistSync } from "../lib/sync";
-import { type WorkstationHandle, workstation } from "../lib/workstation";
+import {
+	retainWorkstationRuntime,
+	type WorkstationHandle,
+	workstation,
+} from "../lib/workstation";
 
 /**
  * How often an open tab re-checks for a newly-published watchlist version. A
@@ -52,6 +56,7 @@ export default function WorkstationGate({
 	const [phase, setPhase] = useState<GatePhase>({ kind: "booting" });
 	const [nonce, setNonce] = useState(0);
 	const [name, setName] = useState("");
+	const releaseLease = useRef<(() => void) | null>(null);
 
 	// nonce is not read in the body — it is the intentional re-fire trigger:
 	// Retry bumps it so this effect re-runs the DB boot (workstation() cleared
@@ -59,6 +64,8 @@ export default function WorkstationGate({
 	// biome-ignore lint/correctness/useExhaustiveDependencies: nonce is an intentional re-fire trigger, not read in the body
 	useEffect(() => {
 		let cancelled = false;
+		releaseLease.current?.();
+		releaseLease.current = retainWorkstationRuntime();
 		setPhase({ kind: "booting" });
 		// Ask the browser to protect OPFS from eviction (spec risk: quota /
 		// eviction). Best-effort: jsdom/tests and older browsers lack it.
@@ -77,6 +84,8 @@ export default function WorkstationGate({
 			});
 		return () => {
 			cancelled = true;
+			releaseLease.current?.();
+			releaseLease.current = null;
 		};
 	}, [nonce]);
 
@@ -183,9 +192,11 @@ function EngineStatusStrip() {
 		setError(null);
 		workstation()
 			.then(async (handle) => {
+				if (cancelled) return;
 				await handle.engineBoot((s) => {
 					if (!cancelled) setStage(s);
 				});
+				if (cancelled) return;
 				// Engine ready → the watchlist version is now known. Auto-sync once:
 				// re-screen every customer if the list advanced since last sync.
 				if (autoSyncFired.current) return;

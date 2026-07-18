@@ -135,6 +135,33 @@ export function withTimeout<T>(
 }
 
 /**
+ * Reject a lifecycle operation as soon as its owner is disposed. The wrapped
+ * operation is intentionally left running: its own generation checks prevent
+ * stale state publication, while the owner can synchronously terminate any
+ * Worker it already created. This keeps navigation from waiting on a full boot
+ * timeout merely to release a model/WASM heap.
+ */
+function withAbort<T>(
+	p: Promise<T>,
+	signal: AbortSignal,
+	msg: string,
+): Promise<T> {
+	if (signal.aborted) {
+		return Promise.reject(new Error(msg));
+	}
+	let onAbort: (() => void) | undefined;
+	const aborted = new Promise<never>((_resolve, reject) => {
+		onAbort = () => reject(new Error(msg));
+		signal.addEventListener("abort", onAbort, { once: true });
+	});
+	return Promise.race([p, aborted]).finally(() => {
+		if (onAbort !== undefined) {
+			signal.removeEventListener("abort", onAbort);
+		}
+	});
+}
+
+/**
  * Wrap an {@link OnEmbedProgress} so it fires only when `Math.round(pct)`
  * changes. transformers.js streams many sub-percent download ticks; passing each
  * straight through would re-render the boot banner on every tick. The precise
@@ -340,6 +367,9 @@ export class EngineRuntime {
 	// carries this epoch and refuses to publish stale state when it eventually
 	// resumes.
 	#generation = 0;
+	// Abort signal for the current boot. Disposal aborts this boundary
+	// synchronously; the queued cleanup still owns final state reset.
+	#bootAbort: AbortController | null = null;
 	// The cold-sync download progress sink for the CURRENT boot only. Set for the
 	// duration of #build so the (memoized, once-called) openBundleSource threads
 	// per-chunk ticks to onStage; undefined on reload/poll opens (no banner).
@@ -367,10 +397,11 @@ export class EngineRuntime {
 	 * (whose default opens a bundle source at the same-origin default origin and
 	 * calls `.clear()`). The memoized bundle source is then dropped so the next
 	 * load re-syncs from the now-empty store (re-fetches + re-verifies). The
-	 * lifecycle queue waits for any in-flight boot/reload, then disposes the
-	 * running engine and model worker so the next load starts cleanly.
+	 * An in-flight boot is invalidated before the queue runs; the queue then
+	 * disposes any running engine and model worker so the next load starts cleanly.
 	 */
 	public async clearListCache(): Promise<void> {
+		this.#abortBootIfActive();
 		return this.#enqueue(async () => {
 			this.#generation += 1;
 			const source = this.#bundleSource;
@@ -378,17 +409,17 @@ export class EngineRuntime {
 			// Evict the active sync Worker before clearCache opens its temporary
 			// worker, keeping the peak worker/WASM footprint bounded on mobile.
 			await this.#disposeBundleSource(source);
+			// Release vectors and metadata before clearCache opens its temporary sync
+			// Worker. The optional embedder disposer terminates the model/WASM worker
+			// before that second allocation can start.
+			this.#ready?.dispose();
+			this.#ready = null;
+			this.#version = null;
+			this.#disposeEmbedder();
+			this.#embedder = null;
 			try {
 				await this.#deps.clearCache();
 			} finally {
-				// Release vectors and metadata immediately, then force the next load to
-				// re-sync from the cleared OPFS store. The optional embedder disposer
-				// terminates the WASM worker when the host provides it.
-				this.#ready?.dispose();
-				this.#ready = null;
-				this.#version = null;
-				this.#disposeEmbedder();
-				this.#embedder = null;
 				this.#config = null;
 				this.#enginePromise = null;
 			}
@@ -401,12 +432,12 @@ export class EngineRuntime {
 	 * counterpart to {@link clearListCache}. A page that owns its runtime calls
 	 * this when it leaves the DOM so its embedder Worker + ONNX WASM heap don't
 	 * outlive it; the untouched store keeps the next visit a warm re-sync, not a
-	 * full re-download. The lifecycle queue waits for any in-flight
-	 * boot/reload first, so a dispose during boot tears the fresh engine down
-	 * instead of racing it; the instance stays usable (a later bootstrap
-	 * re-boots from scratch). Idempotent.
+	 * full re-download. A dispose invalidates an in-flight boot immediately, then
+	 * the lifecycle queue tears down any replacement safely; the instance stays
+	 * usable (a later bootstrap re-boots from scratch). Idempotent.
 	 */
 	public async dispose(): Promise<void> {
+		this.#abortBootIfActive();
 		return this.#enqueue(async () => {
 			this.#generation += 1;
 			const source = this.#bundleSource;
@@ -437,6 +468,8 @@ export class EngineRuntime {
 		if (this.#enginePromise === null) {
 			this.#selection = selection;
 			const generation = this.#generation;
+			const abort = new AbortController();
+			this.#bootAbort = abort;
 			// Bound the WHOLE boot, not just the model load: a stalled bundle sync
 			// (or a wedged Worker) would otherwise hang the banner on "Downloading…"
 			// forever. On expiry the boot rejects → the memo clears → the UI shows
@@ -444,23 +477,38 @@ export class EngineRuntime {
 			const deadlineMs = bootTimeoutMs(import.meta.env);
 			const build = this.#enqueue(() =>
 				withTimeout(
-					this.#build(config, onStage, generation),
+					withAbort(
+						this.#build(config, onStage, generation),
+						abort.signal,
+						"screening engine boot superseded",
+					),
 					deadlineMs,
 					`loading the screening engine timed out after ${deadlineMs}ms`,
 				),
 			);
-			this.#enginePromise = build.catch((error) => {
-				// Let a failed (or timed-out) bootstrap be retried by clearing the memo.
-				this.#generation += 1;
-				this.#disposeEmbedder();
-				this.#embedder = null;
-				this.#config = null;
-				this.#enginePromise = null;
-				const source = this.#bundleSource;
-				this.#bundleSource = null;
-				void this.#disposeBundleSource(source);
-				throw error;
-			});
+			this.#enginePromise = build.then(
+				(result) => {
+					if (this.#bootAbort === abort) {
+						this.#bootAbort = null;
+					}
+					return result;
+				},
+				(error: unknown) => {
+					// Let a failed (or timed-out) bootstrap be retried by clearing the memo.
+					if (this.#bootAbort === abort) {
+						this.#bootAbort = null;
+						this.#generation += 1;
+						this.#disposeEmbedder();
+						this.#embedder = null;
+						this.#config = null;
+						this.#enginePromise = null;
+						const source = this.#bundleSource;
+						this.#bundleSource = null;
+						void this.#disposeBundleSource(source);
+					}
+					throw error;
+				},
+			);
 		}
 		return this.#enginePromise;
 	}
@@ -592,6 +640,22 @@ export class EngineRuntime {
 	/** Release an optional model/WASM worker without making disposal mandatory. */
 	#disposeEmbedder(): void {
 		this.#embedder?.dispose?.();
+	}
+
+	/** Invalidate a boot before queueing its eventual lifecycle cleanup. */
+	#abortBootIfActive(): void {
+		const abort = this.#bootAbort;
+		if (abort === null) {
+			return;
+		}
+		this.#bootAbort = null;
+		this.#generation += 1;
+		abort.abort();
+		this.#disposeEmbedder();
+		this.#embedder = null;
+		const source = this.#bundleSource;
+		this.#bundleSource = null;
+		void this.#disposeBundleSource(source);
 	}
 
 	/** Evict a memoized source without letting cleanup errors mask the operation. */

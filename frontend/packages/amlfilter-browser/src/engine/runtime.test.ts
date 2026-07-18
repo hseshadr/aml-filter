@@ -984,6 +984,36 @@ describe("EngineRuntime.clearListCache + cache-aware deps", () => {
 		expect(sourceDispose).toHaveBeenCalledTimes(1);
 	});
 
+	it("releases the ready engine and embedder before opening the clear source", async () => {
+		const events: string[] = [];
+		const loaded = fakeLoaded();
+		vi.spyOn(loaded.index, "dispose").mockImplementation(() => {
+			events.push("engine");
+		});
+		const runtime = new EngineRuntime({
+			makeEmbedder: () => ({
+				...instantEmbedder(),
+				dispose: () => events.push("embedder"),
+			}),
+			clearCache: async () => {
+				events.push("clear");
+			},
+			openBundleSource: () =>
+				Promise.resolve(
+					fakeBundleSource(
+						catalogOf([["OFAC_SDN", "v1"]]),
+						() => loaded,
+						() => events.push("source"),
+					),
+				),
+		});
+
+		await runtime.bootstrap(CONFIG);
+		await runtime.clearListCache();
+
+		expect(events).toEqual(["source", "engine", "embedder", "clear"]);
+	});
+
 	it("serializes a clear-cache request behind an in-flight reload", async () => {
 		const events: string[] = [];
 		let opens = 0;
@@ -1106,31 +1136,54 @@ describe("EngineRuntime.dispose (page-unmount release)", () => {
 		expect(makeEmbedder).toHaveBeenCalledTimes(2);
 	});
 
-	it("a dispose issued during an in-flight boot waits for it, then tears it down", async () => {
-		const dispose = vi.fn();
-		let releaseBoot: (() => void) | undefined;
+	it("a dispose issued during an in-flight boot aborts it before the boot timeout", async () => {
+		let releaseBoot: ((source: BundleSource) => void) | undefined;
 		const runtime = new EngineRuntime({
-			makeEmbedder: () => ({ ...instantEmbedder(), dispose }),
+			makeEmbedder: () => instantEmbedder(),
 			clearCache: () => Promise.resolve(),
 			openBundleSource: () =>
 				new Promise<BundleSource>((resolve) => {
-					releaseBoot = () =>
-						resolve(
-							fakeBundleSource(catalogOf([["OFAC_SDN", "v1"]]), () =>
-								fakeLoaded(),
-							),
-						);
+					releaseBoot = resolve;
 				}),
 		});
 		const boot = runtime.bootstrap(CONFIG);
-		const disposed = runtime.dispose();
 		await vi.waitFor(() => expect(releaseBoot).toBeDefined());
-		// The lifecycle queue serializes: nothing is torn down mid-boot.
-		expect(dispose).not.toHaveBeenCalled();
-		releaseBoot?.();
-		await boot;
+		const disposed = runtime.dispose();
+
+		await expect(boot).rejects.toThrow(/superseded/);
 		await disposed;
 		expect(runtime.engine()).toBeNull();
+
+		releaseBoot?.(
+			fakeBundleSource(catalogOf([["OFAC_SDN", "v1"]]), () => fakeLoaded()),
+		);
+	});
+
+	it("cancels an in-flight model boot promptly when disposed", async () => {
+		vi.useFakeTimers();
+		const dispose = vi.fn();
+		const embed = vi.fn(() => new Promise<Float32Array>(() => {}));
+		const runtime = new EngineRuntime({
+			makeEmbedder: () => ({ embed, dispose }),
+			clearCache: () => Promise.resolve(),
+			openBundleSource: bundleSourceOf([["OFAC_SDN", "v1"]]),
+		});
+
+		const boot = runtime.bootstrap(CONFIG);
+		await vi.waitFor(() => expect(embed).toHaveBeenCalledTimes(1));
+		const disposed = runtime.dispose();
+		const settled = Promise.race([
+			boot.then(
+				() => true,
+				() => true,
+			),
+			new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 1)),
+		]);
+		await vi.advanceTimersByTimeAsync(1);
+
+		expect(await settled).toBe(true);
+		await expect(boot).rejects.toThrow(/superseded|disposed/);
+		await disposed;
 		expect(dispose).toHaveBeenCalledTimes(1);
 	});
 
