@@ -52,16 +52,6 @@ test("searches the sanctions list in-browser over the minified build, with full 
 }) => {
 	test.setTimeout(240_000);
 	const csp = productionCsp();
-	await page.route("**/*", async (route) => {
-		const response = await route.fetch();
-		await route.fulfill({
-			response,
-			headers: {
-				...response.headers(),
-				"content-security-policy": csp,
-			},
-		});
-	});
 	await page.addInitScript(() => {
 		const violations: string[] = [];
 		Object.defineProperty(window, "__cspViolations", { value: violations });
@@ -92,6 +82,8 @@ test("searches the sanctions list in-browser over the minified build, with full 
 	const response = await page.goto("/screen", {
 		waitUntil: "domcontentloaded",
 	});
+	// This must come from `vite preview` itself. Do not inject the header in the
+	// test: that would let a CSP-less preview pass and hide production drift.
 	expect(response?.headers()["content-security-policy"]).toBe(csp);
 
 	const search = page.getByPlaceholder("Search a name, e.g. Ivan Fakovich");

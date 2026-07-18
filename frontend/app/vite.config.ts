@@ -1,4 +1,5 @@
 /// <reference types="vitest/config" />
+import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -6,6 +7,7 @@ import react from "@vitejs/plugin-react";
 import { defineConfig, type Plugin } from "vite";
 import { configDefaults } from "vitest/config";
 import { resolveOrtAsset } from "./src/dev/ortDevAsset";
+import { cspFromHeadersFile } from "./src/dev/previewHeaders";
 
 const APP_ROOT = dirname(fileURLToPath(import.meta.url));
 
@@ -43,9 +45,29 @@ function serveOrtRuntimeRawInDev(): Plugin {
 	};
 }
 
+// Preview fidelity: Cloudflare Pages applies public/_headers in production,
+// but plain `vite preview` serves no CSP. Reusing the actual catch-all policy
+// makes every minified production E2E lane exercise the same network and
+// WebAssembly restrictions as the deployed site. This is preview-only;
+// `vite dev` needs its own inline React-refresh allowances.
+function previewProdCspPlugin(): Plugin {
+	return {
+		name: "amlfilter:preview-prod-csp",
+		configurePreviewServer(server) {
+			const csp = cspFromHeadersFile(
+				readFileSync(join(APP_ROOT, "public/_headers"), "utf8"),
+			);
+			server.middlewares.use((_req, res, next) => {
+				res.setHeader("Content-Security-Policy", csp);
+				next();
+			});
+		},
+	};
+}
+
 // https://vitejs.dev/config/
 export default defineConfig({
-	plugins: [react(), serveOrtRuntimeRawInDev()],
+	plugins: [react(), serveOrtRuntimeRawInDev(), previewProdCspPlugin()],
 	build: {
 		// esbuild's default build target ('modules' ≈ es2020) downlevels native
 		// class private fields (#load/#extract in the embedder) to a WeakMap-based
