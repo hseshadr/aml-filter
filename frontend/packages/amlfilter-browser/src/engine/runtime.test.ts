@@ -273,6 +273,54 @@ describe("EngineRuntime bootstrap timeout", () => {
 		// A fresh #build ran (warmup re-attempted) — the rejected memo was cleared.
 		expect(embed).toHaveBeenCalledTimes(2);
 	});
+
+	it("does not install a late engine when a timed-out bundle load eventually resolves", async () => {
+		vi.useFakeTimers();
+		let releaseBundle: ((source: BundleSource) => void) | undefined;
+		let opens = 0;
+		const runtime = new EngineRuntime({
+			makeEmbedder: () => ({
+				embed: () => Promise.resolve(new Float32Array(384)),
+			}),
+			clearCache: () => Promise.resolve(),
+			openBundleSource: () => {
+				opens += 1;
+				if (opens > 1) {
+					return Promise.resolve(
+						fakeBundleSource(catalogOf([["OFAC_SDN", "new"]]), () => ({
+							...fakeLoaded(),
+							version: "new",
+						})),
+					);
+				}
+				return new Promise<BundleSource>((resolve) => {
+					releaseBundle = resolve;
+				});
+			},
+		});
+		const boot = runtime.bootstrap(CONFIG);
+		const failed = expect(boot).rejects.toThrow(/timed out/i);
+		await vi.advanceTimersByTimeAsync(BOOT_TIMEOUT_MS);
+		await failed;
+
+		// The timed-out operation has already released its lifecycle slot. A retry
+		// may therefore complete before the old bundle load settles.
+		const fresh = await runtime.bootstrap(CONFIG);
+		expect(fresh).toBeDefined();
+		expect(releaseBundle).toBeDefined();
+		releaseBundle?.(
+			fakeBundleSource(catalogOf([["OFAC_SDN", "late"]]), () => ({
+				...fakeLoaded(),
+				version: "late",
+			})),
+		);
+		await vi.advanceTimersByTimeAsync(1);
+		for (let i = 0; i < 8; i += 1) {
+			await Promise.resolve();
+		}
+
+		expect(runtime.version()).toContain("OFAC_SDN@new");
+	});
 });
 
 describe("EngineRuntime.reload", () => {
@@ -1063,10 +1111,15 @@ class ScriptedEngineWorker {
 	#listener: ((event: MessageEvent<unknown>) => void) | undefined;
 
 	public addEventListener(
-		_type: "message",
-		listener: (event: MessageEvent<unknown>) => void,
+		type: "message" | "error" | "messageerror",
+		listener:
+			| ((event: MessageEvent<unknown>) => void)
+			| ((event: { message?: string }) => void)
+			| (() => void),
 	): void {
-		this.#listener = listener;
+		if (type === "message") {
+			this.#listener = listener as (event: MessageEvent<unknown>) => void;
+		}
 	}
 
 	public postMessage(request: {

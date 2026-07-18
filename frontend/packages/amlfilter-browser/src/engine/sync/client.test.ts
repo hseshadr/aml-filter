@@ -15,12 +15,25 @@ class FakeWorker {
 	public readonly posted: EngineRequest[] = [];
 	public terminated = false;
 	#listener: ((event: MessageEvent<EngineOutbound>) => void) | undefined;
+	#errorListener: ((event: { message?: string }) => void) | undefined;
+	#messageErrorListener: (() => void) | undefined;
 
 	public addEventListener(
-		_type: "message",
-		listener: (event: MessageEvent<EngineOutbound>) => void,
+		type: "message" | "error" | "messageerror",
+		listener:
+			| ((event: MessageEvent<EngineOutbound>) => void)
+			| ((event: { message?: string }) => void)
+			| (() => void),
 	): void {
-		this.#listener = listener;
+		if (type === "message") {
+			this.#listener = listener as (
+				event: MessageEvent<EngineOutbound>,
+			) => void;
+		} else if (type === "error") {
+			this.#errorListener = listener as (event: { message?: string }) => void;
+		} else {
+			this.#messageErrorListener = listener as () => void;
+		}
 	}
 
 	public postMessage(request: EngineRequest): void {
@@ -35,6 +48,14 @@ class FakeWorker {
 	 * posted it back. */
 	public emit(message: EngineOutbound): void {
 		this.#listener?.({ data: message } as MessageEvent<EngineOutbound>);
+	}
+
+	public emitError(message: string): void {
+		this.#errorListener?.({ message });
+	}
+
+	public emitMessageError(): void {
+		this.#messageErrorListener?.();
 	}
 }
 
@@ -221,6 +242,38 @@ describe("EngineClient request/response correlation", () => {
 	it("terminate tears down the underlying worker", () => {
 		const { client, worker } = clientOver();
 		client.terminate();
+		expect(worker.terminated).toBe(true);
+	});
+
+	it("rejects every pending request when the worker crashes", async () => {
+		const { client, worker } = clientOver();
+		const pending = client.readFile("catalog.json");
+		worker.emitError("module failed to evaluate");
+		await expect(pending).rejects.toThrow(/module failed to evaluate/);
+	});
+
+	it("rejects a pending request on message deserialization failure", async () => {
+		const { client, worker } = clientOver();
+		const pending = client.clear();
+		worker.emitMessageError();
+		await expect(pending).rejects.toThrow(/messageerror/);
+	});
+
+	it("bounds a silent request and terminates the worker", async () => {
+		const worker = new FakeWorker();
+		const client = new EngineClient(worker as unknown as Worker, {
+			requestTimeoutMs: 5,
+		});
+		const pending = client.readFile("catalog.json");
+		await expect(pending).rejects.toThrow(/timed out/);
+		expect(worker.terminated).toBe(true);
+	});
+
+	it("terminate rejects pending requests instead of leaving them hanging", async () => {
+		const { client, worker } = clientOver();
+		const pending = client.sync("/bundle/origin", "/public.key");
+		client.terminate();
+		await expect(pending).rejects.toThrow(/terminated/);
 		expect(worker.terminated).toBe(true);
 	});
 });

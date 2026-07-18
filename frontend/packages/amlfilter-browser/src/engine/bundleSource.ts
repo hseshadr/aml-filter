@@ -171,62 +171,76 @@ export async function openBundleSource(
 	onProgress?: OnSyncProgress,
 ): Promise<BundleSource> {
 	const client = deps.createClient();
-	// `onProgress` threads the cold-sync per-chunk ticks up to the boot banner;
-	// undefined on reload/version-poll paths (no banner to feed).
-	const result = await client.sync(baseUrl, pubkeyUrl, onProgress);
+	try {
+		// `onProgress` threads the cold-sync per-chunk ticks up to the boot banner;
+		// undefined on reload/version-poll paths (no banner to feed).
+		const result = await client.sync(baseUrl, pubkeyUrl, onProgress);
 
-	const bundleCatalog: unknown = JSON.parse(
-		DECODER.decode(await client.readFile("catalog.json")),
-	);
-	assertBundleCatalog(bundleCatalog);
-	const catalog = toWatchlistCatalog(bundleCatalog);
+		const bundleCatalog: unknown = JSON.parse(
+			DECODER.decode(await client.readFile("catalog.json")),
+		);
+		assertBundleCatalog(bundleCatalog);
+		const catalog = toWatchlistCatalog(bundleCatalog);
 
-	const loadList = async (
-		entry: WatchlistCatalogEntry,
-	): Promise<LoadedWatchlist> => {
-		const slug = slugOf(entry);
-		const [entitiesJsonl, vectorsF32, meta] = await Promise.all([
-			client.readFile(`${slug}/entities.jsonl`),
-			client.readFile(`${slug}/vectors.f32`),
-			client.readFile(`${slug}/meta.json`),
-		]);
-		const loaded = buildLoadedFromBundleFiles({
-			entitiesJsonl,
-			vectorsF32,
-			meta,
-		});
-		if (loaded.version !== entry.version) {
-			throw new WatchlistFormatError(
-				`bundle list ${entry.id} version skew: catalog ${entry.version}, meta ${loaded.version}`,
-			);
-		}
-		return loaded;
-	};
-	const loadListMetadata = async (
-		entry: WatchlistCatalogEntry,
-	): Promise<LoadedWatchlistMetadata> => {
-		const slug = slugOf(entry);
-		const [entitiesJsonl, meta] = await Promise.all([
-			client.readFile(`${slug}/entities.jsonl`),
-			client.readFile(`${slug}/meta.json`),
-		]);
-		const loaded = buildLoadedWatchlistMetadataFromBundleFiles({
-			entitiesJsonl,
-			meta,
-		});
-		if (loaded.version !== entry.version || loaded.listId !== entry.id) {
-			throw new WatchlistFormatError(
-				`bundle list ${entry.id} metadata skew: catalog ${entry.version}, metadata ${loaded.listId}@${loaded.version}`,
-			);
-		}
-		return loaded;
-	};
+		const loadList = async (
+			entry: WatchlistCatalogEntry,
+		): Promise<LoadedWatchlist> => {
+			const slug = slugOf(entry);
+			const [entitiesJsonl, vectorsF32, meta] = await Promise.all([
+				client.readFile(`${slug}/entities.jsonl`),
+				client.readFile(`${slug}/vectors.f32`),
+				client.readFile(`${slug}/meta.json`),
+			]);
+			const loaded = buildLoadedFromBundleFiles({
+				entitiesJsonl,
+				vectorsF32,
+				meta,
+			});
+			if (loaded.version !== entry.version) {
+				throw new WatchlistFormatError(
+					`bundle list ${entry.id} version skew: catalog ${entry.version}, meta ${loaded.version}`,
+				);
+			}
+			return loaded;
+		};
+		const loadListMetadata = async (
+			entry: WatchlistCatalogEntry,
+		): Promise<LoadedWatchlistMetadata> => {
+			const slug = slugOf(entry);
+			const [entitiesJsonl, meta] = await Promise.all([
+				client.readFile(`${slug}/entities.jsonl`),
+				client.readFile(`${slug}/meta.json`),
+			]);
+			const loaded = buildLoadedWatchlistMetadataFromBundleFiles({
+				entitiesJsonl,
+				meta,
+			});
+			if (loaded.version !== entry.version || loaded.listId !== entry.id) {
+				throw new WatchlistFormatError(
+					`bundle list ${entry.id} metadata skew: catalog ${entry.version}, metadata ${loaded.listId}@${loaded.version}`,
+				);
+			}
+			return loaded;
+		};
 
-	return {
-		loadCatalog: () => catalog,
-		loadList,
-		loadListMetadata,
-		version: () => result.version,
-		clear: () => client.clear(),
-	};
+		return {
+			loadCatalog: () => catalog,
+			loadList,
+			loadListMetadata,
+			version: () => result.version,
+			clear: async () => {
+				try {
+					await client.clear();
+				} finally {
+					client.terminate?.();
+				}
+			},
+		};
+	} catch (error) {
+		// A failed bootstrap must not strand an OPFS Worker. The runtime retries by
+		// dropping this source; terminate the failed client before surfacing the
+		// original error so the retry starts with a bounded worker count.
+		client.terminate?.();
+		throw error;
+	}
 }

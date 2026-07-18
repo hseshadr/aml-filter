@@ -331,6 +331,11 @@ export class EngineRuntime {
 	// Serialize the complete lifecycle boundary. A cache clear must not race a
 	// reload/bootstrap and leave an engine pointing at a half-cleared bundle.
 	#lifecycleTail: Promise<void> = Promise.resolve();
+	// Incremented whenever a boot is superseded by failure, disposal, or cache
+	// reset. A timed-out Promise.race cannot cancel its inner build, so the build
+	// carries this epoch and refuses to publish stale state when it eventually
+	// resumes.
+	#generation = 0;
 	// The cold-sync download progress sink for the CURRENT boot only. Set for the
 	// duration of #build so the (memoized, once-called) openBundleSource threads
 	// per-chunk ticks to onStage; undefined on reload/poll opens (no banner).
@@ -363,6 +368,7 @@ export class EngineRuntime {
 	 */
 	public async clearListCache(): Promise<void> {
 		return this.#enqueue(async () => {
+			this.#generation += 1;
 			await this.#deps.clearCache();
 			// Release vectors and metadata immediately, then force the next load to
 			// re-sync from the cleared OPFS store. The optional embedder disposer
@@ -391,6 +397,7 @@ export class EngineRuntime {
 	 */
 	public async dispose(): Promise<void> {
 		return this.#enqueue(async () => {
+			this.#generation += 1;
 			this.#ready?.dispose();
 			this.#ready = null;
 			this.#version = null;
@@ -416,6 +423,7 @@ export class EngineRuntime {
 	): Promise<MultiListScreeningEngine> {
 		if (this.#enginePromise === null) {
 			this.#selection = selection;
+			const generation = this.#generation;
 			// Bound the WHOLE boot, not just the model load: a stalled bundle sync
 			// (or a wedged Worker) would otherwise hang the banner on "Downloading…"
 			// forever. On expiry the boot rejects → the memo clears → the UI shows
@@ -423,16 +431,19 @@ export class EngineRuntime {
 			const deadlineMs = bootTimeoutMs(import.meta.env);
 			const build = this.#enqueue(() =>
 				withTimeout(
-					this.#build(config, onStage),
+					this.#build(config, onStage, generation),
 					deadlineMs,
 					`loading the screening engine timed out after ${deadlineMs}ms`,
 				),
 			);
 			this.#enginePromise = build.catch((error) => {
 				// Let a failed (or timed-out) bootstrap be retried by clearing the memo.
+				this.#generation += 1;
 				this.#disposeEmbedder();
 				this.#embedder = null;
+				this.#config = null;
 				this.#enginePromise = null;
+				this.#bundleSource = null;
 				throw error;
 			});
 		}
@@ -664,7 +675,13 @@ export class EngineRuntime {
 	async #build(
 		config: RuntimeConfig,
 		onStage: OnStage,
+		generation: number,
 	): Promise<MultiListScreeningEngine> {
+		const assertCurrent = (): void => {
+			if (this.#generation !== generation) {
+				throw new Error("screening engine boot superseded");
+			}
+		};
 		onStage({ kind: "downloading" });
 		// Capture the config up front so the catalog/list loaders (JSON or bundle)
 		// and the post-bootstrap methods (catalogLists/fetchPublishedVersion/reload)
@@ -675,6 +692,7 @@ export class EngineRuntime {
 		// loaders open their own short IndexedDB transactions on demand; the bundle
 		// path's OPFS store does the same.
 		await requestPersistentStorage();
+		assertCurrent();
 		// Feed cold-sync per-chunk progress to the downloading banner for THIS boot
 		// only. The bundle open is memoized + called once (in #loadEnabledLists →
 		// #bundleSourceFor), so this sink is live exactly across that sync; cleared
@@ -692,6 +710,7 @@ export class EngineRuntime {
 		} finally {
 			this.#onSyncProgress = undefined;
 		}
+		assertCurrent();
 		const versions: Record<string, string> = {};
 		for (const l of loaded ?? streamingSources ?? []) {
 			versions[l.listId] = l.version;
@@ -722,6 +741,7 @@ export class EngineRuntime {
 			timeoutMs,
 			`loading the name-matching model timed out after ${timeoutMs}ms`,
 		);
+		assertCurrent();
 
 		const engine =
 			streamingSources !== undefined

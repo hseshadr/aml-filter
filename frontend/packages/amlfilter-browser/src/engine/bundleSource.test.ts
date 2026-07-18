@@ -301,8 +301,10 @@ const CRAFTED_SYNC: SyncResult = {
 function craftedClient(catalogJson: unknown): {
 	deps: BundleSourceDeps;
 	wasCleared: () => boolean;
+	wasTerminated: () => boolean;
 } {
 	let cleared = false;
+	let terminated = false;
 	const client: BundleEngineClient = {
 		sync: () => Promise.resolve(CRAFTED_SYNC),
 		readFile: (path) => {
@@ -317,16 +319,24 @@ function craftedClient(catalogJson: unknown): {
 			cleared = true;
 			return Promise.resolve();
 		},
+		terminate: () => {
+			terminated = true;
+		},
 	};
-	return { deps: { createClient: () => client }, wasCleared: () => cleared };
+	return {
+		deps: { createClient: () => client },
+		wasCleared: () => cleared,
+		wasTerminated: () => terminated,
+	};
 }
 
 describe("openBundleSource — fail-closed catalog validation", () => {
 	it("rejects a catalog that is not an object", async () => {
-		const { deps } = craftedClient(null);
+		const { deps, wasTerminated } = craftedClient(null);
 		const pending = openBundleSource("/o", PUBKEY_URL, deps);
 		await expect(pending).rejects.toBeInstanceOf(WatchlistFormatError);
 		await expect(pending).rejects.toThrow(/not an object/);
+		expect(wasTerminated()).toBe(true);
 	});
 
 	it("rejects a catalog with the wrong schemaVersion", async () => {
@@ -398,7 +408,7 @@ describe("openBundleSource — version skew + clear passthrough", () => {
 	});
 
 	it("clear() drops the durable store through the client", async () => {
-		const { deps, wasCleared } = craftedClient({
+		const { deps, wasCleared, wasTerminated } = craftedClient({
 			schemaVersion: 1,
 			generatedAt: "2026-06-19T00:00:00Z",
 			lists: [],
@@ -407,5 +417,6 @@ describe("openBundleSource — version skew + clear passthrough", () => {
 		expect(wasCleared()).toBe(false);
 		await source.clear();
 		expect(wasCleared()).toBe(true);
+		expect(wasTerminated()).toBe(true);
 	});
 });
