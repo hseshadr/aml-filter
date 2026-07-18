@@ -75,9 +75,9 @@ jobs:
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('frontend/pnpm-lock.yaml') }}
-      - name: Install Playwright Chromium + WebKit + system deps
+      - name: Install Playwright Chromium + system deps
         working-directory: frontend/app
-        run: pnpm exec playwright install --with-deps chromium webkit
+        run: pnpm exec playwright install --with-deps chromium
 
       # The canonical gate (frontend/package.json "gate"): Biome lint → tsc
       # typecheck → Vitest units (incl. the i18n locale-parity spec) → production
@@ -99,9 +99,10 @@ jobs:
       #     + every chunk against the pinned same-origin public.key, promote
       #     into OPFS, screen; then prove a reload re-fetches ZERO chunks (delta
       #     reuse) and an offline reload still screens from OPFS.
-      #   • Mobile memory smoke — Android Chromium + iPhone WebKit profile. The
-      #     WebKit project is explicitly skipped when its emulator lacks OPFS;
-      #     physical iOS Safari remains the device-level acceptance check.
+      #   • Mobile memory smoke — Android Chromium + desktop control profile.
+      #     The full iPhone/WebKit profile remains available through
+      #     `pnpm test:e2e:mobile` on macOS; physical iOS Safari is the device-
+      #     level acceptance check.
       - name: Run the gate (lint → typecheck → test → build → verify-i18n → e2e matrix)
         working-directory: frontend
         run: pnpm run gate
