@@ -3,7 +3,8 @@
 export default {
 	async fetch(request, env) {
 		const url = new URL(request.url);
-		if (url.hostname.toLowerCase() === "www.aml-filter.com") {
+		const hostname = url.hostname.toLowerCase().replace(/\.$/, "");
+		if (hostname === "www.aml-filter.com") {
 			url.hostname = "aml-filter.com";
 			return Response.redirect(url.toString(), 308);
 		}
