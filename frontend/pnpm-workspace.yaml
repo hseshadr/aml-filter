@@ -20,4 +20,5 @@ allowBuilds:
 # properties; vulnerable <=7.6.2). protobufjs is pulled in transitively via
 # @huggingface/transformers > onnxruntime-web, so it is overridden here.
 overrides:
+  adm-zip: "0.6.0"
   protobufjs: ">=7.6.3"
