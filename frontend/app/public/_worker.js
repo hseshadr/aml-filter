@@ -7,7 +7,11 @@ export default {
 			url.hostname = "aml-filter.com";
 			return Response.redirect(url.toString(), 308);
 		}
-		if (["/screen/", "/customers/", "/review/", "/settings/"].includes(url.pathname)) {
+		if (
+			["/screen/", "/customers/", "/review/", "/settings/"].includes(
+				url.pathname,
+			)
+		) {
 			url.pathname = url.pathname.slice(0, -1);
 			return Response.redirect(url.toString(), 301);
 		}
