@@ -24,7 +24,7 @@
 #
 # One-time prerequisites (outside this workflow, done by a human with wrangler):
 #   npx wrangler pages project create aml-filter --production-branch=main
-#   + attach the aml-filter.com custom domain (docs/DEPLOY.md)
+#   + attach aml-filter.com and www.aml-filter.com custom domains (docs/DEPLOY.md)
 name: Deploy aml-filter.com
 
 on:
@@ -255,3 +255,18 @@ jobs:
             --expect-version "$VERSION" \
             --expect-sequence "$SEQUENCE" \
             --attempts 10 --delay-seconds 15
+
+      - name: Verify canonical hosts
+        run: |
+          curl --fail --silent --show-error --max-time 15 --output /dev/null https://aml-filter.com/
+          readarray -t redirect < <(curl --silent --show-error --max-time 15 \
+            --output /dev/null --write-out '%{http_code}\n%{redirect_url}\n' \
+            'https://www.aml-filter.com/settings?source=deploy-check')
+          http_code="${redirect[0]:-missing}"
+          target="${redirect[1]:-missing}"
+          expected='https://aml-filter.com/settings?source=deploy-check'
+          if { [ "$http_code" != "301" ] && [ "$http_code" != "308" ]; } || [ "$target" != "$expected" ]; then
+            echo "::error::www canonical redirect failed: status=$http_code target=$target expected=$expected"
+            exit 1
+          fi
+          echo "Canonical hosts verified: www redirects to $target ($http_code)"

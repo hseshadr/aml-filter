@@ -9,7 +9,7 @@
 		"node": ">=22.13"
 	},
 	"scripts": {
-		"gate": "pnpm -r run lint && pnpm -r run typecheck && pnpm -r run test:coverage && pnpm -r run build && pnpm --filter aml-filter-app run verify:i18n && pnpm --filter aml-filter-app run test:e2e:c1 && pnpm --filter aml-filter-app run test:e2e:kyc && pnpm --filter aml-filter-app run test:e2e:bundle",
+		"gate": "pnpm -r run lint && pnpm -r run typecheck && pnpm -r run test:coverage && pnpm -r run build && pnpm --filter aml-filter-app run test:contract && pnpm --filter aml-filter-app run verify:i18n && pnpm --filter aml-filter-app run test:e2e:c1 && pnpm --filter aml-filter-app run test:e2e:kyc && pnpm --filter aml-filter-app run test:e2e:bundle",
 		"publish-list": "pnpm --filter @amlfilter/publisher run publish"
 	},
 	"devDependencies": {

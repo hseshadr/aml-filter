@@ -163,10 +163,10 @@ npx wrangler pages deploy app/dist --project-name=aml-filter --branch=main
 ```
 
 **Custom domains.** In the Pages project → *Custom domains*, add both `aml-filter.com` and
-`www.aml-filter.com`. Make the apex canonical and send `www` → apex with a **Redirect Rule**
-(Rules → Redirect Rules: `www.aml-filter.com/*` → `https://aml-filter.com/$1`, 301).
-This redirect is host-level Cloudflare state and cannot be represented by the Pages
-`_redirects` file; verify it after every domain or project migration.
+`www.aml-filter.com`. The checked-in advanced-mode worker (`frontend/app/public/_worker.js`)
+makes the apex canonical and redirects every `www` request with status 308 while preserving
+path and query. This is code-reviewed and covered by the contract gate, so it does not depend
+on a separate host-level Redirect Rule.
 
 > Pages serves over HTTPS automatically, which is the secure context the app needs for
 > WebCrypto signature verification and OPFS — nothing extra to configure. Because the bundle is
