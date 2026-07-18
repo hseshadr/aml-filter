@@ -39,3 +39,17 @@ test("Pages worker serves apex requests through the static asset binding", async
 
 	assert.equal(response, asset);
 });
+
+test("Pages worker preserves the app's trailing-slash redirects", async () => {
+	const worker = await loadWorker();
+	const response = await worker.fetch(
+		new Request("https://aml-filter.com/settings/?source=deploy-check"),
+		{ ASSETS: { fetch: async () => new Response("asset") } },
+	);
+
+	assert.equal(response.status, 301);
+	assert.equal(
+		response.headers.get("location"),
+		"https://aml-filter.com/settings?source=deploy-check",
+	);
+});
