@@ -31,9 +31,33 @@ test.describe("public landing (/)", () => {
 		await expect(
 			page.getByRole("region", { name: /compliance workstation/i }),
 		).toBeVisible();
-		await expect(page.getByText(/portfolio demo/i)).toBeVisible();
+		await expect(page.getByText(/portfolio engineering demo/i)).toBeVisible();
 
 		expect(consoleErrors).toEqual([]);
+	});
+
+	test("keeps the workstation promise readable on the dark panel", async ({
+		page,
+	}) => {
+		await page.goto("http://localhost:5173/");
+		const title = page.getByRole("heading", {
+			level: 2,
+			name: /Need the full workflow\?/i,
+		});
+		await expect(title).toBeVisible();
+
+		const style = await title.evaluate((element) => {
+			const computed = window.getComputedStyle(element);
+			return {
+				color: computed.color,
+				fontFamily: computed.fontFamily,
+				fontWeight: computed.fontWeight,
+			};
+		});
+
+		expect(style.color).toBe("rgb(255, 255, 255)");
+		expect(style.fontFamily).toContain("Hanken Grotesk");
+		expect(Number(style.fontWeight)).toBeGreaterThanOrEqual(700);
 	});
 
 	test("primary CTA navigates to the in-browser demo", async ({ page }) => {

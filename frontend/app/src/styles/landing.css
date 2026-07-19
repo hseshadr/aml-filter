@@ -375,25 +375,31 @@
 }
 
 .landing__workstation-kicker {
-	font-size: 10.5px;
-	letter-spacing: 0.18em;
+	font-size: 11px;
+	letter-spacing: 0.15em;
 	text-transform: uppercase;
-	color: color-mix(in srgb, var(--landing-paper) 70%, transparent);
+	color: #e7f0f2;
 	font-weight: 600;
 	margin-bottom: 10px;
 }
 
-.landing__workstation-title {
+.landing .landing__workstation-title {
+	font-family: var(--landing-font-body);
 	font-size: clamp(24px, 3.5vw, 32px);
+	font-weight: 700;
+	letter-spacing: -0.025em;
+	line-height: 1.12;
+	max-width: 30ch;
 	margin: 0 0 12px;
-	color: var(--landing-paper);
+	color: #fff;
+	text-wrap: balance;
 }
 
 .landing__workstation-lede {
 	font-size: 16px;
 	max-width: 62ch;
 	line-height: 1.55;
-	color: color-mix(in srgb, var(--landing-paper) 88%, transparent);
+	color: #e2ecef;
 }
 
 .landing__workstation-flow {
