@@ -273,37 +273,49 @@ export default function ReviewBoardPage() {
 			) : matches.length === 0 ? (
 				<p>{t("board.empty")}</p>
 			) : (
-				<table className="table">
-					<thead>
-						<tr>
-							<th>{t("board.columns.tier")}</th>
-							<th>{t("board.columns.customer")}</th>
-							<th>{t("board.columns.matchedEntity")}</th>
-							<th>{t("board.columns.source")}</th>
-							<th>{t("board.columns.score")}</th>
-							<th>{t("board.columns.status")}</th>
-							<th>{t("board.columns.reviewerNotes")}</th>
-							<th className="table-cell-right">{t("board.columns.resolve")}</th>
-							<th className="table-cell-right">{t("board.columns.history")}</th>
-						</tr>
-					</thead>
-					<tbody>
-						{matches.map((match) => (
-							<MatchRow
-								key={match.match_id}
-								match={match}
-								draft={draftFor(match.match_id)}
-								onChange={(field, value) =>
-									updateDraft(match.match_id, field, value)
-								}
-								onResolve={() => handleResolve(match)}
-								historyOpen={openHistoryId === match.match_id}
-								history={history[match.match_id]}
-								onToggleHistory={() => toggleHistory(match.match_id)}
-							/>
-						))}
-					</tbody>
-				</table>
+				<section
+					className="table-scroll"
+					aria-label={t("board.heading", {
+						total: matches.length,
+						pending: pendingCount,
+					})}
+				>
+					<table className="table">
+						<thead>
+							<tr>
+								<th scope="col">{t("board.columns.tier")}</th>
+								<th scope="col">{t("board.columns.customer")}</th>
+								<th scope="col">{t("board.columns.matchedEntity")}</th>
+								<th scope="col">{t("board.columns.source")}</th>
+								<th scope="col">{t("board.columns.score")}</th>
+								<th scope="col">{t("board.columns.status")}</th>
+								<th scope="col">{t("board.columns.reviewerNotes")}</th>
+								<th scope="col" className="table-cell-right">
+									{t("board.columns.resolve")}
+								</th>
+								<th scope="col" className="table-cell-right">
+									{t("board.columns.history")}
+								</th>
+							</tr>
+						</thead>
+						<tbody>
+							{matches.map((match) => (
+								<MatchRow
+									key={match.match_id}
+									match={match}
+									draft={draftFor(match.match_id)}
+									onChange={(field, value) =>
+										updateDraft(match.match_id, field, value)
+									}
+									onResolve={() => handleResolve(match)}
+									historyOpen={openHistoryId === match.match_id}
+									history={history[match.match_id]}
+									onToggleHistory={() => toggleHistory(match.match_id)}
+								/>
+							))}
+						</tbody>
+					</table>
+				</section>
 			)}
 		</div>
 	);

@@ -24,6 +24,10 @@ import {
 	type WorkstationHandle,
 	workstation,
 } from "../lib/workstation";
+import {
+	userFacingBootError,
+	userFacingStorageError,
+} from "../pages/bootErrorMessage";
 
 /**
  * How often an open tab re-checks for a newly-published watchlist version. A
@@ -111,9 +115,21 @@ export default function WorkstationGate({
 	}
 
 	if (phase.kind === "error") {
+		const safeError = userFacingStorageError(phase.message);
 		return (
-			<div className="alert alert-error">
-				<p>{phase.message}</p>
+			<div
+				className="alert alert-error error-surface"
+				role="alert"
+				aria-live="assertive"
+			>
+				<div className="error-surface__copy">
+					<strong>{safeError.title}</strong>
+					<p>{safeError.recovery}</p>
+					<details className="error-surface__details">
+						<summary>Technical details</summary>
+						<code>{safeError.technicalDetail}</code>
+					</details>
+				</div>
 				<button
 					type="button"
 					className="btn btn-primary"
@@ -256,9 +272,21 @@ function EngineStatusStrip() {
 	}, []);
 
 	if (error !== null) {
+		const safeError = userFacingBootError(error);
 		return (
-			<div className="alert alert-warning" role="status">
-				{t("errors:engine.unavailable", { error })}{" "}
+			<div
+				className="alert alert-warning error-surface"
+				role="alert"
+				aria-live="assertive"
+			>
+				<div className="error-surface__copy">
+					<strong>{safeError.title}</strong>
+					<p>{safeError.recovery}</p>
+					<details className="error-surface__details">
+						<summary>Technical details</summary>
+						<code>{safeError.technicalDetail}</code>
+					</details>
+				</div>
 				<button
 					type="button"
 					className="btn btn-secondary btn-sm"

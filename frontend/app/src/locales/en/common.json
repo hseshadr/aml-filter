@@ -1,13 +1,13 @@
 {
 	"nav": {
 		"brandAlt": "AML-Filter",
-		"brand": "AML-Filter v4",
-		"screen": "Screen (in-browser)",
+		"brand": "AML-Filter",
+		"screen": "Screen",
 		"customers": "Customers",
 		"review": "Review",
 		"settings": "Settings"
 	},
-	"layoutFooter": "AML-Filter v4 — local-first sanctions screening",
+	"layoutFooter": "Local-first sanctions screening — all data stays in this browser",
 	"route": {
 		"loading": "Loading…"
 	},

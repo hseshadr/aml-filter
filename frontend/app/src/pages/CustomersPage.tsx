@@ -452,149 +452,159 @@ export default function CustomersPage() {
 			) : customers.length === 0 ? (
 				<p>{t("list.empty")}</p>
 			) : (
-				<table className="table">
-					<thead>
-						<tr>
-							<th>{t("list.columns.reference")}</th>
-							<th>{t("list.columns.status")}</th>
-							<th>{t("list.columns.risk")}</th>
-							<th>{t("list.columns.onboardedBy")}</th>
-							<th>{t("list.columns.created")}</th>
-							<th className="table-cell-right">{t("list.columns.actions")}</th>
-						</tr>
-					</thead>
-					<tbody>
-						{customers.map((customer) => (
-							<tr key={customer.customer_id}>
-								<td>{customer.customer_reference}</td>
-								<td>
-									<span
-										className={statusBadgeClass(customer.onboarding_status)}
-									>
-										{customer.onboarding_status}
-									</span>
-								</td>
-								<td>
-									<span className={riskBadgeClass(customer.kyc_risk_rating)}>
-										{customer.kyc_risk_rating ?? t("list.unrated")}
-									</span>
-								</td>
-								<td>{customer.onboarded_by}</td>
-								<td>{new Date(customer.created_at).toLocaleDateString()}</td>
-								<td className="table-cell-right">
-									<div className="flex-gap-sm">
-										<select
-											aria-label={t("list.controls.statusAria", {
-												reference: customer.customer_reference,
-											})}
-											value={customer.onboarding_status}
-											onChange={(e) =>
-												handleStatusChange(
-													customer.customer_id,
-													e.target.value as OnboardingStatus,
-												)
-											}
-											className="form-select"
+				<section
+					className="table-scroll"
+					aria-label={t("list.title", { total: customers.length })}
+				>
+					<table className="table">
+						<thead>
+							<tr>
+								<th scope="col">{t("list.columns.reference")}</th>
+								<th scope="col">{t("list.columns.status")}</th>
+								<th scope="col">{t("list.columns.risk")}</th>
+								<th scope="col">{t("list.columns.onboardedBy")}</th>
+								<th scope="col">{t("list.columns.created")}</th>
+								<th scope="col" className="table-cell-right">
+									{t("list.columns.actions")}
+								</th>
+							</tr>
+						</thead>
+						<tbody>
+							{customers.map((customer) => (
+								<tr key={customer.customer_id}>
+									<td>{customer.customer_reference}</td>
+									<td>
+										<span
+											className={statusBadgeClass(customer.onboarding_status)}
 										>
-											{ONBOARDING_STATUSES.map((s) => (
-												<option key={s} value={s}>
-													{s}
-												</option>
-											))}
-										</select>
-										<select
-											aria-label={t("list.controls.riskAria", {
-												reference: customer.customer_reference,
-											})}
-											value={customer.kyc_risk_rating ?? ""}
-											onChange={(e) =>
-												handleRiskChange(
-													customer.customer_id,
-													e.target.value as KycRiskRating,
-												)
-											}
-											className="form-select"
-										>
-											<option value="" disabled>
-												{t("list.controls.riskPlaceholder")}
-											</option>
-											{RISK_RATINGS.map((r) => (
-												<option key={r} value={r}>
-													{r}
-												</option>
-											))}
-										</select>
-										{editing?.customerId === customer.customer_id ? (
-											<>
-												<input
-													type="text"
-													aria-label={t("list.controls.editNameAria", {
-														reference: customer.customer_reference,
-													})}
-													value={editing.name}
-													onChange={(e) =>
-														setEditing({ ...editing, name: e.target.value })
-													}
-													className="form-input"
-												/>
-												<input
-													type="text"
-													aria-label={t("list.controls.editCountryAria", {
-														reference: customer.customer_reference,
-													})}
-													value={editing.country}
-													maxLength={2}
-													onChange={(e) =>
-														setEditing({ ...editing, country: e.target.value })
-													}
-													className="form-input"
-												/>
-												<button
-													type="button"
-													onClick={handleEditSave}
-													className="btn btn-primary btn-sm"
-												>
-													{t("actions.save")}
-												</button>
-												<button
-													type="button"
-													onClick={() => setEditing(null)}
-													className="btn btn-secondary btn-sm"
-												>
-													{t("actions.cancel")}
-												</button>
-											</>
-										) : (
-											<button
-												type="button"
-												aria-label={t("list.controls.editAria", {
+											{customer.onboarding_status}
+										</span>
+									</td>
+									<td>
+										<span className={riskBadgeClass(customer.kyc_risk_rating)}>
+											{customer.kyc_risk_rating ?? t("list.unrated")}
+										</span>
+									</td>
+									<td>{customer.onboarded_by}</td>
+									<td>{new Date(customer.created_at).toLocaleDateString()}</td>
+									<td className="table-cell-right">
+										<div className="flex-gap-sm">
+											<select
+												aria-label={t("list.controls.statusAria", {
 													reference: customer.customer_reference,
 												})}
-												onClick={() =>
-													setEditing({
-														customerId: customer.customer_id,
-														name: "",
-														country: "",
-													})
+												value={customer.onboarding_status}
+												onChange={(e) =>
+													handleStatusChange(
+														customer.customer_id,
+														e.target.value as OnboardingStatus,
+													)
 												}
-												className="btn btn-secondary btn-sm"
+												className="form-select"
 											>
-												{t("actions.edit")}
+												{ONBOARDING_STATUSES.map((s) => (
+													<option key={s} value={s}>
+														{s}
+													</option>
+												))}
+											</select>
+											<select
+												aria-label={t("list.controls.riskAria", {
+													reference: customer.customer_reference,
+												})}
+												value={customer.kyc_risk_rating ?? ""}
+												onChange={(e) =>
+													handleRiskChange(
+														customer.customer_id,
+														e.target.value as KycRiskRating,
+													)
+												}
+												className="form-select"
+											>
+												<option value="" disabled>
+													{t("list.controls.riskPlaceholder")}
+												</option>
+												{RISK_RATINGS.map((r) => (
+													<option key={r} value={r}>
+														{r}
+													</option>
+												))}
+											</select>
+											{editing?.customerId === customer.customer_id ? (
+												<>
+													<input
+														type="text"
+														aria-label={t("list.controls.editNameAria", {
+															reference: customer.customer_reference,
+														})}
+														value={editing.name}
+														onChange={(e) =>
+															setEditing({ ...editing, name: e.target.value })
+														}
+														className="form-input"
+													/>
+													<input
+														type="text"
+														aria-label={t("list.controls.editCountryAria", {
+															reference: customer.customer_reference,
+														})}
+														value={editing.country}
+														maxLength={2}
+														onChange={(e) =>
+															setEditing({
+																...editing,
+																country: e.target.value,
+															})
+														}
+														className="form-input"
+													/>
+													<button
+														type="button"
+														onClick={handleEditSave}
+														className="btn btn-primary btn-sm"
+													>
+														{t("actions.save")}
+													</button>
+													<button
+														type="button"
+														onClick={() => setEditing(null)}
+														className="btn btn-secondary btn-sm"
+													>
+														{t("actions.cancel")}
+													</button>
+												</>
+											) : (
+												<button
+													type="button"
+													aria-label={t("list.controls.editAria", {
+														reference: customer.customer_reference,
+													})}
+													onClick={() =>
+														setEditing({
+															customerId: customer.customer_id,
+															name: "",
+															country: "",
+														})
+													}
+													className="btn btn-secondary btn-sm"
+												>
+													{t("actions.edit")}
+												</button>
+											)}
+											<button
+												type="button"
+												onClick={() => handleDelete(customer.customer_id)}
+												className="btn btn-danger btn-sm"
+											>
+												{t("actions.delete")}
 											</button>
-										)}
-										<button
-											type="button"
-											onClick={() => handleDelete(customer.customer_id)}
-											className="btn btn-danger btn-sm"
-										>
-											{t("actions.delete")}
-										</button>
-									</div>
-								</td>
-							</tr>
-						))}
-					</tbody>
-				</table>
+										</div>
+									</td>
+								</tr>
+							))}
+						</tbody>
+					</table>
+				</section>
 			)}
 		</div>
 	);

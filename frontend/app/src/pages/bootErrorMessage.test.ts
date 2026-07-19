@@ -9,6 +9,7 @@ import {
 	bundleErrorRegistry,
 	classifyBundleError,
 	deviceUnsupportedMessage,
+	userFacingBootError,
 } from "./bootErrorMessage";
 
 /** A raw failure carrying a specific `.name` (e.g. the transport `NetworkError`),
@@ -21,6 +22,16 @@ function named(name: string, message: string): Error {
 }
 
 describe("bootErrorMessage", () => {
+	it("keeps technical causes out of the primary error copy", () => {
+		const result = userFacingBootError(
+			new Error("RangeError: WebAssembly.Memory.grow: out of memory"),
+		);
+
+		expect(result.title).toBe("Local screening engine unavailable");
+		expect(result.recovery).toMatch(/close another AML-Filter tab/i);
+		expect(result.technicalDetail).toContain("WebAssembly.Memory.grow");
+	});
+
 	it("surfaces the underlying fail-closed cause", () => {
 		const msg = bootErrorMessage(new Error("signature verification failed"));
 		expect(msg).toBe(

@@ -199,3 +199,71 @@ export function bootErrorMessage(error: unknown): string {
 	const detail = messageOf(error);
 	return i18n.t("errors:boot.couldNotLoad", { detail });
 }
+
+export interface UserFacingBootError {
+	readonly title: string;
+	readonly recovery: string;
+	readonly technicalDetail: string;
+}
+
+/** Keep implementation details available to an operator without making them
+ * the first thing a customer sees when a browser/WASM boot fails. */
+export function userFacingBootError(error: unknown): UserFacingBootError {
+	const kind = classifyBundleError(error);
+	const technicalDetail = messageOf(error);
+	if (kind === "quota_exceeded") {
+		return {
+			title: "Device storage is full",
+			recovery: "Clear cached lists in Settings, then try again.",
+			technicalDetail,
+		};
+	}
+	if (kind === "device_unsupported") {
+		return {
+			title: "This browser cannot run the local engine",
+			recovery: "Open AML-Filter in a recent Safari, Chrome, Edge, or Firefox.",
+			technicalDetail,
+		};
+	}
+	if (kind === "integrity_failed") {
+		return {
+			title: "Screening list verification failed",
+			recovery:
+				"Retry once. If it persists, reload AML-Filter before continuing.",
+			technicalDetail,
+		};
+	}
+	if (kind === "timeout" || kind === "network" || kind === "download_failed") {
+		return {
+			title: "Screening list could not be loaded",
+			recovery: "Check your connection, then retry the local download.",
+			technicalDetail,
+		};
+	}
+	return {
+		title: "Local screening engine unavailable",
+		recovery: "Close another AML-Filter tab, then retry.",
+		technicalDetail,
+	};
+}
+
+export interface UserFacingStorageError {
+	readonly title: string;
+	readonly recovery: string;
+	readonly technicalDetail: string;
+}
+
+export function userFacingStorageError(error: unknown): UserFacingStorageError {
+	const technicalDetail = messageOf(error);
+	const memoryOrLockIssue =
+		/out of memory|sqlite|opfs|local kyc|database/i.test(technicalDetail);
+	return {
+		title: memoryOrLockIssue
+			? "Local workspace unavailable"
+			: "Could not open the local workspace",
+		recovery: memoryOrLockIssue
+			? "Close another AML-Filter tab, then retry."
+			: "Reload AML-Filter and retry before continuing.",
+		technicalDetail,
+	};
+}

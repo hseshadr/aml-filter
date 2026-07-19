@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import "../styles/common.css";
 
 interface LayoutProps {
@@ -9,32 +9,45 @@ interface LayoutProps {
 
 export default function Layout({ children }: LayoutProps) {
 	const { t } = useTranslation("common");
+	const { pathname } = useLocation();
+	const navItems = [
+		{ path: "/screen", label: t("nav.screen") },
+		{ path: "/customers", label: t("nav.customers") },
+		{ path: "/review", label: t("nav.review") },
+		{ path: "/settings", label: t("nav.settings") },
+	];
+	const isActive = (path: string) =>
+		pathname === path || pathname.startsWith(`${path}/`);
+
 	return (
 		<div className="page-container">
 			<header className="nav-header">
-				<nav className="nav-container">
+				<nav className="nav-container" aria-label="Primary navigation">
 					<div className="nav-links">
-						<Link to="/" className="nav-brand">
+						<Link to="/" className="nav-brand" aria-label={t("nav.brand")}>
 							<img
 								src="/logo.svg"
 								alt={t("nav.brandAlt")}
 								className="nav-brand__logo"
 							/>
-							{t("nav.brand")}
+							<span className="nav-brand__name">{t("nav.brand")}</span>
 						</Link>
-						<Link to="/screen" className="nav-link">
-							{t("nav.screen")}
-						</Link>
-						{/* The local-first workstation — no login, no API keys. */}
-						<Link to="/customers" className="nav-link">
-							{t("nav.customers")}
-						</Link>
-						<Link to="/review" className="nav-link">
-							{t("nav.review")}
-						</Link>
-						<Link to="/settings" className="nav-link">
-							{t("nav.settings")}
-						</Link>
+						<div className="nav-workspace">
+							{/* The local-first workstation — no login, no API keys. */}
+							{navItems.map(({ path, label }) => {
+								const active = isActive(path);
+								return (
+									<Link
+										key={path}
+										to={path}
+										className={`nav-link${active ? " nav-link--active" : ""}`}
+										aria-current={active ? "page" : undefined}
+									>
+										{label}
+									</Link>
+								);
+							})}
+						</div>
 					</div>
 				</nav>
 			</header>

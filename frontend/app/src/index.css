@@ -317,3 +317,231 @@ code {
 .screen-footer__link {
 	color: #2563eb;
 }
+
+/* Shared evidence-console treatment for the in-browser screening route. */
+.screen-page {
+	max-width: 800px;
+	padding: clamp(0.5rem, 2vw, 1rem) 0 2rem;
+}
+
+.screen-page h1 {
+	font-size: clamp(1.85rem, 5vw, 2.45rem);
+	color: var(--color-ink);
+	letter-spacing: -0.04em;
+}
+
+.screen-page__lede {
+	max-width: 58ch;
+	color: var(--color-text-muted);
+	font-size: 0.98rem;
+}
+
+.screen-banner {
+	display: flex;
+	min-height: 48px;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.9rem;
+	border: 1px solid var(--color-border);
+	border-left: 3px solid var(--color-primary);
+	border-radius: var(--radius-sm);
+	background: var(--color-teal-soft);
+	color: var(--color-ink-soft);
+	box-shadow: var(--shadow-sm);
+}
+
+.screen-banner--error {
+	border-color: var(--color-alert-error-border);
+	border-left-color: var(--color-danger);
+	background: var(--color-alert-error-bg);
+	color: var(--color-alert-error-text);
+}
+
+.screen-banner--unsupported {
+	border-color: var(--color-alert-warning-border);
+	border-left-color: var(--color-warning);
+	background: var(--color-alert-warning-bg);
+	color: var(--color-alert-warning-text);
+}
+
+.screen-banner__retry {
+	min-height: 40px;
+	flex: 0 0 auto;
+	padding: 0.45rem 0.8rem;
+	border: 1px solid currentColor;
+	border-radius: var(--radius-sm);
+	background: transparent;
+	color: inherit;
+	font-size: 0.82rem;
+	font-weight: 700;
+	cursor: pointer;
+}
+
+.screen-banner__retry:hover {
+	background: rgba(180, 35, 24, 0.08);
+}
+
+.screen-banner__copy {
+	min-width: 0;
+}
+
+.screen-banner__copy strong {
+	display: block;
+	margin-bottom: 0.25rem;
+	color: var(--color-ink);
+}
+
+.screen-banner__copy p {
+	margin: 0;
+}
+
+.screen-banner__details {
+	margin-top: 0.6rem;
+	font-size: 0.76rem;
+}
+
+.screen-banner__details summary {
+	cursor: pointer;
+	font-weight: 650;
+}
+
+.screen-banner__details code {
+	display: block;
+	margin-top: 0.35rem;
+	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	font-size: 0.7rem;
+	overflow-wrap: anywhere;
+}
+
+.screen-search {
+	min-height: 52px;
+	margin-top: 0.35rem;
+	border-color: var(--color-border-input);
+	border-radius: 10px;
+	box-shadow: 0 3px 10px rgba(16, 42, 43, 0.04);
+	color: var(--color-text);
+}
+
+.screen-search:focus {
+	border-color: var(--color-primary);
+	box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.16);
+}
+
+.screen-dob {
+	display: flex;
+	align-items: center;
+	gap: 0.75rem;
+	margin: 0.9rem 0 0.35rem;
+}
+
+.screen-dob__label {
+	color: var(--color-text-muted);
+	font-size: 0.8rem;
+	font-weight: 700;
+}
+
+.screen-dob__input {
+	min-height: 42px;
+	padding: 0.5rem 0.65rem;
+	border: 1px solid var(--color-border-input);
+	border-radius: var(--radius-sm);
+	background: var(--color-bg-white);
+	color: var(--color-text);
+}
+
+.screen-dob__input:focus {
+	border-color: var(--color-primary);
+	outline: none;
+	box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.16);
+}
+
+.screen-examples {
+	margin: 0.8rem 0 1.15rem;
+}
+
+.screen-examples__label,
+.screen-strictness__hint {
+	color: var(--color-text-muted);
+}
+
+.screen-chip {
+	min-height: 34px;
+	border-color: var(--color-border);
+	background: var(--color-bg-white);
+	color: var(--color-ink-soft);
+}
+
+.screen-chip:hover:not(:disabled) {
+	border-color: #8ecfc5;
+	background: var(--color-teal-soft);
+}
+
+.screen-strictness__track {
+	border-color: var(--color-border);
+	background: var(--color-bg-light);
+}
+
+.screen-strictness__stop[aria-checked="true"] {
+	color: var(--color-primary);
+	box-shadow: 0 1px 3px rgba(16, 42, 43, 0.14);
+}
+
+.match-card {
+	border-color: var(--color-border);
+	border-radius: var(--radius-md);
+	box-shadow: var(--shadow-sm);
+}
+
+.match-card__score {
+	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	color: var(--color-danger);
+}
+
+.match-card__details summary,
+.screen-footer__link {
+	color: var(--color-primary);
+}
+
+.screen-footer {
+	border-top-color: var(--color-border);
+	color: var(--color-text-muted);
+}
+
+@media (max-width: 480px) {
+	.screen-page {
+		padding-top: 0.25rem;
+	}
+
+	.screen-banner {
+		align-items: stretch;
+		flex-direction: column;
+		gap: 0.75rem;
+	}
+
+	.screen-banner__retry {
+		width: 100%;
+	}
+
+	.screen-dob {
+		align-items: stretch;
+		flex-direction: column;
+		gap: 0.35rem;
+	}
+
+	.screen-dob__input {
+		width: 100%;
+	}
+
+	.screen-strictness {
+		align-items: flex-start;
+		flex-direction: column;
+	}
+
+	.screen-strictness__track {
+		width: 100%;
+	}
+
+	.screen-strictness__stop {
+		flex: 1;
+	}
+}

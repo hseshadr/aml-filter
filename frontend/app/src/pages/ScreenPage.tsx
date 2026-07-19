@@ -17,7 +17,11 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { Footer } from "../components/Footer";
-import { bootErrorMessage, deviceUnsupportedMessage } from "./bootErrorMessage";
+import {
+	bootErrorMessage,
+	deviceUnsupportedMessage,
+	userFacingBootError,
+} from "./bootErrorMessage";
 import { DossierCard, dossierFromMatch } from "./DossierCard";
 import { EntityDirectory } from "./EntityDirectory";
 import {
@@ -416,9 +420,21 @@ function BootBanner({
 		);
 	}
 	if (phase.kind === "error") {
+		const safeError = userFacingBootError(phase.message);
 		return (
-			<div className="screen-banner screen-banner--error" role="alert">
-				<span>{phase.message}</span>
+			<div
+				className="screen-banner screen-banner--error"
+				role="alert"
+				aria-live="assertive"
+			>
+				<div className="screen-banner__copy">
+					<strong>{safeError.title}</strong>
+					<p>{safeError.recovery}</p>
+					<details className="screen-banner__details">
+						<summary>Technical details</summary>
+						<code>{safeError.technicalDetail}</code>
+					</details>
+				</div>
 				<button
 					type="button"
 					className="screen-banner__retry"
