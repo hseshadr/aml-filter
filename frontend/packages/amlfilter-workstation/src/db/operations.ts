@@ -177,6 +177,18 @@ export function createCustomer(
 	return requireCustomer(db, customerId);
 }
 
+/** Insert a validated import batch as one SQLite transaction. */
+export function createCustomers(
+	db: SqlDatabase,
+	payloads: ReadonlyArray<CreateCustomerPayload>,
+): CustomerRow[] {
+	const created: CustomerRow[] = [];
+	db.transaction(() => {
+		for (const payload of payloads) created.push(createCustomer(db, payload));
+	});
+	return created;
+}
+
 export function listCustomers(db: SqlDatabase): CustomerRow[] {
 	return db
 		.selectObjects(

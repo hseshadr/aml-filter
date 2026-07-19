@@ -16,6 +16,7 @@ vi.mock("../lib/api", () => ({
 	apiClient: {
 		listCustomers: vi.fn(),
 		onboardCustomer: vi.fn(),
+		importCustomers: vi.fn(),
 		updateCustomer: vi.fn(),
 		deleteCustomer: vi.fn(),
 	},
@@ -52,6 +53,9 @@ function makeCustomer(
 		customer_id: "cust-1",
 		tenant_id: "tenant-1",
 		customer_reference: "REF-001",
+		name: "Jon Q. Fakename",
+		country: "US",
+		dob: null,
 		onboarding_status: "PENDING_REVIEW",
 		kyc_risk_rating: "LOW",
 		id_documents: [],
@@ -135,6 +139,42 @@ describe("CustomersPage", () => {
 					name: "Jon Q. Fakename",
 				}),
 			),
+		);
+	});
+
+	it("previews a customer CSV and commits accepted rows atomically", async () => {
+		mockClient.importCustomers.mockResolvedValue({
+			customers: [makeCustomer({ customer_reference: "CSV-1" })],
+			screening: { customersScanned: 1, newHits: 0, clearedHits: 0 },
+		});
+		render(<CustomersPage />);
+		await waitFor(() => expect(mockClient.listCustomers).toHaveBeenCalled());
+
+		const file = new File(
+			["customer_reference,name,country\nCSV-1,Imported Person,US"],
+			"customers.csv",
+			{ type: "text/csv" },
+		);
+		fireEvent.change(screen.getByLabelText("Customer spreadsheet"), {
+			target: { files: [file] },
+		});
+
+		expect(
+			await screen.findByText(/review customer import/i),
+		).toBeInTheDocument();
+		fireEvent.click(screen.getByRole("button", { name: /import 1 customer/i }));
+
+		await waitFor(() =>
+			expect(mockClient.importCustomers).toHaveBeenCalledWith([
+				{
+					customer_reference: "CSV-1",
+					name: "Imported Person",
+					onboarded_by: "local",
+					country: "US",
+					dob: undefined,
+					id_documents: [],
+				},
+			]),
 		);
 	});
 

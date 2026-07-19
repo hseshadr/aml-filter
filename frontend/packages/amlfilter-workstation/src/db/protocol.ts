@@ -20,6 +20,11 @@ export type DbRequest =
 			readonly id: number;
 			readonly payload: CreateCustomerPayload;
 	  }
+	| {
+			readonly kind: "createCustomers";
+			readonly id: number;
+			readonly payloads: ReadonlyArray<CreateCustomerPayload>;
+	  }
 	| { readonly kind: "listCustomers"; readonly id: number }
 	| {
 			readonly kind: "getCustomer";
@@ -92,6 +97,7 @@ export interface DbErr {
 export type DbResponse =
 	| DbOk<"open", number>
 	| DbOk<"createCustomer", CustomerRow>
+	| DbOk<"createCustomers", ReadonlyArray<CustomerRow>>
 	| DbOk<"listCustomers", ReadonlyArray<CustomerRow>>
 	| DbOk<"getCustomer", CustomerRow | null>
 	| DbOk<"updateCustomer", CustomerRow>

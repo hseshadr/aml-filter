@@ -98,6 +98,15 @@ SQLite-WASM database persisted in your browser's OPFS — local to the tab, no s
 Everything — onboarding, screening, and the review decision — happens in the browser
 against the in-tab database and the signed lists.
 
+### Move customer tables between devices
+
+On `/customers`, use **Import CSV/XLS/XLSX** to preview a customer spreadsheet before
+committing it. Parsing stays local, accepts at most 10 MB / 5,000 rows, validates the
+identity fields, skips duplicate references, and commits accepted rows in one SQLite
+transaction before a serial re-screen. **Export XLSX** saves the customer table locally.
+This spreadsheet is not a full backup: matches, audit events, settings, and the signed
+watchlist cache remain in the browser and are not included.
+
 ## 5. Build a demo bundle
 
 The repo already ships a committed **demo** bundle (the signed, content-addressed

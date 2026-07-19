@@ -85,7 +85,9 @@ browser tab — no server, no signup, no database to run.** Open the app and it:
    and verifies every one *in the tab* (Ed25519, fail-closed — any bad signature or hash
    aborts the load). You choose which lists are active in **Settings**.
 2. **Holds your customers locally** — your *whitelist* lives in SQLite-WASM on OPFS,
-   inside your own browser. Customer data never leaves your machine.
+   inside your own browser. Customer data never leaves your machine. The Customers
+   workspace can import CSV/XLS/XLSX files through a preview-first, duplicate-safe
+   flow and export a tabular XLSX snapshot locally.
 3. **Screens every customer across all enabled lists entirely in the browser**, scoring
    each candidate and handing back a number *plus a plain-English reason* — "strong
    name-vector similarity, country match" — tagged with which list it came from. No
@@ -138,6 +140,13 @@ Open the printed URL, then:
   Changed only), with a per-match History drawer. Resolve each one with a reviewer note.
 - **`/settings`** — choose which lists are active, set sensitivity and per-list
   thresholds, name the analyst, and clear the durable list cache.
+
+On `/customers`, **Import CSV/XLS/XLSX** opens a local preview. Files are parsed in a
+short-lived worker, capped at 10 MB and 5,000 rows, validated for required identity
+fields, and checked for duplicate references before accepted rows are committed in one
+SQLite transaction and re-screened. **Export XLSX** downloads the customer table
+locally with spreadsheet-formula-looking text escaped. This is a tabular customer
+transfer, not a full backup of matches, audit events, settings, or the watchlist cache.
 
 On first run the demo catalog (four small fictional lists) is already built and
 committed, so everything works on a cold clone with no extra steps.

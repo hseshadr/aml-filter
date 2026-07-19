@@ -166,6 +166,10 @@ export interface ReviewFilters {
 export interface WorkstationStore {
 	open(): Promise<number>;
 	createCustomer(payload: CreateCustomerPayload): Promise<CustomerRow>;
+	/** Optional atomic bulk insert used by the customer spreadsheet importer. */
+	createCustomers?(
+		payloads: ReadonlyArray<CreateCustomerPayload>,
+	): Promise<ReadonlyArray<CustomerRow>>;
 	listCustomers(): Promise<ReadonlyArray<CustomerRow>>;
 	getCustomer(customerId: string): Promise<CustomerRow | null>;
 	updateCustomer(

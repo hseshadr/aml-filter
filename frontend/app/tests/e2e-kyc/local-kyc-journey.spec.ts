@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, type Route, test } from "@playwright/test";
+import * as XLSX from "xlsx";
 
 /**
  * The local-first KYC workstation slice journey, end-to-end with no backend:
@@ -577,4 +578,64 @@ test("local-first journey: no login → onboard → tiered match → resolve →
 		consoleErrors,
 		`browser console errors:\n${consoleErrors.join("\n")}`,
 	).toEqual([]);
+});
+
+test("customer spreadsheet transfer previews, imports, persists, and exports locally", async ({
+	page,
+}) => {
+	test.setTimeout(180_000);
+	const consoleErrors: string[] = [];
+	page.on("pageerror", (error) =>
+		consoleErrors.push(`pageerror: ${error.message}`),
+	);
+	page.on("console", (message) => {
+		if (message.type() === "error")
+			consoleErrors.push(`console.error: ${message.text()}`);
+	});
+
+	await page.goto("/customers");
+	await expect(
+		page.getByRole("heading", { name: /welcome to the workstation/i }),
+	).toBeVisible();
+	await page.locator("#analyst-name").fill("Spreadsheet Analyst");
+	await page.getByRole("button", { name: /start reviewing/i }).click();
+	await expect(
+		page.getByRole("heading", { name: "KYC Customer Onboarding" }),
+	).toBeVisible();
+
+	await page.getByLabel("Customer spreadsheet").setInputFiles({
+		name: "customers.csv",
+		mimeType: "text/csv",
+		buffer: Buffer.from(
+			"customer_reference,name,country,dob\nSHEET-001,Imported Person,US,1980-01-02\n",
+		),
+	});
+	await expect(
+		page.getByRole("heading", { name: "Review customer import" }),
+	).toBeVisible();
+	await expect(page.getByText(/1 ready · 0 duplicate/)).toBeVisible();
+	await page.getByRole("button", { name: "Import 1 customer" }).click();
+	await expect(
+		page.getByRole("status").filter({ hasText: /Imported 1 customer/ }),
+	).toContainText(/Imported 1 customer/, {
+		timeout: 120_000,
+	});
+	await expect(
+		page.getByRole("cell", { name: "SHEET-001", exact: true }),
+	).toBeVisible();
+
+	const downloadPromise = page.waitForEvent("download");
+	await page.getByRole("button", { name: "Export XLSX" }).click();
+	const download = await downloadPromise;
+	expect(download.suggestedFilename()).toMatch(
+		/^aml-filter-customers-\d{4}-\d{2}-\d{2}\.xlsx$/,
+	);
+	const downloadPath = await download.path();
+	if (downloadPath === null) throw new Error("download path unavailable");
+	const workbook = XLSX.read(readFileSync(downloadPath), { type: "buffer" });
+	const rows = XLSX.utils.sheet_to_json<{ customer_reference: string }>(
+		workbook.Sheets[workbook.SheetNames[0] as string],
+	);
+	expect(rows[0]?.customer_reference).toBe("SHEET-001");
+	expect(consoleErrors).toEqual([]);
 });

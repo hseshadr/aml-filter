@@ -428,8 +428,9 @@ Each is a repetition of the proven pattern once the slice lands:
   the one signed OFAC bundle.
 - **Delta-rescan** — needs bundle-version change detection + re-screen orchestration;
   meaningless before matches persist locally (which the slice establishes).
-- **Export/import durability** — OPFS-eviction insurance; explicitly accepted as a
-  post-slice fast-follow (see Risks).
+- **Full backup/restore durability** — a versioned JSON snapshot of customers, matches,
+  audit events, settings, and schema remains a future slice. The shipped customer
+  spreadsheet transfer is deliberately tabular and does not claim full OPFS recovery.
 - **`/usage`** — server-metering concept; needs rethinking (or deletion) local-first.
 - **`/whitelist`** — server-tier concept layered on the entities table; not needed for
   the slice journey.

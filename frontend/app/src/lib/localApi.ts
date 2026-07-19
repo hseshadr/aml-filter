@@ -7,6 +7,7 @@
  */
 
 import type {
+	CreateCustomerPayload,
 	CustomerRow,
 	LocalMatchTracker,
 	LocalOnboardingService,
@@ -23,6 +24,7 @@ import {
 } from "@amlfilter/workstation";
 import type {
 	ApiClient,
+	CustomerImportResponse,
 	CustomerListParams,
 	CustomerOnboardRequest,
 	CustomerOnboardResponse,
@@ -52,6 +54,9 @@ function toCustomerResponse(row: CustomerRow): CustomerResponse {
 		customer_id: row.customer_id,
 		tenant_id: LOCAL_TENANT,
 		customer_reference: row.customer_reference,
+		name: row.name,
+		country: row.country,
+		dob: row.dob,
 		onboarding_status: row.onboarding_status,
 		kyc_risk_rating: row.kyc_risk_rating,
 		id_documents: [...row.id_documents],
@@ -136,6 +141,24 @@ export class LocalApiClient implements Pick<ApiClient, keyof ApiClient> {
 	): Promise<CustomerResponse[]> {
 		const { store } = await this.#services();
 		return (await store.listCustomers()).map(toCustomerResponse);
+	}
+
+	public async importCustomers(
+		payloads: ReadonlyArray<CreateCustomerPayload>,
+	): Promise<CustomerImportResponse> {
+		const { store, rescan } = await this.#services();
+		if (store.createCustomers === undefined) {
+			throw new Error("Atomic customer import is unavailable");
+		}
+		const rows = await store.createCustomers(payloads);
+		let screening: RescanSummary | null = null;
+		try {
+			screening = await rescan.rescanAll();
+		} catch {
+			// The customer transaction is still durable; the UI reports that
+			// screening remains pending rather than pretending a rollback occurred.
+		}
+		return { customers: rows.map(toCustomerResponse), screening };
 	}
 
 	public async getCustomer(customerId: string): Promise<CustomerResponse> {

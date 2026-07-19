@@ -20,6 +20,7 @@ vi.mock("../lib/api", () => ({
 	apiClient: {
 		listCustomers: vi.fn(),
 		onboardCustomer: vi.fn(),
+		importCustomers: vi.fn(),
 		updateCustomer: vi.fn(),
 		deleteCustomer: vi.fn(),
 	},
@@ -55,6 +56,9 @@ function makeCustomer(
 		customer_id: "cust-1",
 		tenant_id: "tenant-1",
 		customer_reference: "REF-001",
+		name: "Jon Q. Fakename",
+		country: "US",
+		dob: null,
 		onboarding_status: "PENDING_REVIEW",
 		kyc_risk_rating: "LOW",
 		id_documents: [],

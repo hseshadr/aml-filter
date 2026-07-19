@@ -1,7 +1,7 @@
 /** KYC customer onboarding page (the /v1/customers tier). */
 
 import type { TFunction } from "i18next";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import {
 	apiClient,
@@ -11,6 +11,14 @@ import {
 	type KycRiskRating,
 	type OnboardingStatus,
 } from "../lib/api";
+import {
+	buildCustomerImportPreview,
+	type CustomerImportDuplicate,
+	type CustomerImportError,
+	type CustomerImportRow,
+	createCustomerExportFile,
+	readCustomerImportFile,
+} from "../lib/customerTransfer";
 import { checkForWatchlistUpdates, syncSummaryText } from "../lib/sync";
 import { workstation } from "../lib/workstation";
 
@@ -43,6 +51,13 @@ interface EditState {
 	customerId: string;
 	name: string;
 	country: string;
+}
+
+interface ImportPreviewState {
+	fileName: string;
+	accepted: ReadonlyArray<CustomerImportRow>;
+	duplicates: ReadonlyArray<CustomerImportDuplicate>;
+	errors: ReadonlyArray<CustomerImportError>;
 }
 
 const EMPTY_FORM: NewCustomerForm = {
@@ -99,6 +114,12 @@ export default function CustomersPage() {
 		at: string;
 	} | null>(null);
 	const [editing, setEditing] = useState<EditState | null>(null);
+	const [importPreview, setImportPreview] = useState<ImportPreviewState | null>(
+		null,
+	);
+	const [importing, setImporting] = useState(false);
+	const [transferMessage, setTransferMessage] = useState<string | null>(null);
+	const importInputRef = useRef<HTMLInputElement>(null);
 
 	const loadCustomers = useCallback(async () => {
 		try {
@@ -222,6 +243,86 @@ export default function CustomersPage() {
 		}
 	};
 
+	const handleExport = async () => {
+		try {
+			setError(null);
+			setTransferMessage(null);
+			const file = await createCustomerExportFile(customers);
+			const url = URL.createObjectURL(file);
+			const anchor = document.createElement("a");
+			anchor.href = url;
+			anchor.download = `aml-filter-customers-${new Date().toISOString().slice(0, 10)}.xlsx`;
+			document.body.appendChild(anchor);
+			anchor.click();
+			anchor.remove();
+			window.setTimeout(() => URL.revokeObjectURL(url), 0);
+			setTransferMessage(t("transfer.exported", { total: customers.length }));
+		} catch (err) {
+			setError(errorMessage(err, t("errors.export")));
+		}
+	};
+
+	const handleImportFile = async (
+		event: React.ChangeEvent<HTMLInputElement>,
+	) => {
+		const file = event.target.files?.[0];
+		event.target.value = "";
+		if (!file) return;
+		try {
+			setError(null);
+			setTransferMessage(null);
+			const parsed = await readCustomerImportFile(file);
+			const preview = buildCustomerImportPreview(
+				parsed.rows,
+				customers.map((customer) => customer.customer_reference),
+			);
+			setImportPreview({
+				fileName: file.name,
+				accepted: preview.accepted,
+				duplicates: preview.duplicates,
+				errors: parsed.errors,
+			});
+		} catch (err) {
+			setImportPreview(null);
+			setError(errorMessage(err, t("errors.import")));
+		}
+	};
+
+	const handleImportConfirm = async () => {
+		if (!importPreview || importPreview.accepted.length === 0) return;
+		setImporting(true);
+		setError(null);
+		try {
+			const result = await apiClient.importCustomers(
+				importPreview.accepted.map((row) => ({
+					customer_reference: row.customer_reference,
+					name: row.name,
+					onboarded_by: row.onboarded_by,
+					country: row.country || undefined,
+					dob: row.dob || undefined,
+					id_documents: [...row.id_documents],
+				})),
+			);
+			await loadCustomers();
+			setImportPreview(null);
+			setTransferMessage(
+				t("transfer.imported", {
+					imported: result.customers.length,
+					duplicates: importPreview.duplicates.length,
+					screening: result.screening
+						? t("transfer.screened", {
+								customers: result.screening.customersScanned,
+							})
+						: t("transfer.screeningPending"),
+				}),
+			);
+		} catch (err) {
+			setError(errorMessage(err, t("errors.import")));
+		} finally {
+			setImporting(false);
+		}
+	};
+
 	const addIdDocRow = () =>
 		setIdDocs((rows) => [
 			...rows,
@@ -242,16 +343,41 @@ export default function CustomersPage() {
 
 	return (
 		<div>
-			<div className="flex-between">
+			<div className="flex-between customers-header">
 				<h1>{t("header.title")}</h1>
-				<button
-					type="button"
-					onClick={handleCheckForUpdates}
-					disabled={syncing}
-					className="btn btn-secondary btn-sm"
-				>
-					{syncing ? t("header.checking") : t("header.checkUpdates")}
-				</button>
+				<div className="flex-gap-sm customers-header-actions">
+					<input
+						ref={importInputRef}
+						type="file"
+						accept=".csv,.xls,.xlsx"
+						onChange={handleImportFile}
+						className="visually-hidden"
+						aria-label={t("transfer.fileLabel")}
+					/>
+					<button
+						type="button"
+						onClick={() => importInputRef.current?.click()}
+						className="btn btn-secondary btn-sm"
+					>
+						{t("transfer.import")}
+					</button>
+					<button
+						type="button"
+						onClick={handleExport}
+						disabled={loading || importing}
+						className="btn btn-secondary btn-sm"
+					>
+						{t("transfer.export")}
+					</button>
+					<button
+						type="button"
+						onClick={handleCheckForUpdates}
+						disabled={syncing || importing}
+						className="btn btn-secondary btn-sm"
+					>
+						{syncing ? t("header.checking") : t("header.checkUpdates")}
+					</button>
+				</div>
 			</div>
 
 			{syncMessage && (
@@ -270,6 +396,61 @@ export default function CustomersPage() {
 
 			{error && (
 				<div className="alert alert-error">{t("alerts.error", { error })}</div>
+			)}
+			{transferMessage && (
+				<div className="alert alert-success" role="status">
+					{transferMessage}
+				</div>
+			)}
+
+			{importPreview && (
+				<section
+					className="card card-muted transfer-preview"
+					aria-live="polite"
+				>
+					<div className="flex-between">
+						<div>
+							<h2>{t("transfer.previewTitle")}</h2>
+							<p className="text-muted text-sm">{importPreview.fileName}</p>
+						</div>
+						<button
+							type="button"
+							onClick={() => setImportPreview(null)}
+							className="btn btn-secondary btn-sm"
+							disabled={importing}
+						>
+							{t("transfer.cancel")}
+						</button>
+					</div>
+					<p>
+						{t("transfer.summary", {
+							accepted: importPreview.accepted.length,
+							duplicates: importPreview.duplicates.length,
+							errors: importPreview.errors.length,
+						})}
+					</p>
+					{importPreview.errors.length > 0 && (
+						<ul className="transfer-issues text-sm">
+							{importPreview.errors.slice(0, 20).map((issue) => (
+								<li key={`${issue.rowNumber}-${issue.field}`}>
+									{t("transfer.issue", { ...issue })}
+								</li>
+							))}
+						</ul>
+					)}
+					<button
+						type="button"
+						onClick={handleImportConfirm}
+						disabled={importing || importPreview.accepted.length === 0}
+						className="btn btn-primary"
+					>
+						{importing
+							? t("transfer.importing")
+							: t("transfer.confirm", {
+									count: importPreview.accepted.length,
+								})}
+					</button>
+				</section>
 			)}
 
 			{lastResult && (
@@ -582,8 +763,8 @@ export default function CustomersPage() {
 													onClick={() =>
 														setEditing({
 															customerId: customer.customer_id,
-															name: "",
-															country: "",
+															name: customer.name,
+															country: customer.country ?? "",
 														})
 													}
 													className="btn btn-secondary btn-sm"

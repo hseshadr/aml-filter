@@ -30,6 +30,8 @@ pnpm --filter aml-filter-app dev
 
 The app is served at `http://localhost:5173` (Vite prints the exact URL). Open `/screen` for
 the in-tab OFAC screening demo, then `/customers` and `/review` for the KYC workstation.
+The Customers page supports preview-first local CSV/XLS/XLSX import and XLSX customer
+table export; the spreadsheet is not a full match/audit backup.
 
 ## Build
 

@@ -13,7 +13,11 @@
  * been pruned.
  */
 
-import type { RescanSummary, ScreeningConfig } from "@amlfilter/workstation";
+import type {
+	CreateCustomerPayload,
+	RescanSummary,
+	ScreeningConfig,
+} from "@amlfilter/workstation";
 import { LocalApiClient } from "./localApi";
 import { workstationProvider } from "./workstation";
 
@@ -38,6 +42,9 @@ export interface ApiClient {
 		payload: CustomerOnboardRequest,
 	): Promise<CustomerOnboardResponse>;
 	listCustomers(params?: CustomerListParams): Promise<CustomerResponse[]>;
+	importCustomers(
+		payloads: ReadonlyArray<CreateCustomerPayload>,
+	): Promise<CustomerImportResponse>;
 	getCustomer(customerId: string): Promise<CustomerResponse>;
 	updateCustomer(
 		customerId: string,
@@ -103,6 +110,9 @@ export interface CustomerResponse {
 	customer_id: string;
 	tenant_id: string;
 	customer_reference: string;
+	name: string;
+	country: string | null;
+	dob: string | null;
 	onboarding_status: string;
 	kyc_risk_rating: string | null;
 	id_documents: IdDocument[];
@@ -110,6 +120,11 @@ export interface CustomerResponse {
 	screening_entity_id: string | null;
 	created_at: string;
 	updated_at: string;
+}
+
+export interface CustomerImportResponse {
+	customers: CustomerResponse[];
+	screening: RescanSummary | null;
 }
 
 /** Onboarding response: the customer plus any sanctions matches found. */

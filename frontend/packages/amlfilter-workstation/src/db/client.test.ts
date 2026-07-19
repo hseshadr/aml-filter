@@ -132,6 +132,24 @@ describe("DbClient", () => {
 		await expect(promise).resolves.toEqual([]);
 	});
 
+	it("sends atomic createCustomers as one typed worker request", async () => {
+		const worker = new FakeWorker();
+		const client = new DbClient(worker);
+		const promise = client.createCustomers([
+			{ customer_reference: "R-1", name: "Ann" },
+		]);
+		const request = worker.requests[0];
+		if (request === undefined) throw new Error("request missing");
+		expect(request.kind).toBe("createCustomers");
+		worker.reply({
+			ok: true,
+			id: request.id,
+			kind: "createCustomers",
+			result: [makeCustomerRow()],
+		});
+		await expect(promise).resolves.toHaveLength(1);
+	});
+
 	it("rejects on an unexpected response kind", async () => {
 		const worker = new FakeWorker();
 		const client = new DbClient(worker);

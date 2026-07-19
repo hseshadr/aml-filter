@@ -6,6 +6,7 @@ import { encodeWorkerError } from "../errors";
 import { acquirePool } from "./acquire";
 import {
 	createCustomer,
+	createCustomers,
 	deleteCustomer,
 	getCustomer,
 	getMatchEvents,
@@ -80,6 +81,13 @@ async function execute(request: DbRequest): Promise<DbResponse> {
 				id: request.id,
 				kind: "createCustomer",
 				result: createCustomer(requireDb(), request.payload),
+			};
+		case "createCustomers":
+			return {
+				ok: true,
+				id: request.id,
+				kind: "createCustomers",
+				result: createCustomers(requireDb(), request.payloads),
 			};
 		case "listCustomers":
 			return {

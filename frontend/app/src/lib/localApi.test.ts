@@ -72,6 +72,7 @@ function makeServices(): WorkstationServices {
 	const store = {
 		open: vi.fn(),
 		createCustomer: vi.fn(),
+		createCustomers: vi.fn().mockResolvedValue([makeCustomerRow()]),
 		listCustomers: vi.fn().mockResolvedValue([makeCustomerRow()]),
 		getCustomer: vi.fn().mockResolvedValue(makeCustomerRow()),
 		updateCustomer: vi.fn().mockResolvedValue(makeCustomerRow()),
@@ -290,6 +291,24 @@ describe("LocalApiClient slice methods", () => {
 });
 
 describe("LocalApiClient CRUD pass-throughs", () => {
+	it("imports a validated batch through the atomic store and re-screens it", async () => {
+		const services = makeServices();
+		const client = new LocalApiClient(() => Promise.resolve(services));
+		const result = await client.importCustomers([
+			{ customer_reference: "R-1", name: "Ann" },
+		]);
+
+		expect(services.store.createCustomers).toHaveBeenCalledWith([
+			{ customer_reference: "R-1", name: "Ann" },
+		]);
+		expect(services.rescan.rescanAll).toHaveBeenCalledTimes(1);
+		expect(result.customers[0]).toMatchObject({
+			customer_reference: "R-1",
+			name: "Ann",
+		});
+		expect(result.screening?.customersScanned).toBe(3);
+	});
+
 	it("listCustomers maps store rows to the CustomerResponse wire shape", async () => {
 		const services = makeServices();
 		const client = new LocalApiClient(() => Promise.resolve(services));

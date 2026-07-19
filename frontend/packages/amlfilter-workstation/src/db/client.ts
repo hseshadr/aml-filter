@@ -65,6 +65,16 @@ export class DbClient implements WorkstationStore {
 		return this.#call({ kind: "createCustomer", id: this.#allocId(), payload });
 	}
 
+	public createCustomers(
+		payloads: ReadonlyArray<CreateCustomerPayload>,
+	): Promise<ReadonlyArray<CustomerRow>> {
+		return this.#call({
+			kind: "createCustomers",
+			id: this.#allocId(),
+			payloads,
+		});
+	}
+
 	public listCustomers(): Promise<ReadonlyArray<CustomerRow>> {
 		return this.#call({ kind: "listCustomers", id: this.#allocId() });
 	}

@@ -7,6 +7,7 @@ import {
 import type { TieredMatch } from "../types";
 import {
 	createCustomer,
+	createCustomers,
 	deleteCustomer,
 	getCustomer,
 	getMatchEvents,
@@ -90,6 +91,19 @@ describe("createCustomer", () => {
 			id_documents: docs,
 		});
 		expect(row.id_documents).toEqual(docs);
+	});
+
+	it("creates a batch atomically when a later reference is duplicated", () => {
+		createCustomer(db, { customer_reference: "EXISTING", name: "Existing" });
+		expect(() =>
+			createCustomers(db, [
+				{ customer_reference: "BATCH-1", name: "One" },
+				{ customer_reference: "EXISTING", name: "Collision" },
+			]),
+		).toThrow(DuplicateReferenceError);
+		expect(listCustomers(db).map((row) => row.customer_reference)).toEqual([
+			"EXISTING",
+		]);
 	});
 });
 

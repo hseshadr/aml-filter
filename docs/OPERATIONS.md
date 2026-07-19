@@ -18,10 +18,11 @@ operation is unbounded, or the deployed site cannot prove its exact Git commit.
 | Settings | Same local SQLite database | Until changed or browser-site-data deletion; deleting one customer does not erase global settings | No application API or telemetry |
 
 There is no generative-AI prompt path, account service, server database, analytics SDK,
-export, cloud backup, or restore service. That is a product constraint, not an omitted
-roadmap promise. Clearing browser site data is the only all-data reset and has no remote
-recovery. The operator must not describe this local demo as backed up or centrally
-recoverable.
+cloud backup, or full restore service. The Customers workspace does provide a local,
+preview-first CSV/XLS/XLSX customer-table transfer, but it intentionally excludes
+matches, audit events, settings, and the signed watchlist cache; it is not a complete
+backup. Clearing browser site data is still the only all-data reset and has no remote
+recovery. The operator must not describe this local demo as centrally recoverable.
 
 The persistent SQLite connection fails closed unless `secure_delete=ON` and rollback
 journal `DELETE` mode are active; startup also truncates a legacy WAL before disabling
@@ -105,9 +106,11 @@ for real-domain measurement.
 - **Store-lock timeout:** close a stale AML-Filter tab and Retry. A timed-out request does
   not enter its critical section or mutate the active pointer.
 - **Database contention:** eight bounded acquisition attempts with 50–800 ms backoff.
-- **Browser storage loss:** there is no cloud backup. Recovery point is the last committed
-  local SQLite transaction while OPFS survives; if the origin's site data is cleared,
-  customer data is unrecoverable by design.
+- **Browser storage loss:** a customer-table XLSX export can recover the exported
+  profiles, but it cannot restore matches, audit events, settings, or watchlist cache.
+  Recovery point for the complete workstation remains the last committed local SQLite
+  transaction while OPFS survives; if site data is cleared, the omitted state is
+  unrecoverable by design.
 
 ## Supported browser baseline
 

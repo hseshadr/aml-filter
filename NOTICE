@@ -33,9 +33,16 @@ edge-proc's browser bundle-sync engine — the signed, content-addressed
 sync state machine, OPFS store, fail-closed ed25519/sha256 crypto, and the
 canonical manifest/wire format.
 
-    edge-proc
+edge-proc
     Source:  https://github.com/hseshadr/edge-proc
     License: MIT, Copyright (c) Harish Seshadri
+
+The customer spreadsheet import/export workflow uses SheetJS Community Edition
+for local XLS/XLSX parsing and generation.
+
+    SheetJS Community Edition
+    Source:  https://sheetjs.com
+    License: Apache-2.0
 
 ================================================================================
 Disclaimer

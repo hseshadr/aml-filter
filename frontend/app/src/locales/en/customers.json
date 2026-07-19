@@ -4,6 +4,21 @@
 		"checkUpdates": "Check for updates",
 		"checking": "Checking…"
 	},
+	"transfer": {
+		"import": "Import CSV/XLS/XLSX",
+		"export": "Export XLSX",
+		"fileLabel": "Customer spreadsheet",
+		"previewTitle": "Review customer import",
+		"cancel": "Cancel import",
+		"summary": "{{accepted}} ready · {{duplicates}} duplicate(s) skipped · {{errors}} invalid row error(s)",
+		"issue": "Row {{rowNumber}} · {{field}}: {{message}}",
+		"confirm": "Import {{count}} customer(s)",
+		"importing": "Importing…",
+		"imported": "Imported {{imported}} customer(s); {{duplicates}} duplicate(s) skipped; {{screening}}.",
+		"screened": "screened {{customers}} customer(s)",
+		"screeningPending": "screening is pending",
+		"exported": "Exported {{total}} customer(s) locally."
+	},
 	"sync": {
 		"enginePending": "Screening engine is still starting — try again shortly.",
 		"lastSynced": "Last synced: {{version}} · {{time}}"
@@ -77,6 +92,8 @@
 		"updateRisk": "Failed to update risk rating",
 		"delete": "Failed to delete customer",
 		"checkUpdates": "Failed to check for updates",
-		"save": "Failed to save customer"
+		"save": "Failed to save customer",
+		"import": "Failed to read customer spreadsheet",
+		"export": "Failed to export customers"
 	}
 }
