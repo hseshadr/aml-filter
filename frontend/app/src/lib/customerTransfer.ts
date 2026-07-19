@@ -70,7 +70,7 @@ const HEADER_ALIASES: Record<
 	dob: "dob",
 	dateofbirth: "dob",
 	birthdate: "dob",
-	idocuments: "id_documents",
+	iddocuments: "id_documents",
 	documents: "id_documents",
 };
 

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CustomerResponse } from "./api";
 import {
 	buildCustomerImportPreview,
@@ -9,6 +9,29 @@ import {
 	readCustomerImportBuffer,
 	readCustomerImportFile,
 } from "./customerTransfer";
+
+class FakeTransferWorker {
+	static last: FakeTransferWorker | null = null;
+	readonly listeners = new Map<string, (event: MessageEvent) => void>();
+	readonly terminate = vi.fn();
+
+	constructor() {
+		FakeTransferWorker.last = this;
+	}
+
+	addEventListener(
+		type: string,
+		listener: (event: MessageEvent) => void,
+	): void {
+		this.listeners.set(type, listener);
+	}
+
+	postMessage(): void {}
+
+	emit(type: string, data?: unknown): void {
+		this.listeners.get(type)?.({ data } as MessageEvent);
+	}
+}
 
 function customer(overrides: Partial<CustomerResponse> = {}): CustomerResponse {
 	return {
@@ -30,6 +53,10 @@ function customer(overrides: Partial<CustomerResponse> = {}): CustomerResponse {
 }
 
 describe("customer transfer", () => {
+	afterEach(() => {
+		vi.unstubAllGlobals();
+		FakeTransferWorker.last = null;
+	});
 	it("normalizes headers and validates required fields deterministically", () => {
 		const result = parseCustomerImportRows([
 			{
@@ -77,6 +104,143 @@ describe("customer transfer", () => {
 				message: "Date must be YYYY-MM-DD or MM/DD/YYYY",
 			},
 		]);
+	});
+
+	it("validates document JSON, dates, country codes, and field bounds", () => {
+		const result = parseCustomerImportRows([
+			{
+				customer_reference: "DOC-1",
+				name: "Documented",
+				dob: new Date("1980-01-02T00:00:00Z"),
+				id_documents: JSON.stringify([
+					{
+						doc_type: "PASSPORT",
+						number: "P-1",
+						issuing_country: "us",
+						expiry: "12/31/2030",
+					},
+				]),
+			},
+			{
+				customer_reference: "BAD-DOC",
+				name: "Bad Document",
+				country: "USA",
+				dob: "1980-02-31",
+				id_documents: "{bad",
+			},
+		]);
+
+		expect(result.rows[0]).toMatchObject({
+			customer_reference: "DOC-1",
+			dob: "1980-01-02",
+			id_documents: [
+				{
+					issuing_country: "US",
+					expiry: "2030-12-31",
+				},
+			],
+		});
+		expect(result.errors).toEqual(
+			expect.arrayContaining([
+				{
+					rowNumber: 3,
+					field: "country",
+					message: "Country must be an ISO2 code",
+				},
+				{
+					rowNumber: 3,
+					field: "dob",
+					message: "Date must be YYYY-MM-DD or MM/DD/YYYY",
+				},
+				{
+					rowNumber: 3,
+					field: "id_documents",
+					message: "Documents must be a JSON array",
+				},
+			]),
+		);
+	});
+
+	it("defaults optional values and rejects unknown required headers", () => {
+		const result = parseCustomerImportRows([
+			{ "Customer Reference": "ALIAS-1", "Full Name": "Alias Person" },
+			{ "Not A Customer Field": "value" },
+			{},
+		]);
+
+		expect(result.rows[0]).toMatchObject({
+			customer_reference: "ALIAS-1",
+			onboarded_by: "local",
+			country: "",
+			dob: "",
+		});
+		expect(result.errors).toEqual([
+			{
+				rowNumber: 3,
+				field: "customer_reference",
+				message: "Reference is required",
+			},
+			{ rowNumber: 3, field: "name", message: "Name is required" },
+		]);
+	});
+
+	it("fails closed for malformed documents and bounded fields", () => {
+		const result = parseCustomerImportRows([
+			{
+				customer_reference: "R".repeat(121),
+				name: "N".repeat(241),
+				id_documents: JSON.stringify([
+					{
+						doc_type: "",
+						number: "",
+						issuing_country: "USA",
+						expiry: "not-a-date",
+					},
+				]),
+			},
+			{
+				customer_reference: "TOO-MANY-DOCS",
+				name: "Many Documents",
+				id_documents: JSON.stringify(
+					Array.from({ length: 21 }, () => ({
+						doc_type: "PASSPORT",
+						number: "P-1",
+					})),
+				),
+			},
+			{
+				customer_reference: "OBJECT-DOC",
+				name: "Object Document",
+				id_documents: JSON.stringify({ doc_type: "PASSPORT" }),
+			},
+		]);
+
+		expect(result.rows).toEqual([]);
+		expect(result.errors).toEqual(
+			expect.arrayContaining([
+				{
+					rowNumber: 2,
+					field: "customer_reference",
+					message: "Reference is too long",
+				},
+				{ rowNumber: 2, field: "name", message: "Name is too long" },
+				{
+					rowNumber: 2,
+					field: "id_documents",
+					message: "Documents must be a JSON array",
+				},
+				{
+					rowNumber: 3,
+					field: "id_documents",
+					message: "Documents must be a JSON array",
+				},
+				{
+					rowNumber: 4,
+					field: "id_documents",
+					message: "Documents must be a JSON array",
+				},
+			]),
+		);
 	});
 
 	it("skips duplicate references within the file and existing customers", () => {
@@ -130,18 +294,24 @@ describe("customer transfer", () => {
 	it("exports a stable, re-importable row shape and escapes formula cells", () => {
 		expect(
 			customersToSpreadsheetRows([
-				customer({ name: '=HYPERLINK("https://evil")' }),
+				customer({
+					customer_reference: "+REF-001",
+					name: '=HYPERLINK("https://evil")',
+					onboarded_by: "-owner",
+					country: null,
+					kyc_risk_rating: null,
+				}),
 			]),
 		).toEqual([
 			{
-				customer_reference: "REF-001",
+				customer_reference: "'+REF-001",
 				name: '\'=HYPERLINK("https://evil")',
-				onboarded_by: "alice",
-				country: "GB",
+				onboarded_by: "'-owner",
+				country: "",
 				dob: "1815-12-10",
 				id_documents: "[]",
 				onboarding_status: "ACTIVE",
-				kyc_risk_rating: "LOW",
+				kyc_risk_rating: "",
 				created_at: "2026-07-19T10:00:00Z",
 				updated_at: "2026-07-19T10:00:00Z",
 			},
@@ -178,6 +348,23 @@ describe("customer transfer", () => {
 		).rejects.toThrow(/Macro-enabled/);
 	});
 
+	it("rejects multi-sheet workbooks and binary CSV files", async () => {
+		const xlsx = await import("xlsx");
+		const workbook = xlsx.utils.book_new();
+		xlsx.utils.book_append_sheet(workbook, xlsx.utils.json_to_sheet([]), "One");
+		xlsx.utils.book_append_sheet(workbook, xlsx.utils.json_to_sheet([]), "Two");
+		const bytes = xlsx.write(workbook, { bookType: "xlsx", type: "array" });
+		await expect(
+			readCustomerImportBuffer(bytes, "customers.xlsx"),
+		).rejects.toThrow(/one worksheet/);
+		await expect(
+			readCustomerImportBuffer(
+				new TextEncoder().encode("a\0b").buffer,
+				"customers.csv",
+			),
+		).rejects.toThrow(/binary data/);
+	});
+
 	it("fails closed before parsing an oversized input", async () => {
 		const bytes = new Uint8Array(10 * 1024 * 1024 + 1);
 		await expect(
@@ -206,5 +393,49 @@ describe("customer transfer", () => {
 		await expect(
 			readCustomerImportBuffer(bytes, "customers.xlsx"),
 		).rejects.toThrow(/64-column safety limit/);
+	});
+
+	it("rejects unsupported extensions, oversized buffers, and bad XLS signatures", async () => {
+		await expect(
+			readCustomerImportBuffer(new ArrayBuffer(0), "customers.txt"),
+		).rejects.toThrow(/\.csv, \.xls, or \.xlsx/);
+		await expect(
+			readCustomerImportBuffer(new ArrayBuffer(8), "customers.xls"),
+		).rejects.toThrow(/XLS file signature is invalid/);
+		await expect(
+			readCustomerImportBuffer(
+				new ArrayBuffer(10 * 1024 * 1024 + 1),
+				"customers.xlsx",
+			),
+		).rejects.toThrow(/10 MB safety limit/);
+	});
+
+	it("rejects worker failures and accepts worker results", async () => {
+		vi.stubGlobal("Worker", FakeTransferWorker);
+		const file = Object.assign(
+			new Blob(["customer_reference,name\nWORKER-1,Worker\n"]),
+			{ name: "customers.csv" },
+		);
+		const success = readCustomerImportFile(file);
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		FakeTransferWorker.last?.emit("message", { rows: [], errors: [] });
+		await expect(success).resolves.toEqual({ rows: [], errors: [] });
+
+		const parserError = readCustomerImportFile(file);
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		FakeTransferWorker.last?.emit("error");
+		await expect(parserError).rejects.toThrow(/parser failed/);
+
+		const messageError = readCustomerImportFile(file);
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		FakeTransferWorker.last?.emit("messageerror");
+		await expect(messageError).rejects.toThrow(/invalid result/);
+
+		const workerPayloadError = readCustomerImportFile(file);
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		FakeTransferWorker.last?.emit("message", {
+			error: "parser payload rejected",
+		});
+		await expect(workerPayloadError).rejects.toThrow(/payload rejected/);
 	});
 });
