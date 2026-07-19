@@ -133,6 +133,7 @@ function Hero() {
 			</h1>
 
 			<p className="landing__lede">{t("hero.lede")}</p>
+			<p className="landing__audience">{t("hero.audience")}</p>
 
 			<div className="landing__cta">
 				<Link to="/screen" className="landing__btn landing__btn--primary">

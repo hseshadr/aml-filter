@@ -26,6 +26,15 @@ describe("LandingPage", () => {
 		expect(screen.getByText(/nothing you type leaves/i)).toBeInTheDocument();
 	});
 
+	it("names small and medium businesses with KYC obligations", () => {
+		renderPage();
+		expect(
+			screen.getByText(
+				/small and medium-sized businesses with KYC obligations/i,
+			),
+		).toBeInTheDocument();
+	});
+
 	it("links the primary CTA to the in-browser demo at /screen", () => {
 		renderPage();
 		const cta = screen.getByRole("link", { name: /try the live demo/i });
