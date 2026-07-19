@@ -51,7 +51,7 @@ function App() {
 							<Route
 								path="/review"
 								element={
-									<WorkstationGate>
+									<WorkstationGate bootEngine={false}>
 										<ReviewBoardPage />
 									</WorkstationGate>
 								}
