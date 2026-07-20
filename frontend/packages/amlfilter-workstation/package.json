@@ -16,7 +16,7 @@
 	},
 	"dependencies": {
 		"@amlfilter/browser": "workspace:*",
-		"@edgeproc/avow": "file:../../../../assay/ts",
+		"@edgeproc/avow": "^0.1.0",
 		"@sqlite.org/sqlite-wasm": "3.53.0-build1"
 	},
 	"devDependencies": {

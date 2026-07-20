@@ -98,8 +98,8 @@ importers:
   packages/amlfilter-browser:
     dependencies:
       '@edgeproc/avow':
-        specifier: file:../../../../assay/ts
-        version: file:../../assay/ts
+        specifier: ^0.1.0
+        version: 0.1.0
       '@hpcc-js/wasm-zstd':
         specifier: ^1.13.4
         version: 1.13.4
@@ -178,8 +178,8 @@ importers:
         specifier: workspace:*
         version: link:../amlfilter-browser
       '@edgeproc/avow':
-        specifier: file:../../../../assay/ts
-        version: file:../../assay/ts
+        specifier: ^0.1.0
+        version: 0.1.0
       '@sqlite.org/sqlite-wasm':
         specifier: 3.53.0-build1
         version: 3.53.0-build1
@@ -364,8 +364,8 @@ packages:
     resolution: {integrity: sha512-QxULHAm7cNu72w97JUNCBFODFaXpbDg+dP8b/oWFAZ2MTRppA3U00Y2L1HqaS4J6yBqxwa/Y3nMBaxVKbB/NsA==}
     engines: {node: '>=20.19.0'}
 
-  '@edgeproc/avow@file:../../assay/ts':
-    resolution: {directory: ../../assay/ts, type: directory}
+  '@edgeproc/avow@0.1.0':
+    resolution: {integrity: sha512-oPbnzyFIzfBBTQjXtnxqdmSXuWFIfVKKkGBayBBVbxyCvOFAhODvXmvhqJsDTMos/aV060DwcQYijUmGnAaiGQ==}
     engines: {node: '>=22.13'}
 
   '@emnapi/core@1.11.1':
@@ -1761,7 +1761,7 @@ snapshots:
 
   '@csstools/css-tokenizer@4.0.0': {}
 
-  '@edgeproc/avow@file:../../assay/ts':
+  '@edgeproc/avow@0.1.0':
     dependencies:
       '@noble/ed25519': 3.1.0
       canonicalize: 3.0.0
