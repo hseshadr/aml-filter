@@ -20,7 +20,7 @@ and Chrome use bounded one-list-at-a-time vector residency so the workstation do
 not overlap every watchlist with the ONNX/WASM model; desktop keeps eager residency
 for throughput. Embedded WebViews are not part of the release contract.
 
-## Northstar status (verified 2026-07-18)
+## Status (verified 2026-07-18)
 
 **The production path now treats mobile memory as a first-class constraint.** The
 current live build is commit
