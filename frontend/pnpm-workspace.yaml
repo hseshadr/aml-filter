@@ -15,6 +15,14 @@ allowBuilds:
   protobufjs: true
   sharp: true
 
+# Exempt our own first-party package from pnpm's minimumReleaseAge supply-chain
+# gate. That 24h cooling-off protects against a compromised just-published THIRD
+# party version; @edgeproc/avow is our own npm package (published as part of this
+# portfolio program), so a clean-checkout `pnpm install --frozen-lockfile` on CI
+# must accept 0.1.0 immediately instead of rejecting it as "too new".
+minimumReleaseAgeExclude:
+  - '@edgeproc/avow@0.1.0'
+
 # Pin transitive protobufjs >=7.6.3 to clear the moderate advisory
 # GHSA-f38q-mgvj-vph7 (schema-derived names can shadow runtime-significant
 # properties; vulnerable <=7.6.2). protobufjs is pulled in transitively via
