@@ -9,6 +9,9 @@
 //   - SearchResponse       -> aml_filter/domain/search.py
 //   - OfacBundleMeta       -> aml_filter/bundle/meta.py
 
+import type { SignedReceipt } from "@edgeproc/avow";
+import type { MatchScoreSubject } from "./scoreReceipt";
+
 /** PERSON or ORGANIZATION — the only entity types OFAC screening recognizes. */
 export type EntityType = "PERSON" | "ORGANIZATION";
 
@@ -115,6 +118,12 @@ export interface Match {
 	readonly identifiers: Identifiers;
 	readonly reasons: ReadonlyArray<MatchReason>;
 	readonly explanation: string;
+	/**
+	 * Browser-tier ONLY (no backend twin): the signed Avow receipt sealing this
+	 * match's score, tier, and screening context. Optional because it depends on
+	 * a usable install key — see matchReceipts.ts. Never an input to scoring.
+	 */
+	readonly score_receipt?: SignedReceipt<MatchScoreSubject>;
 }
 
 /** Response from in-browser screening (mirrors backend SearchResponse). */

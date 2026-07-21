@@ -1,0 +1,168 @@
+// The sealer's own contract: what it stamps, what it hashes, and the two cases
+// where it deliberately produces nothing.
+
+import { publicKeyHex } from "@edgeproc/avow";
+import { describe, expect, it } from "vitest";
+import type { Match, ScreenQuery } from "./domain";
+import { INSTALL_SEED_KEY, type KeyStorage } from "./installKey";
+import {
+	createMatchReceiptSealer,
+	inputsHash,
+	type SealContext,
+} from "./matchReceipts";
+import { verifyMatchReceipt } from "./scoreReceipt";
+import { ENGINE_VERSION } from "./version";
+
+const SEED = "cd".repeat(32);
+
+function storageWithSeed(seed: string = SEED): KeyStorage {
+	const map = new Map<string, string>([[INSTALL_SEED_KEY, seed]]);
+	return {
+		getItem: (k) => map.get(k) ?? null,
+		setItem: (k, v) => {
+			map.set(k, v);
+		},
+	};
+}
+
+function match(overrides: Partial<Match> = {}): Match {
+	return {
+		entity_id: "OFAC:1",
+		score: 0.91,
+		entity_type: "PERSON",
+		risk_category: "SANCTION",
+		source_list: "ofac",
+		list_version: "2026.06.09",
+		primary_name: "Ivan Fako",
+		aliases: [],
+		countries: ["RU"],
+		nationalities: [],
+		dob: [],
+		addresses: [],
+		identifiers: { passport: [], national_id: [], other: {} },
+		reasons: [],
+		explanation: "exact canonical name match",
+		...overrides,
+	};
+}
+
+const QUERY: ScreenQuery = { name: "ivan fako", country: "RU" };
+
+function context(overrides: Partial<SealContext> = {}): SealContext {
+	return {
+		query: QUERY,
+		listVersions: { ofac: "2026.06.09" },
+		possibleThresholdFor: () => 0.65,
+		...overrides,
+	};
+}
+
+describe("createMatchReceiptSealer", () => {
+	it("stamps engine version, list version, and the derived tier", async () => {
+		const sealer = createMatchReceiptSealer(storageWithSeed());
+
+		const [sealed] = await sealer.seal([match()], context());
+
+		expect(sealed?.score_receipt?.payload).toMatchObject({
+			kind: "aml.match_score",
+			engine: "amlfilter-sequenceMatcher",
+			engine_version: ENGINE_VERSION,
+			watchlist_version: "ofac@2026.06.09",
+			score: 0.91,
+			tier: "STRONG",
+		});
+	});
+
+	it("tiers each match against ITS OWN list floor, not a global one", async () => {
+		const sealer = createMatchReceiptSealer(storageWithSeed());
+		const strict = match({
+			entity_id: "A:1",
+			source_list: "strict",
+			score: 0.7,
+		});
+		const loose = match({ entity_id: "B:1", source_list: "loose", score: 0.7 });
+
+		const sealed = await sealer.seal(
+			[strict, loose],
+			context({
+				possibleThresholdFor: (m) => (m.source_list === "strict" ? 0.75 : 0.6),
+			}),
+		);
+
+		// Same score, different floors → WEAK under the strict list, POSSIBLE under
+		// the loose one. A single global threshold could not produce this.
+		expect(sealed[0]?.score_receipt?.payload.tier).toBe("WEAK");
+		expect(sealed[1]?.score_receipt?.payload.tier).toBe("POSSIBLE");
+	});
+
+	it("signs under the persisted install key so receipts verify", async () => {
+		const sealer = createMatchReceiptSealer(storageWithSeed());
+
+		const [sealed] = await sealer.seal([match()], context());
+		const receipt = sealed?.score_receipt;
+		if (receipt === undefined) {
+			throw new Error("expected a receipt");
+		}
+
+		await expect(
+			verifyMatchReceipt(receipt, await publicKeyHex(SEED)),
+		).resolves.toBeUndefined();
+	});
+
+	it("resolves the install key ONCE across repeated screens", async () => {
+		let reads = 0;
+		const inner = storageWithSeed();
+		const counting: KeyStorage = {
+			getItem: (k) => {
+				reads += 1;
+				return inner.getItem(k);
+			},
+			setItem: (k, v) => inner.setItem(k, v),
+		};
+		const sealer = createMatchReceiptSealer(counting);
+
+		await sealer.seal([match()], context());
+		await sealer.seal([match()], context());
+
+		expect(reads).toBe(1);
+	});
+
+	it("produces NO receipts when the tab has no usable storage", async () => {
+		const sealer = createMatchReceiptSealer(null);
+
+		const sealed = await sealer.seal([match()], context());
+
+		// Documented: provenance is unavailable, but the screen still returns.
+		expect(sealed[0]?.score_receipt).toBeUndefined();
+		expect(sealed).toHaveLength(1);
+	});
+
+	it("short-circuits an empty match set without touching the key", async () => {
+		const sealer = createMatchReceiptSealer({
+			getItem: () => {
+				throw new Error("must not read the key for zero matches");
+			},
+			setItem: () => undefined,
+		});
+
+		await expect(sealer.seal([], context())).resolves.toEqual([]);
+	});
+});
+
+describe("inputsHash", () => {
+	it("is a sha256 over the screened identity pair", async () => {
+		expect(await inputsHash(match(), QUERY)).toMatch(/^sha256:[0-9a-f]{64}$/);
+	});
+
+	it("is stable for the same pair and distinct for a different one", async () => {
+		const base = await inputsHash(match(), QUERY);
+
+		expect(await inputsHash(match(), QUERY)).toBe(base);
+		expect(await inputsHash(match({ entity_id: "OFAC:2" }), QUERY)).not.toBe(
+			base,
+		);
+		expect(await inputsHash(match(), { ...QUERY, dob: "1980-01-01" })).not.toBe(
+			base,
+		);
+	});
+});

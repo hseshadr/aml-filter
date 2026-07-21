@@ -2,8 +2,14 @@
 // rows (db/models.py Customer + WhitelistBlacklistMatch and api/v1/review.py's
 // ReviewMatchRow) so the local tier and the server tier stay one product.
 
-/** Review tier for a match, ordered by descending strength (scoring/tiers.py:20). */
-export type MatchTier = "STRONG" | "POSSIBLE" | "WEAK";
+/**
+ * Review tier for a match, ordered by descending strength (scoring/tiers.py:20).
+ * Defined ONCE in @amlfilter/browser (its signed score receipt stamps a tier)
+ * and re-exported here, so the two tiers cannot drift apart.
+ */
+import type { MatchTier } from "@amlfilter/browser";
+
+export type { MatchTier };
 
 /**
  * Whether a match still reflects the facts a reviewer last saw. CURRENT = the

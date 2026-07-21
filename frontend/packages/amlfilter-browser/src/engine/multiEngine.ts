@@ -13,6 +13,10 @@
 import type { Entity, Match, ScreenQuery, ScreenResponse } from "./domain";
 import type { Embedder } from "./embedder";
 import {
+	createMatchReceiptSealer,
+	type MatchReceiptSealer,
+} from "./matchReceipts";
+import {
 	createScreeningEngine,
 	type ScreeningEngine,
 	type ScreenOptions,
@@ -46,6 +50,7 @@ export class MultiListScreeningEngine {
 	readonly #lists: ListEngine[];
 	readonly #embedder: Embedder;
 	readonly #thresholds: ListThresholds;
+	readonly #sealer: MatchReceiptSealer;
 	#resident: {
 		readonly listId: string;
 		readonly engine: ScreeningEngine;
@@ -57,10 +62,14 @@ export class MultiListScreeningEngine {
 		lists: ReadonlyArray<ListEngine>,
 		embedder: Embedder,
 		thresholds: ListThresholds,
+		// Injectable for tests; the production factories below always install the
+		// real sealer, so the signing path is never opt-in.
+		sealer: MatchReceiptSealer = createMatchReceiptSealer(),
 	) {
 		this.#lists = [...lists];
 		this.#embedder = embedder;
 		this.#thresholds = thresholds;
+		this.#sealer = sealer;
 	}
 
 	/** Every entity across every list — backs the search UI's browse view. */
@@ -186,9 +195,19 @@ export class MultiListScreeningEngine {
 			}
 		}
 		matches.sort((a, b) => b.score - a.score);
+		// Seal AFTER sort + top-k so we sign only what the caller actually receives
+		// — never the truncated tail. Signing lives here (not in the synchronous
+		// screenWithVector) because Ed25519 signing is async.
+		const top = matches.slice(0, query.k ?? 20);
+		const sealed = await this.#sealer.seal(top, {
+			query,
+			listVersions: versions,
+			possibleThresholdFor: (match) =>
+				this.#thresholdFor(match.source_list, query),
+		});
 		return {
 			request_id: crypto.randomUUID(),
-			matches: matches.slice(0, query.k ?? 20),
+			matches: sealed,
 			list_versions_used: versions,
 			execution_time_ms: Date.now() - start,
 		};

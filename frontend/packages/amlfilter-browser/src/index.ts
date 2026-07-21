@@ -52,6 +52,21 @@ export {
 	EMBEDDING_MODEL,
 	type Embedder,
 } from "./engine/embedder";
+// --- the per-install signing key behind every score receipt ---
+export {
+	defaultKeyStorage,
+	INSTALL_SEED_KEY,
+	type InstallKey,
+	type KeyStorage,
+	loadInstallKey,
+} from "./engine/installKey";
+// --- the sealer that wraps each returned match in a signed score receipt ---
+export {
+	createMatchReceiptSealer,
+	inputsHash,
+	type MatchReceiptSealer,
+	type SealContext,
+} from "./engine/matchReceipts";
 // --- the multi-list screen: one warm embedder, N signed lists, one contract ---
 export {
 	createMultiListScreeningEngine,
@@ -78,6 +93,15 @@ export {
 	type RuntimeDeps,
 	type RuntimeSelection,
 } from "./engine/runtime";
+// --- the Avow score receipt: seal a score into an offline-verifiable envelope ---
+export {
+	type MatchScoreInput,
+	type MatchScoreSubject,
+	matchScoreSubject,
+	type ScoreReceiptContext,
+	signMatchReceipt,
+	verifyMatchReceipt,
+} from "./engine/scoreReceipt";
 // --- the scoring port: preset weights/threshold + the explainable signals ---
 export {
 	computeScore,
@@ -98,6 +122,14 @@ export {
 export { QuotaError } from "./engine/sync/storage";
 // --- cold-sync download progress shape (threaded into the downloading banner) ---
 export type { OnSyncProgress, SyncProgress } from "./engine/sync/types";
+// --- match-strength tiers (ONE definition; the workstation re-exports these) ---
+export {
+	classifyTier,
+	type MatchTier,
+	STRONG_TIER_FLOOR,
+} from "./engine/tiering";
+// --- the engine version stamped into receipts + the composite list stamp ---
+export { ENGINE_VERSION } from "./engine/version";
 // --- the bundle-files builder + the shared watchlist/catalog shapes ---
 export {
 	type BundleListFiles,

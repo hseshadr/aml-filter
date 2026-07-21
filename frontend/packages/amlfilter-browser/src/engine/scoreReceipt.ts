@@ -5,8 +5,8 @@
 // (or an auditor) can later verify "this score, for this watchlist version, was
 // produced by this installation" without trusting any server.
 //
-// Key-custody honesty: the signing seed is held in the browser (see the
-// workstation's installKey.ts). Same-origin script can read it — this is a
+// Key-custody honesty: the signing seed is held in the browser (see
+// ./installKey). Same-origin script can read it — this is a
 // tamper-EVIDENT provenance record, not a hardware-backed key boundary. It
 // proves a receipt was not altered after signing; it does not prove the host
 // was uncompromised at signing time.
@@ -18,8 +18,11 @@ import {
 	verifySignature,
 } from "@edgeproc/avow";
 
-/** The three screening tiers (mirrors @amlfilter/workstation MatchTier). */
-export type MatchTier = "STRONG" | "POSSIBLE" | "WEAK";
+import type { MatchTier } from "./tiering";
+
+/** Re-exported so a receipt consumer needs only this module. ONE definition
+ * lives in ./tiering; @amlfilter/workstation re-exports that same one. */
+export type { MatchTier };
 
 /** The app-computed match result being attested — score plus its tier. */
 export interface MatchScoreInput {
