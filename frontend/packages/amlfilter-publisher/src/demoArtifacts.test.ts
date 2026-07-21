@@ -33,7 +33,9 @@ import { describe, expect, test } from "vitest";
 const HERE = resolve(fileURLToPath(import.meta.url), "..");
 const PUBLIC = resolve(HERE, "../../../app/public");
 const ORIGIN = resolve(PUBLIC, "bundle", "origin");
-const PUBLIC_KEY_PATH = resolve(PUBLIC, "public.key");
+// The committed demo bundle is signed with the THROWAWAY demo key, not the
+// production pin (public/public.key) — verify it against the demo public half.
+const PUBLIC_KEY_PATH = resolve(HERE, "../fixtures/demo-public.key");
 
 /** The committed demo bundle's published version (read from `latest`). */
 const EXPECTED_VERSION = "demo-1";

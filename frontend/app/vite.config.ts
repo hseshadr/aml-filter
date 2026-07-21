@@ -65,9 +65,58 @@ function previewProdCspPlugin(): Plugin {
 	};
 }
 
+// TEST-ONLY (rotation): the committed demo bundle under public/bundle/origin is
+// signed with the THROWAWAY demo key, deliberately DIFFERENT from the committed
+// production trust root public/public.key. Local browser lanes (vite dev AND
+// preview) serve that committed demo bundle, so the in-tab verifier must check it
+// against the DEMO public key, not the prod pin. When AMLFILTER_E2E_DEMO_PUBKEY=1
+// (set ONLY by the e2e webServer commands) serve fixtures/demo-public.key at
+// /public.key. Production build/deploy never sets the flag: the deploy workflow
+// rebuilds the bundle with the PROD key and serves the prod pin, so the served
+// bundle and pin always match in production. Remove alongside the rotation bridge.
+function demoPubkeyOverrideForE2E(): Plugin {
+	const enabled = process.env.AMLFILTER_E2E_DEMO_PUBKEY === "1";
+	const demoPubkey = join(
+		APP_ROOT,
+		"..",
+		"packages",
+		"amlfilter-publisher",
+		"fixtures",
+		"demo-public.key",
+	);
+	return {
+		name: "amlfilter:e2e-demo-pubkey",
+		configureServer(server) {
+			server.middlewares.use((req, res, next) => {
+				if (!enabled || (req.url ?? "").split("?")[0] !== "/public.key") {
+					next();
+					return;
+				}
+				res.setHeader("Content-Type", "application/octet-stream");
+				res.end(readFileSync(demoPubkey));
+			});
+		},
+		configurePreviewServer(server) {
+			server.middlewares.use((req, res, next) => {
+				if (!enabled || (req.url ?? "").split("?")[0] !== "/public.key") {
+					next();
+					return;
+				}
+				res.setHeader("Content-Type", "application/octet-stream");
+				res.end(readFileSync(demoPubkey));
+			});
+		},
+	};
+}
+
 // https://vitejs.dev/config/
 export default defineConfig({
-	plugins: [react(), serveOrtRuntimeRawInDev(), previewProdCspPlugin()],
+	plugins: [
+		react(),
+		serveOrtRuntimeRawInDev(),
+		previewProdCspPlugin(),
+		demoPubkeyOverrideForE2E(),
+	],
 	build: {
 		// esbuild's default build target ('modules' ≈ es2020) downlevels native
 		// class private fields (#load/#extract in the embedder) to a WeakMap-based

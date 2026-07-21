@@ -11,8 +11,11 @@ import { derivePublicKey, signBytes } from "./signing.ts";
 const HERE = resolve(fileURLToPath(import.meta.url), "..");
 const FIXTURES = resolve(HERE, "../fixtures");
 const TINY = resolve(FIXTURES, "tiny_entities.jsonl");
-// The committed pinned public key the browser tier verifies against.
-const PUBLIC_KEY_PATH = resolve(HERE, "../../../app/public/public.key");
+// The demo bundle is signed with the THROWAWAY demo key; its committed public
+// half is fixtures/demo-public.key — the key demo-signed artifacts verify against.
+const DEMO_PUBLIC_KEY_PATH = resolve(FIXTURES, "demo-public.key");
+// The production trust root the live SPA ships. The demo key must NEVER equal it.
+const APP_PIN_PATH = resolve(HERE, "../../../app/public/public.key");
 
 /** Return a copy of `bytes` with its first byte flipped (forge the payload). */
 function flipFirstByte(bytes: Uint8Array): Uint8Array {
@@ -26,14 +29,24 @@ async function loadDemoKey(): Promise<Uint8Array> {
 }
 
 async function loadPublicKey(): Promise<Uint8Array> {
-	return new Uint8Array(await readFile(PUBLIC_KEY_PATH));
+	return new Uint8Array(await readFile(DEMO_PUBLIC_KEY_PATH));
+}
+
+async function loadAppPin(): Promise<Uint8Array> {
+	return new Uint8Array(await readFile(APP_PIN_PATH));
 }
 
 describe("demo key cross-compat with the browser verifier", () => {
-	test("derived public key equals the committed public.key", async () => {
+	test("the demo public key MUST NOT equal the production pin (rotation guard)", async () => {
 		const derived = await derivePublicKey(await loadDemoKey());
-		const pinned = await loadPublicKey();
-		expect(Buffer.from(derived).equals(Buffer.from(pinned))).toBe(true);
+		// The compromise being fixed: the demo SEED was the live trust root. It may
+		// never be again — if this equality holds, a committed private key re-owns
+		// production. This guard breaks the PROPERTY (trust root), not the shape.
+		const appPin = await loadAppPin();
+		expect(Buffer.from(derived).equals(Buffer.from(appPin))).toBe(false);
+		// …and it IS exactly the committed throwaway demo public key.
+		const demoPub = await loadPublicKey();
+		expect(Buffer.from(derived).equals(Buffer.from(demoPub))).toBe(true);
 	});
 
 	test("signBytes output verifies via verifyEd25519, and tamper fails closed", async () => {

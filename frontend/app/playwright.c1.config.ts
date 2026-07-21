@@ -59,6 +59,9 @@ export default defineConfig({
 			// in sync — so it stays loud, just bounded by 120s instead of 45s.
 			env: {
 				VITE_MODEL_LOAD_TIMEOUT_MS: "120000",
+				// Rotation: verify the committed demo bundle against the throwaway demo
+				// key, not the prod pin. See vite.config demoPubkeyOverrideForE2E.
+				AMLFILTER_E2E_DEMO_PUBKEY: "1",
 			},
 		},
 	],
