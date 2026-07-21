@@ -10,6 +10,21 @@
 // tamper-EVIDENT provenance record, not a hardware-backed key boundary. It
 // proves a receipt was not altered after signing; it does not prove the host
 // was uncompromised at signing time.
+//
+// Where this module is proven:
+//   • ./scoreReceipt.test.ts — unit suite. Runs under the `node` environment,
+//     NOT the package-wide jsdom one: jsdom adds a second JavaScript realm that
+//     no browser has, and @noble/ed25519 hashes via `subtle.digest(SHA-512,
+//     m.buffer)` — a bare ArrayBuffer that Node 22's WebCrypto rejects when it
+//     is cross-realm. That file's header documents the full diagnosis.
+//   • app/tests/score-receipt-browser.spec.ts — real headless Chromium. Because
+//     the unit suite deliberately leaves jsdom, browser behaviour must be shown
+//     somewhere real; that spec drives sign -> verify -> tamper-reject ->
+//     wrong-key-reject in an actual page.
+//
+// NOT YET PROVEN: no product code imports this module, so no user-journey e2e
+// lane exercises receipt signing. Until the screening path calls it, treat
+// "the receipt works" as a module-level claim, not an end-to-end one.
 
 import {
 	type JsonValue,
