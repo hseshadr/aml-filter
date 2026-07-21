@@ -2,6 +2,29 @@ packages:
   - app
   - packages/*
 
+# Supply-chain cooldown: refuse any package version published less than 1440
+# minutes (24h) ago — the window in which a compromised release is usually
+# caught and unpublished.
+#
+# Declaring this key explicitly is NOT a no-op. pnpm v11 already applies a
+# 1440-minute default, but evaluates it in NON-STRICT mode: a resolution-path
+# install that trips the cooldown exits 0 and SILENTLY appends the tripped
+# package to a `minimumReleaseAgeExclude:` list in this very file, permanently
+# disabling the check for that package on every future install, CI included.
+# Nothing prints loudly and nothing fails, so the edit rides along in the next
+# `git commit -a`. That auto-injection has already landed in a commit here
+# (fcac972, reverted by bab953c).
+#
+# Setting the key explicitly auto-enables strict mode, which inverts the
+# outcome: the install hard-fails with ERR_PNPM_NO_MATURE_MATCHING_VERSION and
+# writes nothing. Verified on pnpm 11.5.0 — unset: exit 0 + exemption injected;
+# set: exit 1 + file untouched.
+#
+# A fresh dependency failing here is the control WORKING. Wait the window out.
+# Never add an exemption to go green — a committed exemption is a gate failure,
+# enforced by app/src/__tests__/supply-chain-exemptions.test.ts.
+minimumReleaseAge: 1440
+
 # pnpm v11 does not run a dependency's build/postinstall scripts unless it is
 # explicitly allowlisted here (replaces v10's onlyBuiltDependencies). esbuild is
 # Vite's bundler and ships a native binary whose postinstall must run for
@@ -15,10 +38,18 @@ allowBuilds:
   protobufjs: true
   sharp: true
 
-# Pin transitive protobufjs >=7.6.3 to clear the moderate advisory
-# GHSA-f38q-mgvj-vph7 (schema-derived names can shadow runtime-significant
-# properties; vulnerable <=7.6.2). protobufjs is pulled in transitively via
-# @huggingface/transformers > onnxruntime-web, so it is overridden here.
+# Pin transitive protobufjs to the patched 7.x line. It is pulled in transitively
+# via @huggingface/transformers > onnxruntime-web, so it is overridden here.
+#
+# The floor was `>=7.6.3` (for GHSA-f38q-mgvj-vph7, vulnerable <=7.6.2). That
+# range was UNBOUNDED, so pnpm resolved it forward to 8.6.4 — a silent runtime
+# major bump that (a) violates onnxruntime-web's declared `protobufjs: ^7.2.4`
+# and (b) landed on a version carrying two live advisories:
+#   GHSA-jfj6-75fj-8934  vulnerable >=8.2.0 <=8.6.4
+#   GHSA-j3f2-48v5-ccww  vulnerable >=8.0.0 <=8.6.5  (DoS, .proto option parsing)
+# Adding the `<8` bound pulls resolution back to 7.6.5 — the patched 7.x line
+# (npm `latest-7`), which clears f38q, j3f2 (7.x range is <=7.6.4) and jfj6, and
+# restores semver compatibility with the engine's declared range.
 overrides:
   adm-zip: "0.6.0"
-  protobufjs: ">=7.6.3"
+  protobufjs: ">=7.6.5 <8"

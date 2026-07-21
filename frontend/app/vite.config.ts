@@ -108,8 +108,14 @@ export default defineConfig({
 		environment: "jsdom",
 		globals: true,
 		setupFiles: ["./src/test/setup.ts"],
-		// Playwright owns tests/ (e2e); keep Vitest to unit specs in src/.
-		exclude: [...configDefaults.exclude, "tests/**", "scripts/**"],
+		// Playwright owns tests/ (e2e). The build scripts in scripts/ are split by
+		// runner, not by directory: the *.test.ts specs there are ordinary Vitest
+		// unit tests and must run here, while the *.test.mjs files are node:test
+		// contract suites run by `pnpm test:contract` (node --test). Vitest cannot
+		// load those — it fails with `Cannot bundle Node.js built-in "node:test"` —
+		// so exclude the .mjs contract files specifically. Excluding all of
+		// scripts/** to dodge that error silently drops five real unit-test files.
+		exclude: [...configDefaults.exclude, "tests/**", "scripts/**/*.test.mjs"],
 		// House standard §2 floors, enforced because the gate's test step runs with --coverage.
 		coverage: {
 			thresholds: { statements: 90, lines: 90, functions: 90, branches: 85 },
