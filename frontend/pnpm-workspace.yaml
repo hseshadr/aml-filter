@@ -2,6 +2,29 @@ packages:
   - app
   - packages/*
 
+# Supply-chain cooldown: refuse any package version published less than 1440
+# minutes (24h) ago — the window in which a compromised release is usually
+# caught and unpublished.
+#
+# Declaring this key explicitly is NOT a no-op. pnpm v11 already applies a
+# 1440-minute default, but evaluates it in NON-STRICT mode: a resolution-path
+# install that trips the cooldown exits 0 and SILENTLY appends the tripped
+# package to a `minimumReleaseAgeExclude:` list in this very file, permanently
+# disabling the check for that package on every future install, CI included.
+# Nothing prints loudly and nothing fails, so the edit rides along in the next
+# `git commit -a`. That auto-injection has already landed in a commit here
+# (fcac972, reverted by bab953c).
+#
+# Setting the key explicitly auto-enables strict mode, which inverts the
+# outcome: the install hard-fails with ERR_PNPM_NO_MATURE_MATCHING_VERSION and
+# writes nothing. Verified on pnpm 11.5.0 — unset: exit 0 + exemption injected;
+# set: exit 1 + file untouched.
+#
+# A fresh dependency failing here is the control WORKING. Wait the window out.
+# Never add an exemption to go green — a committed exemption is a gate failure,
+# enforced by app/src/__tests__/supply-chain-exemptions.test.ts.
+minimumReleaseAge: 1440
+
 # pnpm v11 does not run a dependency's build/postinstall scripts unless it is
 # explicitly allowlisted here (replaces v10's onlyBuiltDependencies). esbuild is
 # Vite's bundler and ships a native binary whose postinstall must run for
