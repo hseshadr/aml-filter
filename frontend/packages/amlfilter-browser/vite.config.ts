@@ -12,7 +12,12 @@ export default defineConfig({
 		// jsdom has no IndexedDB; fake-indexeddb/auto installs an in-memory
 		// implementation onto globalThis so listCache.ts's durable-store tests
 		// run standalone (the real IndexedDB is exercised by the browser e2e).
-		setupFiles: ["fake-indexeddb/auto"],
+		//
+		// setupSubtleDigestRealm patches around a jsdom/Node WebCrypto realm
+		// split that breaks Ed25519 key derivation (see that file's header);
+		// harmless where the split doesn't occur (e.g. scoreReceipt.test.ts's
+		// `@vitest-environment node`).
+		setupFiles: ["fake-indexeddb/auto", "./src/test/setupSubtleDigestRealm.ts"],
 		coverage: {
 			// House standard §2 floors.
 			thresholds: { statements: 90, lines: 90, functions: 90, branches: 85 },
