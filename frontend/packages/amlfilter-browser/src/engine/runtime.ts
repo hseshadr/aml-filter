@@ -36,6 +36,7 @@ import {
 } from "./multiEngine";
 import { PRESETS } from "./scoring";
 import type { OnSyncProgress, SyncProgress } from "./sync/types";
+import { compositeVersion } from "./version";
 import type {
 	LoadedWatchlist,
 	WatchlistCatalog,
@@ -294,21 +295,11 @@ const DEFAULT_THRESHOLDS: ListThresholds = {
 	default: PRESETS.balanced.threshold,
 };
 
-/**
- * The composite version stamp: each list's `id@version`, sorted by id and
- * joined with `|`. Derived from the per-list LOADED versions (not the catalog's
- * generatedAt) so a no-op republish that only bumps generatedAt does NOT churn
- * the stamp; a bumped per-list version or a list add/remove DOES. Pure +
- * exported so the app can compare fetchPublishedVersion() against version().
- */
-export function compositeVersion(
-	versions: Readonly<Record<string, string>>,
-): string {
-	return Object.keys(versions)
-		.sort()
-		.map((id) => `${id}@${versions[id]}`)
-		.join("|");
-}
+// The composite version stamp now lives in ./version, so the score-receipt
+// sealer inside MultiListScreeningEngine can stamp it without importing this
+// module back (runtime -> multiEngine is already one-directional). Re-exported
+// here so every existing `from "./runtime"` call site is unchanged.
+export { compositeVersion };
 
 /** The same-origin default bundle base URL: the signed bundle the SPA ships
  * under `public/bundle/origin/`. The signed-bundle delta-sync is the ONLY
