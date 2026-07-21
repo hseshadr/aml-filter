@@ -56,6 +56,10 @@ export default defineConfig({
 				// 120s production ceiling — full headroom for a cold in-tab model
 				// compile on a slow CI runner.
 				VITE_MODEL_LOAD_TIMEOUT_MS: "120000",
+				// Rotation: the committed demo bundle is signed with the throwaway
+				// demo key, not the prod pin — serve the demo pubkey at /public.key so
+				// the in-tab verify matches. See vite.config demoPubkeyOverrideForE2E.
+				AMLFILTER_E2E_DEMO_PUBKEY: "1",
 			},
 		},
 	],

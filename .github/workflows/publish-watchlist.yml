@@ -107,11 +107,17 @@ jobs:
       - name: Install workspace deps
         run: pnpm install --frozen-lockfile
 
+      # TODO(rotation): remove --fallback-pubkey after the first new-key-signed
+      # publish re-signs the live /latest. Until then the prior live pointer is
+      # still signed by the RETIRED key; sequence derivation (ONLY) may verify it
+      # against that one named retired public key. The post-deploy origin gate
+      # below stays strict against the new pin — no fallback there.
       - name: Derive the next sequence from the verified LIVE pointer
         run: |
           SEQUENCE="$(pnpm --silent --filter @amlfilter/publisher run next-published-sequence -- \
             --base-url https://aml-filter.com/bundle/origin \
-            --pubkey "$GITHUB_WORKSPACE/frontend/app/public/public.key")"
+            --pubkey "$GITHUB_WORKSPACE/frontend/app/public/public.key" \
+            --fallback-pubkey "$GITHUB_WORKSPACE/.github/rotation/old-public.key")"
           echo "SEQUENCE=$SEQUENCE" >> "$GITHUB_ENV"
 
       # Self-hosted MiniLM weights, fetched BEFORE any build. They feed BOTH the

@@ -33,9 +33,19 @@ import { WatchlistFormatError } from "./watchlist";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PUBLIC = join(HERE, "..", "..", "..", "..", "app", "public");
 const ORIGIN = join(PUBLIC, "bundle", "origin");
-const PINNED_PUBKEY = join(PUBLIC, "public.key");
+// The committed demo bundle is signed with the THROWAWAY demo key, not the
+// production pin (public/public.key) — verify it against the demo public half.
+const PINNED_PUBKEY = join(
+	HERE,
+	"..",
+	"..",
+	"..",
+	"amlfilter-publisher",
+	"fixtures",
+	"demo-public.key",
+);
 
-/** The pinned ed25519 public key the SPA ships (= public half of demo.key). */
+/** The committed demo bundle's ed25519 public key (public half of demo.key). */
 const PUBKEY = new Uint8Array(readFileSync(PINNED_PUBKEY));
 
 const DECODER = new TextDecoder();

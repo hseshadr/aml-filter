@@ -26,7 +26,17 @@ const REPO_ROOT = join(HERE, "..", "..", "..", "..", "..");
 const PUBLIC = join(REPO_ROOT, "frontend", "app", "public");
 // The committed signed bundle the SPA ships; `latest` is the signed pointer.
 const BUNDLE_LATEST = join(PUBLIC, "bundle", "origin", "latest");
-const PINNED_PUBKEY = join(PUBLIC, "public.key");
+// The committed demo bundle is signed with the THROWAWAY demo key (NOT the
+// production trust root public/public.key). Verify it against that key's
+// committed public half so the demo path is fully decoupled from the prod pin.
+const PINNED_PUBKEY = join(
+	REPO_ROOT,
+	"frontend",
+	"packages",
+	"amlfilter-publisher",
+	"fixtures",
+	"demo-public.key",
+);
 const SCORING = join(HERE, "__fixtures__", "scoring");
 
 const DECODER = new TextDecoder();
@@ -66,7 +76,8 @@ export function scoringGolden(): ReadonlyArray<GoldenCase> {
 	) as GoldenCase[];
 }
 
-/** The pinned ed25519 public key the SPA ships (frontend/app/public/public.key). */
+/** The committed demo bundle's ed25519 public key (the throwaway demo key's
+ * public half, fixtures/demo-public.key — deliberately not the production pin). */
 export function pubkeyRaw(): Uint8Array {
 	return new Uint8Array(readFileSync(PINNED_PUBKEY));
 }

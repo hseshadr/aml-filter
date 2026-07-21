@@ -25,9 +25,21 @@ import {
 const HERE = dirname(fileURLToPath(import.meta.url));
 const APP_PUBLIC = join(HERE, "..", "..", "..", "app", "public");
 const ORIGIN_DIR = join(APP_PUBLIC, "bundle", "origin");
+const FIXTURES = join(HERE, "..", "fixtures");
+const ROTATION = join(HERE, "..", "..", "..", "..", ".github", "rotation");
 const BASE = "https://origin.test/bundle/origin";
 
-const PUBKEY = new Uint8Array(readFileSync(join(APP_PUBLIC, "public.key")));
+// The committed demo origin is signed with the THROWAWAY demo key; verify it
+// against that key — no committed demo artifact carries the production pin now.
+const PUBKEY = new Uint8Array(readFileSync(join(FIXTURES, "demo-public.key")));
+// The production trust root the live SPA ships post-rotation. NEW bundles must
+// verify against THIS pin only (the post-publish gate never falls back).
+const PROD_PIN = new Uint8Array(readFileSync(join(APP_PUBLIC, "public.key")));
+// The retired, burned key the live /latest is still signed under until the first
+// new-pin publish. Sequence derivation may fall back to it — and only it.
+const OLD_BURNED = new Uint8Array(
+	readFileSync(join(ROTATION, "old-public.key")),
+);
 
 // The live Pages origin was published before the monotonic sequence field was
 // introduced. Keep this exact signed pointer as a migration fixture: the first
@@ -192,6 +204,7 @@ describe("next published monotonic sequence", () => {
 			readonly baseUrl: string;
 			readonly fetchBytes: OriginFetch;
 			readonly pubkey: Uint8Array;
+			readonly fallbackPubkey?: Uint8Array;
 		}) => Promise<number>;
 		readonly runNextPublishedSequence: (
 			argv: ReadonlyArray<string>,
@@ -231,12 +244,15 @@ describe("next published monotonic sequence", () => {
 		).resolves.toBe(live.sequence + 1);
 	});
 
-	it("migrates a verified pre-sequence live pointer from zero", async () => {
+	it("migrates a verified pre-sequence live pointer from zero (via the rotation fallback)", async () => {
+		// Post-rotation the pre-sequence live pointer is still signed by the retired
+		// key, so deriving from it goes through the transition fallback.
 		await expect(
 			sequenceModule.nextPublishedSequence?.({
 				baseUrl: BASE,
 				fetchBytes: legacyFixtureFetch(),
-				pubkey: PUBKEY,
+				pubkey: PROD_PIN,
+				fallbackPubkey: OLD_BURNED,
 			}),
 		).resolves.toBe(1);
 	});
@@ -281,6 +297,97 @@ describe("next published monotonic sequence", () => {
 		);
 		expect(lines).toEqual([String(sequence)]);
 		expect(sequence).toBeGreaterThan(0);
+	});
+
+	// TODO(remove-after-first-new-publish): rotation transition bridge coverage.
+	it("derives the next sequence from a prior pointer signed by the RETIRED key, via the fallback", async () => {
+		await expect(
+			sequenceModule.nextPublishedSequence?.({
+				baseUrl: BASE,
+				fetchBytes: legacyFixtureFetch(),
+				pubkey: PROD_PIN,
+				fallbackPubkey: OLD_BURNED,
+			}),
+		).resolves.toBe(1);
+	});
+
+	it("without the fallback, rejects the retired-key-signed prior pointer", async () => {
+		await expect(
+			sequenceModule.nextPublishedSequence?.({
+				baseUrl: BASE,
+				fetchBytes: legacyFixtureFetch(),
+				pubkey: PROD_PIN,
+			}),
+		).rejects.toBeInstanceOf(SignatureError);
+	});
+
+	it("the fallback is scoped to sequence derivation: the post-publish gate verifies NEW bundles against the NEW pin ONLY", async () => {
+		// verifyPublishedOrigin exposes no fallback. Serve a well-formed, sequenced
+		// bundle NOT signed by the new pin (the committed demo origin is demo-signed)
+		// — the shipping gate rejects it on the signature, no dual-trust.
+		await expect(
+			verifyPublishedOrigin({
+				baseUrl: BASE,
+				fetchBytes: fixtureFetch(),
+				pubkey: PROD_PIN,
+			}),
+		).rejects.toBeInstanceOf(SignatureError);
+	});
+
+	// The exact CLI the workflows invoke: --pubkey <new pin> + --fallback-pubkey
+	// <retired key file>. Reading the retired-key-signed live pointer must succeed.
+	it("CLI: threads --fallback-pubkey through to sequence derivation", async () => {
+		const lines: string[] = [];
+		const sequence = await sequenceModule.runNextPublishedSequence?.(
+			[
+				"--base-url",
+				BASE,
+				"--pubkey",
+				"prod.key",
+				"--fallback-pubkey",
+				"old.key",
+			],
+			{
+				fetchBytes: legacyFixtureFetch(),
+				readFile: (path) => (path === "old.key" ? OLD_BURNED : PROD_PIN),
+				log: (line) => lines.push(line),
+			},
+		);
+		expect(sequence).toBe(1);
+		expect(lines).toEqual(["1"]);
+	});
+
+	it("CLI: refuses a --fallback-pubkey that is not the one permitted retired key", async () => {
+		await expect(
+			sequenceModule.runNextPublishedSequence?.(
+				[
+					"--base-url",
+					BASE,
+					"--pubkey",
+					"prod.key",
+					"--fallback-pubkey",
+					"wrong.key",
+				],
+				{
+					fetchBytes: legacyFixtureFetch(),
+					readFile: (path) => (path === "wrong.key" ? PUBKEY : PROD_PIN),
+					log: () => {},
+				},
+			),
+		).rejects.toThrow(/permitted retired rotation key/);
+	});
+
+	it("CLI: rejects an unknown flag on next-published-sequence", async () => {
+		await expect(
+			sequenceModule.runNextPublishedSequence?.(
+				["--base-url", BASE, "--pubkey", "prod.key", "--nope", "x"],
+				{
+					fetchBytes: legacyFixtureFetch(),
+					readFile: () => PROD_PIN,
+					log: () => {},
+				},
+			),
+		).rejects.toThrow(/unknown flag --nope/);
 	});
 });
 
@@ -330,7 +437,7 @@ describe("runVerifyPublishedOrigin (CLI runner)", () => {
 		"--base-url",
 		BASE,
 		"--pubkey",
-		join(APP_PUBLIC, "public.key"),
+		join(FIXTURES, "demo-public.key"),
 		"--delay-seconds",
 		"0",
 	];
