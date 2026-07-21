@@ -130,4 +130,4 @@ feature detection blocks them cleanly when a required primitive is absent.
    real 404, clean console/network, and mobile + desktop screening.
 4. Verify `www` permanently redirects to the canonical apex with path and query intact.
 5. Record cold/warm p50/p95, request counts, heap/DOM bounds, and the exact deployed SHA.
-   Until this real-domain evidence passes, the release is not Northstar.
+   Until this real-domain evidence passes, the release is not complete.
