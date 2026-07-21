@@ -20,6 +20,7 @@
 		"pretest:coverage": "node scripts/gen-demo-stats.mjs",
 		"test:coverage": "vitest run --coverage",
 		"test:e2e": "playwright test",
+		"test:e2e:receipt": "playwright test tests/score-receipt-browser.spec.ts",
 		"test:e2e:c1": "playwright test -c playwright.c1.config.ts",
 		"test:e2e:kyc": "playwright test -c playwright.kyc.config.ts",
 		"test:e2e:bundle": "playwright test -c playwright.bundle.config.ts",
