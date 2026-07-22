@@ -9,7 +9,7 @@ export default defineConfig({
       include: ["src/**/*.ts"],
       // types.ts is type-only (no runtime); index.ts is a re-export barrel.
       exclude: ["src/types.ts", "src/index.ts"],
-      // ENGINEERING-STANDARDS §2 TypeScript floor (mirrors @edgeproc/privacy-core).
+      // TypeScript coverage floor (mirrors @edgeproc/privacy-core).
       thresholds: {
         lines: 90,
         functions: 90,

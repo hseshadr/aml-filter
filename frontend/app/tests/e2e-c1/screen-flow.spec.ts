@@ -304,7 +304,7 @@ test("searches the sanctions list in-browser over the minified build, with full 
 	expect(cspViolations, "production CSP violations").toEqual([]);
 	expect(errors, `in-browser errors:\n${errors.join("\n")}`).toEqual([]);
 	test.info().annotations.push({
-		type: "northstar-performance",
+		type: "performance-budget",
 		description: `cold boot ${bootDurationMs}ms; warm search ${searchDurationMs}ms; ${String(await page.locator("*").count())} DOM nodes; JS heap ${String(usedJsHeapBytes)} bytes; ${String(requests.length)} boot requests; 0 query requests`,
 	});
 });

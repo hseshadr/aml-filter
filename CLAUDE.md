@@ -118,7 +118,7 @@ signed-watchlist publisher). Always use `pnpm` for frontend package management.
 ## Quality Gates (Non-Negotiable)
 
 The canonical gate is **`pnpm gate`** from `frontend/`, and `ci.yml` literally runs that
-same command — the gate mirrors CI exactly, both directions (ENGINEERING-STANDARDS §3).
+same command — the gate mirrors CI exactly, in both directions.
 Each rule below carries the real shipped scar that makes it non-negotiable:
 
 - **CI runs `pnpm run gate`, never a hand-copied step list.** Scar: the gate lived as a
@@ -143,7 +143,7 @@ Each rule below carries the real shipped scar that makes it non-negotiable:
 - **Run the gate on dependabot branches before merging them.** Scar: the Biome 2.4 → 2.5
   group bump (PR #49) turned lint red via a NEW rule firing on a long-committed SVG — a
   green gate on main says nothing about a bumped toolchain.
-- **Tag at release time — tag-forward-only (§5).** Scar: the CHANGELOG reached 4.0.0
+- **Tag at release time — tag-forward-only.** Scar: the CHANGELOG reached 4.0.0
   while tags stopped at v2.1.0; CHANGELOG-only releases decay silently.
 
 Composition floor (frontend-only — the codebase is entirely TypeScript):
@@ -151,17 +151,16 @@ Composition floor (frontend-only — the codebase is entirely TypeScript):
 - TypeScript strict mode; no `any`, no default exports
 - Vitest for unit tests (incl. frozen parity goldens); Playwright for e2e
 
-## Engineering standard — §8 declaration
+## WASM / edge-compute patterns
 
-ENGINEERING-STANDARDS §8 (WASM / edge-compute): **applicable — this repo is the named
-exemplar for two shipped patterns.**
+This repo ships two WASM / edge-compute patterns worth calling out:
 
-- **§8.1(b) — vendored WASM runtimes + parity-tested TS.** Real WASM executes inside
+- **Vendored WASM runtimes + parity-tested TS.** Real WASM executes inside
   vendored runtimes (transformers.js MiniLM over ORT-WASM, `@hpcc-js/wasm-zstd`); model
   weights are **self-hosted** (`frontend/app/public/models/`, populated by
   `scripts/download-model.mjs` — no CDN fetch at runtime), and engine behavior is pinned
   by frozen golden parity fixtures (scoring + tiering).
-- **§8.1(c) — browser storage = sqlite-wasm over OPFS.** Customer/KYC data lives in
+- **Browser storage = sqlite-wasm over OPFS.** Customer/KYC data lives in
   `@sqlite.org/sqlite-wasm` over OPFS (`@amlfilter/workstation` DB worker); verified
   bundle bytes live in the OPFS bundle store owned by the sync worker
   (`amlfilter-browser` `engine/sync/opfsStore.ts`). No IndexedDB list cache remains — the

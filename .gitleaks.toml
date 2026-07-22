@@ -1,4 +1,4 @@
-# gitleaks config — full upstream ruleset kept; allowlist only (ENGINEERING-STANDARDS §4).
+# gitleaks config — full upstream ruleset kept; allowlist only.
 #
 # Every exception below is a verified FALSE POSITIVE from the weekly full-history scan
 # (security-audit.yml "Secret scan" job). Nothing here is or ever was a live credential.

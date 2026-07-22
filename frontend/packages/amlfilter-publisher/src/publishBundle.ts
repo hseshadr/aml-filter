@@ -9,8 +9,9 @@
 
 import { spawn } from "node:child_process";
 
-/** Default edge-proc checkout location (override per call or via EDGEPROC_DIR). */
-const DEFAULT_EDGEPROC_DIR = "/Users/harish/dev/oss/edge-proc";
+/** Default edge-proc checkout location: a sibling checkout next to this repo.
+ *  Override per call (edgeprocDir) or via the EDGEPROC_DIR env var. */
+const DEFAULT_EDGEPROC_DIR = "../edge-proc";
 
 /** Inputs to one `edgeproc publish` run (all paths absolute). */
 export interface PublishBundleInput {

@@ -2,7 +2,7 @@ import { performance } from "node:perf_hooks";
 import { describe, expect, it } from "vitest";
 import { VectorIndex } from "./vectorIndex";
 
-// Northstar retrieval budget, fixed before measurement:
+// Retrieval budget, fixed before measurement:
 // - workload: the observed real-list directory size (31,348) at production dim 384
 // - memory: the row-major matrix must fit below 50 MiB
 // - latency: exact top-10 retrieval p50 <= 500 ms and p95 <= 1,000 ms over 20
@@ -59,7 +59,7 @@ describe("VectorIndex realistic performance contract", () => {
 			const p50 = percentile(samples, 0.5);
 			const p95 = percentile(samples, 0.95);
 			console.info(
-				`northstar-vector-search entities=${ENTITY_COUNT} dim=${DIMENSION} p50=${p50.toFixed(1)}ms p95=${p95.toFixed(1)}ms matrix=${String(ENTITY_COUNT * DIMENSION * 4)}B`,
+				`vector-search entities=${ENTITY_COUNT} dim=${DIMENSION} p50=${p50.toFixed(1)}ms p95=${p95.toFixed(1)}ms matrix=${String(ENTITY_COUNT * DIMENSION * 4)}B`,
 			);
 			expect(p50).toBeLessThanOrEqual(P50_BUDGET_MS);
 			expect(p95).toBeLessThanOrEqual(P95_BUDGET_MS);

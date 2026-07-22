@@ -14,7 +14,7 @@
 //     -> their chunks are REUSED from OPFS, fetched ZERO times.
 // That is exactly the delta the e2e proves.
 //
-// Requires `uv` + the edge-proc checkout (default /Users/harish/dev/oss/edge-proc).
+// Requires `uv` + an edge-proc checkout (default: a sibling ../edge-proc; override with EDGEPROC_DIR).
 // Signs with the EXISTING committed demo key (fixtures/demo.key — whose public
 // half is the committed public.key), so the v2 /latest verifies in-tab.
 //
