@@ -2,15 +2,15 @@
 
 **TL;DR.** aml-filter is a **zero-server, pure-TypeScript** app. It screens a name
 against **multiple sanctions lists** (OFAC SDN, EU, UN, UK/OFSI) and returns a
-**scored, explained** result — and it does the whole thing in the browser tab, with no
-application backend, no database, and no API call. A small **publisher** turns each
-official list into a signed, self-contained file and registers them in a signed
-**catalog**; the **browser engine** verifies the catalog and every list and screens
-across all enabled lists in-tab; the **workstation** app stores your KYC customers
-locally, keeps them re-screened, and wraps the matches in an auditable review workflow.
-One screening pipeline, one explainable scoring contract, three TypeScript units.
+**scored, explained** result entirely in the browser tab, with no application backend
+or screening API. A small **publisher** turns each official list into a signed,
+self-contained file and registers them in a signed **catalog**; the **browser engine**
+verifies the catalog and every list and screens across all enabled lists in-tab; the
+**workstation** app stores KYC customers, matches, settings, and audit events in a
+local SQLite-WASM database and wraps them in an auditable review workflow. One
+screening pipeline, one explainable scoring contract, three TypeScript units.
 
-There is no Python, no Postgres, no Docker, no HTTP screening endpoint. The lists ship as
+There is no Python, no Postgres, no Docker, and no HTTP screening endpoint. The lists ship as
 a signed, content-addressed bundle of static files you can host on any CDN, delta-synced
 and cached durably in the browser (OPFS) so the app works offline; the trust comes from
 an Ed25519 signature the browser checks — over fetched *and* cached bytes — before it
@@ -23,9 +23,10 @@ ingestion pipeline. But the major sanctions lists are small — each on the orde
 entities — small enough that a browser tab can hold them in memory and scan them. Once
 you accept that, the server disappears:
 
-- **No database.** Candidate retrieval is a brute-force cosine scan over precomputed
-  vectors, one index per list. At this list size an exact scan is both correct and fast
-  — no ANN index, no pgvector, nothing to operate.
+- **No server-side vector database.** Candidate retrieval is a brute-force cosine scan
+  over precomputed vectors, one index per list. At this list size an exact scan is both
+  correct and fast — no ANN index, no pgvector, nothing to operate. The separate
+  workstation SQLite database stores private KYC state, not signed public vectors.
 - **No backend.** Embedding the *query* name runs in the tab via transformers.js, once,
   and is reused across every list. The lists' vectors were precomputed once at publish
   time, so the tab never has to embed a list.
@@ -293,7 +294,7 @@ document is the single source of truth for the artifact and this one does not re
 ## Local data model (SQLite-WASM)
 
 The schema lives in `frontend/packages/amlfilter-workstation/src/db/schema.ts`
-(`SCHEMA_VERSION = 2`; migrations are an ordered ledger applied by `migrate()`). The
+(`SCHEMA_VERSION = 3`; migrations are an ordered ledger applied by `migrate()`). The
 tables that hold the workstation's state:
 
 - **`customers`** — a KYC customer.

@@ -33,7 +33,10 @@ const MODEL_LOAD_TIMEOUT_MS = 160_000;
 const RESULT_TIMEOUT_MS = 30_000;
 const SEARCH_SLA_MS = 10_000;
 const MAX_RENDERED_DOM_NODES = 2_000;
-const MAX_JS_HEAP_BYTES = 512 * 1024 * 1024;
+// Keep a generous browser-heap ceiling while catching accidental eager-list
+// residency. Native WASM/RSS still needs a physical-device gate; Chromium's
+// JS heap metric is not a complete process-memory measurement.
+const MAX_JS_HEAP_BYTES = 384 * 1024 * 1024;
 
 function productionCsp(): string {
 	const headers = readFileSync(

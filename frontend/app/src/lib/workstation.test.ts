@@ -140,7 +140,10 @@ describe("workstation boot", () => {
 	});
 
 	it("keeps the all-list default for an eager desktop workstation", async () => {
-		const deps = makeDeps(makeStore());
+		const deps = {
+			...makeDeps(makeStore()),
+			memoryPolicy: () => "eager" as const,
+		} as WorkstationDeps & { memoryPolicy: () => "eager" | "streaming" };
 		const handle = await workstation(deps);
 		await handle.engineBoot();
 		const [, , selection] = vi.mocked(deps.runtime.bootstrap).mock.calls[0];
@@ -245,7 +248,10 @@ describe("workstation boot", () => {
 	it("serializes a settings apply before clear-cache", async () => {
 		const events: string[] = [];
 		let releaseApply: (() => void) | undefined;
-		const deps = makeDeps(makeStore());
+		const deps = {
+			...makeDeps(makeStore()),
+			memoryPolicy: () => "eager" as const,
+		} as WorkstationDeps & { memoryPolicy: () => "eager" | "streaming" };
 		vi.mocked(deps.runtime.reload).mockImplementation(
 			() =>
 				new Promise((resolve) => {
@@ -294,7 +300,10 @@ describe("workstation boot", () => {
 
 	it("setEnabledLists persists the selection, re-bootstraps, and rescans on a real change", async () => {
 		const store = makeStore();
-		const deps = makeDeps(store);
+		const deps = {
+			...makeDeps(store),
+			memoryPolicy: () => "eager" as const,
+		} as WorkstationDeps & { memoryPolicy: () => "eager" | "streaming" };
 		const handle = await workstation(deps);
 		await handle.engineBoot();
 		// Eager desktop default (unset) = all catalog ids; disabling EU_CONSOLIDATED is a change.
@@ -317,7 +326,10 @@ describe("workstation boot", () => {
 
 	it("setEnabledLists is a clean no-op when the set is unchanged", async () => {
 		const store = makeStore();
-		const deps = makeDeps(store);
+		const deps = {
+			...makeDeps(store),
+			memoryPolicy: () => "eager" as const,
+		} as WorkstationDeps & { memoryPolicy: () => "eager" | "streaming" };
 		const handle = await workstation(deps);
 		await handle.engineBoot();
 		// Re-selecting all catalog ids matches the eager desktop default → no reload, no rescan.

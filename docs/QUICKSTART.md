@@ -3,7 +3,8 @@
 aml-filter is a **zero-server, in-browser** watchlist-filtering and KYC-review app: a
 static React SPA that syncs a **signed catalog of sanctions lists** (OFAC, EU, UN,
 UK/OFSI) into the tab and screens names locally — embedding, search, and the explainable
-scorer all run in the browser. No server, no database, nothing to provision.
+scorer all run in the browser. No server-side database or service to provision; private
+customer state uses local SQLite-WASM on OPFS.
 
 Clone → install → run → screen a name → work it in the review board. About **ten
 minutes**, mostly the first build fetching the embedding-model weights.

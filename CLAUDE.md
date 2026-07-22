@@ -204,7 +204,7 @@ cache were **retired** — the signed content-addressed bundle over OPFS is now 
 transport.)
 
 ### 3. Workstation — `frontend/packages/amlfilter-workstation` (`@amlfilter/workstation`) + `frontend/app`
-A **SQLite-WASM/OPFS DB worker** (schema v2, `SCHEMA_VERSION = 2`; tables `customers`,
+A **SQLite-WASM/OPFS DB worker** (schema v3, `SCHEMA_VERSION = 3`; tables `customers`,
 `kyc_matches` (+ `material_fingerprint`, `review_state`), append-only `match_events`,
 `settings`) holds customers + match history; the workstation supplies onboarding, review,
 tiering, and the **bidirectional rescan** (`rescan.ts`: `screenCustomer(customerId)`,

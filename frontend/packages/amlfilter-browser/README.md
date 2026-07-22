@@ -37,11 +37,14 @@ const engine = await runtime.bootstrap(config, onStage, {
 });
 ```
 
-The default remains `"eager"` for desktop throughput. The public `/screen` route uses
-the streaming mode with OFAC SDN selected, matching its visible OFAC-only copy and
-keeping iOS Safari within its tab/WebAssembly memory budget. `EngineRuntime` serializes
-bootstrap, reload, and cache-clear lifecycle operations; clear-cache disposes vector
-matrices, metadata, and the optional model worker before the next verified boot.
+The SPA's deterministic memory policy uses streaming by default when the browser's
+memory budget is unknown or ≤8 GB; eager residency is reserved for an explicitly
+reported >8 GB desktop. Callers that need desktop throughput can still pass
+`residency: "eager"` explicitly. The public `/screen` route uses streaming with OFAC
+SDN selected, matching its visible OFAC-only copy and keeping iOS Safari within its
+tab/WebAssembly memory budget. `EngineRuntime` serializes bootstrap, reload, and
+cache-clear lifecycle operations; clear-cache disposes vector matrices, metadata, and
+the optional model worker before the next verified boot.
 
 ### `./engine` — fail-closed bundle and crypto primitives
 

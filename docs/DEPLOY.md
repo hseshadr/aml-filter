@@ -4,8 +4,8 @@
 > production sanctions-screening control. See [`../NOTICE`](../NOTICE).
 
 **TL;DR.** aml-filter is a **static single-page app** plus a **signed catalog of static
-watchlist files**. There is nothing to provision — no server, no database, no
-containers. Build it, then host the output directory on any static host or CDN
+watchlist files**. There is no server-side database or service to provision. Build it,
+then host the output directory on any static host or CDN
 (Netlify, Vercel, GitHub Pages, S3 + CloudFront, Cloudflare Pages, …). The only hard
 requirement is that it be served over a **secure context (HTTPS)** so the browser can do
 WebCrypto signature verification and use OPFS.

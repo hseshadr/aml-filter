@@ -177,8 +177,8 @@ async function build(deps: WorkstationDeps): Promise<WorkstationHandle> {
 	// The persisted selection (raw stored enabled ids) + thresholds the engine is
 	// loaded with. `enabledLists` is the RAW stored set — the runtime intersects it
 	// with the catalog (and silently skips ids the catalog doesn't have); an UNSET
-	// selection keeps every list on desktop, but is bounded to OFAC on streaming
-	// mobile-capable browsers. Thresholds map
+	// selection keeps every list only for an explicitly high-memory desktop, but
+	// is bounded to OFAC on streaming browsers. Thresholds map
 	// the global sensitivity + per-list overrides onto the engine's score floors.
 	const runtimeConfig = configFromEnv(import.meta.env);
 	const currentSelection = async (

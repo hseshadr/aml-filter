@@ -74,7 +74,7 @@ They are fixed in tests before measurement.
 | Exact top-10 retrieval, 31,348 × 384 | p50 ≤ 500 ms; p95 ≤ 1,000 ms | repeatable 20-run Vitest performance contract |
 | Vector matrix, 31,348 × 384 | ≤ 50 MiB | realistic performance contract (actual 48,150,528 B) |
 | Directory DOM | ≤ 24 dossier cards; < 2,000 total nodes in C1 | 31,348-row unit fixture + Chromium |
-| Post-boot JavaScript heap | < 512 MiB where Chromium exposes the metric | C1 Chromium |
+| Post-boot JavaScript heap | < 384 MiB where Chromium exposes the metric | C1 Chromium |
 | Chunk download fan-out | ≤ 8 requests | concurrency regression test |
 | Model requests per cold boot | exactly 1 | C1 Chromium |
 | Query-time and third-party requests | exactly 0 | C1 Chromium network boundary assertion |

@@ -17,8 +17,10 @@ desktop releases of Chrome, Edge, Firefox, and Safari 17+. The browser must expo
 module Workers, OPFS, WebCrypto, and Web Locks in a secure context. The app detects
 these before boot and shows an explicit unsupported-browser screen. Mobile Safari
 and Chrome use bounded one-list-at-a-time vector residency so the workstation does
-not overlap every watchlist with the ONNX/WASM model; desktop keeps eager residency
-for throughput. Embedded WebViews are not part of the release contract.
+not overlap every watchlist with the ONNX/WASM model. Desktop browsers use the same
+bounded mode when memory is unknown or ≤8 GB; eager residency is reserved for an
+explicitly reported >8 GB desktop. Embedded WebViews are not part of the release
+contract.
 
 ## Status (verified 2026-07-21)
 
@@ -31,9 +33,9 @@ site is serving is always at [`aml-filter.com/build.json`](https://aml-filter.co
 The full `pnpm gate` is green on Node 22.13.0: **1,045 Vitest unit tests across 119 files
 (the five workspace packages), plus all five real-Chromium Playwright e2e lanes**. On
 mobile, the
-workstation serializes engine boot, keeps one list resident at a time, and
+  workstation serializes engine boot, keeps one list resident at a time, and
 immediately cancels and disposes in-flight workers/models on route exit, retry, and
-cache clear; desktop retains the faster eager path. Reloads reuse the warm embedder
+cache clear; high-memory desktops may opt into the faster eager path. Reloads reuse the warm embedder
 and replace indexes in an explicit build → swap → dispose order. The retry UI reports
 an explicit out-of-memory failure instead of leaving a half-live screening engine
 behind. The canonical `www.aml-filter.com` host returns a 308 to the apex while
@@ -61,7 +63,8 @@ embedded WebViews remain outside the release contract.
 
 - **What it is** — a sanctions-screening + KYC-review workstation that runs 100% in the
   browser tab: fuzzy name-matching against OFAC/EU/UN/UK watchlists, explained scores,
-  and an auditable review workflow. No server, no signup, no database to run.
+  and an auditable review workflow. No server-side database to provision; private KYC
+  state is persisted locally in SQLite-WASM on OPFS.
 - **Why it works** — the heavy lifting is precomputed and signed at publish time (name
   vectors, content-addressed chunks); the tab only verifies (Ed25519, fail-closed),
   embeds one query with an in-tab MiniLM, and runs a transparent 5-signal scorer.
@@ -84,7 +87,8 @@ shows up as "Robert", "Bob", and "Rob"; names get spelled a dozen ways across
 alphabets; one typo can hide a real match.
 
 **aml-filter does that fuzzy name-matching, shows its work, and does all of it in a
-browser tab — no server, no signup, no database to run.** Open the app and it:
+browser tab — no server-side database, no signup, and no remote screening API.** Open
+the app and it:
 
 1. **Downloads a signed catalog of watchlists** — OFAC SDN plus EU, UN, and UK/OFSI —
    and verifies every one *in the tab* (Ed25519, fail-closed — any bad signature or hash
@@ -243,14 +247,15 @@ precomputed name vectors → embeds the query or customer name in-tab
 search → scores each candidate with an explainable weighted scorer.
 
 The `MultiListScreeningEngine` (`engine/multiEngine.ts`) uses one shared embedder and
-supports two residency modes. The default eager mode holds one vector index per enabled
-list; the bounded streaming mode keeps metadata for every enabled list but loads,
-screens, and disposes one vector index at a time (with a one-list cache and serialized
-queries). In either mode it embeds the query once, applies each threshold
+supports two residency modes. Eager mode holds one vector index per enabled list; the
+bounded streaming mode keeps metadata for every enabled list but loads, screens, and
+disposes one vector index at a time (with a one-list cache and serialized queries). In
+either mode it embeds the query once, applies each threshold
 (`perList[id] ?? query.threshold ?? default`), then merges and re-ranks — a strong hit
 in *any* list surfaces. The workstation's deterministic browser memory policy selects
-streaming on iPhone/iPad/Android and devices reporting ≤4 GB, while desktop keeps
-eager residency; the persisted list selection and per-list thresholds are unchanged.
+streaming on iPhone/iPad/Android, on devices reporting ≤8 GB, and whenever the browser
+cannot report a memory budget; eager residency is reserved for an explicitly reported
+>8 GB desktop. The persisted list selection and per-list thresholds are unchanged.
 
 The scorer (`computeScore` / `PRESETS`: `strict` / `balanced` / `lenient`) sums five
 signals — `name_vector`, `name_trigram`, `alias_match`, `dob_match`, `country_match` —
@@ -266,7 +271,7 @@ Entry point: `EngineRuntime.bootstrap()` → `ScreeningEngine.screen({ name })`.
 
 [`frontend/packages/amlfilter-workstation`](frontend/packages/amlfilter-workstation) is
 the local-first KYC tier, and [`frontend/app`](frontend/app) is the React SPA on top of
-it. A SQLite-WASM/OPFS DB Web Worker holds your customers and match history (schema v2:
+it. A SQLite-WASM/OPFS DB Web Worker holds your customers and match history (schema v3:
 `customers`, `kyc_matches` — now with `material_fingerprint` + `review_state` columns —
 the append-only `match_events` audit trail, and `settings`). The package owns
 onboarding, review, tiering, and the **bidirectional rescan** (`rescan.ts`:
@@ -350,6 +355,8 @@ This README is the canonical index.
 - [`docs/DEPLOY.md`](docs/DEPLOY.md) — publishing and hosting the signed catalog + list files.
 - [`docs/OPERATIONS.md`](docs/OPERATIONS.md) — threat/privacy data flow, numeric SLA and
   performance budgets, recovery behavior, and exact-deployment proof.
+- [`docs/MEMORY-ARCHITECTURE.md`](docs/MEMORY-ARCHITECTURE.md) — resident-memory
+  inventory, bounded residency policy, and the SQLite-vector adoption gates.
 - [`docs/diagrams/`](docs/diagrams/) — d2 sources + rendered SVGs.
 
 ## Repo layout

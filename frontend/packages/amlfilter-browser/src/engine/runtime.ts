@@ -854,10 +854,9 @@ export class EngineRuntime {
 			await this.#disposeBundleSource(previousSource);
 		}
 		this.#config = config;
-		// Ask the browser to keep the cache + OPFS durable ONCE up front
-		// (best-effort, guarded — a no-op where unsupported). The cache-aware
-		// loaders open their own short IndexedDB transactions on demand; the bundle
-		// path's OPFS store does the same.
+		// Ask the browser to keep the model cache + OPFS durable ONCE up front
+		// (best-effort, guarded — a no-op where unsupported). Model weights use
+		// CacheStorage; signed bundle bytes use the Worker-owned OPFS store.
 		await requestPersistentStorage();
 		assertCurrent();
 		// Feed cold-sync per-chunk progress to the downloading banner for THIS boot

@@ -30,7 +30,28 @@ describe("residencyForBrowser", () => {
 		).toBe("streaming");
 	});
 
-	it("keeps eager residency for a desktop with a normal memory budget", () => {
+	it("streams when desktop memory is unknown", () => {
+		expect(
+			residencyForBrowser({
+				userAgent:
+					"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/138 Safari/537.36",
+				maxTouchPoints: 0,
+			}),
+		).toBe("streaming");
+	});
+
+	it("streams on a desktop at the bounded-memory ceiling", () => {
+		expect(
+			residencyForBrowser({
+				userAgent:
+					"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/138 Safari/537.36",
+				deviceMemory: 8,
+				maxTouchPoints: 0,
+			}),
+		).toBe("streaming");
+	});
+
+	it("keeps eager residency only for an explicitly high-memory desktop", () => {
 		expect(
 			residencyForBrowser({
 				userAgent:
