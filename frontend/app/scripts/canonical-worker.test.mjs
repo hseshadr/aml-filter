@@ -7,7 +7,13 @@ const WORKER = new URL("../public/_worker.js", import.meta.url);
 
 async function loadWorker() {
 	const source = await readFile(WORKER, "utf8");
-	const context = { URL, Request, Response, module: { exports: undefined } };
+	const context = {
+		URL,
+		Request,
+		Response,
+		Headers,
+		module: { exports: undefined },
+	};
 	vm.runInNewContext(
 		source.replace("export default", "module.exports ="),
 		context,
@@ -45,13 +51,23 @@ test("Pages worker normalizes host case and a trailing DNS dot before redirectin
 
 test("Pages worker serves apex requests through the static asset binding", async () => {
 	const worker = await loadWorker();
-	const asset = new Response("asset");
+	const asset = new Response("asset", {
+		headers: {
+			"access-control-allow-origin": "*",
+			"access-control-allow-credentials": "true",
+			"cache-control": "no-store",
+		},
+	});
 	const response = await worker.fetch(
 		new Request("https://aml-filter.com/settings"),
 		{ ASSETS: { fetch: async () => asset } },
 	);
 
-	assert.equal(response, asset);
+	assert.notEqual(response, asset);
+	assert.equal(await response.text(), "asset");
+	assert.equal(response.headers.get("access-control-allow-origin"), null);
+	assert.equal(response.headers.get("access-control-allow-credentials"), null);
+	assert.equal(response.headers.get("cache-control"), "no-store");
 });
 
 test("Pages worker preserves the app's trailing-slash redirects", async () => {

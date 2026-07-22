@@ -125,7 +125,8 @@ feature detection blocks them cleanly when a required primitive is absent.
    real-Chromium lanes). Run the scheduled dependency/secret audits too.
 2. Deploy only after CI succeeds. The workflow rebuilds and verifies the real signed
    bundle, stamps `build.json`, deploys, and rejects a stale exact-identity check.
-3. On `https://aml-filter.com`, verify `build.json`, CSP, no wildcard CORS,
+3. On `https://aml-filter.com`, verify `build.json`, CSP, no wildcard CORS (the
+   advanced-mode worker strips hosting-added wildcard CORS from static responses),
    `public.key` MIME/revalidation, `latest` no-store, immutable manifest/chunk caching,
    real 404, clean console/network, and mobile + desktop screening.
 4. Verify `www` permanently redirects to the canonical apex with path and query intact.

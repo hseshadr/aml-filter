@@ -16,6 +16,16 @@ export default {
 			url.pathname = url.pathname.slice(0, -1);
 			return Response.redirect(url.toString(), 301);
 		}
-		return env.ASSETS.fetch(request);
+		const asset = await env.ASSETS.fetch(request);
+		// The app has no cross-origin data contract. Pages may add a permissive
+		// CORS header to static assets, so remove it at the application boundary.
+		const headers = new Headers(asset.headers);
+		headers.delete("access-control-allow-origin");
+		headers.delete("access-control-allow-credentials");
+		return new Response(asset.body, {
+			status: asset.status,
+			statusText: asset.statusText,
+			headers,
+		});
 	},
 };

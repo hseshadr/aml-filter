@@ -171,6 +171,8 @@ on a separate host-level Redirect Rule.
 > Pages serves over HTTPS automatically, which is the secure context the app needs for
 > WebCrypto signature verification and OPFS — nothing extra to configure. Because the bundle is
 > same-origin, **no CORS policy is required** (the former `deploy/r2-cors.json` is obsolete).
+> The advanced-mode worker also strips any permissive CORS headers that the static host adds
+> before returning an asset to a browser.
 
 ### CI secrets for the deploy + publish workflows
 
