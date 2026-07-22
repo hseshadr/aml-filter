@@ -20,12 +20,17 @@ and Chrome use bounded one-list-at-a-time vector residency so the workstation do
 not overlap every watchlist with the ONNX/WASM model; desktop keeps eager residency
 for throughput. Embedded WebViews are not part of the release contract.
 
-## Status (verified 2026-07-18)
+## Status (verified 2026-07-21)
 
-**The production path now treats mobile memory as a first-class constraint.** The
-current live build is commit
-`7f011e8d6b25248ce494dc89503454e9a80aabd5`, with hosted CI run `29664977625`
-and deploy run `29665131679` both passing for that exact SHA. On mobile, the
+**The production path treats mobile memory as a first-class constraint.** This status
+was verified at commit `635147b20f451fcc54c658cb6cf379e526876bb8` (current `main`); the
+CI badge above always reflects the latest run on `main`, and per-commit CI + deploy runs
+are in the repository's
+[Actions tab](https://github.com/hseshadr/aml-filter/actions). The exact SHA the live
+site is serving is always at [`aml-filter.com/build.json`](https://aml-filter.com/build.json).
+The full `pnpm gate` is green on Node 22.13.0: **1,045 Vitest unit tests across 119 files
+(the five workspace packages), plus all five real-Chromium Playwright e2e lanes**. On
+mobile, the
 workstation serializes engine boot, keeps one list resident at a time, and
 immediately cancels and disposes in-flight workers/models on route exit, retry, and
 cache clear; desktop retains the faster eager path. Reloads reuse the warm embedder
