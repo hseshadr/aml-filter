@@ -72,17 +72,6 @@ const DECODER = new TextDecoder();
 /** Mirrors the in-tab sync worker pool, so the gate exercises the same shape. */
 const VERIFY_CONCURRENCY = 8;
 
-// ── rotation transition bridge ──────────────────────────────────────────────
-// TODO(remove-after-first-new-publish): the live /latest pointer is still signed
-// by the RETIRED key below until the first publish under the new pin re-signs it.
-// Sequence derivation — and ONLY sequence derivation — may fall back to verifying
-// that PRIOR pointer against this one named retired key; the post-publish gate
-// (verifyPublishedOrigin) NEVER falls back. Delete this constant, the
-// `fallbackPubkey` plumbing, the `--fallback-pubkey` flag, and
-// .github/rotation/old-public.key once the live pointer is new-key-signed.
-export const ROTATION_FALLBACK_PUBKEY_HEX =
-	"db2c8c8abd1ea38438b949ae45889fab58bfcbafc7d78de4bf4e717f8482264c";
-
 function parseJson<T>(bytes: Uint8Array, what: string): T {
 	try {
 		return JSON.parse(DECODER.decode(bytes)) as T;
@@ -133,32 +122,11 @@ function distinctChunkHashes(manifest: ManifestWire): ReadonlyArray<string> {
 	return [...hashes];
 }
 
-/** Verify the pointer signature against `pubkey`. During the rotation transition
- * ONLY, sequence derivation passes a `fallbackPubkey`: if the new pin fails, the
- * PRIOR pointer may instead verify against that one named retired key. Every
- * other key still fails closed. */
-async function verifyPointerSignature(
-	pubkey: Uint8Array,
-	message: Uint8Array,
-	signature: string,
-	fallbackPubkey?: Uint8Array,
-): Promise<void> {
-	try {
-		await verifyEd25519(pubkey, message, signature);
-	} catch (primaryError) {
-		if (fallbackPubkey === undefined) {
-			throw primaryError;
-		}
-		await verifyEd25519(fallbackPubkey, message, signature);
-	}
-}
-
 async function fetchAndVerifyPointer(
 	baseUrl: string,
 	fetchBytes: OriginFetch,
 	pubkey: Uint8Array,
 	allowLegacySequence = false,
-	fallbackPubkey?: Uint8Array,
 ): Promise<PointerWire> {
 	const raw = await fetchBytes(`${baseUrl}/latest`);
 	const pointer = parseJson<unknown>(raw, "/latest pointer");
@@ -170,12 +138,8 @@ async function fetchAndVerifyPointer(
 			channel: pointer.channel == null,
 		},
 	});
-	await verifyPointerSignature(
-		pubkey,
-		message,
-		pointer.signature,
-		fallbackPubkey,
-	);
+	// Fail-closed: the pointer must verify against the single pinned public key.
+	await verifyEd25519(pubkey, message, pointer.signature);
 	return pointer;
 }
 
@@ -200,16 +164,12 @@ export async function nextPublishedSequence(args: {
 	readonly baseUrl: string;
 	readonly fetchBytes: OriginFetch;
 	readonly pubkey: Uint8Array;
-	/** TODO(remove-after-first-new-publish): the retired key the PRIOR live pointer
-	 * may still be signed under, accepted for sequence derivation only. */
-	readonly fallbackPubkey?: Uint8Array;
 }): Promise<number> {
 	const pointer = await fetchAndVerifyPointer(
 		args.baseUrl,
 		args.fetchBytes,
 		args.pubkey,
 		true,
-		args.fallbackPubkey,
 	);
 	// A valid pre-sequence pointer is the zero baseline. This branch is only for
 	// the one-way first publish; all newly emitted pointers carry a sequence and
@@ -399,7 +359,6 @@ interface NextSequenceRunDeps {
 function parseNextSequenceArgs(argv: ReadonlyArray<string>): {
 	readonly baseUrl: string;
 	readonly pubkeyPath: string;
-	readonly fallbackPubkeyPath?: string;
 } {
 	const values = new Map<string, string>();
 	for (let index = 0; index < argv.length; index += 2) {
@@ -410,8 +369,7 @@ function parseNextSequenceArgs(argv: ReadonlyArray<string>): {
 		}
 		values.set(flag.slice(2), value);
 	}
-	// TODO(remove-after-first-new-publish): `fallback-pubkey` is the rotation bridge.
-	const known = new Set(["base-url", "pubkey", "fallback-pubkey"]);
+	const known = new Set(["base-url", "pubkey"]);
 	for (const flag of values.keys()) {
 		if (!known.has(flag)) {
 			throw new OriginVerifyError(`unknown flag --${flag}`);
@@ -425,32 +383,11 @@ function parseNextSequenceArgs(argv: ReadonlyArray<string>): {
 	return {
 		baseUrl: baseUrl.replace(/\/$/, ""),
 		pubkeyPath,
-		fallbackPubkeyPath: values.get("fallback-pubkey"),
 	};
 }
 
 /** CLI runner used before every publish. Stdout is intentionally one decimal
  * line so the shell can assign it to `SEQUENCE` without parsing logs. */
-/** TODO(remove-after-first-new-publish): load the rotation transition fallback
- * from a path, asserting it is EXACTLY the one permitted retired key. Any other
- * bytes fail closed — the bridge trusts a single named key, not an arbitrary
- * file. Returns undefined when no `--fallback-pubkey` was given. */
-function resolveRotationFallback(
-	path: string | undefined,
-	readFile: (path: string) => Uint8Array,
-): Uint8Array | undefined {
-	if (path === undefined) {
-		return undefined;
-	}
-	const bytes = readFile(path);
-	if (Buffer.from(bytes).toString("hex") !== ROTATION_FALLBACK_PUBKEY_HEX) {
-		throw new OriginVerifyError(
-			"--fallback-pubkey does not match the one permitted retired rotation key",
-		);
-	}
-	return bytes;
-}
-
 export async function runNextPublishedSequence(
 	argv: ReadonlyArray<string>,
 	deps: NextSequenceRunDeps = {},
@@ -463,7 +400,6 @@ export async function runNextPublishedSequence(
 		baseUrl: args.baseUrl,
 		fetchBytes,
 		pubkey: readFile(args.pubkeyPath),
-		fallbackPubkey: resolveRotationFallback(args.fallbackPubkeyPath, readFile),
 	});
 	(deps.log ?? ((line: string) => console.log(line)))(String(sequence));
 	return sequence;
