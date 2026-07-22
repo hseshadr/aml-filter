@@ -63,6 +63,15 @@ test("local-first journey: no login → onboard → tiered match → resolve →
 	page,
 }) => {
 	test.setTimeout(180_000);
+	// This journey intentionally exercises the all-list throughput path. Declare
+	// the capability explicitly; real browsers with an unknown or ≤8 GB budget
+	// use bounded streaming and are covered by the memory-policy unit contract.
+	await page.addInitScript(() => {
+		Object.defineProperty(navigator, "deviceMemory", {
+			configurable: true,
+			value: 16,
+		});
+	});
 
 	// --- Console hygiene across the whole journey. -------------------------
 	const consoleErrors: string[] = [];
