@@ -57,6 +57,10 @@ export class MultiListScreeningEngine {
 	} | null = null;
 	#screenTail: Promise<void> = Promise.resolve();
 	#disposed = false;
+	#draining = false;
+	#activeScreens = 0;
+	#cleanupComplete = false;
+	#drainWaiters: Array<() => void> = [];
 
 	public constructor(
 		lists: ReadonlyArray<ListEngine>,
@@ -107,6 +111,33 @@ export class MultiListScreeningEngine {
 			return;
 		}
 		this.#disposed = true;
+		this.#draining = false;
+		if (this.#activeScreens > 0) {
+			return;
+		}
+		this.#cleanup();
+	}
+
+	/** Mark this engine disposed and wait for a running screen to finish. */
+	public async disposeWhenIdle(): Promise<void> {
+		if (!this.#disposed) {
+			this.#disposed = true;
+			this.#draining = true;
+			if (this.#activeScreens === 0) {
+				this.#cleanup();
+			}
+		}
+		if (this.#cleanupComplete) {
+			return;
+		}
+		await new Promise<void>((resolve) => this.#drainWaiters.push(resolve));
+	}
+
+	#cleanup(): void {
+		if (this.#cleanupComplete) {
+			return;
+		}
+		this.#cleanupComplete = true;
 		this.#resident?.engine.dispose();
 		this.#resident = null;
 		for (const list of this.#lists) {
@@ -115,6 +146,9 @@ export class MultiListScreeningEngine {
 		// Drop metadata references as well as vector matrices. This matters on
 		// mobile where the entity maps and WASM model compete for the same tab heap.
 		this.#lists.length = 0;
+		for (const resolve of this.#drainWaiters.splice(0)) {
+			resolve();
+		}
 	}
 
 	/** Serialize screens so two mobile queries cannot materialize indexes together. */
@@ -126,7 +160,13 @@ export class MultiListScreeningEngine {
 			if (this.#disposed) {
 				throw new Error("multi-list engine has been disposed");
 			}
-			return this.#screenNow(query, options);
+			this.#activeScreens += 1;
+			return this.#screenNow(query, options).finally(() => {
+				this.#activeScreens -= 1;
+				if (this.#disposed && this.#activeScreens === 0) {
+					this.#cleanup();
+				}
+			});
 		});
 		this.#screenTail = run.then(
 			() => undefined,
@@ -145,7 +185,7 @@ export class MultiListScreeningEngine {
 		const matches: Match[] = [];
 		const versions: Record<string, string> = {};
 		for (const list of this.#lists) {
-			if (this.#disposed) {
+			if (this.#disposed && !this.#draining) {
 				throw new Error("multi-list engine has been disposed");
 			}
 			let engine = list.engine;
@@ -159,7 +199,7 @@ export class MultiListScreeningEngine {
 						if (loaded === undefined) {
 							throw new Error(`list ${list.listId} has no loader`);
 						}
-						if (this.#disposed) {
+						if (this.#disposed && !this.#draining) {
 							loaded.index.dispose();
 							throw new Error("multi-list engine has been disposed");
 						}

@@ -336,6 +336,7 @@ export { createEmbedder };
 export class EngineRuntime {
 	readonly #deps: RuntimeDeps;
 	#enginePromise: Promise<MultiListScreeningEngine> | null = null;
+	#reloadPromise: Promise<MultiListScreeningEngine> | null = null;
 	#ready: MultiListScreeningEngine | null = null;
 	#version: string | null = null;
 	// Captured on the first successful bootstrap so reload() can re-fetch the
@@ -403,7 +404,7 @@ export class EngineRuntime {
 			// Release vectors and metadata before clearCache opens its temporary sync
 			// Worker. The optional embedder disposer terminates the model/WASM worker
 			// before that second allocation can start.
-			this.#ready?.dispose();
+			await this.#ready?.disposeWhenIdle();
 			this.#ready = null;
 			this.#version = null;
 			this.#disposeEmbedder();
@@ -434,7 +435,7 @@ export class EngineRuntime {
 			const source = this.#bundleSource;
 			this.#bundleSource = null;
 			await this.#disposeBundleSource(source);
-			this.#ready?.dispose();
+			await this.#ready?.disposeWhenIdle();
 			this.#ready = null;
 			this.#version = null;
 			this.#disposeEmbedder();
@@ -456,6 +457,9 @@ export class EngineRuntime {
 		onStage: OnStage = () => {},
 		selection: RuntimeSelection = {},
 	): Promise<MultiListScreeningEngine> {
+		if (this.#reloadPromise !== null) {
+			return this.#reloadPromise;
+		}
 		if (this.#enginePromise === null) {
 			this.#selection = selection;
 			const generation = this.#generation;
@@ -558,18 +562,32 @@ export class EngineRuntime {
 	}
 
 	/**
-	 * Re-fetch + re-verify (fail-closed) the catalog and EVERY list, rebuild the
-	 * MultiListScreeningEngine over the SAME already-warm embedder (no second
-	 * model download), and swap the ready engine + composite version. A verify
-	 * failure on the catalog OR any list rejects — no partial swap. Used by the
-	 * app's "Check for updates" path once a poll detects a new publish. Requires a
-	 * prior successful bootstrap (the embedder + pinned-key config are captured
-	 * then); calling reload before that throws.
+	 * Re-fetch + re-verify (fail-closed) the catalog and EVERY list, rebuilding the
+	 * MultiListScreeningEngine over the SAME already-warm embedder (no second model
+	 * download). The old engine and bundle source are released before replacement
+	 * loading so mobile refreshes stay single-engine and bounded. A verify failure
+	 * rejects and leaves no ready engine; the warm embedder remains available for a
+	 * retry. Used by the app's "Check for updates" path once a poll detects a new
+	 * publish. Requires a prior successful bootstrap (the embedder + pinned-key
+	 * config are captured then); calling reload before that throws.
 	 */
 	public reload(
 		selection?: RuntimeSelection,
 	): Promise<MultiListScreeningEngine> {
-		return this.#enqueue(() => this.#reload(selection));
+		if (this.#reloadPromise !== null) {
+			return this.#reloadPromise;
+		}
+		const run = this.#enqueue(() => this.#reload(selection));
+		this.#reloadPromise = run;
+		void run.then(
+			() => {
+				if (this.#reloadPromise === run) this.#reloadPromise = null;
+			},
+			() => {
+				if (this.#reloadPromise === run) this.#reloadPromise = null;
+			},
+		);
+		return run;
 	}
 
 	async #reload(
@@ -583,12 +601,20 @@ export class EngineRuntime {
 		if (selection !== undefined) {
 			this.#selection = selection;
 		}
+		// Drop the old engine BEFORE loading the replacement. Keeping both eager
+		// vector matrices resident during a refresh is the mobile OOM failure mode;
+		// a refresh is intentionally single-engine and fail-closed (a failed refresh
+		// leaves no ready engine, so the caller can retry from a bounded baseline).
+		const previous = this.#ready;
+		this.#ready = null;
+		this.#version = null;
+		this.#enginePromise = null;
+		await previous?.disposeWhenIdle();
 		// Drop the memoized bundle sync so a reload re-runs the signed delta-sync
-		// (picking up a republished `/latest`). Keep the old source alive until the
-		// replacement engine has been built, because streamed loaders close over it.
+		// (picking up a republished `/latest`) after the previous source is released.
 		const previousSource = this.#bundleSource;
 		this.#bundleSource = null;
-		const previous = this.#ready;
+		await this.#disposeBundleSource(previousSource);
 		try {
 			const engine =
 				this.#selection.residency === "streaming"
@@ -605,14 +631,14 @@ export class EngineRuntime {
 			this.#ready = engine;
 			this.#version = compositeVersion(engine.listVersions());
 			this.#enginePromise = Promise.resolve(engine);
-			previous?.dispose();
-			await this.#disposeBundleSource(previousSource);
 			return engine;
 		} catch (error) {
-			// Keep the previous engine/source usable when a refresh fails. Evict only
-			// the partially-built replacement and restore the memoized old source.
+			// The old engine/source were intentionally evicted before replacement load,
+			// so only dispose a partially-built replacement. The warm embedder remains
+			// reusable for a bounded retry; no second model worker is allocated.
 			const failedSource = this.#bundleSource;
-			this.#bundleSource = previousSource;
+			this.#bundleSource = null;
+			this.#enginePromise = null;
 			await this.#disposeBundleSource(failedSource);
 			throw error;
 		}
@@ -869,7 +895,7 @@ export class EngineRuntime {
 		const onModelProgress = throttleByRoundedPct((progress) =>
 			onStage({ kind: "loading-model", progress }),
 		);
-		const embedder = this.#deps.makeEmbedder(onModelProgress);
+		const embedder = this.#embedder ?? this.#deps.makeEmbedder(onModelProgress);
 		this.#embedder = embedder;
 		// Force the ~23 MB model download/compile now so "loading-model" reflects
 		// real work and the first user query is fast. Bounded: a stalled CDN must

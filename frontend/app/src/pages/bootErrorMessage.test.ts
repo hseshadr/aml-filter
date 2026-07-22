@@ -27,9 +27,28 @@ describe("bootErrorMessage", () => {
 			new Error("RangeError: WebAssembly.Memory.grow: out of memory"),
 		);
 
+		expect(result.title).toBe("Browser memory limit reached");
+		expect(result.recovery).toMatch(/close other tabs/i);
+		expect(result.recovery).toMatch(/reload/i);
+		expect(result.technicalDetail).toContain("WebAssembly.Memory.grow");
+	});
+
+	it("keeps unrelated unknown failures on the generic recovery path", () => {
+		const result = userFacingBootError(new Error("unexpected worker failure"));
+
 		expect(result.title).toBe("Local screening engine unavailable");
 		expect(result.recovery).toMatch(/close another AML-Filter tab/i);
-		expect(result.technicalDetail).toContain("WebAssembly.Memory.grow");
+		expect(classifyBundleError(new Error("unexpected worker failure"))).toBe(
+			"unknown",
+		);
+	});
+
+	it("classifies WebAssembly allocation failures as memory exhaustion", () => {
+		expect(
+			classifyBundleError(
+				new RangeError("WebAssembly.Memory.grow(): Out of memory"),
+			),
+		).toBe("memory_exhausted");
 	});
 
 	it("surfaces the underlying fail-closed cause", () => {

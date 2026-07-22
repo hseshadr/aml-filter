@@ -31,6 +31,8 @@ function nameOf(error: unknown): string {
 const TIMEOUT_TEXT = /timeout|timed out/i;
 const NETWORK_TEXT =
 	/failed to fetch|load failed|network ?error|network unreachable|unreachable/i;
+const MEMORY_TEXT =
+	/out of memory|memory\.grow|wasm(?:assembly)?\s+memory|allocation failed/i;
 
 /**
  * AML-Filter's bundle-load error catalog, expressed in the shared
@@ -107,6 +109,7 @@ export type BundleErrorKind =
 	| "timeout"
 	| "network"
 	| "download_failed"
+	| "memory_exhausted"
 	| "unknown";
 
 /**
@@ -132,6 +135,9 @@ const CODE_TO_KIND: Readonly<Record<string, BundleErrorKind>> = {
  * `BundleErrorKind`.
  */
 export function classifyBundleError(error: unknown): BundleErrorKind {
+	if (MEMORY_TEXT.test(messageOf(error))) {
+		return "memory_exhausted";
+	}
 	return CODE_TO_KIND[bundleErrorRegistry.classify(error)] ?? "unknown";
 }
 
@@ -237,6 +243,14 @@ export function userFacingBootError(error: unknown): UserFacingBootError {
 		return {
 			title: "Screening list could not be loaded",
 			recovery: "Check your connection, then retry the local download.",
+			technicalDetail,
+		};
+	}
+	if (kind === "memory_exhausted") {
+		return {
+			title: "Browser memory limit reached",
+			recovery:
+				"Close other tabs, reload AML-Filter, and retry. On mobile, keep one screening tab open.",
 			technicalDetail,
 		};
 	}

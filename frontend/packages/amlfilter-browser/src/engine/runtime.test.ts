@@ -445,6 +445,81 @@ describe("EngineRuntime.reload", () => {
 		expect(makeEmbedder).toHaveBeenCalledTimes(1);
 	});
 
+	it("disposes the prior eager index before loading a replacement", async () => {
+		const events: string[] = [];
+		let opens = 0;
+		const runtime = new EngineRuntime({
+			makeEmbedder: () => instantEmbedder(),
+			clearCache: () => Promise.resolve(),
+			openBundleSource: () => {
+				opens += 1;
+				const open = opens;
+				return Promise.resolve(
+					fakeBundleSource(
+						catalogOf([["OFAC_SDN", `demo-${open}`]]),
+						(entry) => {
+							const loaded = loadedAt(entry.version, `OFAC_SDN:${open}`);
+							const dispose = loaded.index.dispose.bind(loaded.index);
+							loaded.index.dispose = () => {
+								events.push(`dispose-${open}`);
+								dispose();
+							};
+							events.push(`load-${open}`);
+							return loaded;
+						},
+						() => events.push(`source-${open}`),
+					),
+				);
+			},
+		});
+
+		await runtime.bootstrap(CONFIG);
+		events.length = 0;
+		await runtime.reload();
+
+		expect(events.indexOf("dispose-1")).toBeLessThan(events.indexOf("load-2"));
+	});
+
+	it("waits for an in-flight screen before reload opens a replacement source", async () => {
+		let embedCalls = 0;
+		let releaseQuery: (() => void) | undefined;
+		const vector = new Float32Array([0]);
+		const embedder: Embedder = {
+			embed: () => {
+				embedCalls += 1;
+				if (embedCalls === 1) return Promise.resolve(vector);
+				return new Promise<Float32Array>((resolve) => {
+					releaseQuery = () => resolve(vector);
+				});
+			},
+		};
+		let opens = 0;
+		const runtime = new EngineRuntime({
+			makeEmbedder: () => embedder,
+			clearCache: () => Promise.resolve(),
+			openBundleSource: () => {
+				opens += 1;
+				return Promise.resolve(
+					fakeBundleSource(
+						catalogOf([["OFAC_SDN", `demo-${opens}`]]),
+						(entry) => loadedAt(entry.version, `OFAC_SDN:${opens}`),
+					),
+				);
+			},
+		});
+
+		const first = await runtime.bootstrap(CONFIG);
+		const screen = first.screen({ name: "OFAC_SDN:1" });
+		const reload = runtime.reload();
+		await new Promise<void>((resolve) => setTimeout(resolve, 0));
+		expect(opens).toBe(1);
+
+		releaseQuery?.();
+		await screen;
+		await reload;
+		expect(opens).toBe(2);
+	});
+
 	it("disposes the replaced bundle source after reload and on runtime dispose", async () => {
 		let opens = 0;
 		const firstDispose = vi.fn();
@@ -1044,8 +1119,9 @@ describe("EngineRuntime.clearListCache + cache-aware deps", () => {
 
 		const reload = runtime.reload();
 		const clear = runtime.clearListCache();
-		await Promise.resolve();
-		expect(events).toEqual(["boot-open", "reload-open"]);
+		await vi.waitFor(() =>
+			expect(events).toEqual(["boot-open", "reload-open"]),
+		);
 		releaseReload?.();
 		await reload;
 		await clear;
