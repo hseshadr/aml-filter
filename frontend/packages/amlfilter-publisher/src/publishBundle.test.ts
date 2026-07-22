@@ -48,7 +48,7 @@ describe("edgeprocPublishArgs", () => {
 			version: "v",
 			sequence: 1,
 		});
-		expect(args[2]).toBe("/Users/harish/dev/oss/edge-proc");
+		expect(args[2]).toBe("../edge-proc");
 	});
 
 	test.each([

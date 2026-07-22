@@ -62,7 +62,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   directly) and classifies raw boot/screen failures through a registered taxonomy expressed
   in the shared error vocabulary. Behavior-identical: every failure still renders the exact
   same existing `errors:*` string — no user-visible copy or i18n key moved.
-- **Self-hosted ORT wasm loader (§8.1b)** — onnxruntime-web dynamically imports its wasm
+- **Self-hosted ORT wasm loader** — onnxruntime-web dynamically imports its wasm
   loader module (`ort-wasm-simd-threaded.asyncify.mjs` + sibling `.wasm`) from the
   jsDelivr CDN at runtime; a cold audit with jsDelivr aborted proved /screen never
   reached ready. Fixed end-to-end: `scripts/stage-ort-wasm.mjs` stages the pair from the
@@ -73,7 +73,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   covered). Includes a Cloudflare Pages 25 MiB asset-size preflight over the staged ORT
   runtime and the pinned model manifest, so a runtime/model bump fails in CI, not on
   deploy.
-- **Vitest coverage floors, enforced (§2/§9.7)** — every workspace package pins
+- **Vitest coverage floors, enforced** — every workspace package pins
   `coverage.thresholds` (statements 90 / lines 90 / functions 90 / branches 85) and the
   gate's unit step now runs `pnpm -r run test:coverage`, so the thresholds actually
   enforce (they are inert under a plain `vitest run`). Reached honestly with ~230 new
@@ -83,14 +83,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Canonical `pnpm gate`** (`frontend/package.json`): one command fanning out to Biome
   lint → tsc typecheck → Vitest units (with coverage thresholds) → production build →
   all three Playwright e2e lanes. `ci.yml` now literally runs `pnpm run gate`, so the
-  local gate and CI cannot silently drift (ENGINEERING-STANDARDS §3/§4).
+  local gate and CI cannot silently drift.
 - **`.gitleaks.toml` documented allowlist** — full upstream ruleset kept; the only
   exceptions are verified false positives (pre-v4 dummy docs/test fixture keys on
   deleted paths, and the EU webgate's public non-rotating list-download token). The
   weekly full-history secret scan is green again.
 - **CLAUDE.md**: scarred "Quality Gates (Non-Negotiable)" section and the
-  ENGINEERING-STANDARDS §8 declaration (exemplar for §8.1(b) vendored/self-hosted WASM
-  runtimes + parity-tested TS and §8.1(c) sqlite-wasm-over-OPFS).
+  WASM / edge-compute patterns writeup (vendored/self-hosted WASM runtimes +
+  parity-tested TS and sqlite-wasm-over-OPFS).
 - **README 4-part TL;DR** (what / why it works / worked example / core invariants).
 - **Post-publish live-origin integrity gate** — after the nightly publish deploys,
   `publish-watchlist.yml` now runs `verify-published-origin` (publisher package): it
@@ -154,7 +154,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Weekly security-audit red** — `undici` (transitive via `jsdom`) bumped 7.26.0 →
   7.28.0 in the lockfile, clearing GHSA-hm92-r4w5-c3mj and the undici header-injection
   advisory; `pnpm audit --audit-level low` is clean again with no suppressions.
-- **Action floors (§4)**: `gitleaks/gitleaks-action` v2 → v3; `astral-sh/setup-uv`
+- **Action floors**: `gitleaks/gitleaks-action` v2 → v3; `astral-sh/setup-uv`
   full-pinned 8.2.0 → 8.3.2 (no floating major tag exists).
 
 ### Changed
@@ -170,7 +170,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [4.0.0] — 2026-06-20
 
 > _Release tags v2.2–v3.x were never cut; per the tag-forward-only rule
-> (ENGINEERING-STANDARDS §5) the annotated `v4.0.0` tag ("aml-filter 4.0.0 —
+> the annotated `v4.0.0` tag ("aml-filter 4.0.0 —
 > browser-local screening workstation") is cut at the 2026-07 `main` tip reached
 > during the standards-alignment work, not at the 2026-06-20 feature commit —
 > history is not backfilled._

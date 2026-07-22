@@ -1,7 +1,7 @@
 // LOCAL build step (NOT run in CI): build the committed content-addressed,
 // signed edge-proc demo bundle under frontend/app/public/bundle/origin/.
 //
-// Requires `uv` + the edge-proc checkout (default /Users/harish/dev/oss/edge-proc).
+// Requires `uv` + an edge-proc checkout (default: a sibling ../edge-proc; override with EDGEPROC_DIR).
 // It builds the SAME demo entities as buildDemoMultiList.ts (same JSONL fixtures,
 // same Node MiniLM embedder, same fixed generatedAt/version), stages them with
 // stageBundle(), then shells out to `edgeproc publish` to chunk + Ed25519-sign the

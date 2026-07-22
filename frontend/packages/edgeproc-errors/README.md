@@ -134,8 +134,8 @@ the same rule engine.
   client we adopt its _shape_ as a clean envelope. The real payoff is a backend
   emitting it verbatim.
 
-Design spec: `project-ideas/docs/superpowers/specs/2026-07-13-canonical-errors-design.md`.
-Optional starter catalog: `project-ideas/errors-registry.json`.
+Design: the envelope adapts RFC 9457 (Problem Details) as a typed client-side error
+shape, with a stable `code` namespace and i18n-friendly messages (see the sections above).
 
 ## Develop
 

@@ -12,7 +12,7 @@ repo already vendors `@amlfilter/browser` at `packages/amlfilter-browser/`.
 
 | | |
 |---|---|
-| Source repo | `hseshadr/errors` (`~/dev/oss/errors`) |
+| Source repo | `hseshadr/errors` |
 | Source path | repo root (`src/`, `test/`) |
 | Vendored commit | `7705a72c938c0e0e18ae51c87f38820d31b8be6e` (`Initial @edgeproc/errors: canonical error glue (TDD)`) |
 | Vendored on | 2026-07-14 |

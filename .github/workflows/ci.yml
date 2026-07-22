@@ -20,7 +20,7 @@ jobs:
   # workspace, then all three real-Chromium Playwright lanes (C1 screening, KYC
   # workstation, signed-bundle delta-sync) against the minified build and the
   # committed signed watchlist. One command in both places means the gate and CI
-  # cannot silently drift apart (ENGINEERING-STANDARDS §3/§4).
+  # cannot silently drift apart.
   # No Python, no Postgres, no application backend. All run: steps use static
   # commands only — no untrusted input is interpolated.
   # ---------------------------------------------------------------------------
@@ -88,7 +88,7 @@ jobs:
       #     the built Landing and asserts the mounted <I18nextProvider> renders
       #     translated copy (nav/footer/landing), NOT raw keys, with a clean
       #     console. Wired INTO the gate (not a separate CI step) so the gate and
-      #     CI cannot drift (ENGINEERING-STANDARDS §3/§4).
+      #     CI cannot drift.
       #   • C1 in-browser screening — browse → query → scored, explained match
       #     over the committed signed watchlist.
       #   • Local-first KYC workstation journey — no login → analyst name →
