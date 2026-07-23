@@ -59,9 +59,9 @@ permissions:
   contents: read
 
 env:
-  # edge-proc is NOT on PyPI; CI clones the public repo and `uv sync`s it.
-  # Pinned to the full commit SHA of tag v0.1.4: this code touches the
-  # watchlist signing key, and a tag can be repointed while a SHA cannot
+  # edge-proc is published to PyPI, but this signing path intentionally clones
+  # the public repo at an immutable commit so the exact transitive bundle
+  # implementation is reproducible. A tag can be repointed while a SHA cannot
   # (pinning is transitive — the guard lives in workflow-security.test.ts).
   EDGEPROC_REPO: https://github.com/hseshadr/edge-proc
   EDGEPROC_COMMIT: e3bfb570feb8619c823df63b6c012fd8c8c6a9b6 # tag v0.1.4
@@ -144,9 +144,9 @@ jobs:
             --pattern model_quantized.onnx
           node scripts/download-model.mjs
 
-      # edge-proc chunks + signs the staged tree. It is not published to PyPI, so
-      # we clone the public repo at a pinned ref and `uv sync --extra bundles`
-      # (which also resolves its non-PyPI shared-libs-python from its uv.lock).
+      # edge-proc chunks + signs the staged tree. We clone the public repo at a
+      # pinned ref and `uv sync --extra bundles` so the signing implementation and
+      # its locked edgeproc-core dependency are reproducible.
       # EDGEPROC_DIR points the publisher's `uv run --project <dir> edgeproc` at it.
       - name: Install uv
         # setup-uv publishes no floating major tag — full pin required

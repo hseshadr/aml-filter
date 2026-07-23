@@ -44,9 +44,9 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  # edge-proc is NOT on PyPI; CI clones the public repo and `uv sync`s it.
-  # Pinned to the full commit SHA of tag v0.1.4: this code touches the
-  # watchlist signing key, and a tag can be repointed while a SHA cannot
+  # edge-proc is published to PyPI, but this signing path intentionally clones
+  # the public repo at an immutable commit so the exact transitive bundle
+  # implementation is reproducible. A tag can be repointed while a SHA cannot
   # (pinning is transitive — the guard lives in workflow-security.test.ts).
   EDGEPROC_REPO: https://github.com/hseshadr/edge-proc
   EDGEPROC_COMMIT: e3bfb570feb8619c823df63b6c012fd8c8c6a9b6 # tag v0.1.4
@@ -167,7 +167,7 @@ jobs:
             --pattern model_quantized.onnx
           node scripts/download-model.mjs
 
-      # edge-proc chunks + signs the staged tree (not on PyPI → clone + uv sync).
+      # edge-proc chunks + signs the staged tree from the immutable source pin.
       - name: Install uv
         uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
 

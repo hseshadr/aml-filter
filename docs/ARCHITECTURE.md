@@ -342,11 +342,18 @@ score, render, and can be reviewed; only the chip reports that the receipt could
 checked.
 
 **Corrupt-seed quarantine.** If the stored signing seed is ever found corrupted, the
-engine does not silently destroy the evidence: the corrupt value is moved under a
-separate quarantine storage key, a fresh key is generated, and the returned key flags
-the reset (`resetFromCorruptSeed`). Receipts sealed before the reset now verify against
-a key this install no longer holds, so they read "Not verified — untrusted signer" —
-which is the honest answer.
+engine does not silently destroy the evidence: only a SHA-256 digest, length, and
+timestamp are written under a separate quarantine storage key (the arbitrary value is
+never duplicated into storage), a fresh key is generated, and the returned key flags
+the reset (`resetFromCorruptSeed`). Recovery runs under the origin-scoped Web Lock on
+supported browsers, so concurrent tabs cannot mint divergent replacement anchors.
+Receipts sealed before the reset now verify against a key this install no longer holds,
+so they read "Not verified — untrusted signer" — which is the honest answer.
+
+**Availability when provenance cannot load.** Receipt sealing is additive: a blocked,
+quota-failing, or temporarily unavailable storage/crypto provider returns the original
+matches without receipts and emits a metadata-only warning. Engine invariants such as
+an out-of-range score still throw; availability fallback never hides a bad score.
 
 **The custody caveat.** The signing key lives in ordinary browser storage. A receipt is
 therefore **tamper-evident provenance** — "this exact score was produced and not altered

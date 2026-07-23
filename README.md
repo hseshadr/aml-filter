@@ -22,15 +22,15 @@ bounded mode when memory is unknown or ≤8 GB; eager residency is reserved for 
 explicitly reported >8 GB desktop. Embedded WebViews are not part of the release
 contract.
 
-## Status (verified 2026-07-21)
+## Status (verified 2026-07-23)
 
 **The production path treats mobile memory as a first-class constraint.** This status
-was verified at commit `635147b20f451fcc54c658cb6cf379e526876bb8` (current `main`); the
+was verified at commit `c0f237078f785dd65027a8530381801ec11c18ac` (current `main`); the
 CI badge above always reflects the latest run on `main`, and per-commit CI + deploy runs
 are in the repository's
 [Actions tab](https://github.com/hseshadr/aml-filter/actions). The exact SHA the live
 site is serving is always at [`aml-filter.com/build.json`](https://aml-filter.com/build.json).
-The full `pnpm gate` is green on Node 22.13.0: **1,045 Vitest unit tests across 119 files
+The full `pnpm gate` is green on Node 22.13.0: **1,093 Vitest unit tests across 119 files
 (the five workspace packages), plus all five real-Chromium Playwright e2e lanes**. On
 mobile, the
   workstation serializes engine boot, keeps one list resident at a time, and
@@ -50,7 +50,7 @@ pnpm gate
 curl -fsSL https://aml-filter.com/build.json
 ```
 
-The repository gate covers 321 browser-package tests and 241 application tests, plus
+The repository gate covers 366 browser-package tests and 357 application tests, plus
 typecheck, lint, build, i18n, KYC, bundle, and Android Chromium + desktop mobile
 smoke checks. Playwright WebKit is kept as a local/macOS profile but explicitly skips
 when its emulator lacks OPFS/SQLite; a physical iPhone fresh-tab check remains the
