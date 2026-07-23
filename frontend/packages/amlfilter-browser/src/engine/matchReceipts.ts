@@ -25,7 +25,11 @@ import {
 	type KeyStorage,
 	loadInstallKey,
 } from "./installKey";
-import { matchScoreSubject, signMatchReceipt } from "./scoreReceipt";
+import {
+	matchScoreSubject,
+	type Sha256Hash,
+	signMatchReceipt,
+} from "./scoreReceipt";
 import { classifyTier } from "./tiering";
 import { compositeVersion, ENGINE_VERSION } from "./version";
 
@@ -58,7 +62,7 @@ export interface MatchReceiptSealer {
 export async function inputsHash(
 	match: Match,
 	query: ScreenQuery,
-): Promise<string> {
+): Promise<Sha256Hash> {
 	const pair = {
 		query: {
 			name: query.name,

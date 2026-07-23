@@ -22,9 +22,10 @@
 //     somewhere real; that spec drives sign -> verify -> tamper-reject ->
 //     wrong-key-reject in an actual page.
 //
-// NOT YET PROVEN: no product code imports this module, so no user-journey e2e
-// lane exercises receipt signing. Until the screening path calls it, treat
-// "the receipt works" as a module-level claim, not an end-to-end one.
+//   • The production screening path seals through this module: matchReceipts.ts
+//     (createMatchReceiptSealer) signs every returned match, and the user-facing
+//     journey — seal → display → verify → rekey-fail-closed — is proven over the
+//     minified build by app/tests/e2e-c1/receipt-badge.spec.ts.
 
 import {
 	type JsonValue,
@@ -45,12 +46,54 @@ export interface MatchScoreInput {
 	readonly tier: MatchTier;
 }
 
+/** Coded error: a score outside the engine's legitimate [0, 1] output range. */
+export class ScoreOutOfRange extends RangeError {
+	constructor(value: number) {
+		super(
+			`score receipt: score must be a finite number in [0, 1], got ${value}`,
+		);
+		this.name = "ScoreOutOfRange";
+	}
+}
+
+/** Coded error: an inputs hash that does not carry the `sha256:` scheme. */
+export class InputsHashInvalid extends TypeError {
+	constructor(value: string) {
+		super(`score receipt: inputs_hash must be "sha256:<hex>", got "${value}"`);
+		this.name = "InputsHashInvalid";
+	}
+}
+
+declare const attestedScoreBrand: unique symbol;
+
+/**
+ * A score this engine can legitimately attest: a finite number in [0, 1].
+ * The scorer clamps its final score into exactly that range (scoring.ts), so
+ * anything outside it is a bug or hostile data — never a value to sign.
+ */
+export type AttestedScore = number & { readonly [attestedScoreBrand]: true };
+
+/** The only digest scheme a score receipt may carry. */
+export type Sha256Hash = `sha256:${string}`;
+
+/**
+ * Validate a raw score into an `AttestedScore`, or THROW `ScoreOutOfRange`.
+ * Throwing (not clamping) is deliberate: the engine cannot produce an
+ * out-of-range score, so clamping here would silently sign a fabricated value.
+ */
+export function attestedScore(value: number): AttestedScore {
+	if (!Number.isFinite(value) || value < 0 || value > 1) {
+		throw new ScoreOutOfRange(value);
+	}
+	return value as AttestedScore;
+}
+
 /** The screening context that makes a score reproducible and auditable. */
 export interface ScoreReceiptContext {
 	readonly engineVersion: string;
 	readonly watchlistVersion: string;
 	/** `sha256:<hex>` over the screened identity pair (the scoring inputs). */
-	readonly inputsHash: string;
+	readonly inputsHash: Sha256Hash;
 }
 
 /**
@@ -62,8 +105,8 @@ export type MatchScoreSubject = {
 	readonly engine: "amlfilter-sequenceMatcher";
 	readonly engine_version: string;
 	readonly watchlist_version: string;
-	readonly inputs_hash: string;
-	readonly score: number;
+	readonly inputs_hash: Sha256Hash;
+	readonly score: AttestedScore;
 	readonly tier: MatchTier;
 };
 
@@ -83,9 +126,22 @@ export function matchScoreSubject(
 		engine_version: context.engineVersion,
 		watchlist_version: context.watchlistVersion,
 		inputs_hash: context.inputsHash,
-		score: match.score,
+		score: attestedScore(match.score),
 		tier: match.tier,
 	};
+}
+
+/**
+ * The subject invariants, re-checked on the VERIFY side. The seal-time guard
+ * cannot protect a verifier: a buggy or rogue sealer can validly SIGN an
+ * out-of-range subject, and its signature would check out. So bounds are
+ * enforced at both ends — reject before the signature even gets a say.
+ */
+function assertAttestable(payload: MatchScoreSubject): void {
+	attestedScore(payload.score);
+	if (!payload.inputs_hash.startsWith("sha256:")) {
+		throw new InputsHashInvalid(payload.inputs_hash);
+	}
 }
 
 /** Hash + Ed25519-sign the score subject into a verifiable receipt. */
@@ -97,9 +153,10 @@ export function signMatchReceipt(
 }
 
 /** Fail-closed verify of a score receipt against a pinned signer key. */
-export function verifyMatchReceipt(
+export async function verifyMatchReceipt(
 	receipt: SignedReceipt<MatchScoreSubject>,
 	expectedPublicKey: string,
 ): Promise<void> {
+	assertAttestable(receipt.payload);
 	return verifySignature(receipt, expectedPublicKey);
 }
