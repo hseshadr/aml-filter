@@ -261,6 +261,12 @@ The scorer (`computeScore` / `PRESETS`: `strict` / `balanced` / `lenient`) sums 
 signals — `name_vector`, `name_trigram`, `alias_match`, `dob_match`, `country_match` —
 and every match carries the per-signal breakdown plus a plain-language summary.
 
+Every scored match is also **sealed in the engine at the moment it is produced**: a
+per-install Ed25519 key signs the score, tier, engine and watchlist versions, and an
+inputs hash (`engine/matchReceipts.ts`, `engine/installKey.ts`,
+`engine/scoreReceipt.ts`), yielding the signed score receipt the UI verifies — see
+[Trust model](#trust-model).
+
 Verified bundle bytes are cached durably in the **OPFS bundle store** (owned by the sync
 Web Worker, separate from the customer DB), re-verified fail-closed on every load, so the
 app works **offline** on a cold network.
@@ -319,6 +325,29 @@ application server in the path. In the browser:
 
 The signing private key never leaves CI: it lives only as the `WATCHLIST_SIGNING_KEY`
 GitHub Actions secret used by the publish workflow.
+
+### Signed score receipts
+
+The same discipline extends from the engine's input to its output. Every scored match
+on `/screen` carries a **signed score receipt**: the engine seals
+`{score, tier, engine version, watchlist version, inputs hash}` with an Ed25519 key
+generated for this browser install, using the `@edgeproc/avow` receipt format
+(RFC-8785 canonical JSON + Ed25519). What you see is a small status chip beside each
+match score — **Verified** (✓) in the normal case, **Not verified** when a check fails
+(✕ tampered or invalid signature, ⚠ untrusted signer), plus explicit pending and
+unavailable states while the trust key loads or when browser storage is blocked. A
+receipt-bearing match never renders without a chip, and expanding **Score receipt** on a
+match card shows the full signed envelope (algorithm, signer key, payload hash,
+signature, and the sealed subject). The verdict is computed offline, in your browser,
+against this install's own key — alter the sealed data in any way and the chip flips to
+"Not verified — tampered" (the e2e suite proves exactly that: tampering one byte flips
+the verdict).
+
+One honest caveat, in the same breath: the signing key lives in ordinary browser
+storage, so a receipt is **tamper-evident provenance** — this exact score was produced
+and not altered afterwards — **not** proof the machine was uncompromised at signing
+time, and not a hardware-backed key. Full design:
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#score-receipts).
 
 ## Correctness & parity
 

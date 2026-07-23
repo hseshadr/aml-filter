@@ -57,6 +57,14 @@ into the score, and which **source list** the match came from. Adjust the strict
 slider (Lenient / Balanced / Strict) to see the match threshold tighten. See
 [`ARCHITECTURE.md`](ARCHITECTURE.md) for the scoring contract.
 
+Beside each match score you'll also see a small **Verified** chip — the engine seals
+every score it produces with a signed **score receipt**. Expand **Score receipt** on the
+match card to see the full signed envelope: algorithm, signer key, payload hash,
+signature, and the sealed score, tier, engine version, watchlist version, and inputs
+hash. Prove it to yourself: the verdict is computed in your browser, offline, against
+this install's own key — if the sealed data were altered in any way, the chip would read
+**Not verified — tampered**.
+
 ## 3. Choose lists and sensitivity (`/settings`)
 
 Go to **`/settings`** to configure the screening run. It persists to the local SQLite
