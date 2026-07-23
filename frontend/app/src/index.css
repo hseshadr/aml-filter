@@ -301,6 +301,57 @@ code {
 .match-card__signal dd {
 	color: #1e293b;
 }
+/* Avow score-receipt verdict. The color shifts are reinforcement only — the
+   verdict itself is always carried by the pill's icon + word label. */
+.receipt-status {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.3rem;
+	border: 1px solid #e2e8f0;
+	border-radius: 999px;
+	padding: 0.1rem 0.55rem;
+	background: #f8fafc;
+	color: #475569;
+	font-size: 0.72rem;
+	font-weight: 600;
+	white-space: nowrap;
+}
+.receipt-status[data-status="verified"] {
+	border-color: #bbf7d0;
+	background: #f0fdf4;
+	color: #166534;
+}
+.receipt-status[data-status="invalid"],
+.receipt-status[data-status="wrong-key"] {
+	border-color: #fecaca;
+	background: #fef2f2;
+	color: #991b1b;
+}
+.receipt-panel {
+	display: grid;
+	gap: 0.4rem;
+	margin: 0.5rem 0;
+}
+.receipt-panel__meta {
+	display: grid;
+	gap: 0.2rem;
+	margin: 0;
+	font-size: 0.82rem;
+}
+.receipt-panel__row {
+	display: flex;
+	gap: 0.5rem;
+}
+.receipt-panel__row dt {
+	color: #64748b;
+	min-width: 9rem;
+}
+.receipt-panel__row dd code,
+.match-card__signal dd code {
+	font-family: source-code-pro, Menlo, monospace;
+	font-size: 0.78rem;
+	word-break: break-all;
+}
 .screen-footer {
 	margin-top: 2.5rem;
 	border-top: 1px solid #e2e8f0;

@@ -6,6 +6,19 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Visible, verifiable score receipts** — every scored match card on `/screen` now
+  renders its signed Avow receipt through `@edgeproc/receipt-ui` (v0.1.0): a compact
+  icon+text verdict badge beside the score (WCAG 1.4.1 — never color-only) and a
+  "Score receipt" disclosure with the full envelope (algorithm, signer key, payload
+  hash, signature) plus the sealed subject (score, tier, engine and watchlist
+  versions, inputs hash). Verification is fail-closed against this install's own
+  key — the same localStorage seed the engine's sealer signs with — with three
+  distinct non-verified states: pending, tampered/invalid signature, and untrusted
+  signer. Guarded property-based end to end: the C1 e2e re-keys the store under the
+  sealer's pinned key and asserts the badge drops to "untrusted signer".
+
 ### Fixed
 
 - **Bounded, accessible watchlist directory** — `/screen` no longer mounts the entire
