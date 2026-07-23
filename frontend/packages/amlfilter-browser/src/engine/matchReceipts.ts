@@ -26,7 +26,9 @@ import {
 	loadInstallKey,
 } from "./installKey";
 import {
+	InputsHashInvalid,
 	matchScoreSubject,
+	ScoreOutOfRange,
 	type Sha256Hash,
 	signMatchReceipt,
 } from "./scoreReceipt";
@@ -116,9 +118,37 @@ export function createMatchReceiptSealer(
 			if (storage === null || matches.length === 0) {
 				return matches;
 			}
-			keyPromise ??= loadInstallKey(storage);
-			const key = await keyPromise;
-			return Promise.all(matches.map((m) => sealOne(m, context, key)));
+			let key: InstallKey;
+			try {
+				keyPromise ??= loadInstallKey(storage);
+				key = await keyPromise;
+			} catch (error: unknown) {
+				// Provenance is additive. A blocked/quota-failing storage provider or
+				// crypto failure must not turn an otherwise valid screening into an
+				// outage; clear the rejected promise so a later screen can retry.
+				keyPromise = null;
+				console.warn("amlfilter.match_receipts.unavailable", {
+					error: error instanceof Error ? error.name : typeof error,
+				});
+				return matches;
+			}
+			try {
+				return await Promise.all(matches.map((m) => sealOne(m, context, key)));
+			} catch (error: unknown) {
+				// These are engine invariants, not provenance availability. Preserve
+				// their fail-fast behavior so a corrupted match cannot be silently
+				// returned without the receipt contract being checked.
+				if (
+					error instanceof ScoreOutOfRange ||
+					error instanceof InputsHashInvalid
+				) {
+					throw error;
+				}
+				console.warn("amlfilter.match_receipts.unavailable", {
+					error: error instanceof Error ? error.name : typeof error,
+				});
+				return matches;
+			}
 		},
 	};
 }

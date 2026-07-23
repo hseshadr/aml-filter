@@ -56,7 +56,7 @@ export class ScoreOutOfRange extends RangeError {
 	}
 }
 
-/** Coded error: an inputs hash that does not carry the `sha256:` scheme. */
+/** Coded error: an inputs hash that is not a complete lowercase SHA-256 digest. */
 export class InputsHashInvalid extends TypeError {
 	constructor(value: string) {
 		super(`score receipt: inputs_hash must be "sha256:<hex>", got "${value}"`);
@@ -75,6 +75,9 @@ export type AttestedScore = number & { readonly [attestedScoreBrand]: true };
 
 /** The only digest scheme a score receipt may carry. */
 export type Sha256Hash = `sha256:${string}`;
+
+/** Runtime wire invariant for the `Sha256Hash` compile-time brand. */
+const SHA256_HASH_PATTERN = /^sha256:[0-9a-f]{64}$/;
 
 /**
  * Validate a raw score into an `AttestedScore`, or THROW `ScoreOutOfRange`.
@@ -139,7 +142,7 @@ export function matchScoreSubject(
  */
 function assertAttestable(payload: MatchScoreSubject): void {
 	attestedScore(payload.score);
-	if (!payload.inputs_hash.startsWith("sha256:")) {
+	if (!SHA256_HASH_PATTERN.test(payload.inputs_hash)) {
 		throw new InputsHashInvalid(payload.inputs_hash);
 	}
 }

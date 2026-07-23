@@ -67,7 +67,8 @@ test("Avow score receipt signs + verifies in real Chromium", async ({
 		const CONTEXT = {
 			engineVersion: "4.0.0",
 			watchlistVersion: "2026.06.09",
-			inputsHash: "sha256:abc",
+			inputsHash:
+				"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		};
 		const subject = mod.matchScoreSubject(MATCH, CONTEXT);
 

@@ -2,7 +2,7 @@
 // where it deliberately produces nothing.
 
 import { publicKeyHex } from "@edgeproc/avow";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { Match, ScreenQuery } from "./domain";
 import { INSTALL_SEED_KEY, type KeyStorage } from "./installKey";
 import {
@@ -10,7 +10,7 @@ import {
 	inputsHash,
 	type SealContext,
 } from "./matchReceipts";
-import { verifyMatchReceipt } from "./scoreReceipt";
+import { ScoreOutOfRange, verifyMatchReceipt } from "./scoreReceipt";
 import { ENGINE_VERSION } from "./version";
 
 const SEED = "cd".repeat(32);
@@ -135,6 +135,34 @@ describe("createMatchReceiptSealer", () => {
 		// Documented: provenance is unavailable, but the screen still returns.
 		expect(sealed[0]?.score_receipt).toBeUndefined();
 		expect(sealed).toHaveLength(1);
+	});
+
+	it("returns matches without receipts when storage becomes unavailable", async () => {
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		const sealer = createMatchReceiptSealer({
+			getItem: () => {
+				throw new DOMException("storage blocked", "SecurityError");
+			},
+			setItem: () => undefined,
+		});
+
+		const sealed = await sealer.seal([match()], context());
+
+		expect(sealed).toHaveLength(1);
+		expect(sealed[0]?.score_receipt).toBeUndefined();
+		expect(warn).toHaveBeenCalledWith(
+			"amlfilter.match_receipts.unavailable",
+			expect.objectContaining({ error: expect.any(String) }),
+		);
+		warn.mockRestore();
+	});
+
+	it("does not hide an impossible engine score behind the provenance fallback", async () => {
+		const sealer = createMatchReceiptSealer(storageWithSeed());
+
+		await expect(
+			sealer.seal([match({ score: 1.5 })], context()),
+		).rejects.toBeInstanceOf(ScoreOutOfRange);
 	});
 
 	it("short-circuits an empty match set without touching the key", async () => {

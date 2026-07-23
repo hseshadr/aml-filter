@@ -12,6 +12,7 @@
 // was uncompromised at signing time.
 
 import { generateSeedHex, publicKeyHex } from "@edgeproc/avow";
+import { sha256Hex } from "./crypto";
 
 /** The slice of Web Storage this module needs — injectable so tests can fix a seed. */
 export interface KeyStorage {
@@ -36,26 +37,32 @@ export interface InstallKey {
 export const INSTALL_SEED_KEY = "amlfilter.install_signing_seed.v1";
 
 /**
- * Where a corrupt persisted seed is preserved (as JSON: the value + when).
- * A corrupt entry is EVIDENCE — of a storage fault, another tab's bug, or
- * tampering — so it is moved aside, never silently destroyed.
+ * Where metadata for a corrupt persisted seed is preserved (as JSON: a digest,
+ * length, and timestamp). A corrupt entry is EVIDENCE — of a storage fault,
+ * another tab's bug, or tampering — so its identity is retained without
+ * duplicating an arbitrary value that might be a pasted secret or PII.
  */
 export const INSTALL_SEED_QUARANTINE_KEY =
 	"amlfilter.install_signing_seed.v1.quarantined";
 
 /** An Ed25519 seed is exactly 32 bytes as lowercase hex. */
 const SEED_HEX = /^[0-9a-f]{64}$/;
+const INSTALL_SIGNING_KEY_LOCK = "amlfilter.install-signing-key";
 
 /**
  * Quarantine a malformed persisted seed and emit a structured audit warning.
  * The warning carries metadata only — never the value itself, because a
  * "corrupt seed" can be a secret pasted into the wrong slot.
  */
-function quarantineCorruptSeed(storage: KeyStorage, corrupt: string): void {
+async function quarantineCorruptSeed(
+	storage: KeyStorage,
+	corrupt: string,
+): Promise<void> {
 	storage.setItem(
 		INSTALL_SEED_QUARANTINE_KEY,
 		JSON.stringify({
-			value: corrupt,
+			sha256: await sha256Hex(new TextEncoder().encode(corrupt)),
+			valueLength: corrupt.length,
 			quarantined_at: new Date().toISOString(),
 		}),
 	);
@@ -70,25 +77,47 @@ function quarantineCorruptSeed(storage: KeyStorage, corrupt: string): void {
  * Resolve this installation's signing key, generating + persisting a seed on
  * first use. Idempotent: repeated calls on the same storage return the same key.
  * A corrupted entry re-keys rather than bricking the screening path (a bad seed
- * would fail every signature anyway) — but the corrupt value is quarantined and
- * the returned key signals the reset (`resetFromCorruptSeed`).
+ * would fail every signature anyway) — but a digest and metadata for the
+ * corrupt value are quarantined and the returned key signals the reset
+ * (`resetFromCorruptSeed`).
  */
-export async function loadInstallKey(storage: KeyStorage): Promise<InstallKey> {
+async function loadInstallKeyUnlocked(
+	storage: KeyStorage,
+): Promise<InstallKey> {
 	const stored = storage.getItem(INSTALL_SEED_KEY);
 	const valid = stored !== null && SEED_HEX.test(stored) ? stored : null;
 	const corrupt = stored !== null && valid === null ? stored : null;
-	if (corrupt !== null) {
-		quarantineCorruptSeed(storage, corrupt);
-	}
 	const seedHex = valid ?? generateSeedHex();
+	// Publish the replacement before the asynchronous evidence digest. This
+	// makes same-storage concurrent recovery converge on one seed instead of
+	// letting multiple callers generate different trust anchors while suspended.
 	if (valid === null) {
 		storage.setItem(INSTALL_SEED_KEY, seedHex);
+	}
+	if (corrupt !== null) {
+		await quarantineCorruptSeed(storage, corrupt);
 	}
 	return {
 		seedHex,
 		publicKeyHex: await publicKeyHex(seedHex),
 		resetFromCorruptSeed: corrupt !== null,
 	};
+}
+
+/**
+ * Resolve the install key under the browser's origin-scoped exclusive lock.
+ * Corrupt-seed recovery performs an asynchronous digest; Web Locks closes the
+ * cross-tab check → replace race during that await. Unsupported environments
+ * use the same-realm path (the app's capability gate excludes them in prod).
+ */
+export async function loadInstallKey(storage: KeyStorage): Promise<InstallKey> {
+	const locks = globalThis.navigator?.locks;
+	if (locks === undefined) {
+		return loadInstallKeyUnlocked(storage);
+	}
+	return locks.request(INSTALL_SIGNING_KEY_LOCK, { mode: "exclusive" }, () =>
+		loadInstallKeyUnlocked(storage),
+	);
 }
 
 /**

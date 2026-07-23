@@ -63,7 +63,8 @@ const MATCH: MatchScoreInput = { score: 0.87, tier: "STRONG" };
 const CONTEXT: ScoreReceiptContext = {
 	engineVersion: "4.0.0",
 	watchlistVersion: "2026.06.09",
-	inputsHash: "sha256:abc",
+	inputsHash:
+		"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 };
 
 describe("matchScoreSubject", () => {
@@ -74,7 +75,8 @@ describe("matchScoreSubject", () => {
 			engine: "amlfilter-sequenceMatcher",
 			engine_version: "4.0.0",
 			watchlist_version: "2026.06.09",
-			inputs_hash: "sha256:abc",
+			inputs_hash:
+				"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 			score: 0.87,
 			tier: "STRONG",
 		});
@@ -192,6 +194,19 @@ describe("attested score bounds", () => {
 		const rogue = {
 			...matchScoreSubject(MATCH, CONTEXT),
 			inputs_hash: "md5:abc",
+		} as unknown as MatchScoreSubject;
+		const receipt = await signPayload(rogue, seed);
+		await expect(verifyMatchReceipt(receipt, pinned)).rejects.toBeInstanceOf(
+			InputsHashInvalid,
+		);
+	});
+
+	it("REJECTS at verify a sha256-scheme payload whose digest is not 64 lowercase hex characters", async () => {
+		const seed = generateSeedHex();
+		const pinned = await publicKeyHex(seed);
+		const rogue = {
+			...matchScoreSubject(MATCH, CONTEXT),
+			inputs_hash: "sha256:abc",
 		} as unknown as MatchScoreSubject;
 		const receipt = await signPayload(rogue, seed);
 		await expect(verifyMatchReceipt(receipt, pinned)).rejects.toBeInstanceOf(
