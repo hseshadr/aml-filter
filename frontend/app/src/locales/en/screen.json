@@ -60,6 +60,13 @@
 			"passport": "passport {{value}}",
 			"nationalId": "national-id {{value}}"
 		},
-		"whyScore": "Why this score?"
+		"whyScore": "Why this score?",
+		"receipt": {
+			"summary": "Score receipt",
+			"sealedScore": "sealed score",
+			"engine": "engine",
+			"watchlist": "watchlist",
+			"inputs": "inputs hash"
+		}
 	}
 }

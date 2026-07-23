@@ -1,13 +1,19 @@
 import {
+	defaultKeyStorage,
 	EMPTY_IDENTIFIERS,
 	type Entity,
 	type EntityType,
 	type Identifiers,
+	loadInstallKey,
 	type Match,
 	type MatchReason,
+	type MatchScoreSubject,
 	type RiskCategory,
+	verifyMatchReceipt,
 } from "@amlfilter/browser";
+import { ReceiptBadge, ReceiptPanel } from "@edgeproc/receipt-ui";
 import type { TFunction } from "i18next";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 /** The unified view model rendered for a directory entity or scored match. */
@@ -25,7 +31,12 @@ export interface Dossier {
 	readonly score?: number;
 	readonly explanation?: string;
 	readonly reasons?: ReadonlyArray<MatchReason>;
+	/** The signed Avow receipt sealing a scored match (absent on directory rows). */
+	readonly score_receipt?: ScoreReceipt;
 }
+
+/** The signed Avow receipt a scored match carries. */
+type ScoreReceipt = NonNullable<Match["score_receipt"]>;
 
 export function dossierFromEntity(entity: Entity): Dossier {
 	return {
@@ -58,6 +69,7 @@ export function dossierFromMatch(match: Match): Dossier {
 		score: match.score,
 		explanation: match.explanation,
 		reasons: match.reasons,
+		score_receipt: match.score_receipt,
 	};
 }
 
@@ -77,6 +89,69 @@ function identifierLines(
 		lines.push(...values.map((value) => `${label} ${value}`));
 	}
 	return lines;
+}
+
+/**
+ * The ONLY signer this card trusts: this install's own key, read from the
+ * same storage the engine's sealer signs with. Re-resolved whenever a new
+ * receipt arrives, and reset to null — no verdict UI at all, the fail-closed
+ * default — while resolving, so a receipt is never judged against a stale key.
+ */
+function useInstallPublicKey(receipt: ScoreReceipt | undefined): string | null {
+	const [publicKey, setPublicKey] = useState<string | null>(null);
+	useEffect(() => {
+		setPublicKey(null);
+		if (receipt === undefined) {
+			return;
+		}
+		// No usable storage means no stable install key (matchReceipts.ts never
+		// seals there either): stay fail-closed rather than invent a signer.
+		const storage = defaultKeyStorage();
+		if (storage === null) {
+			return;
+		}
+		let active = true;
+		void loadInstallKey(storage).then((key) => {
+			if (active) {
+				setPublicKey(key.publicKeyHex);
+			}
+		});
+		return () => {
+			active = false;
+		};
+	}, [receipt]);
+	return publicKey;
+}
+
+interface ReceiptSubjectProps {
+	readonly payload: MatchScoreSubject;
+	readonly t: TFunction;
+}
+
+/** The sealed subject rows shown inside the receipt panel's payload section. */
+function ReceiptSubject({ payload, t }: ReceiptSubjectProps) {
+	return (
+		<dl className="match-card__signals">
+			<div className="match-card__signal">
+				<dt>{t("dossier.receipt.sealedScore")}</dt>
+				<dd>{`${payload.score.toFixed(3)} (${payload.tier})`}</dd>
+			</div>
+			<div className="match-card__signal">
+				<dt>{t("dossier.receipt.engine")}</dt>
+				<dd>{payload.engine_version}</dd>
+			</div>
+			<div className="match-card__signal">
+				<dt>{t("dossier.receipt.watchlist")}</dt>
+				<dd>{payload.watchlist_version}</dd>
+			</div>
+			<div className="match-card__signal">
+				<dt>{t("dossier.receipt.inputs")}</dt>
+				<dd>
+					<code>{payload.inputs_hash}</code>
+				</dd>
+			</div>
+		</dl>
+	);
 }
 
 interface FactProps {
@@ -101,6 +176,7 @@ export function DossierCard({ dossier }: DossierCardProps) {
 	const { t } = useTranslation("screen");
 	const identifiers = identifierLines(dossier.identifiers, t);
 	const places = [...new Set([...dossier.nationalities, ...dossier.countries])];
+	const receiptKey = useInstallPublicKey(dossier.score_receipt);
 	return (
 		<li className="match-card">
 			<div className="match-card__head">
@@ -110,6 +186,13 @@ export function DossierCard({ dossier }: DossierCardProps) {
 				)}
 				{dossier.score !== undefined && (
 					<span className="match-card__score">{dossier.score.toFixed(3)}</span>
+				)}
+				{dossier.score_receipt !== undefined && receiptKey !== null && (
+					<ReceiptBadge
+						expectedPublicKey={receiptKey}
+						receipt={dossier.score_receipt}
+						verify={verifyMatchReceipt}
+					/>
 				)}
 				<span className="match-card__badge">{dossier.risk_category}</span>
 			</div>
@@ -152,6 +235,19 @@ export function DossierCard({ dossier }: DossierCardProps) {
 							</div>
 						))}
 					</dl>
+				</details>
+			)}
+			{dossier.score_receipt !== undefined && receiptKey !== null && (
+				<details className="match-card__details match-card__receipt">
+					<summary>{t("dossier.receipt.summary")}</summary>
+					<ReceiptPanel
+						expectedPublicKey={receiptKey}
+						receipt={dossier.score_receipt}
+						renderPayload={(payload) => (
+							<ReceiptSubject payload={payload} t={t} />
+						)}
+						verify={verifyMatchReceipt}
+					/>
 				</details>
 			)}
 		</li>
