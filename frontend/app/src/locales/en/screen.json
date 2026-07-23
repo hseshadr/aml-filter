@@ -66,7 +66,15 @@
 			"sealedScore": "sealed score",
 			"engine": "engine",
 			"watchlist": "watchlist",
-			"inputs": "inputs hash"
+			"inputs": "inputs hash",
+			"status": {
+				"pending": "Verification pending…",
+				"unavailable": "Verification unavailable",
+				"checking": "Verifying…",
+				"verified": "Verified",
+				"invalid": "Not verified — tampered or invalid signature",
+				"wrongKey": "Not verified — untrusted signer"
+			}
 		}
 	}
 }

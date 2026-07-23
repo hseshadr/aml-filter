@@ -11,7 +11,11 @@ import {
 	type RiskCategory,
 	verifyMatchReceipt,
 } from "@amlfilter/browser";
-import { ReceiptBadge, ReceiptPanel } from "@edgeproc/receipt-ui";
+import {
+	ReceiptPanel,
+	type ReceiptStatus,
+	useReceiptVerification,
+} from "@edgeproc/receipt-ui";
 import type { TFunction } from "i18next";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -69,7 +73,11 @@ export function dossierFromMatch(match: Match): Dossier {
 		score: match.score,
 		explanation: match.explanation,
 		reasons: match.reasons,
-		score_receipt: match.score_receipt,
+		// Conditional spread, not `score_receipt: undefined`: under
+		// exactOptionalPropertyTypes an absent receipt stays ABSENT.
+		...(match.score_receipt !== undefined
+			? { score_receipt: match.score_receipt }
+			: {}),
 	};
 }
 
@@ -92,35 +100,145 @@ function identifierLines(
 }
 
 /**
+ * The trust-anchor lifecycle around receipt verification. Every state is
+ * RENDERED — a receipt-bearing match must never appear badge-less, because a
+ * silent badge gap reads as "this match was never sealed".
+ */
+type InstallKeyState =
+	| { readonly status: "loading" }
+	| { readonly status: "unavailable" }
+	| { readonly status: "ready"; readonly publicKey: string };
+
+/**
  * The ONLY signer this card trusts: this install's own key, read from the
  * same storage the engine's sealer signs with. Re-resolved whenever a new
- * receipt arrives, and reset to null — no verdict UI at all, the fail-closed
- * default — while resolving, so a receipt is never judged against a stale key.
+ * receipt arrives, and reset to `loading` — the fail-closed default — while
+ * resolving, so a receipt is never judged against a stale key. Blocked storage
+ * and a failed load both land on `unavailable` (rendered, audit-logged), never
+ * on a silently missing badge.
  */
-function useInstallPublicKey(receipt: ScoreReceipt | undefined): string | null {
-	const [publicKey, setPublicKey] = useState<string | null>(null);
+function useInstallKeyState(
+	receipt: ScoreReceipt | undefined,
+): InstallKeyState {
+	const [state, setState] = useState<InstallKeyState>({ status: "loading" });
 	useEffect(() => {
-		setPublicKey(null);
+		setState({ status: "loading" });
 		if (receipt === undefined) {
 			return;
 		}
 		// No usable storage means no stable install key (matchReceipts.ts never
-		// seals there either): stay fail-closed rather than invent a signer.
+		// seals there either): say so on screen rather than invent a signer.
 		const storage = defaultKeyStorage();
 		if (storage === null) {
+			setState({ status: "unavailable" });
 			return;
 		}
 		let active = true;
-		void loadInstallKey(storage).then((key) => {
-			if (active) {
-				setPublicKey(key.publicKeyHex);
-			}
-		});
+		loadInstallKey(storage)
+			.then((key) => {
+				if (active) {
+					setState({ status: "ready", publicKey: key.publicKeyHex });
+				}
+			})
+			.catch((error: unknown) => {
+				console.warn("amlfilter.receipt.trust_anchor_load_failed", {
+					error: error instanceof Error ? error.message : String(error),
+				});
+				if (active) {
+					setState({ status: "unavailable" });
+				}
+			});
 		return () => {
 			active = false;
 		};
 	}, [receipt]);
-	return publicKey;
+	return state;
+}
+
+/**
+ * Everything the head badge can say: the library's four verify verdicts plus
+ * the two app-owned trust-anchor states.
+ */
+type BadgeStatus = ReceiptStatus | "pending" | "unavailable";
+
+const BADGE_ICON: Record<BadgeStatus, string> = {
+	pending: "…",
+	unavailable: "?",
+	checking: "…",
+	verified: "✓",
+	invalid: "✕",
+	"wrong-key": "⚠",
+};
+
+const BADGE_LABEL_KEY: Record<BadgeStatus, string> = {
+	pending: "dossier.receipt.status.pending",
+	unavailable: "dossier.receipt.status.unavailable",
+	checking: "dossier.receipt.status.checking",
+	verified: "dossier.receipt.status.verified",
+	invalid: "dossier.receipt.status.invalid",
+	"wrong-key": "dossier.receipt.status.wrongKey",
+};
+
+interface ReceiptStatusChipProps {
+	readonly status: BadgeStatus;
+	readonly t: TFunction;
+}
+
+/**
+ * App-rendered status chip: the same accessible markup contract as
+ * receipt-ui's StatusPill (live status region, aria-hidden icon + word label —
+ * WCAG 1.4.1), but with the label routed through i18next. Composed over the
+ * library's public `useReceiptVerification` hook instead of `ReceiptBadge` so
+ * every app-rendered string stays translatable; receipt-ui 0.1.0 has no
+ * label-injection API (0.2.0 adoption is tracked in docs/ARCHITECTURE.md).
+ */
+function ReceiptStatusChip({ status, t }: ReceiptStatusChipProps) {
+	return (
+		<span className="receipt-status" data-status={status} role="status">
+			<span aria-hidden="true" className="receipt-status__icon">
+				{BADGE_ICON[status]}
+			</span>
+			<span className="receipt-status__text">{t(BADGE_LABEL_KEY[status])}</span>
+		</span>
+	);
+}
+
+interface VerifyVerdictChipProps {
+	readonly receipt: ScoreReceipt;
+	readonly publicKey: string;
+	readonly t: TFunction;
+}
+
+/** The verify verdict once the trust anchor is ready. A separate component so
+ * the verification hook runs unconditionally (rules of hooks). */
+function VerifyVerdictChip({ receipt, publicKey, t }: VerifyVerdictChipProps) {
+	const status = useReceiptVerification(receipt, publicKey, verifyMatchReceipt);
+	return <ReceiptStatusChip status={status} t={t} />;
+}
+
+interface ReceiptVerdictProps {
+	readonly receipt: ScoreReceipt;
+	readonly keyState: InstallKeyState;
+	readonly t: TFunction;
+}
+
+/** One rendered state for every trust-anchor + verification combination. */
+function ReceiptVerdict({ receipt, keyState, t }: ReceiptVerdictProps) {
+	if (keyState.status === "ready") {
+		return (
+			<VerifyVerdictChip
+				publicKey={keyState.publicKey}
+				receipt={receipt}
+				t={t}
+			/>
+		);
+	}
+	return (
+		<ReceiptStatusChip
+			status={keyState.status === "loading" ? "pending" : "unavailable"}
+			t={t}
+		/>
+	);
 }
 
 interface ReceiptSubjectProps {
@@ -176,7 +294,7 @@ export function DossierCard({ dossier }: DossierCardProps) {
 	const { t } = useTranslation("screen");
 	const identifiers = identifierLines(dossier.identifiers, t);
 	const places = [...new Set([...dossier.nationalities, ...dossier.countries])];
-	const receiptKey = useInstallPublicKey(dossier.score_receipt);
+	const receiptKeyState = useInstallKeyState(dossier.score_receipt);
 	return (
 		<li className="match-card">
 			<div className="match-card__head">
@@ -187,11 +305,11 @@ export function DossierCard({ dossier }: DossierCardProps) {
 				{dossier.score !== undefined && (
 					<span className="match-card__score">{dossier.score.toFixed(3)}</span>
 				)}
-				{dossier.score_receipt !== undefined && receiptKey !== null && (
-					<ReceiptBadge
-						expectedPublicKey={receiptKey}
+				{dossier.score_receipt !== undefined && (
+					<ReceiptVerdict
+						keyState={receiptKeyState}
 						receipt={dossier.score_receipt}
-						verify={verifyMatchReceipt}
+						t={t}
 					/>
 				)}
 				<span className="match-card__badge">{dossier.risk_category}</span>
@@ -237,19 +355,20 @@ export function DossierCard({ dossier }: DossierCardProps) {
 					</dl>
 				</details>
 			)}
-			{dossier.score_receipt !== undefined && receiptKey !== null && (
-				<details className="match-card__details match-card__receipt">
-					<summary>{t("dossier.receipt.summary")}</summary>
-					<ReceiptPanel
-						expectedPublicKey={receiptKey}
-						receipt={dossier.score_receipt}
-						renderPayload={(payload) => (
-							<ReceiptSubject payload={payload} t={t} />
-						)}
-						verify={verifyMatchReceipt}
-					/>
-				</details>
-			)}
+			{dossier.score_receipt !== undefined &&
+				receiptKeyState.status === "ready" && (
+					<details className="match-card__details match-card__receipt">
+						<summary>{t("dossier.receipt.summary")}</summary>
+						<ReceiptPanel
+							expectedPublicKey={receiptKeyState.publicKey}
+							receipt={dossier.score_receipt}
+							renderPayload={(payload) => (
+								<ReceiptSubject payload={payload} t={t} />
+							)}
+							verify={verifyMatchReceipt}
+						/>
+					</details>
+				)}
 		</li>
 	);
 }

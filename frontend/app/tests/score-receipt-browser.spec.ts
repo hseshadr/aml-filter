@@ -12,10 +12,13 @@ import { expect, test } from "@playwright/test";
 // Chromium page (through the app's own Vite dev server) and drives
 // sign -> verify -> tamper-reject -> wrong-key-reject with a clean console.
 //
-// NOTE: scoreReceipt is not yet reachable from a user journey — no product code
-// imports it on this branch — so this drives the module directly rather than
-// through the UI. When the module is wired into the screening path, this should
-// be replaced by (or joined with) an assertion on the real user flow.
+// The production screening path DOES seal through this module (matchReceipts.ts
+// → createMatchReceiptSealer), and the user journey — seal → display → verify →
+// rekey-fail-closed — is proven over the minified build by
+// tests/e2e-c1/receipt-badge.spec.ts. This spec is NOT redundant with that
+// lane: it is the only module-level real-browser proof of the crypto contract
+// (sign -> verify -> tamper-reject -> wrong-key-reject), which is what makes
+// the unit suite's `@vitest-environment node` opt-out defensible.
 //
 // Vite dev serves arbitrary workspace sources under /@fs/<abs path>, which is
 // how the unbundled package module is reachable from the page.
