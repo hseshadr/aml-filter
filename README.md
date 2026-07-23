@@ -215,7 +215,8 @@ Four live adapters ship: **OFAC SDN**, **UN**, **EU**, and **UK/OFSI**. A produc
 publish requires every adapter to fetch successfully, produce a source-specific
 plausible entity count, and prove an upstream update time within 90 days. Any missing,
 empty, truncated, stale, or future-dated feed aborts the new bundle; a partial sanctions
-set is never signed.
+set is never signed. Every external feed request is abortable after 45 seconds, so an
+unresponsive upstream fails the publish rather than holding a CI runner indefinitely.
 
 ```bash
 # from frontend/

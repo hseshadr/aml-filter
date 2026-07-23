@@ -22,6 +22,7 @@
 // `SourceLine` is the shared neutral shape (see sources/source.ts); entity_id is
 // the NAMESPACED id `OFAC_SDN:<ent_num>` so it stays unique across lists.
 
+import { fetchWithTimeout } from "./sources/fetchWithTimeout.ts";
 import {
 	namespacedId,
 	OFAC_LIST_ID,
@@ -169,7 +170,7 @@ export function parseSdn(
 }
 
 async function fetchText(url: string): Promise<string> {
-	const res = await fetch(url);
+	const res = await fetchWithTimeout(url, "OFAC");
 	if (!res.ok) {
 		throw new Error(`fetch ${url} failed: ${res.status} ${res.statusText}`);
 	}

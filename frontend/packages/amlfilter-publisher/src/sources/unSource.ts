@@ -6,6 +6,7 @@
 //   *_ALIAS/ALIAS_NAME, INDIVIDUAL_DATE_OF_BIRTH/DATE, NATIONALITY/VALUE) into
 //   namespaced SourceLines. Fixture-tested in unSource.test.ts.
 
+import { fetchWithTimeout } from "./fetchWithTimeout.ts";
 import {
 	namespacedId,
 	type RawListBytes,
@@ -75,7 +76,7 @@ export const unSource: WatchlistSource = {
 	id: UN_LIST_ID,
 	title: "UN Consolidated",
 	async fetchRaw(): Promise<RawListBytes> {
-		const res = await fetch(UN_URL);
+		const res = await fetchWithTimeout(UN_URL, "UN");
 		if (!res.ok) {
 			throw new Error(`fetch UN list failed: ${res.status} ${res.statusText}`);
 		}

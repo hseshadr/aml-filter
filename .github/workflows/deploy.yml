@@ -89,7 +89,7 @@ jobs:
       needs.preflight.outputs.configured == 'true' ||
       github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
     steps:
       - name: Guard — refuse to run until the deploy secrets are configured
         # Runs BEFORE checkout — run from the always-present workspace root.

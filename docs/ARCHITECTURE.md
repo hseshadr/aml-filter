@@ -118,10 +118,10 @@ ships a list inside the app**.
 `{ id, title, fetchRaw(): Promise<RawListBytes>, parse(raw, version): SourceLine[] }`.
 `fetchRaw()` pulls the raw source bytes; `parse()` maps them deterministically (no
 network) to a neutral `SourceLine[]`. Four adapters ship — `OFAC_SDN`, `EU_CONSOLIDATED`,
-`UN_CONSOLIDATED`, `UK_OFSI`. **OFAC and UN `fetchRaw` are live**; **EU and UK `fetchRaw`
-are scaffolded** — the real endpoint URL is wired with a `TODO` (EU needs a rotating
-access token, UK needs the consolidated-CSV asset path confirmed). **All four `parse()`
-are real and fixture-tested** (`fixtures/sources/`).
+`UN_CONSOLIDATED`, `UK_OFSI` — and all four live endpoints are fixture-tested. External
+fetches use a 45-second abortable deadline, so a stalled sanctions provider fails closed
+without leaving the publish job hanging. **All four `parse()` implementations are real
+and fixture-tested** (`fixtures/sources/`).
 
 The per-list pipeline:
 

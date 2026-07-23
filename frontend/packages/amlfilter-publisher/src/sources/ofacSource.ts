@@ -6,6 +6,7 @@
 //           and fetchOfac.test.ts). entity_id is namespaced "OFAC_SDN:<ent_num>".
 
 import { OFAC_BASE, parseSdn } from "../fetchOfac.ts";
+import { fetchWithTimeout } from "./fetchWithTimeout.ts";
 import {
 	OFAC_LIST_ID,
 	type RawListBytes,
@@ -23,7 +24,7 @@ interface FetchedText {
 }
 
 async function fetchText(url: string): Promise<FetchedText> {
-	const res = await fetch(url);
+	const res = await fetchWithTimeout(url, "OFAC");
 	if (!res.ok) {
 		throw new Error(`fetch ${url} failed: ${res.status} ${res.statusText}`);
 	}

@@ -7,6 +7,7 @@
 //   AKA rows of one entity share an id) into namespaced SourceLines.
 //   Fixture-tested in ukSource.test.ts.
 
+import { fetchWithTimeout } from "./fetchWithTimeout.ts";
 import {
 	namespacedId,
 	type RawListBytes,
@@ -145,7 +146,7 @@ export const ukSource: WatchlistSource = {
 	id: UK_LIST_ID,
 	title: "UK OFSI",
 	async fetchRaw(): Promise<RawListBytes> {
-		const res = await fetch(UK_URL);
+		const res = await fetchWithTimeout(UK_URL, "UK");
 		if (!res.ok) {
 			throw new Error(`fetch UK list failed: ${res.status} ${res.statusText}`);
 		}

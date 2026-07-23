@@ -6,6 +6,7 @@
 // parse:    REAL — maps <sanctionEntity> (logicalId, subjectType, nameAlias,
 //   birthdate, citizenship/address country) into namespaced SourceLines.
 
+import { fetchWithTimeout } from "./fetchWithTimeout.ts";
 import {
 	EU_LIST_ID,
 	namespacedId,
@@ -91,7 +92,7 @@ export const euSource: WatchlistSource = {
 	id: EU_LIST_ID,
 	title: "EU Consolidated",
 	async fetchRaw(): Promise<RawListBytes> {
-		const res = await fetch(EU_URL);
+		const res = await fetchWithTimeout(EU_URL, "EU");
 		if (!res.ok) {
 			throw new Error(`fetch EU list failed: ${res.status} ${res.statusText}`);
 		}
