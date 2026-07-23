@@ -82,19 +82,28 @@ function bootedRuntimes(): FakeRuntimeRecord[] {
 	return runtimes.filter((r) => r.bootCalls > 0);
 }
 
+/** The booted runtime at `index`; each caller has already asserted it exists. */
+function bootedRuntimeAt(index: number): FakeRuntimeRecord {
+	const record = bootedRuntimes()[index];
+	if (record === undefined) {
+		throw new Error(`unreachable: no booted runtime at index ${index}`);
+	}
+	return record;
+}
+
 describe("ScreenPage — runtime disposal on unmount", () => {
 	it("disposes its page-owned runtime when the page unmounts", async () => {
 		const { unmount } = render(<ScreenPage />);
 		await readyBox();
 		expect(bootedRuntimes()).toHaveLength(1);
-		expect(bootedRuntimes()[0].dispose).not.toHaveBeenCalled();
+		expect(bootedRuntimeAt(0).dispose).not.toHaveBeenCalled();
 
 		unmount();
 
 		// Disposal is deferred one macrotask (the StrictMode-cancel window), so
 		// wait for it rather than asserting synchronously.
 		await waitFor(() =>
-			expect(bootedRuntimes()[0].dispose).toHaveBeenCalledTimes(1),
+			expect(bootedRuntimeAt(0).dispose).toHaveBeenCalledTimes(1),
 		);
 	});
 
@@ -129,7 +138,7 @@ describe("ScreenPage — runtime disposal on unmount", () => {
 		await readyBox();
 		first.unmount();
 		await waitFor(() =>
-			expect(bootedRuntimes()[0].dispose).toHaveBeenCalledTimes(1),
+			expect(bootedRuntimeAt(0).dispose).toHaveBeenCalledTimes(1),
 		);
 
 		// The /screen → away → /screen journey: the second visit constructs a NEW
@@ -137,6 +146,6 @@ describe("ScreenPage — runtime disposal on unmount", () => {
 		render(<ScreenPage />);
 		await readyBox();
 		expect(bootedRuntimes()).toHaveLength(2);
-		expect(bootedRuntimes()[1].dispose).not.toHaveBeenCalled();
+		expect(bootedRuntimeAt(1).dispose).not.toHaveBeenCalled();
 	});
 });

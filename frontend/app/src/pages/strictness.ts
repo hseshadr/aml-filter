@@ -49,7 +49,13 @@ export const BALANCED_LOW_CONFIDENCE_LINE = 0.4;
 
 // The visible per-level labels live in screen.json under `strictness.levels.*`,
 // keyed by `level`; the control renders them with t() at their button.
-export const STRICTNESS_LEVELS: ReadonlyArray<StrictnessLevel> = [
+// Typed as a fixed 3-tuple (not ReadonlyArray) so the LEVEL lookup below is
+// provably exhaustive — indexing [0]/[1]/[2] cannot be undefined.
+export const STRICTNESS_LEVELS: readonly [
+	StrictnessLevel,
+	StrictnessLevel,
+	StrictnessLevel,
+] = [
 	// Lenient is the show-everything level: no lexical gate, no display line.
 	{ level: "lenient", floor: 0.3, minLexical: 0.0, displayFloor: 0.0 },
 	// Balanced keeps Lenient's recall floor but leads only with confident scores.

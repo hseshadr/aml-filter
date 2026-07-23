@@ -146,8 +146,8 @@ export default function ReviewBoardPage() {
 				match.match_id,
 				draft.disposition,
 				{
-					reviewer_id: draft.reviewer_id || undefined,
-					review_notes: draft.review_notes || undefined,
+					...(draft.reviewer_id ? { reviewer_id: draft.reviewer_id } : {}),
+					...(draft.review_notes ? { review_notes: draft.review_notes } : {}),
 				},
 			);
 			setMatches((prev) =>

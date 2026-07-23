@@ -24,10 +24,13 @@ export function resolveOrtAsset(
 	publicDir: string,
 	urlPath: string,
 ): OrtAsset | null {
-	const ext = Object.keys(ORT_ASSET_MIME).find((e) => urlPath.endsWith(e));
-	if (!urlPath.startsWith("/ort/") || ext === undefined) {
+	const entry = Object.entries(ORT_ASSET_MIME).find(([ext]) =>
+		urlPath.endsWith(ext),
+	);
+	if (!urlPath.startsWith("/ort/") || entry === undefined) {
 		return null;
 	}
+	const [, contentType] = entry;
 	const ortDir = resolve(publicDir, "ort");
 	// `.${urlPath}` turns the absolute request path "/ort/x" into "./ort/x" so it
 	// resolves relative to publicDir; a `..` segment then resolves OUTSIDE ortDir.
@@ -35,5 +38,5 @@ export function resolveOrtAsset(
 	if (!file.startsWith(ortDir + sep)) {
 		return null;
 	}
-	return { file, contentType: ORT_ASSET_MIME[ext] };
+	return { file, contentType };
 }
