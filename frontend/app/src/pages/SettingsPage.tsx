@@ -55,11 +55,13 @@ function errorMessage(err: unknown, fallback: string): string {
 function arrowTarget(current: Sensitivity, key: string): Sensitivity | null {
 	const i = SENSITIVITY_LEVELS.findIndex((l) => l.level === current);
 	if (key === "ArrowRight" || key === "ArrowDown") {
-		return SENSITIVITY_LEVELS[Math.min(i + 1, SENSITIVITY_LEVELS.length - 1)]
-			.level;
+		return (
+			SENSITIVITY_LEVELS[Math.min(i + 1, SENSITIVITY_LEVELS.length - 1)]
+				?.level ?? null
+		);
 	}
 	if (key === "ArrowLeft" || key === "ArrowUp") {
-		return SENSITIVITY_LEVELS[Math.max(i - 1, 0)].level;
+		return SENSITIVITY_LEVELS[Math.max(i - 1, 0)]?.level ?? null;
 	}
 	return null;
 }
@@ -179,7 +181,7 @@ function ResultBanner({
 	 * zero-customer book rescans 0 customers even for a REAL change, so the
 	 * summary alone cannot distinguish "applied" from "nothing to apply". */
 	readonly appliedChange: boolean;
-	readonly onRetry?: () => void;
+	readonly onRetry?: (() => void) | undefined;
 	readonly t: TFunction;
 }) {
 	if (error !== null) {

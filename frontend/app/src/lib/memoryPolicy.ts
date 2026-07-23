@@ -30,7 +30,9 @@ export function browserMemorySignals(): BrowserMemorySignals {
 	const candidate = navigator as Navigator & { readonly deviceMemory?: number };
 	return {
 		userAgent: navigator.userAgent,
-		deviceMemory: candidate.deviceMemory,
+		...(candidate.deviceMemory !== undefined
+			? { deviceMemory: candidate.deviceMemory }
+			: {}),
 		maxTouchPoints: navigator.maxTouchPoints,
 	};
 }

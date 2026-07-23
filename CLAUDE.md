@@ -82,7 +82,7 @@ pnpm --filter aml-filter-app preview      # Serve the production build
 
 ### The gate — one command, from `frontend/` (CI literally runs this same script)
 ```bash
-pnpm gate               # lint → typecheck → test → build → the 3 Playwright e2e lanes
+pnpm gate               # lint → typecheck → test → build → verify-i18n → the 5 Playwright e2e lanes
 ```
 Individual stages (what `gate` fans out to):
 ```bash
@@ -92,11 +92,13 @@ pnpm -r run test        # Vitest across the workspace
 pnpm -r run build       # Production build across the workspace
 ```
 
-### e2e lanes (from `frontend/app`; all three are part of the gate)
+### e2e lanes (from `frontend/app`; all five are part of the gate)
 ```bash
-pnpm test:e2e:c1        # Browser-engine e2e in real Chromium
+pnpm test:e2e:receipt   # Module-level Avow score-receipt crypto proof in real Chromium (vite dev)
+pnpm test:e2e:c1        # Browser-engine e2e in real Chromium (incl. the receipt-badge journey)
 pnpm test:e2e:kyc       # Backend-free local-first KYC journey in real Chromium
 pnpm test:e2e:bundle    # Signed-bundle delta-sync boot (verify → OPFS → offline reload)
+pnpm test:e2e:mobile:ci # Mobile memory smoke (Android Chromium + desktop control profile)
 ```
 
 ### Publish signed lists (from `frontend/`)
@@ -126,7 +128,7 @@ Each rule below carries the real shipped scar that makes it non-negotiable:
   step copy — the 2026-07 standards pass found CI running a whole lane
   (`test:e2e:bundle`) that neither doc mentioned. Three places to say one thing is two
   drifts waiting.
-- **The three real-Chromium e2e lanes are part of the gate, not optional extras.** Scar:
+- **The five real-Chromium e2e lanes are part of the gate, not optional extras.** Scar:
   an es2020 model-load crash, a silent boot hang, and the demo bundle failing in-tab
   signature verification all shipped through green units + green build — only the
   production-build browser lanes catch this class.
@@ -248,13 +250,22 @@ alike; any signature or hash mismatch aborts the load, with no silent empty list
 
 Unit tests run under **Vitest**; end-to-end runs under **Playwright** in real Chromium.
 
-Three e2e lanes (`frontend/app`), all driving the **minified production build** against the
-**committed signed demo catalog**:
-- `pnpm test:e2e:c1` — the browser-engine lane (incl. an offline-cache spec).
+Five e2e lanes (`frontend/app`), all gate-enforced. Three drive the **minified production
+build** against the **committed signed demo catalog**:
+- `pnpm test:e2e:c1` — the browser-engine lane (incl. an offline-cache spec and the
+  score-receipt journey: seal → display → verify → rekey-fail-closed).
 - `pnpm test:e2e:kyc` — the **backend-free local-first journey**: onboard → auto-screen →
   review → resolve. Its webServers are `vite preview` + the static catalog server only.
 - `pnpm test:e2e:bundle` — the signed-bundle delta-sync lane: verify → OPFS → offline
   reload.
+
+Two run against `vite dev`:
+- `pnpm test:e2e:receipt` — the module-level Avow score-receipt crypto proof (sign →
+  verify → tamper-reject → wrong-key-reject) in real Chromium; it backs the
+  `@vitest-environment node` opt-out in `scoreReceipt.test.ts` (see
+  `playwright.config.ts` for why it cannot fold into the preview lanes).
+- `pnpm test:e2e:mobile:ci` — the mobile memory smoke (Android Chromium + desktop
+  control profile).
 
 **Parity is frozen committed golden JSON snapshots** — the TS implementation is the source
 of truth (the former Python golden generators were deleted):

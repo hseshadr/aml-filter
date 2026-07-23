@@ -7,6 +7,17 @@ import {
 	workstation,
 } from "./workstation";
 
+/** The first recorded call of a mock; every caller has already exercised it. */
+function firstCall<Args extends readonly unknown[]>(
+	calls: ReadonlyArray<Args>,
+): Args {
+	const call = calls[0];
+	if (call === undefined) {
+		throw new Error("unreachable: mock has no recorded calls");
+	}
+	return call;
+}
+
 function makeStore(): WorkstationStore {
 	return {
 		open: vi.fn().mockResolvedValue(1),
@@ -119,7 +130,9 @@ describe("workstation boot", () => {
 		const deps = makeDeps(store);
 		const handle = await workstation(deps);
 		await handle.engineBoot();
-		const [, , selection] = vi.mocked(deps.runtime.bootstrap).mock.calls[0];
+		const [, , selection] = firstCall(
+			vi.mocked(deps.runtime.bootstrap).mock.calls,
+		);
 		expect(selection?.enabledLists).toEqual(["OFAC_SDN"]);
 		// strict default = 0.75; OFAC override lenient = 0.55.
 		expect(selection?.thresholds).toEqual({
@@ -135,7 +148,9 @@ describe("workstation boot", () => {
 		} as WorkstationDeps & { memoryPolicy: () => "eager" | "streaming" };
 		const handle = await workstation(deps);
 		await handle.engineBoot();
-		const [, , selection] = vi.mocked(deps.runtime.bootstrap).mock.calls[0];
+		const [, , selection] = firstCall(
+			vi.mocked(deps.runtime.bootstrap).mock.calls,
+		);
 		expect(selection?.enabledLists).toEqual(["OFAC_SDN"]);
 	});
 
@@ -146,7 +161,9 @@ describe("workstation boot", () => {
 		} as WorkstationDeps & { memoryPolicy: () => "eager" | "streaming" };
 		const handle = await workstation(deps);
 		await handle.engineBoot();
-		const [, , selection] = vi.mocked(deps.runtime.bootstrap).mock.calls[0];
+		const [, , selection] = firstCall(
+			vi.mocked(deps.runtime.bootstrap).mock.calls,
+		);
 		expect(selection?.enabledLists).toBeUndefined();
 	});
 
@@ -163,7 +180,9 @@ describe("workstation boot", () => {
 		} as WorkstationDeps & { memoryPolicy: () => "eager" | "streaming" };
 		const handle = await workstation(deps);
 		await handle.engineBoot();
-		const [, , selection] = vi.mocked(deps.runtime.bootstrap).mock.calls[0];
+		const [, , selection] = firstCall(
+			vi.mocked(deps.runtime.bootstrap).mock.calls,
+		);
 		expect(selection?.enabledLists).toEqual(["OFAC_SDN"]);
 		expect(selection?.residency).toBe("streaming");
 	});
@@ -175,7 +194,9 @@ describe("workstation boot", () => {
 		} as WorkstationDeps & { memoryPolicy: () => "eager" | "streaming" };
 		const handle = await workstation(deps);
 		await handle.engineBoot();
-		const [, , selection] = vi.mocked(deps.runtime.bootstrap).mock.calls[0];
+		const [, , selection] = firstCall(
+			vi.mocked(deps.runtime.bootstrap).mock.calls,
+		);
 		expect(selection?.residency).toBe("eager");
 	});
 
@@ -314,7 +335,7 @@ describe("workstation boot", () => {
 		);
 		// Re-bootstrap goes through the runtime reload (reuses the warm embedder).
 		expect(deps.runtime.reload).toHaveBeenCalledTimes(1);
-		const [selection] = vi.mocked(deps.runtime.reload).mock.calls[0];
+		const [selection] = firstCall(vi.mocked(deps.runtime.reload).mock.calls);
 		expect(selection?.enabledLists).toEqual(["OFAC_SDN"]);
 		// A real selection change triggers a re-screen (no customers → all zeros).
 		expect(summary).toEqual({

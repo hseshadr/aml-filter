@@ -338,11 +338,13 @@ export function ScreenPage() {
 function arrowTarget(current: Strictness, key: string): Strictness | null {
 	const i = STRICTNESS_LEVELS.findIndex((l) => l.level === current);
 	if (key === "ArrowRight" || key === "ArrowDown") {
-		return STRICTNESS_LEVELS[Math.min(i + 1, STRICTNESS_LEVELS.length - 1)]
-			.level;
+		return (
+			STRICTNESS_LEVELS[Math.min(i + 1, STRICTNESS_LEVELS.length - 1)]?.level ??
+			null
+		);
 	}
 	if (key === "ArrowLeft" || key === "ArrowUp") {
-		return STRICTNESS_LEVELS[Math.max(i - 1, 0)].level;
+		return STRICTNESS_LEVELS[Math.max(i - 1, 0)]?.level ?? null;
 	}
 	return null;
 }

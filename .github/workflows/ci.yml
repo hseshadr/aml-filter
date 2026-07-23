@@ -4,6 +4,10 @@ on:
     branches: [main]
   pull_request:
 
+# Least privilege: CI only reads the repo — it deploys and publishes nothing.
+permissions:
+  contents: read
+
 # Cancel a superseded in-flight run on the same ref (a new commit / force-push on a
 # PR supersedes the previous one). Keyed by ref so main pushes don't cancel each other.
 concurrency:

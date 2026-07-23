@@ -148,8 +148,8 @@ export class DbClient implements WorkstationStore {
 			id: this.#allocId(),
 			matchId,
 			resolution,
-			reviewerId,
-			notes,
+			...(reviewerId !== undefined ? { reviewerId } : {}),
+			...(notes !== undefined ? { notes } : {}),
 		});
 	}
 

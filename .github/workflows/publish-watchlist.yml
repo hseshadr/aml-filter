@@ -60,8 +60,11 @@ permissions:
 
 env:
   # edge-proc is NOT on PyPI; CI clones the public repo and `uv sync`s it.
+  # Pinned to the full commit SHA of tag v0.1.4: this code touches the
+  # watchlist signing key, and a tag can be repointed while a SHA cannot
+  # (pinning is transitive — the guard lives in workflow-security.test.ts).
   EDGEPROC_REPO: https://github.com/hseshadr/edge-proc
-  EDGEPROC_REF: v0.1.4
+  EDGEPROC_COMMIT: e3bfb570feb8619c823df63b6c012fd8c8c6a9b6 # tag v0.1.4
 
 jobs:
   publish:
@@ -153,8 +156,12 @@ jobs:
       - name: Install edge-proc
         working-directory: ${{ runner.temp }}
         run: |
-          git clone --depth 1 --branch "$EDGEPROC_REF" "$EDGEPROC_REPO" edge-proc
+          # `git clone --branch` cannot take a SHA; fetch the pinned commit.
+          git init -q edge-proc
           cd edge-proc
+          git remote add origin "$EDGEPROC_REPO"
+          git fetch -q --depth 1 origin "$EDGEPROC_COMMIT"
+          git checkout -q --detach FETCH_HEAD
           uv sync --extra bundles
           echo "EDGEPROC_DIR=$PWD" >> "$GITHUB_ENV"
           # Smoke-test the exact invocation contracts the publisher + verify use.

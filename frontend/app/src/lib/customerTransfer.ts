@@ -111,8 +111,16 @@ function normalizeDate(value: unknown): string {
 	const us = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(raw);
 	if (iso && validDate(Number(iso[1]), Number(iso[2]), Number(iso[3])))
 		return raw;
-	if (us && validDate(Number(us[3]), Number(us[1]), Number(us[2]))) {
-		return `${us[3]}-${us[1].padStart(2, "0")}-${us[2].padStart(2, "0")}`;
+	if (us) {
+		const [, month, day, year] = us;
+		if (
+			month !== undefined &&
+			day !== undefined &&
+			year !== undefined &&
+			validDate(Number(year), Number(month), Number(day))
+		) {
+			return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+		}
 	}
 	return "";
 }

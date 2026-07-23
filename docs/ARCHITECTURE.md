@@ -291,6 +291,78 @@ The exact wire format (the signed `VersionPointer`, the content-addressed `Index
 buffer layout) is specified in **[`WATCHLIST_FORMAT.md`](WATCHLIST_FORMAT.md)** — that
 document is the single source of truth for the artifact and this one does not restate it.
 
+## Score receipts
+
+The signed-list trust model covers the engine's *input*. Score receipts extend the same
+discipline to its *output*: every scored match carries a signed record a reviewer can
+verify offline — proof that **this exact score was produced and not altered
+afterwards**. An explainable score (the `reasons[]` contract above) tells you *why* the
+number is what it is; the receipt tells you the number on screen is still the number the
+engine computed.
+
+**The seal path.** When the screening engine scores a match, it seals it on the spot:
+the engine hands each scored match to a sealer built by `createMatchReceiptSealer`
+(`engine/matchReceipts.ts`), which signs with a **per-install Ed25519 key**
+(`engine/installKey.ts` — generated on first use, stored in this browser's
+`localStorage`). Receipts use the `@edgeproc/avow` format — RFC-8785 canonical JSON
+signed with Ed25519 (`engine/scoreReceipt.ts`).
+
+**The sealed subject.** The receipt seals `{ score, tier, engine version, watchlist
+version, inputs hash }` — enough to pin the number, its tier classification, the code
+that produced it, the list data it ran against, and a hash of the inputs it scored.
+
+**Bounds are validated at both ends — reject, never clamp.** The scorer clamps its
+output to `[0, 1]`, so an out-of-range score reaching the sealer is a bug or hostile
+data — and a clamped signature would attest a number the engine never produced. Sealing
+therefore **throws** on any out-of-range score rather than clamping it. Verification
+independently re-checks the same range, plus that the inputs hash uses the `sha256`
+scheme — so even a validly-signed out-of-range receipt renders **Not verified**.
+
+**The six UI verification states.** The chip beside each match score renders exactly one
+of:
+
+| State | Chip reads | When |
+| --- | --- | --- |
+| pending | "Verification pending…" | receipt present, trust key still loading |
+| checking | "Verifying…" | key loaded, signature check in flight |
+| verified | "Verified" (✓) | signature and every subject check pass |
+| invalid | "Not verified — tampered or invalid signature" (✕) | payload, signature, or subject check fails |
+| wrong-key | "Not verified — untrusted signer" (⚠) | valid signature, but not this install's key |
+| unavailable | "Verification unavailable" (?) | browser storage blocked / trust key can't load |
+
+A receipt-bearing match **never renders without a chip** — there is no state in which a
+sealed score appears and its verification status is silently omitted.
+
+**Fail-closed on trust, additive on availability.** The receipt panel is never rendered
+without a ready trust anchor: while the key resolves the state is pending (the
+fail-closed default), and blocked storage lands on unavailable — a receipt is never
+judged against a stale or absent key. At the same time, receipts are **additive
+provenance**: screening never goes dark because provenance is unavailable. Matches still
+score, render, and can be reviewed; only the chip reports that the receipt could not be
+checked.
+
+**Corrupt-seed quarantine.** If the stored signing seed is ever found corrupted, the
+engine does not silently destroy the evidence: the corrupt value is moved under a
+separate quarantine storage key, a fresh key is generated, and the returned key flags
+the reset (`resetFromCorruptSeed`). Receipts sealed before the reset now verify against
+a key this install no longer holds, so they read "Not verified — untrusted signer" —
+which is the honest answer.
+
+**The custody caveat.** The signing key lives in ordinary browser storage. A receipt is
+therefore **tamper-evident provenance** — "this exact score was produced and not altered
+afterwards" — **not** proof the machine was uncompromised at signing time, and **not** a
+hardware-backed key. Treat it as an integrity seal on the score's journey from engine to
+screen, not as an attestation of the environment.
+
+**i18n and the panel labels.** Every app-rendered string — the chip labels, all six
+states — goes through i18next like the rest of the app. The expanded receipt panel
+itself is rendered by `@edgeproc/receipt-ui` 0.1.0, whose internal labels ("Algorithm",
+"Signer", …) are English-only. receipt-ui 0.2.0 adds an injectable-labels API (released
+on the library's main branch; its npm publish is pending), and its adoption here is
+**pending** — gated by this repository's 24-hour dependency-age policy once the package
+is published. Until then the panel-internal labels remain English. (The `DossierCard`
+source comment points readers here.)
+
 ## Local data model (SQLite-WASM)
 
 The schema lives in `frontend/packages/amlfilter-workstation/src/db/schema.ts`

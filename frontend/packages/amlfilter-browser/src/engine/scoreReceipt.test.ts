@@ -45,11 +45,15 @@ import {
 	publicKeyHex,
 	ReplayMismatch,
 	SignatureInvalid,
+	signPayload,
 } from "@edgeproc/avow";
 import { describe, expect, it } from "vitest";
 import {
+	InputsHashInvalid,
 	type MatchScoreInput,
+	type MatchScoreSubject,
 	matchScoreSubject,
+	ScoreOutOfRange,
 	type ScoreReceiptContext,
 	signMatchReceipt,
 	verifyMatchReceipt,
@@ -106,7 +110,7 @@ describe("signMatchReceipt + verifyMatchReceipt", () => {
 		);
 		const tampered = {
 			...receipt,
-			payload: { ...receipt.payload, score: 0.01 },
+			payload: { ...receipt.payload, score: 0.01 } as MatchScoreSubject,
 		};
 		await expect(verifyMatchReceipt(tampered, pinned)).rejects.toBeInstanceOf(
 			ReplayMismatch,
@@ -122,6 +126,76 @@ describe("signMatchReceipt + verifyMatchReceipt", () => {
 		const otherKey = await publicKeyHex(generateSeedHex());
 		await expect(verifyMatchReceipt(receipt, otherKey)).rejects.toBeInstanceOf(
 			SignatureInvalid,
+		);
+	});
+});
+
+// The attested-score bound. The engine's scorer clamps its final score into
+// [0, 1] (scoring.ts: Math.max(0.0, Math.min(1.0, total))), so a value outside
+// that range can never be a legitimate engine output — it is a bug or hostile
+// data. Sealing therefore THROWS rather than clamps: clamping would sign a
+// fabricated value, and the receipt's whole purpose is that the sealed number
+// is the number the engine produced.
+describe("attested score bounds", () => {
+	const subjectWith = (score: number) =>
+		matchScoreSubject({ score, tier: "STRONG" }, CONTEXT);
+
+	it.each([
+		[1.5],
+		[-0.1],
+		[Number.NaN],
+		[Number.POSITIVE_INFINITY],
+	])("REFUSES to seal an impossible score (%s) — coded ScoreOutOfRange", (score) => {
+		expect(() => subjectWith(score)).toThrow(ScoreOutOfRange);
+	});
+
+	it("seals the boundary scores 0 and 1", () => {
+		expect(subjectWith(0).score).toBe(0);
+		expect(subjectWith(1).score).toBe(1);
+	});
+
+	it("REJECTS at verify a receipt VALIDLY SIGNED over an out-of-range score (the range check is not vacuous)", async () => {
+		// Bypass the seal-time guard the way a buggy or rogue sealer would: sign
+		// the out-of-range subject directly through avow. The signature verifies,
+		// so only a real verify-side range check can catch this.
+		const seed = generateSeedHex();
+		const pinned = await publicKeyHex(seed);
+		const rogue = {
+			...matchScoreSubject(MATCH, CONTEXT),
+			score: 1.5,
+		} as unknown as MatchScoreSubject;
+		const receipt = await signPayload(rogue, seed);
+		await expect(verifyMatchReceipt(receipt, pinned)).rejects.toBeInstanceOf(
+			ScoreOutOfRange,
+		);
+	});
+
+	it("REJECTS at verify a payload tampered to an out-of-range score", async () => {
+		const seed = generateSeedHex();
+		const pinned = await publicKeyHex(seed);
+		const receipt = await signMatchReceipt(
+			matchScoreSubject(MATCH, CONTEXT),
+			seed,
+		);
+		const tampered = {
+			...receipt,
+			payload: { ...receipt.payload, score: 1.5 } as MatchScoreSubject,
+		};
+		await expect(verifyMatchReceipt(tampered, pinned)).rejects.toBeInstanceOf(
+			ScoreOutOfRange,
+		);
+	});
+
+	it("REJECTS at verify a payload whose inputs_hash is not sha256-scheme", async () => {
+		const seed = generateSeedHex();
+		const pinned = await publicKeyHex(seed);
+		const rogue = {
+			...matchScoreSubject(MATCH, CONTEXT),
+			inputs_hash: "md5:abc",
+		} as unknown as MatchScoreSubject;
+		const receipt = await signPayload(rogue, seed);
+		await expect(verifyMatchReceipt(receipt, pinned)).rejects.toBeInstanceOf(
+			InputsHashInvalid,
 		);
 	});
 });

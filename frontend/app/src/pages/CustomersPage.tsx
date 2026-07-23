@@ -145,9 +145,9 @@ export default function CustomersPage() {
 			const result = await apiClient.onboardCustomer({
 				customer_reference: form.customer_reference,
 				name: form.name,
-				onboarded_by: form.onboarded_by || undefined,
-				country: form.country || undefined,
-				dob: form.dob || undefined,
+				...(form.onboarded_by ? { onboarded_by: form.onboarded_by } : {}),
+				...(form.country ? { country: form.country } : {}),
+				...(form.dob ? { dob: form.dob } : {}),
 				id_documents: toIdDocuments(idDocs),
 			});
 			setLastResult(result);
@@ -298,8 +298,8 @@ export default function CustomersPage() {
 					customer_reference: row.customer_reference,
 					name: row.name,
 					onboarded_by: row.onboarded_by,
-					country: row.country || undefined,
-					dob: row.dob || undefined,
+					...(row.country ? { country: row.country } : {}),
+					...(row.dob ? { dob: row.dob } : {}),
 					id_documents: [...row.id_documents],
 				})),
 			);

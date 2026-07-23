@@ -1,11 +1,12 @@
 import {
 	loadInstallKey,
 	type Match,
+	type MatchScoreSubject,
 	matchScoreSubject,
 	signMatchReceipt,
 } from "@amlfilter/browser";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DossierCard, dossierFromMatch } from "./DossierCard";
 
 // A valid Ed25519 seed that is NOT this jsdom install's key — receipts signed
@@ -118,7 +119,9 @@ describe("DossierCard receipt verdict", () => {
 			...match,
 			score_receipt: {
 				...receipt,
-				payload: { ...receipt.payload, score: 0.999 },
+				// Hostile-data simulation: a plain number smuggled where only an
+				// AttestedScore may live — exactly what a tamper produces.
+				payload: { ...receipt.payload, score: 0.999 } as MatchScoreSubject,
 			},
 		};
 		const { container } = renderCard(tampered);
@@ -181,6 +184,99 @@ describe("DossierCard receipt verdict", () => {
 		expect(container.querySelector(".receipt-status")).toBeNull();
 		expect(container.querySelector(".match-card__receipt")).toBeNull();
 		expect(screen.queryByText("Score receipt")).toBeNull();
+	});
+});
+
+// A receipt-bearing match must NEVER render badge-less: a silent badge gap is
+// indistinguishable from "this match was never sealed", which quietly downgrades
+// the product's central trust claim. So the trust-anchor lifecycle gets its own
+// distinct, i18n'd rendered states — pending while the key loads, unavailable
+// when storage is blocked or the load fails — alongside the verify verdicts.
+describe("DossierCard trust-anchor states", () => {
+	afterEach(() => {
+		vi.restoreAllMocks();
+	});
+
+	it("renders the verification-PENDING state while the trust anchor loads (never badge-less)", async () => {
+		const match = await signedMatch();
+		const { container } = renderCard(match);
+
+		// Synchronously after mount the key cannot have resolved yet — the badge
+		// must already exist, in its pending state, not appear later from nothing.
+		const badge = headBadge(container);
+		expect(badge).not.toBeNull();
+		expect(badge?.getAttribute("data-status")).toBe("pending");
+		expect(badge?.querySelector(".receipt-status__text")?.textContent).toBe(
+			"Verification pending…",
+		);
+
+		// And it resolves into the real verdict, not a dead placeholder.
+		await waitFor(() => {
+			expect(headBadge(container)?.getAttribute("data-status")).toBe(
+				"verified",
+			);
+		});
+	});
+
+	it("renders the verification-UNAVAILABLE state when the trust-anchor load FAILS (never badge-less)", async () => {
+		const match = await signedMatch();
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+			throw new Error("storage fault");
+		});
+
+		const { container } = renderCard(match);
+		await waitFor(() => {
+			expect(headBadge(container)?.getAttribute("data-status")).toBe(
+				"unavailable",
+			);
+		});
+
+		// Icon + text in a live status region (WCAG 1.4.1 — same bar as verdicts).
+		const badge = headBadge(container);
+		expect(badge?.getAttribute("role")).toBe("status");
+		expect(
+			badge
+				?.querySelector(".receipt-status__icon")
+				?.getAttribute("aria-hidden"),
+		).toBe("true");
+		expect(badge?.querySelector(".receipt-status__text")?.textContent).toBe(
+			"Verification unavailable",
+		);
+
+		// No receipt panel may open against a missing trust anchor (fail-closed),
+		// and the failure is audit-logged as a structured event.
+		expect(container.querySelector(".match-card__receipt")).toBeNull();
+		expect(warn).toHaveBeenCalledWith(
+			"amlfilter.receipt.trust_anchor_load_failed",
+			expect.anything(),
+		);
+	});
+
+	it("renders the verification-UNAVAILABLE state when storage is blocked outright", async () => {
+		const match = await signedMatch();
+		const original = Object.getOwnPropertyDescriptor(
+			globalThis,
+			"localStorage",
+		);
+		Object.defineProperty(globalThis, "localStorage", {
+			configurable: true,
+			get() {
+				throw new Error("storage blocked by policy");
+			},
+		});
+		try {
+			const { container } = renderCard(match);
+			await waitFor(() => {
+				expect(headBadge(container)?.getAttribute("data-status")).toBe(
+					"unavailable",
+				);
+			});
+		} finally {
+			if (original !== undefined) {
+				Object.defineProperty(globalThis, "localStorage", original);
+			}
+		}
 	});
 });
 

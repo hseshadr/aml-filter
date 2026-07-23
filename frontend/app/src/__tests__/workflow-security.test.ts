@@ -78,6 +78,39 @@ describe("GitHub Actions workflow pinning", () => {
 	});
 });
 
+// The signing-path edge-proc dependency is NOT a `uses:` ref — it is a `git
+// clone` inside the deploy and watchlist-publish workflows, feeding the code
+// that handles the watchlist signing key. The same rule applies for the same
+// reason: a tag (`v0.1.4`) can be repointed by whoever controls the upstream
+// repo; a full 40-hex commit SHA cannot. Pinning is transitive — a moving ref
+// nested anywhere inside a signing path is still a supply-chain hole.
+describe("signing-path edge-proc pin", () => {
+	const SIGNING_WORKFLOWS = ["deploy.yml", "publish-watchlist.yml"] as const;
+
+	it.each(
+		SIGNING_WORKFLOWS,
+	)("%s pins edge-proc to a full commit SHA, not a movable ref", (file) => {
+		const yaml = readFileSync(join(workflowsDir, file), "utf8");
+		const pin = yaml.match(/^\s*EDGEPROC_COMMIT:\s*([^\s#]+)/m);
+		expect(pin, `${file} must declare EDGEPROC_COMMIT`).not.toBeNull();
+		expect(pin?.[1]).toMatch(/^[0-9a-f]{40}$/);
+		// And no movable-ref variable may survive alongside the pin.
+		expect(yaml).not.toMatch(/EDGEPROC_REF/);
+	});
+});
+
+// GITHUB_TOKEN defaults are repo-wide; a workflow that never writes must say
+// so. A top-level `permissions:` block (column 0) is the least-privilege floor
+// for every workflow in this repo.
+describe("workflow permissions", () => {
+	it("every workflow declares a top-level permissions block", () => {
+		const missing = readWorkflows()
+			.filter(({ yaml }) => !/^permissions:/m.test(yaml))
+			.map(({ file }) => file);
+		expect(missing).toEqual([]);
+	});
+});
+
 describe("the pin rule itself", () => {
 	it.each([
 		["a moving major tag", "actions/checkout@v7"],

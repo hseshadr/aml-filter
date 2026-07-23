@@ -125,7 +125,9 @@ export class LocalApiClient implements Pick<ApiClient, keyof ApiClient> {
 		const result = await onboarding.onboard({
 			customer_reference: payload.customer_reference,
 			name: payload.name,
-			onboarded_by: payload.onboarded_by,
+			...(payload.onboarded_by !== undefined
+				? { onboarded_by: payload.onboarded_by }
+				: {}),
 			country: payload.country ?? null,
 			dob: payload.dob ?? null,
 			id_documents: payload.id_documents ?? [],
@@ -189,12 +191,18 @@ export class LocalApiClient implements Pick<ApiClient, keyof ApiClient> {
 	): Promise<ReviewMatch[]> {
 		const { store } = await this.#services();
 		const rows = await store.listReviewMatches({
-			tier: params?.tier,
-			resolutionStatus: params?.resolution_status,
-			reviewState: params?.reviewState,
-			needsReview: params?.needsReview,
-			limit: params?.limit,
-			offset: params?.offset,
+			...(params?.tier !== undefined ? { tier: params.tier } : {}),
+			...(params?.resolution_status !== undefined
+				? { resolutionStatus: params.resolution_status }
+				: {}),
+			...(params?.reviewState !== undefined
+				? { reviewState: params.reviewState }
+				: {}),
+			...(params?.needsReview !== undefined
+				? { needsReview: params.needsReview }
+				: {}),
+			...(params?.limit !== undefined ? { limit: params.limit } : {}),
+			...(params?.offset !== undefined ? { offset: params.offset } : {}),
 		});
 		return rows.map(toReviewMatch);
 	}
@@ -206,8 +214,10 @@ export class LocalApiClient implements Pick<ApiClient, keyof ApiClient> {
 	): Promise<ReviewMatch> {
 		const { tracker } = await this.#services();
 		const row = await tracker.resolve(matchId, resolution_status, {
-			reviewerId: body?.reviewer_id,
-			notes: body?.review_notes,
+			...(body?.reviewer_id !== undefined
+				? { reviewerId: body.reviewer_id }
+				: {}),
+			...(body?.review_notes !== undefined ? { notes: body.review_notes } : {}),
 		});
 		return toReviewMatch(row);
 	}
