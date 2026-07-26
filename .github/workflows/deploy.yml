@@ -52,17 +52,29 @@ env:
   EDGEPROC_COMMIT: e3bfb570feb8619c823df63b6c012fd8c8c6a9b6 # tag v0.1.4
 
 jobs:
-  # Only auto-deploy when the triggering CI run succeeded on main. For a manual
-  # dispatch this gate is a pass-through (deploy runs regardless). When the
-  # deploy secrets are absent, configured=false makes the auto-run SKIP cleanly
-  # instead of red-X'ing every push to main.
+  # Only auto-deploy when the triggering CI run succeeded on a PUSH TO THIS
+  # REPO's main. For a manual dispatch this gate is a pass-through (deploy runs
+  # regardless). When the deploy secrets are absent, configured=false makes the
+  # auto-run SKIP cleanly instead of red-X'ing every push to main.
+  #
+  # `head_branch == 'main'` is NOT a trust boundary on its own: a fork's default
+  # branch is also called `main`, and a fork-PR run reports that name here. This
+  # job's deploy checks out `workflow_run.head_sha` with WATCHLIST_SIGNING_KEY
+  # and CLOUDFLARE_* in scope, so a branch-name-only gate would run fork-authored
+  # code (pnpm install alone executes it) holding the production sanctions
+  # signing key. Pin the triggering run to this repository AND to a push.
+  # Mirrors hseshadr/ci .github/workflows/cloudflare-pages-deploy.yml.
+  # Property-tested (both polarities) in
+  # frontend/app/src/__tests__/deploy-fork-guard.test.ts.
   preflight:
     name: Gate auto-deploy
     runs-on: ubuntu-latest
     if: >-
       github.event_name == 'workflow_dispatch' ||
-      (github.event.workflow_run.conclusion == 'success' &&
-       github.event.workflow_run.head_branch == 'main')
+      (github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
     outputs:
       configured: ${{ steps.check.outputs.configured }}
     steps:
