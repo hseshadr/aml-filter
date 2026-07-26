@@ -145,16 +145,12 @@ describe("parseTimeoutMs (model-load timeout override, fail-closed)", () => {
 		expect(parseTimeoutMs("2500")).toBe(2500);
 	});
 
-	it.each([
-		"",
-		"abc",
-		"0",
-		"-1",
-		"NaN",
-		"Infinity",
-	])("falls back to the default for the invalid override %p", (raw) => {
-		expect(parseTimeoutMs(raw)).toBe(MODEL_LOAD_TIMEOUT_MS);
-	});
+	it.each(["", "abc", "0", "-1", "NaN", "Infinity"])(
+		"falls back to the default for the invalid override %p",
+		(raw) => {
+			expect(parseTimeoutMs(raw)).toBe(MODEL_LOAD_TIMEOUT_MS);
+		},
+	);
 
 	it("reads VITE_MODEL_LOAD_TIMEOUT_MS from the env record", () => {
 		expect(modelLoadTimeoutMs({ VITE_MODEL_LOAD_TIMEOUT_MS: "1234" })).toBe(

@@ -87,16 +87,17 @@ describe("GitHub Actions workflow pinning", () => {
 describe("signing-path edge-proc pin", () => {
 	const SIGNING_WORKFLOWS = ["deploy.yml", "publish-watchlist.yml"] as const;
 
-	it.each(
-		SIGNING_WORKFLOWS,
-	)("%s pins edge-proc to a full commit SHA, not a movable ref", (file) => {
-		const yaml = readFileSync(join(workflowsDir, file), "utf8");
-		const pin = yaml.match(/^\s*EDGEPROC_COMMIT:\s*([^\s#]+)/m);
-		expect(pin, `${file} must declare EDGEPROC_COMMIT`).not.toBeNull();
-		expect(pin?.[1]).toMatch(/^[0-9a-f]{40}$/);
-		// And no movable-ref variable may survive alongside the pin.
-		expect(yaml).not.toMatch(/EDGEPROC_REF/);
-	});
+	it.each(SIGNING_WORKFLOWS)(
+		"%s pins edge-proc to a full commit SHA, not a movable ref",
+		(file) => {
+			const yaml = readFileSync(join(workflowsDir, file), "utf8");
+			const pin = yaml.match(/^\s*EDGEPROC_COMMIT:\s*([^\s#]+)/m);
+			expect(pin, `${file} must declare EDGEPROC_COMMIT`).not.toBeNull();
+			expect(pin?.[1]).toMatch(/^[0-9a-f]{40}$/);
+			// And no movable-ref variable may survive alongside the pin.
+			expect(yaml).not.toMatch(/EDGEPROC_REF/);
+		},
+	);
 });
 
 // GITHUB_TOKEN defaults are repo-wide; a workflow that never writes must say

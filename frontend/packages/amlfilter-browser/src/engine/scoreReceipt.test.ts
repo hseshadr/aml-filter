@@ -179,14 +179,12 @@ describe("attested score bounds", () => {
 	const subjectWith = (score: number) =>
 		matchScoreSubject({ score, tier: "STRONG" }, CONTEXT);
 
-	it.each([
-		[1.5],
-		[-0.1],
-		[Number.NaN],
-		[Number.POSITIVE_INFINITY],
-	])("REFUSES to seal an impossible score (%s) — coded ScoreOutOfRange", (score) => {
-		expect(() => subjectWith(score)).toThrow(ScoreOutOfRange);
-	});
+	it.each([[1.5], [-0.1], [Number.NaN], [Number.POSITIVE_INFINITY]])(
+		"REFUSES to seal an impossible score (%s) — coded ScoreOutOfRange",
+		(score) => {
+			expect(() => subjectWith(score)).toThrow(ScoreOutOfRange);
+		},
+	);
 
 	it("seals the boundary scores 0 and 1", () => {
 		expect(subjectWith(0).score).toBe(0);
