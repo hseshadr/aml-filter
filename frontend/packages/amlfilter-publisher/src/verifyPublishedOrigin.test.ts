@@ -120,9 +120,16 @@ describe("verifyPublishedOrigin against the committed demo origin", () => {
 			(url) => url === target,
 			() => new Uint8Array(0),
 		);
+		// Still fail-closed, but now refused EARLIER and for a truer reason: zero
+		// bytes are not a zstd frame, so no decompressed-size bound can be read
+		// from them and nothing is handed to the decoder. It used to reach the
+		// content-address check only after a vacuous decompress of empty input.
 		await expect(
 			verifyPublishedOrigin({ baseUrl: BASE, fetchBytes, pubkey: PUBKEY }),
-		).rejects.toThrow(/failed content-address check/);
+		).rejects.toBeInstanceOf(IntegrityError);
+		await expect(
+			verifyPublishedOrigin({ baseUrl: BASE, fetchBytes, pubkey: PUBKEY }),
+		).rejects.toThrow(/does not declare a decompressed size/);
 	});
 
 	it("rejects a chunk whose served bytes are corrupted", async () => {

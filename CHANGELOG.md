@@ -21,6 +21,23 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Decompression bound survives the zstd API change** — `@hpcc-js/wasm-zstd` 1.15.0
+  removes `decompressChunk`'s `outputSize` parameter ("Callers must not guess an
+  output size"). That argument *was* the expansion-bomb guard: WASM allocated exactly
+  the size we passed. Because JavaScript drops extra arguments silently, the old
+  two-argument call would have kept compiling and running while enforcing nothing —
+  a 147-byte frame expands to 4 MiB unchecked. The bound now moves ahead of the
+  decoder: the Zstandard frame header (RFC 8878 §3.1.1) is parsed and a chunk is
+  refused unless it is exactly one frame, spanning every input byte, declaring a
+  `Frame_Content_Size` within the chunk ceiling. The single-frame rule matters on its
+  own — `decompressChunk` decodes concatenated frames in one call, so bounding only
+  the first frame still lets 512 KiB of input decode to ~14.9 GB. Decoding then runs
+  `resetDecompression` → `decompressChunk` → `decompressEnd` (which reports truncated
+  frames), with the output length re-checked as a final fail-closed gate. All five
+  checks are mutation-tested: each one, removed, turns a specific test red. Both
+  workspace packages that declare the library are moved together — the app and the
+  browser tier each resolve their own copy, and a split version is how the bundle
+  ends up decoding through a decoder the code was not written for.
 - **Bounded, accessible watchlist directory** — `/screen` no longer mounts the entire
   real-list population as tens of thousands of dossier cards. It renders 24 cards per
   page behind semantic Previous/Next controls, an announced visible range, and stable
