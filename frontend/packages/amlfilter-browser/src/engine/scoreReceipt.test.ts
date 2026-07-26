@@ -130,6 +130,43 @@ describe("signMatchReceipt + verifyMatchReceipt", () => {
 			SignatureInvalid,
 		);
 	});
+
+	// THE Ed25519 CASE. Verification has three gates and they fire in a fixed
+	// order: content-hash, then pinned signer, then signature bytes. Both tamper
+	// tests above stop at an EARLIER gate — the mutated score dies at the hash
+	// compare (its payload_hash is left stale), and the wrong key dies at the
+	// signer compare (a plain string !==). Neither one ever reaches the
+	// signature check, so neither can prove that check runs.
+	//
+	// This was measured, not assumed: forcing avow's Ed25519 verdict to
+	// always-succeed left this package's entire suite green. Only the test
+	// below turns red under that mutation.
+	it("REJECTS corrupted signature bytes — a valid hash and the RIGHT signer, one flipped nibble", async () => {
+		const seed = generateSeedHex();
+		const pinned = await publicKeyHex(seed);
+		const receipt = await signMatchReceipt(
+			matchScoreSubject(MATCH, CONTEXT),
+			seed,
+		);
+
+		// Flip ONE hex nibble of the signature and change nothing else, so the
+		// payload (and therefore payload_hash) and public_key both stay correct.
+		// Both earlier gates PASS and control reaches the Ed25519 check.
+		const forged = {
+			...receipt,
+			signature:
+				(receipt.signature[0] === "0" ? "1" : "0") + receipt.signature.slice(1),
+		};
+		expect(forged.signature).not.toBe(receipt.signature);
+		expect(forged.signature).toHaveLength(receipt.signature.length);
+		expect(forged.payload).toEqual(receipt.payload);
+		expect(forged.payload_hash).toBe(receipt.payload_hash);
+		expect(forged.public_key).toBe(pinned);
+
+		await expect(verifyMatchReceipt(forged, pinned)).rejects.toBeInstanceOf(
+			SignatureInvalid,
+		);
+	});
 });
 
 // The attested-score bound. The engine's scorer clamps its final score into
