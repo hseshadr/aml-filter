@@ -1,5 +1,5 @@
 import { Trans, useTranslation } from "react-i18next";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { Footer } from "../components/Footer";
 import { DEMO_STATS } from "../generated/landing-stats";
 import "../styles/landing.css";
