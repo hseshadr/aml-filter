@@ -94,7 +94,6 @@ function localDemoPubkeyPin(): Plugin {
 		"fixtures",
 		"demo-public.key",
 	);
-	let announced = false;
 	const serveDemoPubkey = (
 		req: { url?: string | undefined },
 		res: {
@@ -107,22 +106,33 @@ function localDemoPubkeyPin(): Plugin {
 			next();
 			return;
 		}
-		if (!announced) {
-			announced = true;
-			console.info(
-				"[aml-filter] local server: serving the DEMO verify key at /public.key " +
-					"(it pairs with the committed demo bundle). Production ships public/public.key.",
-			);
-		}
 		res.setHeader("Content-Type", "application/octet-stream");
 		res.end(readFileSync(demoPubkey));
+	};
+	// Announce at server start through Vite's own logger, NEVER from inside the
+	// request handler. A first-request `console.info` here wedged the mobile lane:
+	// /settings hung on "Loading settings…" forever, deterministically, with a clean
+	// browser console and a byte-identical network trace. Logging is not free when it
+	// sits in the path that serves the trust root the engine boot is blocked on, so
+	// this stays a startup-time statement about configuration — which is what it is.
+	// Vitest also loads this config; it has no dev server to narrate, so it stays quiet.
+	const announce = (logger: { info: (msg: string) => void }): void => {
+		if (process.env.VITEST !== undefined) {
+			return;
+		}
+		logger.info(
+			"[aml-filter] local server: serving the DEMO verify key at /public.key " +
+				"(it pairs with the committed demo bundle). Production ships public/public.key.",
+		);
 	};
 	return {
 		name: "amlfilter:local-demo-pubkey-pin",
 		configureServer(server) {
+			announce(server.config.logger);
 			server.middlewares.use(serveDemoPubkey);
 		},
 		configurePreviewServer(server) {
+			announce(server.config.logger);
 			server.middlewares.use(serveDemoPubkey);
 		},
 	};

@@ -167,9 +167,8 @@ transfer, not a full backup of matches, audit events, settings, or the watchlist
 The demo catalog (four small fictional lists) is already built, signed, and committed, so
 `/screen` works on a cold clone with no extra steps. It is signed with a throwaway demo
 key that is deliberately **not** the production trust root, so a local `dev` / `preview`
-server serves that demo verify key at `/public.key`, and prints one line saying so the
-first time a browser asks for it. The deployed site pairs the production bundle with the
-production pin — see
+server serves that demo verify key at `/public.key`, and prints one line saying so when it
+starts. The deployed site pairs the production bundle with the production pin — see
 [`docs/QUICKSTART.md`](docs/QUICKSTART.md).
 
 ### Production build & preview

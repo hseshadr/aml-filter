@@ -56,7 +56,7 @@ storage.
 > `frontend/app/public/bundle/origin/` is the committed *demo* bundle, signed with a
 > throwaway demo key that is deliberately **not** the production trust root. So a local
 > `vite dev` / `vite preview` server serves that demo verify key at `/public.key`, and
-> prints one line saying so the first time a browser asks for it. The deployed site pairs
+> prints one line saying so when it starts. The deployed site pairs
 > the production bundle with the production pin in `frontend/app/public/public.key`;
 > `vite build` copies that file into `dist/` untouched.
 
