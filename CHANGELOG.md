@@ -8,6 +8,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **The Ed25519 signature check is now actually tested.** The score-receipt suite had
+  two "tamper" tests and neither one ever reached the signature: the mutated-score case
+  leaves a stale `payload_hash` and dies at the content-hash compare, and the wrong-key
+  case dies at the signer compare. Measured, not assumed — forcing avow's Ed25519
+  verdict to always-succeed left all 366 tests in `@amlfilter/browser` green. A new test
+  builds a genuinely valid receipt and flips **one hex nibble of the `signature` only**,
+  leaving `payload_hash` and `public_key` correct, so both earlier gates pass and control
+  reaches the Ed25519 check. Under that same always-succeed mutation this test — and only
+  this test — turns red. No verification behavior changed; this is test coverage only.
 - **Visible, verifiable score receipts** — every scored match card on `/screen` now
   renders its signed Avow receipt through `@edgeproc/receipt-ui` (v0.1.0): a compact
   icon+text verdict badge beside the score (WCAG 1.4.1 — never color-only) and a
