@@ -8,6 +8,7 @@
 		"settings": "Settings"
 	},
 	"layoutFooter": "Local-first sanctions screening — all data stays in this browser",
+	"layoutFooterSource": "Source code on GitHub (MIT)",
 	"route": {
 		"loading": "Loading…"
 	},

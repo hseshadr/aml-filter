@@ -1029,6 +1029,17 @@ textarea:focus-visible {
 	letter-spacing: 0.01em;
 }
 
+.page-footer__source {
+	color: inherit;
+	text-decoration: underline;
+	text-underline-offset: 0.2em;
+}
+
+.page-footer__source:hover,
+.page-footer__source:focus-visible {
+	color: #fff;
+}
+
 .page-header {
 	gap: 1rem;
 }

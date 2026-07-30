@@ -53,7 +53,17 @@ export default function Layout({ children }: LayoutProps) {
 			</header>
 			<main className="page-main">{children}</main>
 			<footer className="page-footer">
-				<small>{t("layoutFooter")}</small>
+				<small>{t("layoutFooter")}</small>{" "}
+				<small>
+					<a
+						className="page-footer__source"
+						href="https://github.com/hseshadr/aml-filter"
+						rel="noopener noreferrer"
+						target="_blank"
+					>
+						{t("layoutFooterSource")}
+					</a>
+				</small>
 			</footer>
 		</div>
 	);
