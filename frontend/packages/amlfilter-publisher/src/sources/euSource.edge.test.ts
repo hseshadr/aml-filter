@@ -89,8 +89,11 @@ describe("euSource.fetchRaw", () => {
 					new Response("nope", { status: 502, statusText: "Bad Gateway" }),
 			),
 		);
+		// The rejection now comes from the shared fetch seam (which also owns the
+		// retry budget), so assert the STATUS it must name rather than the prose
+		// around it — the style ofacSource.edge.test.ts already uses.
 		await expect(euSource.fetchRaw()).rejects.toThrow(
-			"fetch EU list failed: 502 Bad Gateway",
+			"failed: 502 Bad Gateway",
 		);
 	});
 });

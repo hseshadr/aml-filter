@@ -83,8 +83,9 @@ describe("unSource.fetchRaw", () => {
 					new Response("nope", { status: 500, statusText: "Server Error" }),
 			),
 		);
+		// Raised by the shared fetch seam now; assert the STATUS, not the prose.
 		await expect(unSource.fetchRaw()).rejects.toThrow(
-			"fetch UN list failed: 500 Server Error",
+			"failed: 500 Server Error",
 		);
 	});
 });

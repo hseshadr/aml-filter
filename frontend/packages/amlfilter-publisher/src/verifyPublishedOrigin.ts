@@ -36,7 +36,7 @@ export class OriginVerifyError extends Error {
 /** Fetch raw bytes for an origin URL (injectable for tests). */
 export type OriginFetch = (url: string) => Promise<Uint8Array>;
 
-interface PointerWire {
+export interface PointerWire {
 	readonly manifest_hash: string;
 	readonly version: string;
 	readonly bundle_id?: string | null;
@@ -55,7 +55,7 @@ interface FileWire {
 	readonly chunks: ReadonlyArray<ChunkRefWire>;
 }
 
-interface ManifestWire {
+export interface ManifestWire {
 	readonly files: ReadonlyArray<FileWire>;
 }
 
@@ -112,7 +112,9 @@ function assertManifestWire(value: unknown): asserts value is ManifestWire {
 }
 
 /** Every distinct chunk hash the manifest references. */
-function distinctChunkHashes(manifest: ManifestWire): ReadonlyArray<string> {
+export function distinctChunkHashes(
+	manifest: ManifestWire,
+): ReadonlyArray<string> {
 	const hashes = new Set<string>();
 	for (const file of manifest.files) {
 		for (const ref of file.chunks) {
@@ -122,7 +124,7 @@ function distinctChunkHashes(manifest: ManifestWire): ReadonlyArray<string> {
 	return [...hashes];
 }
 
-async function fetchAndVerifyPointer(
+export async function fetchAndVerifyPointer(
 	baseUrl: string,
 	fetchBytes: OriginFetch,
 	pubkey: Uint8Array,
@@ -177,11 +179,11 @@ export async function nextPublishedSequence(args: {
 	return sequenceAfterLive(pointer.sequence ?? 0);
 }
 
-async function fetchAndVerifyManifest(
+export async function fetchAndVerifyManifest(
 	baseUrl: string,
 	fetchBytes: OriginFetch,
 	pointer: PointerWire,
-): Promise<ManifestWire> {
+): Promise<{ readonly manifest: ManifestWire; readonly bytes: Uint8Array }> {
 	const raw = await fetchBytes(`${baseUrl}/manifest/${pointer.manifest_hash}`);
 	if ((await sha256Hex(raw)) !== pointer.manifest_hash) {
 		throw new OriginVerifyError(
@@ -190,7 +192,7 @@ async function fetchAndVerifyManifest(
 	}
 	const manifest = parseJson<unknown>(raw, "manifest");
 	assertManifestWire(manifest);
-	return manifest;
+	return { manifest, bytes: raw };
 }
 
 /** Fetch + decode-verify every chunk with a bounded pool; return bytes seen. */
@@ -248,7 +250,11 @@ export async function verifyPublishedOrigin(args: {
 			`published pointer sequence is ${pointer.sequence}; expected ${expectSequence} — the deploy did not take (or has not propagated)`,
 		);
 	}
-	const manifest = await fetchAndVerifyManifest(baseUrl, fetchBytes, pointer);
+	const { manifest } = await fetchAndVerifyManifest(
+		baseUrl,
+		fetchBytes,
+		pointer,
+	);
 	const hashes = distinctChunkHashes(manifest);
 	const compressedBytes = await verifyAllChunks(baseUrl, fetchBytes, hashes);
 	return {
