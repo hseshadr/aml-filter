@@ -35,7 +35,7 @@
 		"@amlfilter/workstation": "workspace:*",
 		"@edgeproc/errors": "workspace:*",
 		"@edgeproc/receipt-ui": "0.1.0",
-		"@hpcc-js/wasm-zstd": "^1.13.4",
+		"@hpcc-js/wasm-zstd": "^1.15.0",
 		"@huggingface/transformers": "^4.2.0",
 		"@noble/ed25519": "^3.1.0",
 		"i18next": "^26.3.1",

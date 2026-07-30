@@ -3,7 +3,11 @@
 // integrity boundary is identical (mirrors edge-proc cas.py _verify_or_remove).
 
 import { sha256Hex } from "../crypto";
-import { DecompressionLimitError, decompress } from "./zstd";
+import {
+	DecompressionLimitError,
+	decompress,
+	UndeclaredSizeError,
+} from "./zstd";
 
 /** FastCDC's producer contract forces plaintext cuts at 256 KiB. Compressed
  * bytes get 2× headroom for incompressible zstd overhead, but no more. */
@@ -35,6 +39,12 @@ export async function decompressAndVerify(
 		if (cause instanceof DecompressionLimitError) {
 			throw new IntegrityError(
 				`chunk ${chunkHash} exceeded the ${MAX_DECOMPRESSED_CHUNK_BYTES}-byte decompressed byte limit`,
+				{ cause },
+			);
+		}
+		if (cause instanceof UndeclaredSizeError) {
+			throw new IntegrityError(
+				`chunk ${chunkHash} does not declare a decompressed size we can bound`,
 				{ cause },
 			);
 		}
