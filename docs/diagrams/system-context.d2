@@ -4,7 +4,7 @@
 direction: right
 
 ofac: {
-  label: "OFAC SDN list\n(designated by U.S. Treasury — public domain)\npublished via the Consolidated Screening List\n(U.S. Commerce / ITA, data.trade.gov)"
+  label: "OFAC SDN list\n(designated by U.S. Treasury — public domain)\nRECORDS via the Consolidated Screening List\n(U.S. Commerce / ITA, data.trade.gov)\nNON-LATIN ALIASES via a mirror of\nTreasury's own SDN_ADVANCED.XML"
   shape: document
 }
 
@@ -28,7 +28,7 @@ user: {
   shape: person
 }
 
-ofac -> publisher: "consolidated.csv (SDN rows only)"
+ofac -> publisher: "consolidated.csv (SDN rows)\n+ non-Latin aliases (SDN_ADVANCED.XML)"
 publisher -> cdn: "signed bundle (latest + manifest + chunk)"
 cdn -> browser: "fetch signed bundle + SPA (HTTPS, same-origin)"
 user -> browser: "load customers · screen names"

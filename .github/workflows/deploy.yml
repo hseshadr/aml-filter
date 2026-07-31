@@ -218,11 +218,15 @@ jobs:
         id: build-bundle
         continue-on-error: true
         run: |
+          set -euo pipefail
           pnpm -C frontend --filter @amlfilter/publisher run build-real-bundle -- \
             --version "$VERSION" \
             --sequence "$SEQUENCE" \
             --key "$GITHUB_WORKSPACE/frontend/signing.key" \
-            --out "$CANDIDATE"
+            --out "$CANDIDATE" | tee "$RUNNER_TEMP/build-bundle.out"
+          # The builder prints its alias-coverage verdict; carry it forward so
+          # the deploy can state what the bundle actually contains.
+          grep -E '^ALIAS_(MODE|ADDED)=' "$RUNNER_TEMP/build-bundle.out" >> "$GITHUB_ENV" || true
         env:
           CANDIDATE: ${{ runner.temp }}/bundle-candidate
           # OPTIONAL. The bulk Consolidated Screening List download needs no
@@ -341,6 +345,18 @@ jobs:
           else
             echo "::warning::Deployed WITHOUT a watchlist refresh — serving the previously published bundle, version $SERVED_VERSION (sequence $SERVED_SEQUENCE), age ${SERVED_AGE_DAYS:-unknown} days."
           fi
+          # Alias coverage is a SEPARATE claim from freshness: the bundle can be
+          # today's records and still be missing the non-Latin aliases, which is
+          # invisible unless it is said out loud.
+          case "${ALIAS_MODE:-unknown}" in
+            enriched)
+              echo "Alias coverage: full — ${ALIAS_ADDED:-0} non-Latin aliases from Treasury's SDN_ADVANCED.XML." >> "$GITHUB_STEP_SUMMARY" ;;
+            records-only)
+              echo "::warning::Alias coverage REDUCED — the Treasury alias mirror was unreachable, so this bundle carries only the record feed's Latin-script names. Cyrillic, Arabic and CJK queries will not match."
+              echo "Alias coverage: records-only (Latin script). Non-Latin queries will not match." >> "$GITHUB_STEP_SUMMARY" ;;
+            *)
+              echo "::warning::Alias coverage unknown — the builder did not report a mode (this deploy re-served a previously published bundle)." ;;
+          esac
 
       - name: Verify canonical hosts
         run: |

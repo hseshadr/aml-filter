@@ -13,6 +13,7 @@ import {
 	stagedListsFromSources,
 } from "./buildRealBundle.ts";
 import { createFakeEmbedder } from "./fakeEmbedder.ts";
+import type { AliasEnrichment } from "./sources/sdnAliases.ts";
 import type {
 	RawListBytes,
 	SourceLine,
@@ -158,12 +159,24 @@ describe("stagedListsFromSources", () => {
 		);
 	});
 
+	// A capability whose only caller is its own test is built, not shipped. The
+	// production OFAC spec must actually declare the enrichment, or every deploy
+	// silently publishes Latin-only names while the unit tests stay green.
+	test("WIRES non-Latin alias enrichment into the production OFAC source", () => {
+		const ofac = BUNDLE_SOURCES.find(({ source }) => source.id === "OFAC_SDN");
+		expect(ofac?.enrichAliases).toBeTypeOf("function");
+		// …and only there: the other lists publish their own native scripts.
+		for (const s of BUNDLE_SOURCES.filter((x) => x.source.id !== "OFAC_SDN")) {
+			expect(s.enrichAliases).toBeUndefined();
+		}
+	});
+
 	test("stages every healthy required source, in order", async () => {
 		const specs: readonly RealBundleSourceSpec[] = [
 			spec(fakeSource("OFAC_SDN", "OFAC SDN", "Ivan Fakovich"), "ofac"),
 			spec(fakeSource("UN_CONSOLIDATED", "UN Consolidated", "Jane Roe"), "un"),
 		];
-		const staged = await stagedListsFromSources(
+		const { lists: staged, aliases } = await stagedListsFromSources(
 			specs,
 			createFakeEmbedder(),
 			VERSION,
@@ -176,13 +189,17 @@ describe("stagedListsFromSources", () => {
 		]);
 		expect(staged.map((l) => l.slug)).toEqual(["ofac", "un"]);
 		expect(staged.map((l) => l.title)).toEqual(["OFAC SDN", "UN Consolidated"]);
+		// No spec declared alias enrichment, so the bundle must NOT claim it.
+		expect(aliases.mode).toBe("records-only");
 	});
 
 	test("maps source lines to wire entities and embeds canonical names", async () => {
 		const specs: readonly RealBundleSourceSpec[] = [
 			spec(fakeSource("OFAC_SDN", "OFAC SDN", "Ivan Fakovich"), "ofac"),
 		];
-		const [list] = await stagedListsFromSources(
+		const {
+			lists: [list],
+		} = await stagedListsFromSources(
 			specs,
 			createFakeEmbedder(),
 			VERSION,
@@ -267,5 +284,97 @@ describe("stagedListsFromSources", () => {
 				() => NOW,
 			),
 		).rejects.toThrow(message as RegExp);
+	});
+});
+
+// Alias enrichment is ADDITIVE and OPTIONAL. Records come from the record feed
+// and are complete without it, so a mirror outage must degrade the bundle
+// (fewer aliases) rather than fail the deploy — the same trade-off
+// mirrorPublishedOrigin makes. What it must never do is stay quiet about it.
+describe("alias enrichment degrades loudly instead of failing the build", () => {
+	const spec = (
+		source: WatchlistSource,
+		slug: string,
+		enrichAliases?: () => Promise<AliasEnrichment>,
+	): RealBundleSourceSpec => ({
+		source,
+		slug,
+		health: HEALTH,
+		...(enrichAliases === undefined ? {} : { enrichAliases }),
+	});
+
+	const stage = (specs: readonly RealBundleSourceSpec[]) =>
+		stagedListsFromSources(
+			specs,
+			createFakeEmbedder(),
+			VERSION,
+			undefined,
+			() => NOW,
+		);
+
+	test("reports `enriched` and appends the extra aliases", async () => {
+		const { lists, aliases } = await stage([
+			spec(fakeSource("OFAC_SDN", "OFAC SDN", "Ivan Fakovich"), "ofac", () =>
+				Promise.resolve({
+					byEntityNumber: new Map([["1", ["Иван Факович"]]]),
+					aliasesFound: 1,
+					byScript: new Map([["Cyrillic", 1]]),
+				}),
+			),
+		]);
+
+		expect(aliases.mode).toBe("enriched");
+		expect(aliases.aliasesAdded).toBe(1);
+		expect(aliases.entitiesEnriched).toBe(1);
+		expect(lists[0]?.entities[0]?.aliases).toContain("Иван Факович");
+	});
+
+	test("an unreachable mirror still publishes, marked `records-only`", async () => {
+		const { lists, aliases } = await stage([
+			spec(fakeSource("OFAC_SDN", "OFAC SDN", "Ivan Fakovich"), "ofac", () =>
+				Promise.reject(new Error("mirror unreachable: 503")),
+			),
+		]);
+
+		// The bundle EXISTS — a third-party mirror cannot block a release.
+		expect(lists).toHaveLength(1);
+		expect(lists[0]?.entities).toHaveLength(1);
+		// …but it does not pretend to have coverage it lacks.
+		expect(aliases.mode).toBe("records-only");
+		expect(aliases.aliasesAdded).toBe(0);
+		expect(aliases.reason).toMatch(/mirror unreachable: 503/);
+	});
+
+	test("one degraded source degrades the WHOLE bundle's claim", async () => {
+		const { aliases } = await stage([
+			spec(fakeSource("OFAC_SDN", "OFAC SDN", "Ivan Fakovich"), "ofac", () =>
+				Promise.resolve({
+					byEntityNumber: new Map([["1", ["Иван Факович"]]]),
+					aliasesFound: 1,
+					byScript: new Map([["Cyrillic", 1]]),
+				}),
+			),
+			spec(fakeSource("UN_CONSOLIDATED", "UN", "Jane Roe"), "un", () =>
+				Promise.reject(new Error("boom")),
+			),
+		]);
+
+		// A partial run must never be describable as fully enriched.
+		expect(aliases.mode).toBe("records-only");
+	});
+
+	test("enrichment cannot change the record population", async () => {
+		// Aliases for an entity that does not exist must not create one.
+		const { lists, aliases } = await stage([
+			spec(fakeSource("OFAC_SDN", "OFAC SDN", "Ivan Fakovich"), "ofac", () =>
+				Promise.resolve({
+					byEntityNumber: new Map([["999999", ["Призрак"]]]),
+					aliasesFound: 1,
+					byScript: new Map([["Cyrillic", 1]]),
+				}),
+			),
+		]);
+		expect(lists[0]?.entities).toHaveLength(1);
+		expect(aliases.aliasesAdded).toBe(0);
 	});
 });

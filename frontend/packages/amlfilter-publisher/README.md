@@ -69,14 +69,19 @@ The `embedder` is injected: tests pass a fake (no 23 MB model), production passe
 
 ## Source ingestion
 
-The live adapters and fixture-tested parsers are under `src/sources/`. OFAC SDN is
-read from the U.S. Commerce Department's Consolidated Screening List
+The live adapters and fixture-tested parsers are under `src/sources/`. OFAC SDN
+**records** are read from the U.S. Commerce Department's Consolidated Screening List
 (`data.trade.gov`), keeping only the rows whose `source` is
 `Specially Designated Nationals (SDN) - Treasury Department` — Treasury's own
 export now sits behind a bot-challenge WAF and can no longer be read by a build
-(the rationale is in `src/sources/csl.ts`). UN and EU parse their consolidated
-XML; UK parses the OFSI CSV. Entity IDs are namespaced by source so identical
-upstream IDs cannot collide.
+(the rationale is in `src/sources/csl.ts`). Because that feed carries Latin script
+only, each record's **non-Latin aliases** are then added from Treasury's own
+`SDN_ADVANCED.XML` via a public mirror, joined on the OFAC entity number
+(`src/sources/sdnAliases.ts`). That enrichment is additive and fail-soft: it can
+never add, drop or alter a record, and an unreachable mirror degrades the bundle
+to Latin-only names — reported as `ALIAS_MODE=records-only`, never silently.
+UN and EU parse their consolidated XML; UK parses the OFSI CSV. Entity IDs are
+namespaced by source so identical upstream IDs cannot collide.
 
 ## Tests
 

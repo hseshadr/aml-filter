@@ -34,7 +34,12 @@ import { publishBundle } from "./publishBundle.ts";
 import { toWatchlistEntity } from "./sourceEntity.ts";
 import { euSource } from "./sources/euSource.ts";
 import { ofacSource } from "./sources/ofacSource.ts";
-import type { WatchlistSource } from "./sources/source.ts";
+import {
+	type AliasEnrichment,
+	applyAliasEnrichment,
+	fetchNonLatinAliases,
+} from "./sources/sdnAliases.ts";
+import type { SourceLine, WatchlistSource } from "./sources/source.ts";
 import { ukSource } from "./sources/ukSource.ts";
 import { unSource } from "./sources/unSource.ts";
 import { type StagedList, stageBundle } from "./stageBundle.ts";
@@ -51,11 +56,32 @@ export interface RealBundleSourceSpec {
 		readonly maximumEntities: number;
 		readonly maximumAgeMs: number;
 	};
+	/** Optional extra alias strings for records this list already publishes.
+	 * Additive only — it cannot add, drop or alter a record. A failure here
+	 * DEGRADES the bundle (published without the extra aliases) rather than
+	 * failing it, because the records themselves are unaffected. */
+	readonly enrichAliases?: () => Promise<AliasEnrichment>;
 }
 
 export interface RealBundleDependencies {
 	readonly sources?: readonly RealBundleSourceSpec[];
 	readonly now?: () => Date;
+}
+
+/** Which alias coverage the produced bundle actually has. `records-only` means
+ * a source's enrichment was unreachable and only the record feed's own (Latin)
+ * names are present — it must never be reported as full coverage. */
+export interface AliasEnrichmentReport {
+	readonly mode: "enriched" | "records-only";
+	readonly aliasesAdded: number;
+	readonly entitiesEnriched: number;
+	readonly reason: string | null;
+}
+
+/** Staged lists plus the alias-coverage mode that produced them. */
+export interface StagedLists {
+	readonly lists: readonly StagedList[];
+	readonly aliases: AliasEnrichmentReport;
 }
 
 /** The bundle id stamped into the signed pointer (matches the demo bundle). */
@@ -87,6 +113,10 @@ export const BUNDLE_SOURCES: readonly RealBundleSourceSpec[] = [
 			maximumEntities: 30_000,
 			maximumAgeMs: MAX_FEED_AGE_MS,
 		},
+		// CSL publishes names in Latin script only; Treasury's own XML also
+		// carries each designation in its ORIGINAL script. Without these a
+		// Cyrillic/Arabic/CJK query can never match. Additive and fail-soft.
+		enrichAliases: fetchNonLatinAliases,
 	},
 	{
 		source: unSource,
@@ -154,12 +184,43 @@ function requireFreshSource(
 	}
 }
 
+/** Run a source's optional alias enrichment. A failure DEGRADES, never throws:
+ * the records are already complete and correct without it. */
+async function enrichOrDegrade(
+	spec: RealBundleSourceSpec,
+	lines: readonly SourceLine[],
+	collect: (report: AliasEnrichmentReport) => void,
+): Promise<readonly SourceLine[]> {
+	if (spec.enrichAliases === undefined) {
+		return lines;
+	}
+	try {
+		const applied = applyAliasEnrichment(lines, await spec.enrichAliases());
+		collect({
+			mode: "enriched",
+			aliasesAdded: applied.aliasesAdded,
+			entitiesEnriched: applied.entitiesEnriched,
+			reason: null,
+		});
+		return applied.lines;
+	} catch (error) {
+		collect({
+			mode: "records-only",
+			aliasesAdded: 0,
+			entitiesEnriched: 0,
+			reason: error instanceof Error ? error.message : String(error),
+		});
+		return lines;
+	}
+}
+
 /** Fetch, validate, parse, and embed one required source. */
 async function stageOneSource(
 	spec: RealBundleSourceSpec,
 	embedder: Embedder,
 	version: string,
 	now: Date,
+	collect: (report: AliasEnrichmentReport) => void,
 ): Promise<StagedList> {
 	let raw: Awaited<ReturnType<WatchlistSource["fetchRaw"]>>;
 	try {
@@ -172,8 +233,11 @@ async function stageOneSource(
 		);
 	}
 	requireFreshSource(spec, raw, now);
-	const lines = spec.source.parse(raw, version);
-	requirePlausibleCount(spec, lines.length);
+	const parsed = spec.source.parse(raw, version);
+	// Count the RECORDS the feed published, before any alias enrichment — the
+	// health band is about population, and enrichment cannot change it.
+	requirePlausibleCount(spec, parsed.length);
+	const lines = await enrichOrDegrade(spec, parsed, collect);
 	const entities: WatchlistEntity[] = lines.map((line, i) =>
 		toWatchlistEntity(line, i + 1),
 	);
@@ -200,12 +264,39 @@ export async function stagedListsFromSources(
 	version: string,
 	_log?: (message: string) => void,
 	now: () => Date = () => new Date(),
-): Promise<readonly StagedList[]> {
+): Promise<StagedLists> {
 	const staged: StagedList[] = [];
+	const reports: AliasEnrichmentReport[] = [];
 	for (const spec of specs) {
-		staged.push(await stageOneSource(spec, embedder, version, now()));
+		staged.push(
+			await stageOneSource(spec, embedder, version, now(), (r) =>
+				reports.push(r),
+			),
+		);
 	}
-	return staged;
+	return { lists: staged, aliases: mergeAliasReports(reports) };
+}
+
+/** One bundle-wide verdict: any degraded source degrades the whole bundle, so a
+ * partial run can never be described as fully enriched. */
+function mergeAliasReports(
+	reports: readonly AliasEnrichmentReport[],
+): AliasEnrichmentReport {
+	if (reports.length === 0) {
+		return {
+			mode: "records-only",
+			aliasesAdded: 0,
+			entitiesEnriched: 0,
+			reason: "no source declared alias enrichment",
+		};
+	}
+	const degraded = reports.find((r) => r.mode === "records-only");
+	return {
+		mode: degraded === undefined ? "enriched" : "records-only",
+		aliasesAdded: reports.reduce((n, r) => n + r.aliasesAdded, 0),
+		entitiesEnriched: reports.reduce((n, r) => n + r.entitiesEnriched, 0),
+		reason: degraded?.reason ?? null,
+	};
 }
 
 /** One CLI run: stage the real lists then publish the signed bundle to outDir. */
@@ -252,7 +343,7 @@ export async function runRealBundle(
 	dependencies: RealBundleDependencies = {},
 ): Promise<void> {
 	const args = parseRealBundleArgs(argv);
-	const staged = await stagedListsFromSources(
+	const { lists: staged, aliases } = await stagedListsFromSources(
 		dependencies.sources ?? BUNDLE_SOURCES,
 		createNodeEmbedder(args.models),
 		args.version,
@@ -286,4 +377,13 @@ export async function runRealBundle(
 	process.stdout.write(
 		`real bundle (${staged.length} lists: ${lists}, v${args.version}) -> ${args.outDir}\n`,
 	);
+	// The deploy captures these into $GITHUB_ENV so the bundle's alias coverage
+	// is stated, not assumed. A degraded run must be visible, not inferred.
+	process.stdout.write(`ALIAS_MODE=${aliases.mode}\n`);
+	process.stdout.write(`ALIAS_ADDED=${aliases.aliasesAdded}\n`);
+	if (aliases.mode === "records-only") {
+		process.stderr.write(
+			`alias enrichment UNAVAILABLE — publishing record-feed names only (Latin script). Non-Latin queries will not match. Reason: ${aliases.reason ?? "unknown"}\n`,
+		);
+	}
 }

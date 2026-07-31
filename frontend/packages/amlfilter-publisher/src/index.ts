@@ -40,6 +40,15 @@ export { CSL_SDN_SOURCE, parseCslSdn, splitCsvLine } from "./sources/csl.ts";
 export { euSource } from "./sources/euSource.ts";
 export { CSL_BASE, CSL_FILE, ofacSource } from "./sources/ofacSource.ts";
 export {
+	type AliasEnrichment,
+	applyAliasEnrichment,
+	fetchNonLatinAliases,
+	LATIN_SCRIPT,
+	NO_ENRICHMENT,
+	parseNonLatinAliases,
+	SDN_ALIAS_MIRROR_URL,
+} from "./sources/sdnAliases.ts";
+export {
 	EU_LIST_ID,
 	namespacedId,
 	OFAC_LIST_ID,

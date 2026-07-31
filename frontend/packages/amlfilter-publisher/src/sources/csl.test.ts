@@ -40,8 +40,8 @@ describe("parseCslSdn against real consolidated.csv rows", () => {
 	// filter deleted — it would measure the shape of the fixture, not the guard.
 	test("keeps ONLY the OFAC SDN rows — the population must not drift", async () => {
 		const lines = parseCslSdn(await csv(), "2026-07-30");
-		// 7 fixture rows, 6 of them SDN; the SSI row must not reach OFAC_SDN.
-		expect(lines).toHaveLength(6);
+		// 9 fixture rows, 8 of them SDN; the SSI row must not reach OFAC_SDN.
+		expect(lines).toHaveLength(8);
 		expect(lines.map((l) => l.entity_id)).not.toContain("OFAC_SDN:17013");
 	});
 
@@ -60,6 +60,8 @@ describe("parseCslSdn against real consolidated.csv rows", () => {
 			"OFAC_SDN:7835",
 			"OFAC_SDN:4238",
 			"OFAC_SDN:7006",
+			"OFAC_SDN:9760",
+			"OFAC_SDN:16806",
 		]);
 	});
 
