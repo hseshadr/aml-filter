@@ -15,28 +15,26 @@ is **pnpm + Biome** — no bun, ESLint, or Prettier.
 
 ```bash
 cd frontend
+corepack enable
 pnpm install
+pnpm --filter aml-filter-app dev   # stages the model weights, then starts Vite
 ```
+
+The first `dev` run downloads the ~23 MB SHA-256-pinned MiniLM weights and stages the
+onnxruntime WASM runtime into `frontend/app/public/` (both git-ignored), so `/screen`
+works on a cold clone. [`docs/QUICKSTART.md`](docs/QUICKSTART.md) has the full tour.
 
 ## Quality gate (run before opening a PR)
 
-Run from `frontend/`, in order — this mirrors CI:
+One command from `frontend/` — CI runs this exact script, so local and CI can't drift.
+It requires the exact Node in [`frontend/.nvmrc`](frontend/.nvmrc) and fails otherwise,
+because a gate green on a runtime CI never uses is not evidence:
 
 ```bash
 cd frontend
+nvm use          # or: nvm install $(cat .nvmrc)
 pnpm install
-pnpm -r run lint        # Biome (lint + format check)
-pnpm -r run typecheck   # tsc --noEmit (TS strict)
-pnpm -r run test        # Vitest
-pnpm -r run build       # production build
-```
-
-Then the two end-to-end lanes, from `frontend/app`:
-
-```bash
-cd frontend/app
-pnpm test:e2e:c1   # in-browser screening against the committed signed demo bundle
-pnpm test:e2e:kyc  # backend-free onboard → screen → review → resolve journey
+pnpm gate        # lint, typecheck, coverage, build, i18n, and every browser lane
 ```
 
 ## How we work

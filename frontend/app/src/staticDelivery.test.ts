@@ -4,6 +4,7 @@ import { join } from "node:path";
 const APP_ROOT = join(import.meta.dirname, "..");
 const PUBLIC_ROOT = join(APP_ROOT, "public");
 const ORIGIN = "https://aml-filter.com";
+const REPO_URL = "https://github.com/hseshadr/aml-filter";
 
 function readAppFile(relativePath: string): string {
 	return readFileSync(join(APP_ROOT, relativePath), "utf8");
@@ -111,18 +112,22 @@ describe("static discovery artifacts", () => {
 
 		expect(llms).toContain("# AML-Filter");
 		expect(llms).toContain(`[Screen a name](${ORIGIN}/screen)`);
-		expect(llms).toContain("Source repository: currently private");
-		expect(llms).not.toContain("github.com/hseshadr/aml-filter");
+		expect(llms).toContain(REPO_URL);
+		expect(llms).not.toContain("currently private");
 		expect(llms).toContain("not a compliance product");
 		expect(llms.split("\n").length).toBeLessThan(40);
 	});
 
-	test("the rendered app does not claim public source while the repository is private", () => {
+	// The repository is PUBLIC (MIT). It was private once, and both this file and
+	// the shipped copy asserted that — so the live site actively told readers the
+	// source was unavailable. The guard is inverted rather than deleted: a reader
+	// who wants the code must be able to find it from the page they are on.
+	test("the rendered app links the public source repository", () => {
 		const common = readAppFile("src/locales/en/common.json");
-		const footer = readAppFile("src/components/Footer.tsx");
-		expect(common).not.toContain("Open Source");
-		expect(common).not.toContain("<repoLink>");
-		expect(footer).not.toContain("github.com/hseshadr/aml-filter");
+		const layout = readAppFile("src/components/Layout.tsx");
+		expect(common).toContain("layoutFooterSource");
+		expect(layout).toContain(REPO_URL);
+		expect(layout).toContain('t("layoutFooterSource")');
 	});
 });
 

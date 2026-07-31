@@ -8,9 +8,9 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue.svg)](https://www.typescriptlang.org/)
 [![Node 22.13](https://img.shields.io/badge/node-22.13-green.svg)](frontend/.nvmrc)
 
-▶ **Try it now at [aml-filter.com](https://aml-filter.com)** — the whole app runs in your browser tab, no server and no signup. Collaborators with repository access can **[run it locally in ~10 minutes](#quickstart--clone-to-screening-in-10-minutes)** (clone, `pnpm install`, `pnpm --filter aml-filter-app dev`).
+▶ **Try it now at [aml-filter.com](https://aml-filter.com)** — the whole app runs in your browser tab, no server and no signup. Or **[run it locally in ~10 minutes](#quickstart--clone-to-screening-in-10-minutes)** (clone, `pnpm install`, `pnpm --filter aml-filter-app dev`).
 
-> **Live at [`aml-filter.com`](https://aml-filter.com)** — hosted on Cloudflare Pages, screening entirely in your browser (the signed watchlist bundle is served same-origin). The source repository is currently private; collaborators with access can run a cold local clone with no backend. [`docs/DEPLOY.md`](docs/DEPLOY.md) covers self-hosting.
+> **Live at [`aml-filter.com`](https://aml-filter.com)** — hosted on Cloudflare Pages, screening entirely in your browser (the signed watchlist bundle is served same-origin). The source is public and MIT-licensed: clone it and the whole thing runs locally with no backend, no key, and no account. [`docs/DEPLOY.md`](docs/DEPLOY.md) covers self-hosting.
 
 **Browser support:** the supported production baseline is the current and previous
 desktop releases of Chrome, Edge, Firefox, and Safari 17+. The browser must expose
@@ -124,18 +124,25 @@ so the app works **offline** — and re-verified fail-closed on every load.
 
 ## Quickstart — clone to screening in ~10 minutes
 
-This local path requires collaborator access to the private repository. You need
-[Node 22.13](frontend/.nvmrc) and [pnpm](https://pnpm.io/). Everything runs
-from the `frontend/` directory (the pnpm workspace is rooted there — there is no root
-`package.json`).
+You need [Node 22.13](frontend/.nvmrc), [pnpm](https://pnpm.io/), and internet access on
+the first run (it downloads the ~23 MB embedding model once, so the browser never pulls a
+model from a CDN afterwards). Nothing else — no backend, no database, no API key, no
+account. Everything runs from the `frontend/` directory (the pnpm workspace is rooted
+there — there is no root `package.json`).
 
 ```bash
 git clone https://github.com/hseshadr/aml-filter
 cd aml-filter/frontend
 
+corepack enable                    # provides the pinned pnpm version
 pnpm install
-pnpm --filter aml-filter-app dev   # Vite dev server; prints a localhost URL (default http://localhost:5173)
+pnpm --filter aml-filter-app dev   # stages the model weights, then starts Vite
+                                   # (prints a localhost URL, default http://localhost:5173)
 ```
+
+The first `dev` run stages the MiniLM weights, the onnxruntime WASM runtime, and the
+landing page's measured stats before Vite starts — a couple of minutes once, ~1 second
+on every run after.
 
 Open the printed URL, then:
 
@@ -157,16 +164,20 @@ SQLite transaction and re-screened. **Export XLSX** downloads the customer table
 locally with spreadsheet-formula-looking text escaped. This is a tabular customer
 transfer, not a full backup of matches, audit events, settings, or the watchlist cache.
 
-On first run the demo catalog (four small fictional lists) is already built and
-committed, so everything works on a cold clone with no extra steps.
+The demo catalog (four small fictional lists) is already built, signed, and committed, so
+`/screen` works on a cold clone with no extra steps. It is signed with a throwaway demo
+key that is deliberately **not** the production trust root, so a local `dev` / `preview`
+server serves that demo verify key at `/public.key`, and prints one line saying so when it
+starts. The deployed site pairs the production bundle with the production pin — see
+[`docs/QUICKSTART.md`](docs/QUICKSTART.md).
 
 ### Production build & preview
 
 ```bash
 cd frontend
 pnpm --filter aml-filter-app build     # tsc --noEmit && vite build
-                                       #   (a prebuild hook downloads the MiniLM model
-                                       #    weights and generates demo stats)
+                                       #   (a prebuild hook stages the MiniLM model
+                                       #    weights, WASM runtime, and demo stats)
 pnpm --filter aml-filter-app preview   # serves the minified production build locally
 ```
 

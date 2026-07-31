@@ -15,12 +15,27 @@ vi.mock("react-i18next", () => ({
 					"nav.review": "Review",
 					"nav.settings": "Settings",
 					layoutFooter: "Local-first screening",
+					layoutFooterSource: "Source code on GitHub (MIT)",
 				}) as Record<string, string>
 			)[key] ?? key,
 	}),
 }));
 
 describe("Layout", () => {
+	it("offers the reader the public source repository from the footer", () => {
+		render(
+			<MemoryRouter initialEntries={["/screen"]}>
+				<Layout>
+					<div>page</div>
+				</Layout>
+			</MemoryRouter>,
+		);
+
+		expect(
+			screen.getByRole("link", { name: "Source code on GitHub (MIT)" }),
+		).toHaveAttribute("href", "https://github.com/hseshadr/aml-filter");
+	});
+
 	it("marks the current workspace route and exposes named primary navigation", () => {
 		render(
 			<MemoryRouter initialEntries={["/review"]}>

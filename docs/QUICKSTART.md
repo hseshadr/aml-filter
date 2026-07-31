@@ -7,22 +7,29 @@ scorer all run in the browser. No server-side database or service to provision; 
 customer state uses local SQLite-WASM on OPFS.
 
 Clone → install → run → screen a name → work it in the review board. About **ten
-minutes**, mostly the first build fetching the embedding-model weights.
+minutes**, most of it the first run fetching the ~23 MB embedding-model weights.
 
-> The source repository is currently private. The clone path below requires collaborator
-> access; the public live demo remains available at <https://aml-filter.com>.
+The repository is public and MIT-licensed:
+<https://github.com/hseshadr/aml-filter>. No account, key, or collaborator access is
+needed to clone it and run everything below.
 
 > Reminder: aml-filter is a portfolio demo, **not** a compliance product. See
 > [`../NOTICE`](../NOTICE).
 
 ## Prerequisites
 
-- **Node 22.13.0** (see [`../frontend/.nvmrc`](../frontend/.nvmrc); `nvm use` picks it up)
+- **Node 22.13.0** (see [`../frontend/.nvmrc`](../frontend/.nvmrc); `nvm use` picks it
+  up). Any Node ≥ 22.13 runs the app; the `pnpm gate` step below additionally requires
+  the exact `.nvmrc` version, because that is what CI runs.
 - **pnpm** (`corepack enable` provides the pinned version)
+- **Internet access on the first run** — the first `dev` or `build` downloads the
+  MiniLM embedding weights (~23 MB, SHA-256-pinned) into `frontend/app/public/models/`
+  so the browser never fetches a model from a CDN at runtime. Every later run reuses
+  them; the app itself is fully offline-capable once they are on disk.
 - **A supported desktop browser** — current or previous Chrome, Edge, Firefox, or
   Safari 17+, with module Workers, OPFS, WebCrypto, and Web Locks enabled
 
-That's the whole list. There is no backend to install.
+That's the whole list. There is no backend, database, API key, or account to set up.
 
 ## 1. Clone, install, run
 
@@ -31,13 +38,27 @@ All commands run from `frontend/` — there is no root `package.json`.
 ```bash
 git clone https://github.com/hseshadr/aml-filter.git
 cd aml-filter/frontend
+corepack enable                       # provides the pnpm version pinned in package.json
 pnpm install
-pnpm --filter aml-filter-app dev      # Vite dev server; prints the localhost URL
+pnpm --filter aml-filter-app dev      # stages the model weights, then starts Vite
 ```
+
+The first `dev` run stages three things before Vite starts — the MiniLM weights, the
+onnxruntime WASM runtime, and the landing page's measured stats — so `/screen` works
+on a cold clone with nothing else to do. Expect a couple of minutes the first time and
+about a second every time after.
 
 Open the printed URL (default <http://localhost:5173>). Use **`localhost`**, not a LAN
 IP — a secure context is required for the in-tab WebCrypto signature check and OPFS
 storage.
+
+> **Which signing key does local use?** The bundle under
+> `frontend/app/public/bundle/origin/` is the committed *demo* bundle, signed with a
+> throwaway demo key that is deliberately **not** the production trust root. So a local
+> `vite dev` / `vite preview` server serves that demo verify key at `/public.key`, and
+> prints one line saying so when it starts. The deployed site pairs
+> the production bundle with the production pin in `frontend/app/public/public.key`;
+> `vite build` copies that file into `dist/` untouched.
 
 ## 2. Screen a name (`/screen`)
 
@@ -135,10 +156,13 @@ the live data, see [`DEPLOY.md`](DEPLOY.md) and the wire format in
 
 ## 6. Run the gate
 
-Run the same canonical gate CI runs, from `frontend/`:
+Run the same canonical gate CI runs, from `frontend/`. It refuses to run on any Node
+other than the exact `.nvmrc` version, because a gate green on a runtime CI never uses
+is not evidence:
 
 ```bash
 cd frontend
+nvm use          # or: nvm install $(cat .nvmrc)
 pnpm gate
 ```
 
@@ -168,8 +192,8 @@ To exercise exactly what ships (and what the e2e lanes drive):
 ```bash
 cd frontend
 pnpm --filter aml-filter-app build      # runs tsc --noEmit && vite build;
-                                        #   a prebuild hook fetches the model weights
-                                        #   and regenerates demo stats
+                                        #   a prebuild hook stages the same model
+                                        #   weights, WASM runtime, and demo stats
 pnpm --filter aml-filter-app preview    # serves the dist/ build; open the printed URL
 ```
 
@@ -178,11 +202,16 @@ pnpm --filter aml-filter-app preview    # serves the dist/ build; open the print
 - **`/screen` never becomes ready** — it boots the embedder and verifies the signed
   watchlist bundle on first load; give the model fetch a moment on a cold cache, and
   confirm a clean browser console.
-- **"signature verification failed"** — verification is fail-closed by design. Make sure
-  you're serving the committed signed bundle (`bundle/origin/` — the `latest` pointer +
-  `manifest/` + `chunk/`) and the pinned `public.key` together, over a secure context
-  (`localhost` or HTTPS) — not a LAN IP. The same check runs over cached bytes, so a
-  stale/corrupt cache also fails closed; use **Clear cached lists** in `/settings` to
-  force a re-fetch.
+- **"Local screening engine unavailable" on a fresh clone** — check the terminal: the
+  `dev` script stages the model weights and WASM runtime before Vite starts, and it
+  fails loudly if a download or hash check fails. Re-run
+  `pnpm --filter aml-filter-app dev`; it resumes and skips whatever is already staged
+  and hash-correct.
+- **"signature verification failed"** — verification is fail-closed by design. Serve the
+  app through `pnpm dev` or `pnpm preview` (which pair the committed demo bundle with
+  its demo verify key), over a secure context (`localhost` or HTTPS) — not a LAN IP, and
+  not a bare static file server, which would serve the production pin against a
+  demo-signed bundle. The same check runs over cached bytes, so a stale/corrupt cache
+  also fails closed; use **Clear cached lists** in `/settings` to force a re-fetch.
 - **No matches ever** — screen a name that's actually close to one on an enabled list
   (the committed demo lists are small), and confirm the list is enabled in `/settings`.

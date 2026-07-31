@@ -30,6 +30,21 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **The quickstart works from a cold clone, and the docs no longer call the repository
+  private.** A fresh `git clone` plus the documented steps ended at "Local screening
+  engine unavailable — signature verification failed", because (a) `dev` was bare `vite`
+  and only `prebuild` staged the git-ignored MiniLM weights and onnxruntime WASM runtime,
+  and (b) a local server served the production trust root `public/public.key` against the
+  committed demo bundle, which is signed with the throwaway demo key. The plugin that
+  pairs them existed but was opt-in behind `AMLFILTER_E2E_DEMO_PUBKEY=1`, set only by the
+  Playwright `webServer` blocks — so every browser lane was green while the human path was
+  broken. `dev` now shares `prebuild`'s `stage:assets` step, the demo pin is the default
+  for any local dev/preview server (announced at server start), and the lanes dropped the
+  env so they exercise what a cold clone gets. Shipped bytes are unchanged: `vite build`
+  copies the real `public.key` into `dist/`. Repository-visibility claims are corrected in
+  `README.md`, `docs/QUICKSTART.md`, `CONTRIBUTING.md`, and `public/llms.txt`, and the
+  guard that asserted the app must not link its own source is inverted — the footer now
+  links the MIT repository.
 - **Decompression bound survives the zstd API change** — `@hpcc-js/wasm-zstd` 1.15.0
   removes `decompressChunk`'s `outputSize` parameter ("Callers must not guess an
   output size"). That argument *was* the expansion-bomb guard: WASM allocated exactly

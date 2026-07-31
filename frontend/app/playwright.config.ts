@@ -50,9 +50,8 @@ export default defineConfig({
 		command: "pnpm dev",
 		url: "http://localhost:5173",
 		reuseExistingServer: !process.env.CI,
-		// Rotation: the committed demo bundle is signed with the throwaway demo key,
-		// not the prod pin; serve the demo pubkey at /public.key so any background
-		// engine boot verifies cleanly. See vite.config demoPubkeyOverrideForE2E.
-		env: { AMLFILTER_E2E_DEMO_PUBKEY: "1" },
+		// No lane-only env on purpose: the local server pairs the committed demo bundle
+		// with the demo verify key by default (vite.config localDemoPubkeyPin), so this
+		// lane boots exactly the way a `pnpm dev` cold clone does.
 	},
 });

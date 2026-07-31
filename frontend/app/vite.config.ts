@@ -65,17 +65,27 @@ function previewProdCspPlugin(): Plugin {
 	};
 }
 
-// TEST-ONLY (rotation): the committed demo bundle under public/bundle/origin is
-// signed with the THROWAWAY demo key, deliberately DIFFERENT from the committed
-// production trust root public/public.key. Local browser lanes (vite dev AND
-// preview) serve that committed demo bundle, so the in-tab verifier must check it
-// against the DEMO public key, not the prod pin. When AMLFILTER_E2E_DEMO_PUBKEY=1
-// (set ONLY by the e2e webServer commands) serve fixtures/demo-public.key at
-// /public.key. Production build/deploy never sets the flag: the deploy workflow
-// rebuilds the bundle with the PROD key and serves the prod pin, so the served
-// bundle and pin always match in production. Remove alongside the rotation bridge.
-function demoPubkeyOverrideForE2E(): Plugin {
-	const enabled = process.env.AMLFILTER_E2E_DEMO_PUBKEY === "1";
+// LOCAL-SERVER ONLY: serve the verify key that matches the bundle we actually serve.
+//
+// Two different Ed25519 keys are in play, on purpose:
+//   • public/bundle/origin/  — the committed DEMO bundle, signed with the throwaway
+//     demo key (packages/amlfilter-publisher/fixtures/demo-public.key).
+//   • public/public.key      — the PRODUCTION trust root, deliberately NOT the demo
+//     key (packages/amlfilter-publisher/src/signing.test.ts asserts they differ).
+//
+// A local `vite dev` / `vite preview` server can only ever serve the committed demo
+// bundle, so it must serve the demo verify key at /public.key or the in-tab verifier
+// fails closed and /screen never boots. That is exactly what happened on a cold
+// clone: the browser fetched the prod pin, the demo bundle failed to verify, and the
+// user got "Local screening engine unavailable" with no way forward. The e2e lanes
+// hid it because each one opted in via an env var the documented human path never set.
+//
+// This is a LOCAL SERVER concern only, and it changes no shipped byte: `vite build`
+// copies the real public/public.key into dist/ untouched, and the deploy workflow
+// republishes the bundle signed with the PROD key — so the deployed site always pairs
+// the production bundle with the production pin. The banner keeps it non-silent, so a
+// trust root swapped under you is never something you have to infer.
+function localDemoPubkeyPin(): Plugin {
 	const demoPubkey = join(
 		APP_ROOT,
 		"..",
@@ -84,27 +94,46 @@ function demoPubkeyOverrideForE2E(): Plugin {
 		"fixtures",
 		"demo-public.key",
 	);
+	const serveDemoPubkey = (
+		req: { url?: string | undefined },
+		res: {
+			setHeader: (k: string, v: string) => void;
+			end: (b: Buffer) => void;
+		},
+		next: () => void,
+	): void => {
+		if ((req.url ?? "").split("?")[0] !== "/public.key") {
+			next();
+			return;
+		}
+		res.setHeader("Content-Type", "application/octet-stream");
+		res.end(readFileSync(demoPubkey));
+	};
+	// Announce at server start through Vite's own logger, NEVER from inside the
+	// request handler. A first-request `console.info` here wedged the mobile lane:
+	// /settings hung on "Loading settings…" forever, deterministically, with a clean
+	// browser console and a byte-identical network trace. Logging is not free when it
+	// sits in the path that serves the trust root the engine boot is blocked on, so
+	// this stays a startup-time statement about configuration — which is what it is.
+	// Vitest also loads this config; it has no dev server to narrate, so it stays quiet.
+	const announce = (logger: { info: (msg: string) => void }): void => {
+		if (process.env.VITEST !== undefined) {
+			return;
+		}
+		logger.info(
+			"[aml-filter] local server: serving the DEMO verify key at /public.key " +
+				"(it pairs with the committed demo bundle). Production ships public/public.key.",
+		);
+	};
 	return {
-		name: "amlfilter:e2e-demo-pubkey",
+		name: "amlfilter:local-demo-pubkey-pin",
 		configureServer(server) {
-			server.middlewares.use((req, res, next) => {
-				if (!enabled || (req.url ?? "").split("?")[0] !== "/public.key") {
-					next();
-					return;
-				}
-				res.setHeader("Content-Type", "application/octet-stream");
-				res.end(readFileSync(demoPubkey));
-			});
+			announce(server.config.logger);
+			server.middlewares.use(serveDemoPubkey);
 		},
 		configurePreviewServer(server) {
-			server.middlewares.use((req, res, next) => {
-				if (!enabled || (req.url ?? "").split("?")[0] !== "/public.key") {
-					next();
-					return;
-				}
-				res.setHeader("Content-Type", "application/octet-stream");
-				res.end(readFileSync(demoPubkey));
-			});
+			announce(server.config.logger);
+			server.middlewares.use(serveDemoPubkey);
 		},
 	};
 }
@@ -115,7 +144,7 @@ export default defineConfig({
 		react(),
 		serveOrtRuntimeRawInDev(),
 		previewProdCspPlugin(),
-		demoPubkeyOverrideForE2E(),
+		localDemoPubkeyPin(),
 	],
 	build: {
 		// esbuild's default build target ('modules' ≈ es2020) downlevels native

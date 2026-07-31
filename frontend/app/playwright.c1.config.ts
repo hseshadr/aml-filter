@@ -10,8 +10,10 @@ import { defineConfig, devices } from "@playwright/test";
  * (app/public/bundle/origin: `latest` + `manifest/<hash>` + `chunk/<hash>`) is a
  * set of plain static assets served same-origin by `vite preview`. The build sets
  * no VITE_BUNDLE_BASE_URL, so the runtime defaults to /bundle/origin (the same
- * path the e2e-bundle lane sets explicitly). The pinned ed25519 public key
- * (app/public/public.key) ships in the same build and is read same-origin.
+ * path the e2e-bundle lane sets explicitly). The pinned ed25519 verify key is read
+ * same-origin from /public.key — which on a local server is the demo key that pairs
+ * with the committed demo bundle (vite.config localDemoPubkeyPin), the same key a
+ * cold clone gets. Production serves the prod pin against a prod-signed bundle.
  *
  * The spec drives a real headless Chromium: it waits for the full
  * bundle sync → ed25519-verify → ~23 MB model download → screen pipeline, then
@@ -57,11 +59,11 @@ export default defineConfig({
 			// The "everything blocked" negative spec still rejects at this ceiling —
 			// its coupled MODEL_LOAD_TIMEOUT_MS in screen-cold-blocked.spec.ts is kept
 			// in sync — so it stays loud, just bounded by 120s instead of 45s.
+			// No pubkey env here on purpose: the local preview server pairs the committed
+			// demo bundle with the demo verify key by default (vite.config
+			// localDemoPubkeyPin), so this lane boots the way a cold clone does.
 			env: {
 				VITE_MODEL_LOAD_TIMEOUT_MS: "120000",
-				// Rotation: verify the committed demo bundle against the throwaway demo
-				// key, not the prod pin. See vite.config demoPubkeyOverrideForE2E.
-				AMLFILTER_E2E_DEMO_PUBKEY: "1",
 			},
 		},
 	],

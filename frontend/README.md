@@ -17,16 +17,22 @@ the tab. This directory is a **pnpm workspace** (pnpm + Biome; not npm/bun).
 
 ```bash
 cd frontend
+corepack enable
 pnpm install
 ```
 
-Requires Node 22.13.0 (see `.nvmrc`) and pnpm.
+Requires Node 22.13.0 (see `.nvmrc`) and pnpm. `pnpm gate` requires that exact version;
+running the app only needs Node ≥ 22.13.
 
 ## Development
 
 ```bash
 pnpm --filter aml-filter-app dev
 ```
+
+This stages the MiniLM weights, the onnxruntime WASM runtime, and the landing page's
+measured stats before Vite starts — a couple of minutes on a cold clone (a ~23 MB
+SHA-256-pinned download), about a second on every run after.
 
 The app is served at `http://localhost:5173` (Vite prints the exact URL). Open `/screen` for
 the in-tab OFAC screening demo, then `/customers` and `/review` for the KYC workstation.

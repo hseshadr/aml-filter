@@ -5,10 +5,11 @@
 	"type": "module",
 	"private": true,
 	"scripts": {
-		"dev": "vite",
+		"stage:assets": "node scripts/download-model.mjs && node scripts/gen-demo-stats.mjs && node scripts/stage-ort-wasm.mjs",
+		"dev": "pnpm run stage:assets && vite",
 		"download-model": "node scripts/download-model.mjs",
 		"gen:stats": "node scripts/gen-demo-stats.mjs",
-		"prebuild": "node scripts/download-model.mjs && node scripts/gen-demo-stats.mjs && node scripts/stage-ort-wasm.mjs",
+		"prebuild": "pnpm run stage:assets",
 		"build": "tsc --noEmit && vite build",
 		"test:contract": "node --test scripts/canonical-worker.test.mjs",
 		"preview": "vite preview",
