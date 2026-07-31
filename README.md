@@ -377,12 +377,22 @@ fails the test suite.
 
 aml-filter never bundles or redistributes any official sanctions list as part of the
 app. The signed lists are built from public sources via per-list adapters — the U.S.
-Treasury OFAC **SDN List** (<https://sanctionslist.ofac.treasury.gov>, a U.S. Government
-work in the public domain), the EU Consolidated list, the UN Consolidated list, and the
-UK/OFSI consolidated list. The committed demo catalog is built from small sets of
-**fictional** entities so the demo is turnkey from a cold clone. Always screen against
-the current official lists; they change often. Attribution and the full data note are in
-[`NOTICE`](NOTICE).
+Treasury OFAC **SDN List**, the EU Consolidated list, the UN Consolidated list, and the
+UK/OFSI consolidated list, all government works in the public domain.
+
+The SDN **records** are read from the U.S. Commerce Department's **Consolidated
+Screening List** (<https://data.trade.gov>), keeping only the rows OFAC designates —
+Treasury's own export moved behind a bot-challenge WAF in July 2026 and can no longer be
+read by a build. That feed publishes names in Latin script only, so each record's
+**non-Latin aliases** (Cyrillic, Arabic, CJK) are added from Treasury's own published
+`SDN_ADVANCED.XML`, obtained through a public mirror and joined on the OFAC entity
+number. Two sources with two different trust properties — both are named in
+[`NOTICE`](NOTICE), and a deploy that cannot reach the mirror reports reduced alias
+coverage rather than implying it has the full set.
+
+The committed demo catalog is built from small sets of **fictional** entities so the
+demo is turnkey from a cold clone. Always screen against the current official lists;
+they change often. Attribution and the full data note are in [`NOTICE`](NOTICE).
 
 ## Docs
 

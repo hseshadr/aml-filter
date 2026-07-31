@@ -31,13 +31,15 @@ describe("ofacSource.parse against a real CSL fixture", () => {
 			"OFAC_SDN:7835",
 			"OFAC_SDN:4238",
 			"OFAC_SDN:7006",
+			"OFAC_SDN:9760",
+			"OFAC_SDN:16806",
 		]);
 	});
 
 	test("publishes ONLY OFAC SDN designations", async () => {
 		const lines = ofacSource.parse(await rawBytes(), "2026-07-30");
 		// The Treasury SSI row in the fixture must not leak into OFAC_SDN.
-		expect(lines).toHaveLength(6);
+		expect(lines).toHaveLength(8);
 		for (const line of lines) {
 			expect(line.source_list).toBe("OFAC_SDN");
 			expect(line.risk_category).toBe("SANCTION");

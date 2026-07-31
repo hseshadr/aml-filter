@@ -15,24 +15,43 @@ and Blocked Persons) list.
              Office of Foreign Assets Control (OFAC)
              https://ofac.treasury.gov
              https://sanctionslist.ofac.treasury.gov
-    Obtained from:
+    Records obtained from:
              Consolidated Screening List (CSL),
              U.S. Department of Commerce,
              International Trade Administration
              https://data.trade.gov/downloadable_consolidated_screening_list/v1/
              (only the rows whose `source` is
               "Specially Designated Nationals (SDN) - Treasury Department")
+    Non-Latin aliases obtained from:
+             OFAC's own SDN_ADVANCED.XML, retrieved through a public mirror
+             (https://data.opensanctions.org/datasets/latest/us_ofac_sdn/),
+             joined to the records above on the OFAC entity number.
+             The bytes are Treasury's; the mirror is transport only.
     Status:  Work of the U.S. Government, in the public domain
              (not subject to copyright in the United States).
 
-Why the data is obtained via CSL rather than from OFAC's own export: since
-2026-07-30 Treasury's sanctions-list service answers an automated request with
-either HTTP 403 or a JavaScript bot-challenge, so a build can no longer read it.
-CSL is the U.S. Government's own consolidated publication of the same
-designations — the same ultimate publisher, with no third party in the chain.
-The two were cross-checked on 2026-07-30: 19,181 SDN records on each side, with
-identical entity numbers. CSL omits non-Latin-script aliases (Cyrillic, Arabic,
-CJK) that Treasury's own XML carries.
+TWO SOURCES, TWO TRUST PROPERTIES — stated plainly because they are not the
+same. Every RECORD (who is designated, and every field) comes from CSL, a U.S.
+Government publication with no third party in the chain. Additional ALIAS
+STRINGS in non-Latin scripts come from Treasury's own published XML retrieved
+via a mirror, which is a weaker chain — so it is confined to aliases and can
+never add, remove or alter a record.
+
+Why the records come via CSL rather than OFAC's own export: since 2026-07-30
+Treasury's sanctions-list service answers an automated request with either HTTP
+403 or a JavaScript bot-challenge, so a build can no longer read it. The two
+publications were cross-checked on 2026-07-30: 19,181 SDN records on each side,
+with entity numbers agreeing 19,181/19,181.
+
+Why the aliases are enriched at all: CSL publishes names in Latin script only,
+and the matching engine preserves script rather than transliterating, so without
+this a Cyrillic, Arabic or CJK query could never match. The enrichment adds
+5,677 such aliases across 4,751 records (Cyrillic 3,675, Arabic 1,404, CJK 583,
+Greek/Armenian/Hebrew/Georgian 15).
+
+If the alias mirror is unreachable at build time the bundle is published with
+CSL's Latin-script names only, and the build says so — a reduced-coverage bundle
+is never presented as a complete one.
 
 aml-filter does NOT bundle or redistribute the SDN list. The list is not
 included in this repository; it is fetched at build time and ingested locally.
