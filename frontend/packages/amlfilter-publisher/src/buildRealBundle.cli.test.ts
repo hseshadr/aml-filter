@@ -62,8 +62,15 @@ vi.mock("./publishBundle.ts", async () => {
 });
 
 // Tiny upstream fixtures — one entity per feed, in each feed's real format.
-const SDN_CSV = `12345,"DOE, John",individual,PROGRAM,-0-,-0-,-0-,-0-,-0-,-0-,-0-,"DOB 01 Jan 1970; nationality Cuba"\n`;
-const ALT_CSV = `12345,1,aka,"Johnny D",-0-\n`;
+// OFAC SDN now arrives inside Commerce's Consolidated Screening List, so this
+// fixture is a CSL slice: the header, one SDN row, and one NON-SDN row that must
+// be filtered out before it can reach the published OFAC_SDN list.
+const CSL_CSV = [
+	"source,entity_number,type,name,alt_names,dates_of_birth,citizenships,nationalities",
+	'"Specially Designated Nationals (SDN) - Treasury Department",12345,Individual,"DOE, John","Johnny D",1970-01-01,,CU',
+	'"Entity List (EL) - Bureau of Industry and Security",99999,Entity,"NOT SDN INC",,,,',
+	"",
+].join("\n");
 const UN_XML = [
 	'<CONSOLIDATED_LIST dateGenerated="2026-07-01">',
 	"<INDIVIDUALS><INDIVIDUAL>",
@@ -181,8 +188,7 @@ describe("runRealBundle happy path", () => {
 		workDir = await mkdtemp(join(tmpdir(), "aml-real-cli-"));
 		outDir = join(workDir, "origin");
 		stubFetchRoutes([
-			["PublicationPreview/exports/SDN.CSV", SDN_CSV],
-			["PublicationPreview/exports/ALT.CSV", ALT_CSV],
+			["consolidated.csv", CSL_CSV],
 			["scsanctions.un.org", UN_XML],
 			["webgate.ec.europa.eu", EU_XML],
 			["ofsistorage.blob.core.windows.net", UK_CSV],

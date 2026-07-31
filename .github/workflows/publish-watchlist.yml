@@ -200,6 +200,11 @@ jobs:
             --sequence "$SEQUENCE" \
             --key "$GITHUB_WORKSPACE/frontend/signing.key" \
             --out "$ORIGIN"
+        env:
+          # Optional; see the note in deploy.yml. This nightly job's WHOLE
+          # purpose is refreshing the list, so unlike the site deploy it is
+          # correct for it to fail loudly when a feed cannot be read.
+          TRADE_GOV_API_KEY: ${{ secrets.TRADE_GOV_API_KEY }}
 
       - name: Scrub the key
         if: always()

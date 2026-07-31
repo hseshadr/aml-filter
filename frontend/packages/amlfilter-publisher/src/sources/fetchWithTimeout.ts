@@ -56,6 +56,8 @@ export class FeedFetchError extends Error {
 export interface FeedFetchOptions {
 	readonly attempts?: number;
 	readonly sleep?: (ms: number) => Promise<void>;
+	/** Extra request headers (e.g. an upstream's API key). Never logged. */
+	readonly headers?: Readonly<Record<string, string>>;
 }
 
 const defaultSleep = (ms: number): Promise<void> =>
@@ -89,13 +91,18 @@ async function attemptOnce(
 	url: string,
 	label: string,
 	timeoutMs: number,
+	extraHeaders: Readonly<Record<string, string>> = {},
 ): Promise<Response> {
 	const controller = new AbortController();
 	const timer = setTimeout(() => controller.abort(), timeoutMs);
 	try {
 		return await fetch(url, {
 			signal: controller.signal,
-			headers: { "user-agent": FEED_USER_AGENT, accept: "*/*" },
+			headers: {
+				"user-agent": FEED_USER_AGENT,
+				accept: "*/*",
+				...extraHeaders,
+			},
 		});
 	} catch (error) {
 		if (controller.signal.aborted) {
@@ -121,9 +128,10 @@ async function classifyAttempt(
 	url: string,
 	label: string,
 	timeoutMs: number,
+	extraHeaders: Readonly<Record<string, string>>,
 ): Promise<Response | FeedFetchError> {
 	try {
-		const response = await attemptOnce(url, label, timeoutMs);
+		const response = await attemptOnce(url, label, timeoutMs, extraHeaders);
 		const reason = rejectionReason(response, label);
 		if (reason === null) {
 			return response;
@@ -155,7 +163,12 @@ export async function fetchWithTimeout(
 		if (attempt > 1) {
 			await sleep(BACKOFF_BASE_MS * 2 ** (attempt - 2));
 		}
-		const outcome = await classifyAttempt(url, label, timeoutMs);
+		const outcome = await classifyAttempt(
+			url,
+			label,
+			timeoutMs,
+			options.headers ?? {},
+		);
 		if (outcome instanceof FeedFetchError) {
 			failure = outcome;
 			if (!outcome.retryable) {

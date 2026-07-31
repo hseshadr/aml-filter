@@ -138,6 +138,26 @@ describe("stagedListsFromSources", () => {
 		}
 	});
 
+	// The OFAC SDN population was counted independently on 2026-07-30 from
+	// Commerce's CSL (19,181 rows) and from Treasury's own SDN_ADVANCED.XML
+	// (19,181 <DistinctParty>), with entity ids agreeing 19,181/19,181. The band
+	// must actually BRACKET that number, or a silently-broken filter could still
+	// publish a fraction of the list as "plausible".
+	test("brackets the cross-validated OFAC SDN population of 19,181", () => {
+		const ofac = BUNDLE_SOURCES.find(({ source }) => source.id === "OFAC_SDN");
+		const CROSS_VALIDATED_COUNT = 19_181;
+		expect(ofac?.health.minimumEntities).toBeLessThan(CROSS_VALIDATED_COUNT);
+		expect(ofac?.health.maximumEntities).toBeGreaterThan(CROSS_VALIDATED_COUNT);
+		// Tight enough to catch a two-thirds-empty list, which the previous
+		// 5,000 floor would have published without complaint.
+		expect(ofac?.health.minimumEntities).toBeGreaterThan(
+			CROSS_VALIDATED_COUNT * 0.6,
+		);
+		expect(ofac?.health.maximumEntities).toBeLessThan(
+			CROSS_VALIDATED_COUNT * 2,
+		);
+	});
+
 	test("stages every healthy required source, in order", async () => {
 		const specs: readonly RealBundleSourceSpec[] = [
 			spec(fakeSource("OFAC_SDN", "OFAC SDN", "Ivan Fakovich"), "ofac"),

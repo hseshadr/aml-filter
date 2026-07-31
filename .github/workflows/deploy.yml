@@ -225,6 +225,13 @@ jobs:
             --out "$CANDIDATE"
         env:
           CANDIDATE: ${{ runner.temp }}/bundle-candidate
+          # OPTIONAL. The bulk Consolidated Screening List download needs no
+          # credential today (verified 2026-07-30: HTTP 200 anonymously), so an
+          # unset secret is NOT an error — the deploy must not be held hostage to
+          # a key the endpoint does not ask for. It is wired through so that if
+          # trade.gov ever starts rejecting anonymous reads, creating the secret
+          # is the entire fix. Passed as env, never inlined into a shell command.
+          TRADE_GOV_API_KEY: ${{ secrets.TRADE_GOV_API_KEY }}
 
       # Either promote the bundle just built, or keep serving the one already
       # live. The fallback re-publishes the EXACT signed bytes from the live

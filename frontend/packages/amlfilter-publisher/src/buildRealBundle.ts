@@ -73,9 +73,18 @@ export const BUNDLE_SOURCES: readonly RealBundleSourceSpec[] = [
 	{
 		source: ofacSource,
 		slug: "ofac",
+		// CROSS-VALIDATED BAND. The OFAC SDN population was counted twice, from
+		// two independent publications, on 2026-07-30: 19,181 rows in Commerce's
+		// Consolidated Screening List (the feed this adapter reads) and 19,181
+		// <DistinctParty> elements in Treasury's own SDN_ADVANCED.XML, with the
+		// entity-id spaces agreeing 19,181/19,181. A 15k..30k band turns that
+		// agreement into a gate: a filter that silently stops matching (upstream
+		// renames the `source` value) or a truncated download can no longer pass
+		// as a smaller-but-plausible list. The previous 5k floor would have
+		// published a two-thirds-empty sanctions list without complaint.
 		health: {
-			minimumEntities: 5_000,
-			maximumEntities: 100_000,
+			minimumEntities: 15_000,
+			maximumEntities: 30_000,
 			maximumAgeMs: MAX_FEED_AGE_MS,
 		},
 	},
