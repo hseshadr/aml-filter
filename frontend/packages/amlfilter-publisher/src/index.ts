@@ -15,7 +15,6 @@ export {
 	type CatalogList,
 	writeSignedCatalog,
 } from "./catalog.ts";
-export { fetchOfacJsonl, OFAC_BASE, parseSdn } from "./fetchOfac.ts";
 export { createNodeEmbedder } from "./nodeEmbedder.ts";
 export {
 	type EdgeprocCommand,
@@ -37,8 +36,9 @@ export {
 } from "./publisher.ts";
 export { derivePublicKey, signBytes, writeSigned } from "./signing.ts";
 export { parseEntities, toWatchlistEntity } from "./sourceEntity.ts";
+export { CSL_SDN_SOURCE, parseCslSdn, splitCsvLine } from "./sources/csl.ts";
 export { euSource } from "./sources/euSource.ts";
-export { ofacSource } from "./sources/ofacSource.ts";
+export { CSL_BASE, CSL_FILE, ofacSource } from "./sources/ofacSource.ts";
 export {
 	EU_LIST_ID,
 	namespacedId,

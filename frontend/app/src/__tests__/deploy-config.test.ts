@@ -189,7 +189,13 @@ describe("Cloudflare Pages deploy config", () => {
 			);
 			expect(workflow).toContain('--sequence "$SEQUENCE"');
 			expect(workflow).toContain("verify-published-origin");
-			expect(workflow).toContain('--expect-sequence "$SEQUENCE"');
+			// The post-deploy verifier must bind to a sequence derived from the
+			// verified LIVE pointer — never a locally invented number. `deploy.yml`
+			// binds to $SERVED_SEQUENCE (the sequence actually published by this
+			// run: $SEQUENCE when the feeds were refreshed, or the mirrored
+			// last-good one when a feed was down); the nightly only ever refreshes,
+			// so it binds to $SEQUENCE directly.
+			expect(workflow).toMatch(/--expect-sequence "\$(SERVED_)?SEQUENCE"/);
 		}
 	});
 

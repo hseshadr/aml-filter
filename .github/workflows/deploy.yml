@@ -205,20 +205,74 @@ jobs:
           SIZE=$(wc -c < "$GITHUB_WORKSPACE/frontend/signing.key")
           [ "$SIZE" -eq 32 ] || { echo "::error::decoded key is $SIZE bytes, expected 32"; exit 1; }
 
-      # Build + sign the REAL bundle straight into the SPA's public tree so the
-      # Vite build serves it same-origin at /bundle/origin (replacing the committed
-      # demo). Clean the prior contents so the deployed tree is EXACTLY the bundle.
+      - name: Stamp this run's bundle version
+        run: echo "VERSION=$(date -u +%Y-%m-%d)" >> "$GITHUB_ENV"
+
+      # Build + sign the REAL bundle into a SCRATCH dir — never over the served
+      # tree. The four upstream feeds are third parties; on 2026-07-30 Treasury
+      # put OFAC behind a WAF and this step's failure froze the whole site,
+      # because it had already deleted the bundle it was about to replace.
+      # Building aside means a failure destroys nothing, and `continue-on-error`
+      # hands the decision to the promote step below instead of killing the job.
       - name: Build + sign the real watchlist bundle (same-origin)
+        id: build-bundle
+        continue-on-error: true
         run: |
-          VERSION="$(date -u +%Y-%m-%d)"
-          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
-          ORIGIN="$GITHUB_WORKSPACE/frontend/app/public/bundle/origin"
-          rm -rf "$ORIGIN"
           pnpm -C frontend --filter @amlfilter/publisher run build-real-bundle -- \
             --version "$VERSION" \
             --sequence "$SEQUENCE" \
             --key "$GITHUB_WORKSPACE/frontend/signing.key" \
-            --out "$ORIGIN"
+            --out "$CANDIDATE"
+        env:
+          CANDIDATE: ${{ runner.temp }}/bundle-candidate
+          # OPTIONAL. The bulk Consolidated Screening List download needs no
+          # credential today (verified 2026-07-30: HTTP 200 anonymously), so an
+          # unset secret is NOT an error — the deploy must not be held hostage to
+          # a key the endpoint does not ask for. It is wired through so that if
+          # trade.gov ever starts rejecting anonymous reads, creating the secret
+          # is the entire fix. Passed as env, never inlined into a shell command.
+          TRADE_GOV_API_KEY: ${{ secrets.TRADE_GOV_API_KEY }}
+
+      # Either promote the bundle just built, or keep serving the one already
+      # live. The fallback re-publishes the EXACT signed bytes from the live
+      # origin (re-verifying pointer signature, manifest content-address and
+      # every chunk through the client decode path) — it never re-signs, never
+      # emits a partial tree, and never restamps the build date. Past
+      # MAX_SERVED_BUNDLE_AGE_DAYS it refuses, so a prolonged upstream outage
+      # goes RED rather than quietly serving an ancient sanctions list.
+      #
+      # MAX_SERVED_BUNDLE_AGE_DAYS is the reviewable freshness policy knob.
+      - name: Promote the fresh bundle, or keep serving the last good one
+        env:
+          CANDIDATE: ${{ runner.temp }}/bundle-candidate
+          BUILD_OUTCOME: ${{ steps.build-bundle.outcome }}
+          MAX_SERVED_BUNDLE_AGE_DAYS: 7
+        run: |
+          set -euo pipefail
+          ORIGIN="$GITHUB_WORKSPACE/frontend/app/public/bundle/origin"
+          if [ "$BUILD_OUTCOME" = "success" ]; then
+            rm -rf "$ORIGIN"
+            mkdir -p "$(dirname "$ORIGIN")"
+            mv "$CANDIDATE" "$ORIGIN"
+            echo "BUNDLE_REFRESHED=true" >> "$GITHUB_ENV"
+            echo "SERVED_VERSION=$VERSION" >> "$GITHUB_ENV"
+            echo "SERVED_SEQUENCE=$SEQUENCE" >> "$GITHUB_ENV"
+            echo "Watchlist refreshed from the live feeds (version $VERSION)." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "::warning::A required sanctions feed was unreachable, so this deploy did NOT refresh the watchlist. Re-publishing the last good signed bundle; the site will continue to report its original build date."
+          rm -rf "$ORIGIN" "$CANDIDATE"
+          mkdir -p "$ORIGIN"
+          pnpm --silent -C frontend --filter @amlfilter/publisher run mirror-published-origin -- \
+            --base-url https://aml-filter.com/bundle/origin \
+            --pubkey "$GITHUB_WORKSPACE/frontend/app/public/public.key" \
+            --out "$ORIGIN" \
+            --max-age-days "$MAX_SERVED_BUNDLE_AGE_DAYS" > "$RUNNER_TEMP/mirror.env"
+          cat "$RUNNER_TEMP/mirror.env" >> "$GITHUB_ENV"
+          echo "BUNDLE_REFRESHED=false" >> "$GITHUB_ENV"
+          { echo "### Watchlist NOT refreshed";
+            echo "A required sanctions feed was unreachable. The previously published signed bundle is being re-served unchanged:";
+            sed 's/^/- /' "$RUNNER_TEMP/mirror.env"; } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Scrub the key
         if: always()
@@ -266,16 +320,27 @@ jobs:
             --run-id "$GITHUB_RUN_ID"
 
       # Verify the public origin through the browser-equivalent decode path. The
-      # expected version and sequence bind this check to the bundle from this
-      # exact run, so a stale or partially propagated deploy cannot pass.
+      # expected version and sequence bind this check to the bundle this run
+      # actually SERVED — the freshly built one, or the mirrored last-good one —
+      # so a stale or partially propagated deploy still cannot pass. Asserting
+      # today's date here instead would make a mirrored deploy fail for the
+      # wrong reason and hide the real signal.
       - name: Verify the LIVE published origin (client decode path)
         run: |
           pnpm -C frontend --filter @amlfilter/publisher run verify-published-origin -- \
             --base-url https://aml-filter.com/bundle/origin \
             --pubkey "$GITHUB_WORKSPACE/frontend/app/public/public.key" \
-            --expect-version "$VERSION" \
-            --expect-sequence "$SEQUENCE" \
+            --expect-version "$SERVED_VERSION" \
+            --expect-sequence "$SERVED_SEQUENCE" \
             --attempts 10 --delay-seconds 15
+
+      - name: Report what the site is serving
+        run: |
+          if [ "$BUNDLE_REFRESHED" = "true" ]; then
+            echo "Watchlist refreshed today: version $SERVED_VERSION (sequence $SERVED_SEQUENCE)."
+          else
+            echo "::warning::Deployed WITHOUT a watchlist refresh — serving the previously published bundle, version $SERVED_VERSION (sequence $SERVED_SEQUENCE), age ${SERVED_AGE_DAYS:-unknown} days."
+          fi
 
       - name: Verify canonical hosts
         run: |

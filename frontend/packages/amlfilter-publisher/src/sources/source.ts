@@ -3,8 +3,9 @@
 // One adapter per upstream sanctions list (OFAC SDN, EU consolidated, UN
 // consolidated, UK OFSI). Each adapter:
 //   - fetchRaw(): pulls the raw list bytes off the network (real URLs), returning
-//     a map of logical-name -> text (a list may publish more than one file, e.g.
-//     OFAC's SDN.CSV + ALT.CSV).
+//     a map of logical-name -> text (a list may publish more than one file, and
+//     the file a list is READ from is not always published by the body that
+//     DESIGNATES it — see csl.ts for why OFAC SDN arrives via Commerce's CSL).
 //   - parse(raw, listVersion): maps those raw bytes into the publisher's neutral
 //     SourceLine[] shape — fully deterministic, no network — and is the part the
 //     fixture tests exercise.
@@ -17,7 +18,7 @@
 // adapter applies the same rule.
 
 /** The raw bytes a source publishes, keyed by a logical file name.
- * (One list may publish several files, e.g. OFAC's SDN.CSV + ALT.CSV.) */
+ * (One list may publish several files, e.g. the UN/EU consolidated XML pair.) */
 export type RawListBytes = Record<string, string>;
 
 /** The neutral source record every adapter emits and the publisher consumes.

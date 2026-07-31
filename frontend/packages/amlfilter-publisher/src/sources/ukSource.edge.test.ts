@@ -92,8 +92,8 @@ describe("ukSource.fetchRaw", () => {
 					new Response("nope", { status: 404, statusText: "Not Found" }),
 			),
 		);
-		await expect(ukSource.fetchRaw()).rejects.toThrow(
-			"fetch UK list failed: 404 Not Found",
-		);
+		// Raised by the shared fetch seam now; assert the STATUS, not the prose
+		// (a 404 is permanent, so the seam does not spend retries on it).
+		await expect(ukSource.fetchRaw()).rejects.toThrow("failed: 404 Not Found");
 	});
 });

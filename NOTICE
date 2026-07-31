@@ -10,18 +10,35 @@ aml-filter screens names against the OFAC SDN (Specially Designated Nationals
 and Blocked Persons) list.
 
     Specially Designated Nationals and Blocked Persons List (SDN List)
-    Source:  U.S. Department of the Treasury,
+    Designated by:
+             U.S. Department of the Treasury,
              Office of Foreign Assets Control (OFAC)
              https://ofac.treasury.gov
              https://sanctionslist.ofac.treasury.gov
+    Obtained from:
+             Consolidated Screening List (CSL),
+             U.S. Department of Commerce,
+             International Trade Administration
+             https://data.trade.gov/downloadable_consolidated_screening_list/v1/
+             (only the rows whose `source` is
+              "Specially Designated Nationals (SDN) - Treasury Department")
     Status:  Work of the U.S. Government, in the public domain
              (not subject to copyright in the United States).
 
+Why the data is obtained via CSL rather than from OFAC's own export: since
+2026-07-30 Treasury's sanctions-list service answers an automated request with
+either HTTP 403 or a JavaScript bot-challenge, so a build can no longer read it.
+CSL is the U.S. Government's own consolidated publication of the same
+designations — the same ultimate publisher, with no third party in the chain.
+The two were cross-checked on 2026-07-30: 19,181 SDN records on each side, with
+identical entity numbers. CSL omits non-Latin-script aliases (Cyrillic, Arabic,
+CJK) that Treasury's own XML carries.
+
 aml-filter does NOT bundle or redistribute the SDN list. The list is not
-included in this repository. The operator downloads it directly from the
-official OFAC source at runtime and ingests it locally
-(see docs/QUICKSTART.md). Always screen against the current official list —
-the SDN list changes frequently, and a stale copy can miss or mis-match.
+included in this repository; it is fetched at build time and ingested locally.
+Always screen against the current official list — the SDN list changes
+frequently, and a stale copy can miss or mis-match. OFAC's own publication
+remains the authoritative reference for confirming any individual match.
 
 ================================================================================
 Ported third-party code
