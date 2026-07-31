@@ -22,11 +22,13 @@ import {
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { parseCslSdn } from "./csl.ts";
 import {
+	AliasFeedTooLargeError,
 	applyAliasEnrichment,
 	fetchNonLatinAliases,
 	LATIN_SCRIPT,
 	NO_ENRICHMENT,
 	parseNonLatinAliases,
+	parseNonLatinAliasesFromStream,
 	SDN_ALIAS_MIRROR_URL,
 } from "./sdnAliases.ts";
 
@@ -284,5 +286,153 @@ describe("degenerate input", () => {
 		const found = parseNonLatinAliases(doc);
 		expect(found.byEntityNumber.get("2")).toEqual(["ᚠᚢᚦ"]);
 		expect(found.byScript.get("Unknown")).toBe(1);
+	});
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MEMORY SAFETY. The real feed is ~125 MB. Buffering it and parsing one string
+// risks a Node heap OOM — which is FATAL AND UNCATCHABLE, so the fail-soft
+// try/catch around enrichment would never run and the deploy would die. That is
+// exactly the hostage failure this PR series exists to remove, so the parser
+// must hold memory flat regardless of feed size.
+// ─────────────────────────────────────────────────────────────────────────────
+async function* chunked(text: string, size: number): AsyncIterable<Uint8Array> {
+	const bytes = new TextEncoder().encode(text);
+	for (let i = 0; i < bytes.length; i += size) {
+		yield bytes.subarray(i, Math.min(i + size, bytes.length));
+	}
+}
+
+describe("parseNonLatinAliasesFromStream", () => {
+	test("matches the whole-string parser exactly", async () => {
+		const body = await xml();
+		const streamed = await parseNonLatinAliasesFromStream(chunked(body, 4096));
+		const whole = parseNonLatinAliases(body);
+
+		expect(streamed.aliasesFound).toBe(whole.aliasesFound);
+		expect([...streamed.byEntityNumber.entries()].sort()).toEqual(
+			[...whole.byEntityNumber.entries()].sort(),
+		);
+	});
+
+	test.each([
+		1, 7, 64, 999,
+	])("is correct when chunks split records AND multi-byte characters (size %i)", async (size) => {
+		// A 1-byte chunk size guarantees every Cyrillic/Arabic codepoint is
+		// split across chunk boundaries. Naive per-chunk decoding mangles them.
+		const found = await parseNonLatinAliasesFromStream(
+			chunked(await xml(), size),
+		);
+		expect(found.byEntityNumber.get("9760")).toContain(LUKASHENKA_CYRILLIC);
+	});
+
+	// THE memory property: as the feed grows, the window does NOT. Comparing a
+	// small feed against one 20x larger is what distinguishes "streams" from
+	// "buffers" — a single measurement on a fixture cannot tell them apart.
+	test("holds the window FLAT as the feed grows 20x", async () => {
+		const body = await xml();
+		const scripts = body.slice(0, body.indexOf("</ScriptValues>") + 15);
+		const party = body.slice(
+			body.indexOf("<DistinctParty "),
+			body.indexOf("</DistinctParty>") + 16,
+		);
+		const feed = (copies: number) =>
+			`${scripts}${party.repeat(copies)}</Sanctions>`;
+
+		const small = await parseNonLatinAliasesFromStream(chunked(feed(10), 4096));
+		const large = await parseNonLatinAliasesFromStream(
+			chunked(feed(200), 4096),
+		);
+
+		expect(feed(200).length).toBeGreaterThan(feed(10).length * 15);
+		// 20x the payload must not meaningfully move the high-water mark.
+		expect(large.peakBufferChars).toBeLessThan(
+			(small.peakBufferChars ?? 0) * 1.5,
+		);
+		// …and it stays on the order of ONE record, not the feed.
+		expect(large.peakBufferChars).toBeLessThan(party.length * 3);
+		expect(large.peakBufferChars).toBeLessThan(feed(200).length / 20);
+	});
+
+	test("discards the 26 MB of reference data ahead of the first record", async () => {
+		const body = await xml();
+		// Pad the pre-record region the way the real feed does; the window must
+		// not hold on to it once the script map has been read.
+		const at = body.indexOf("<DistinctParty ");
+		const padded = `${body.slice(0, at)}${"<!-- x -->".repeat(50_000)}${body.slice(at)}`;
+		const found = await parseNonLatinAliasesFromStream(chunked(padded, 4096));
+
+		expect(found.byEntityNumber.get("9760")).toContain(LUKASHENKA_CYRILLIC);
+		expect(found.peakBufferChars).toBeLessThan(padded.length / 4);
+	});
+
+	test("refuses a feed that exceeds the byte cap instead of consuming it", async () => {
+		await expect(
+			parseNonLatinAliasesFromStream(chunked(await xml(), 4096), {
+				maxBytes: 1_000,
+			}),
+		).rejects.toThrow(AliasFeedTooLargeError);
+	});
+
+	test("refuses a single record larger than the window", async () => {
+		await expect(
+			parseNonLatinAliasesFromStream(chunked(await xml(), 4096), {
+				maxWindowChars: 512,
+			}),
+		).rejects.toThrow(AliasFeedTooLargeError);
+	});
+});
+
+// The bounds exist so failure is CATCHABLE. A heap OOM aborts the process and
+// no `catch` runs — these paths must throw ordinary errors instead.
+describe("real failure modes stay catchable", () => {
+	afterEach(() => {
+		vi.useRealTimers();
+		vi.unstubAllGlobals();
+		vi.restoreAllMocks();
+	});
+
+	test("an oversized mirror response is refused mid-stream, not consumed", async () => {
+		const huge = `<Sanctions><ScriptValues><Script ID="220">Cyrillic</Script></ScriptValues>${"<pad/>".repeat(200_000)}`;
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (): Promise<Response> => new Response(huge, { status: 200 })),
+		);
+
+		await expect(fetchNonLatinAliases({ maxBytes: 4_096 })).rejects.toThrow(
+			AliasFeedTooLargeError,
+		);
+	});
+
+	test("a stalled mirror hits the deadline and rejects", async () => {
+		vi.useFakeTimers();
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(
+				async (_input: string | URL | Request, init?: RequestInit) =>
+					new Promise<Response>((_resolve, reject) => {
+						init?.signal?.addEventListener("abort", () =>
+							reject(new DOMException("aborted", "AbortError")),
+						);
+					}),
+			),
+		);
+
+		const pending = fetchNonLatinAliases();
+		const assertion = expect(pending).rejects.toThrow(/timed out/i);
+		await vi.advanceTimersByTimeAsync(240_000);
+		await assertion;
+	});
+
+	test("AliasFeedTooLargeError is an ordinary catchable Error", () => {
+		// Documents the contrast that motivates the whole design.
+		let caught: unknown = null;
+		try {
+			throw new AliasFeedTooLargeError("boom");
+		} catch (error) {
+			caught = error;
+		}
+		expect(caught).toBeInstanceOf(Error);
+		expect(caught).toBeInstanceOf(AliasFeedTooLargeError);
 	});
 });

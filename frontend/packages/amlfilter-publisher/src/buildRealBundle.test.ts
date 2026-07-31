@@ -5,7 +5,7 @@
 // injects FAKE sources (no network) and the FAKE embedder (no 23 MB model), so
 // it exercises only the staging glue, never edge-proc and never a live fetch.
 
-import { describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import {
 	BUNDLE_SOURCES,
 	parseRealBundleArgs,
@@ -13,7 +13,10 @@ import {
 	stagedListsFromSources,
 } from "./buildRealBundle.ts";
 import { createFakeEmbedder } from "./fakeEmbedder.ts";
-import type { AliasEnrichment } from "./sources/sdnAliases.ts";
+import {
+	type AliasEnrichment,
+	fetchNonLatinAliases,
+} from "./sources/sdnAliases.ts";
 import type {
 	RawListBytes,
 	SourceLine,
@@ -376,5 +379,46 @@ describe("alias enrichment degrades loudly instead of failing the build", () => 
 		]);
 		expect(lists[0]?.entities).toHaveLength(1);
 		expect(aliases.aliasesAdded).toBe(0);
+	});
+});
+
+// End-to-end through the REAL enrichment code path — not a mocked rejection.
+// A heap OOM would be uncatchable and kill the deploy; the size cap converts
+// that class of failure into an ordinary error the fail-soft path can absorb.
+describe("the bundle survives a REAL alias-feed failure", () => {
+	afterEach(() => {
+		vi.unstubAllGlobals();
+		vi.restoreAllMocks();
+	});
+
+	test("an oversized mirror still publishes, marked records-only", async () => {
+		const huge = `<Sanctions><ScriptValues><Script ID="220">Cyrillic</Script></ScriptValues>${"<pad/>".repeat(100_000)}`;
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (): Promise<Response> => new Response(huge, { status: 200 })),
+		);
+
+		const { lists, aliases } = await stagedListsFromSources(
+			[
+				{
+					source: fakeSource("OFAC_SDN", "OFAC SDN", "Ivan Fakovich"),
+					slug: "ofac",
+					health: HEALTH,
+					// The real fetch + real streaming parser, with a tiny cap.
+					enrichAliases: () => fetchNonLatinAliases({ maxBytes: 4_096 }),
+				},
+			],
+			createFakeEmbedder(),
+			VERSION,
+			undefined,
+			() => NOW,
+		);
+
+		// The deploy is NOT held hostage: the bundle exists.
+		expect(lists).toHaveLength(1);
+		expect(lists[0]?.entities).toHaveLength(1);
+		// …and it says what it is.
+		expect(aliases.mode).toBe("records-only");
+		expect(aliases.reason).toMatch(/exceeded/i);
 	});
 });
