@@ -16,6 +16,35 @@ concurrency:
 
 jobs:
   # ---------------------------------------------------------------------------
+  # gitleaks — full-history secret scan, on EVERY pull request.
+  #
+  # This repo already ran gitleaks, but only from security-audit.yml, which is
+  # `schedule` + `workflow_dispatch` only. That means a secret committed in a PR
+  # merged to main and then sat there for up to seven days until the Monday
+  # sweep. Every other repo in the portfolio blocks it at the PR instead, and a
+  # secret is the one class of defect you cannot fix by reverting — once it is in
+  # the public history it is burned and must be rotated.
+  #
+  # The weekly sweep in security-audit.yml stays: it re-scans unchanged history
+  # against an updated ruleset, which a push-triggered job never does. This job
+  # and that one answer different questions.
+  #
+  # Same action, same pinned SHA, and the same .gitleaks.toml (whose only
+  # exceptions are the documented false positives — see that file) as the weekly
+  # run, so the two cannot disagree about what counts as a secret.
+  # ---------------------------------------------------------------------------
+  gitleaks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0 # gitleaks scans every commit, not just HEAD
+      - uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ---------------------------------------------------------------------------
   # frontend — the entire CI for the zero-server, pure-TypeScript, in-browser
   # product. After environment setup (deps, model weights, Playwright browsers)
   # CI LITERALLY runs the canonical gate — `pnpm run gate` from frontend/ — the
