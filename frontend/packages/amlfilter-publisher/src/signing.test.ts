@@ -82,19 +82,19 @@ describe("published files verify against public.key", () => {
 		await rm(dir, { recursive: true, force: true });
 	});
 
-	test.each([
-		"watchlist.json",
-		"watchlist.manifest.json",
-	])("%s.sig verifies, flipping a byte fails closed", async (name) => {
-		const pub = await loadPublicKey();
-		const bytes = new Uint8Array(await readFile(join(dir, name)));
-		const sig = await readFile(join(dir, `${name}.sig`), "utf8");
+	test.each(["watchlist.json", "watchlist.manifest.json"])(
+		"%s.sig verifies, flipping a byte fails closed",
+		async (name) => {
+			const pub = await loadPublicKey();
+			const bytes = new Uint8Array(await readFile(join(dir, name)));
+			const sig = await readFile(join(dir, `${name}.sig`), "utf8");
 
-		await expect(verifyEd25519(pub, bytes, sig)).resolves.toBeUndefined();
+			await expect(verifyEd25519(pub, bytes, sig)).resolves.toBeUndefined();
 
-		const tampered = flipFirstByte(bytes);
-		await expect(verifyEd25519(pub, tampered, sig)).rejects.toThrow(
-			SignatureError,
-		);
-	});
+			const tampered = flipFirstByte(bytes);
+			await expect(verifyEd25519(pub, tampered, sig)).rejects.toThrow(
+				SignatureError,
+			);
+		},
+	);
 });

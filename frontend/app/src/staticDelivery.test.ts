@@ -145,18 +145,17 @@ describe("route delivery contract", () => {
 		expect(document.querySelector("h1")).not.toBeNull();
 	});
 
-	test.each([
-		"customers.html",
-		"review.html",
-		"settings.html",
-	])("%s keeps workstation state out of search results", (file) => {
-		const document = parseHtml(file);
+	test.each(["customers.html", "review.html", "settings.html"])(
+		"%s keeps workstation state out of search results",
+		(file) => {
+			const document = parseHtml(file);
 
-		expect(metaContent(document, 'meta[name="robots"]')).toBe(
-			"noindex, nofollow",
-		);
-		expect(document.querySelector('link[rel="canonical"]')).toBeNull();
-	});
+			expect(metaContent(document, 'meta[name="robots"]')).toBe(
+				"noindex, nofollow",
+			);
+			expect(document.querySelector('link[rel="canonical"]')).toBeNull();
+		},
+	);
 
 	test("Cloudflare Pages has explicit route normalization and no SPA catch-all", () => {
 		const redirects = readPublicFile("_redirects");

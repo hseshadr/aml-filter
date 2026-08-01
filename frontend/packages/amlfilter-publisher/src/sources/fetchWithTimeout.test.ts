@@ -132,21 +132,22 @@ describe("fetchWithTimeout identifies itself to upstream feeds", () => {
 		).rejects.toThrow(/WAF/i);
 	});
 
-	it.each([
-		429, 500, 503,
-	])("treats HTTP %i as worth another attempt", async (status) => {
-		const fetchMock = vi
-			.spyOn(globalThis, "fetch")
-			.mockResolvedValue(new Response("", { status }));
+	it.each([429, 500, 503])(
+		"treats HTTP %i as worth another attempt",
+		async (status) => {
+			const fetchMock = vi
+				.spyOn(globalThis, "fetch")
+				.mockResolvedValue(new Response("", { status }));
 
-		await expect(
-			fetchWithTimeout("https://example.test/feed", "UN", 50, {
-				attempts: 2,
-				sleep: noSleep,
-			}),
-		).rejects.toThrow(String(status));
-		expect(fetchMock).toHaveBeenCalledTimes(2);
-	});
+			await expect(
+				fetchWithTimeout("https://example.test/feed", "UN", 50, {
+					attempts: 2,
+					sleep: noSleep,
+				}),
+			).rejects.toThrow(String(status));
+			expect(fetchMock).toHaveBeenCalledTimes(2);
+		},
+	);
 
 	it("retries a connection-level error but not our own deadline", async () => {
 		const fetchMock = vi

@@ -51,20 +51,19 @@ describe("edgeprocPublishArgs", () => {
 		expect(args[2]).toBe("../edge-proc");
 	});
 
-	test.each([
-		-1,
-		1.5,
-		Number.MAX_SAFE_INTEGER + 1,
-	])("rejects a non-monotonic sequence %s", (sequence) => {
-		expect(() =>
-			edgeprocPublishArgs({
-				srcDir: "/s",
-				originDir: "/o",
-				keyPath: "/k",
-				bundleId: "b",
-				version: "v",
-				sequence,
-			}),
-		).toThrow(/sequence.*non-negative safe integer/i);
-	});
+	test.each([-1, 1.5, Number.MAX_SAFE_INTEGER + 1])(
+		"rejects a non-monotonic sequence %s",
+		(sequence) => {
+			expect(() =>
+				edgeprocPublishArgs({
+					srcDir: "/s",
+					originDir: "/o",
+					keyPath: "/k",
+					bundleId: "b",
+					version: "v",
+					sequence,
+				}),
+			).toThrow(/sequence.*non-negative safe integer/i);
+		},
+	);
 });

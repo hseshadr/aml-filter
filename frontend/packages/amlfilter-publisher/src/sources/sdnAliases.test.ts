@@ -315,16 +315,17 @@ describe("parseNonLatinAliasesFromStream", () => {
 		);
 	});
 
-	test.each([
-		1, 7, 64, 999,
-	])("is correct when chunks split records AND multi-byte characters (size %i)", async (size) => {
-		// A 1-byte chunk size guarantees every Cyrillic/Arabic codepoint is
-		// split across chunk boundaries. Naive per-chunk decoding mangles them.
-		const found = await parseNonLatinAliasesFromStream(
-			chunked(await xml(), size),
-		);
-		expect(found.byEntityNumber.get("9760")).toContain(LUKASHENKA_CYRILLIC);
-	});
+	test.each([1, 7, 64, 999])(
+		"is correct when chunks split records AND multi-byte characters (size %i)",
+		async (size) => {
+			// A 1-byte chunk size guarantees every Cyrillic/Arabic codepoint is
+			// split across chunk boundaries. Naive per-chunk decoding mangles them.
+			const found = await parseNonLatinAliasesFromStream(
+				chunked(await xml(), size),
+			);
+			expect(found.byEntityNumber.get("9760")).toContain(LUKASHENKA_CYRILLIC);
+		},
+	);
 
 	// THE memory property: as the feed grows, the window does NOT. Comparing a
 	// small feed against one 20x larger is what distinguishes "streams" from
