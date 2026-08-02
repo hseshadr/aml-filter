@@ -65,9 +65,16 @@ const WARMUP_PROMPT = "warm up the model";
  *   - between network chunks. The transport meter emits per stream chunk, so
  *     even a 0.5 Mbps link ticks roughly every 4 s. Never close.
  *   - after the last byte, while ONNX Runtime compiles the graph. NOTHING emits
- *     during that stretch, so it is what sets the floor. Measured at ~6 s on
- *     this hardware; 90 s leaves an order of magnitude for a cold, throttled, or
- *     low-core device.
+ *     during that stretch, so it is what sets the floor.
+ *
+ * The compile gap (last `/models/` response -> engine ready) measured 359-419 ms
+ * across four cold boots. But that was localhost, unthrottled, with a warm OS
+ * page cache on a developer machine — it is a FLOOR, not a representative value,
+ * and a real phone on a cold cache will be far slower. The window is set two
+ * orders of magnitude above the measured floor precisely because the honest
+ * measurement is weak evidence for the worst case: over-waiting costs a stalled
+ * visitor a few extra seconds, while under-waiting breaks the product for
+ * everyone on slow hardware. Erring wide is the cheap direction.
  *
  * What it costs a genuinely stalled visitor: 90 s to the error banner — better
  * than the 120 s the wall clock charged them, and now the ONLY people who pay it

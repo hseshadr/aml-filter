@@ -441,7 +441,13 @@ function BootBanner({
 		);
 	}
 	if (phase.kind === "error") {
-		const safeError = phase.detail;
+		// The CLASSIFIED title + recovery (from the live error object), with the
+		// app's ONE "Could not load the screening bundle: <cause>" wrapper kept as
+		// the technical detail. Both are contracts: bootErrorMessage.ts states the
+		// wrapper is the single user-facing framing for a load failure, and
+		// screen-cold-blocked.spec.ts asserts that substring. Classifying early
+		// fixed the title; it must not cost the wrapper.
+		const safeError = { ...phase.detail, technicalDetail: phase.message };
 		return (
 			<div
 				className="screen-banner screen-banner--error"

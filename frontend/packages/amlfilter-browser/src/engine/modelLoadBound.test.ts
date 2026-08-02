@@ -119,8 +119,10 @@ describe("the model-load bound the runtime applies", () => {
 	it("is an IDLE window wide enough to cover the silent ONNX compile", () => {
 		// Nothing emits progress while ORT compiles the graph after the last byte
 		// arrives, so that silent stretch — not the download — is what sets the
-		// floor. Measured at ~6 s on this hardware; the window keeps an order of
-		// magnitude of headroom for a cold, throttled, or low-core device.
+		// floor. Measured at 359-419 ms over four cold boots, but on localhost with
+		// a warm cache: a floor, not a worst case. The window sits far above it
+		// because under-waiting breaks the product for slow hardware while
+		// over-waiting only costs a genuinely stalled visitor a few seconds.
 		expect(MODEL_LOAD_IDLE_TIMEOUT_MS).toBe(90_000);
 	});
 
