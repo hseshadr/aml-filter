@@ -58,6 +58,16 @@ and live-verified by the **`publish-watchlist` GitHub Action**; the committed de
 **`workflow_dispatch`** (with an optional `version` stamp input that defaults to the run
 date).
 
+**A daily run is not a daily refresh.** Each of the four lists is refreshed
+independently; when one upstream is unreachable that list is re-served from the bundle
+already published — re-verified end to end, keeping its own version, stamped `stale` with
+its real age — while the others refresh normally. So the run can be green while one list
+is older than a day. The workflow summary names any list it could not refresh, and
+[`watchlist-freshness.yml`](../.github/workflows/watchlist-freshness.yml) checks the live
+bundle on its own schedule and opens an issue when a list goes stale. That guard exists
+because this cron failed for 22 consecutive days (2026-06-21 → 07-12, a missing signing
+secret) and the only signal was a red dot nobody was watching.
+
 **What it does.** Install workspace deps and pinned edge-proc → resolve the version
 stamp → fetch and embed the live source lists → fetch and signature-verify the live
 `latest` pointer, deriving the next `sequence` by incrementing it (a pre-sequence
@@ -122,9 +132,11 @@ and safe security headers.
 
 > The committed `frontend/app/public/bundle/origin/` is the small **demo** bundle — the
 > cold-clone / test artifact (a fresh clone screens against it with zero setup). **Production
-> always serves a freshly-built real bundle:** `deploy.yml` (after CI on `main`) and the nightly
+> always serves the real bundle:** `deploy.yml` (after CI on `main`) and the nightly
 > `publish-watchlist.yml` overwrite `public/bundle/origin/` with the real list before building,
-> so a routine code deploy never reverts the live site to the demo.
+> so a routine code deploy never reverts the live site to the demo. "Real" is not the same as
+> "rebuilt this run": a list whose upstream was down is re-served from the last published copy,
+> marked stale with its real age, and the app displays that age.
 
 ### Cloudflare Pages (SPA + same-origin bundle)
 
