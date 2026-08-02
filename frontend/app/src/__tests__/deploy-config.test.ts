@@ -225,8 +225,15 @@ describe("Cloudflare Pages deploy config", () => {
 					continue;
 				}
 				expect(target, `${file}: ${target}`).toMatch(/^[^@]+@[0-9a-f]{40}$/);
+				// The comment must name the RELEASE that SHA belongs to, so a human
+				// (and Dependabot) can bump it. Third-party actions release as `vN`;
+				// the first-party shared workflows in hseshadr/ci release as
+				// `ci-vN.N.N`. Demanding a bare `vN` there would force a comment
+				// naming a tag that does not exist. Each ref is held to its own
+				// scheme, and neither accepts the other's.
+				const release = target.startsWith("hseshadr/ci/") ? /^ci-v\d/ : /^v\d/;
 				expect(match[2], `${file}: ${target} needs a version comment`).toMatch(
-					/^v\d/,
+					release,
 				);
 			}
 		}
