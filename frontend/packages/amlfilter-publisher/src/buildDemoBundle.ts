@@ -18,10 +18,10 @@ import { readFile, rm } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { EMBEDDING_DIM, EMBEDDING_MODEL } from "@amlfilter/browser";
+import { removeProducerResidue } from "./buildRealBundle.ts";
 import { createNodeEmbedder } from "./nodeEmbedder.ts";
 import { publishBundle } from "./publishBundle.ts";
 import { parseEntities } from "./sourceEntity.ts";
-import { removeProducerResidue } from "./buildRealBundle.ts";
 import { type StagedList, stageBundle } from "./stageBundle.ts";
 import { packVectors } from "./vectors.ts";
 
