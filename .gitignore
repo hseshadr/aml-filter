@@ -20,6 +20,21 @@ frontend/test-results/
 signing.key
 frontend/origin/
 
+# Build residue from `edgeproc publish`. It writes a producer-side CAS mirror
+# (chunks/, manifests/) and a .mutation.lock ALONGSIDE the served contract, which
+# is only latest + manifest/<hash> + chunk/<hash>. The builders delete these
+# (removeProducerResidue in buildRealBundle.ts) so the committed demo bundle and
+# the deployed tree are exactly the served contract. These entries are the
+# backstop for an interrupted or hand-run publish: residue must never reach a
+# commit or the CDN.
+.mutation.lock
+frontend/app/public/bundle/origin/chunks/
+frontend/app/public/bundle/origin/manifests/
+frontend/app/tests/e2e-bundle/fixtures/bundle-v2/origin/chunks/
+frontend/app/tests/e2e-bundle/fixtures/bundle-v2/origin/manifests/
+frontend/packages/amlfilter-publisher/.bundle-staging/
+frontend/packages/amlfilter-publisher/.bundle-v2-staging/
+
 # Logs
 *.log
 

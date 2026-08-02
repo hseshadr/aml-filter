@@ -97,6 +97,19 @@ export interface CarriedListReport {
 	readonly reason: string;
 }
 
+/** Everything `edgeproc publish` leaves in an origin dir that is NOT part of the
+ * served contract: the producer-side CAS mirror and its mutation lock. The sync
+ * tier reads only `latest`, `manifest/<hash>` and `chunk/<hash>`; anything else
+ * is build residue that must not reach the CDN or a commit. */
+const PRODUCER_RESIDUE = ["chunks", "manifests", ".mutation.lock"] as const;
+
+/** Reduce a freshly published origin to exactly the served contract. */
+export async function removeProducerResidue(originDir: string): Promise<void> {
+	for (const entry of PRODUCER_RESIDUE) {
+		await rm(resolve(originDir, entry), { recursive: true, force: true });
+	}
+}
+
 /** Which alias coverage the produced bundle actually has. `records-only` means
  * a source's enrichment was unreachable and only the record feed's own (Latin)
  * names are present — it must never be reported as full coverage. */
@@ -494,14 +507,11 @@ export async function runRealBundle(
 			sequence: args.sequence,
 		});
 		// edge-proc also writes a producer-side CAS mirror (chunks/<aa>/<hash>,
-		// manifests/<hash>) next to the served contract. The sync tier consumes
-		// ONLY chunk/<hash>, manifest/<hash>, latest — drop the duplicates so the
-		// uploaded tree is exactly the served contract.
-		await rm(resolve(args.outDir, "chunks"), { recursive: true, force: true });
-		await rm(resolve(args.outDir, "manifests"), {
-			recursive: true,
-			force: true,
-		});
+		// manifests/<hash>) and a .mutation.lock next to the served contract. The
+		// sync tier consumes ONLY chunk/<hash>, manifest/<hash>, latest — drop the
+		// rest so the uploaded tree is exactly the served contract and no build
+		// residue is published to the CDN.
+		await removeProducerResidue(args.outDir);
 	} finally {
 		await rm(staging, { recursive: true, force: true });
 	}

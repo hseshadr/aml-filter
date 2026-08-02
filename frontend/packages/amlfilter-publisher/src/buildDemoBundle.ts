@@ -21,6 +21,7 @@ import { EMBEDDING_DIM, EMBEDDING_MODEL } from "@amlfilter/browser";
 import { createNodeEmbedder } from "./nodeEmbedder.ts";
 import { publishBundle } from "./publishBundle.ts";
 import { parseEntities } from "./sourceEntity.ts";
+import { removeProducerResidue } from "./buildRealBundle.ts";
 import { type StagedList, stageBundle } from "./stageBundle.ts";
 import { packVectors } from "./vectors.ts";
 
@@ -94,11 +95,11 @@ async function main(): Promise<void> {
 		sequence: DEMO_SEQUENCE,
 	});
 	// edge-proc also writes a producer-side CAS mirror (chunks/<aa>/<hash>,
-	// manifests/<hash>) next to the served contract. The sync tier consumes ONLY
-	// chunk/<hash>, manifest/<hash>, latest — drop the duplicates so the committed
-	// tree is exactly the served contract. Also drop the intermediate staging.
-	await rm(resolve(ORIGIN, "chunks"), { recursive: true, force: true });
-	await rm(resolve(ORIGIN, "manifests"), { recursive: true, force: true });
+	// manifests/<hash>) and a .mutation.lock next to the served contract. The
+	// sync tier consumes ONLY chunk/<hash>, manifest/<hash>, latest — drop the
+	// rest so the COMMITTED tree is exactly the served contract. Also drop the
+	// intermediate staging.
+	await removeProducerResidue(ORIGIN);
 	await rm(STAGING, { recursive: true, force: true });
 	process.stdout.write(
 		`demo bundle (${staged.length} lists, v${DEMO_VERSION}) -> ${ORIGIN}\n`,
