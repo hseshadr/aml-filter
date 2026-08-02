@@ -1,6 +1,18 @@
-# aml-filter
+# AML-Filter
 
-**A free, zero-server watchlist-filtering and KYC-review app that runs entirely in your browser — screens your customers against multiple sanctions lists, shows exactly why each one matched, and gives reviewers an auditable workflow.**
+Screens a name against 31,566 sanctioned entities — OFAC SDN, EU, UN and UK OFSI — entirely inside your browser tab. No server, no signup, and nothing you type is uploaded.
+
+![AML-Filter screening a misspelled name: six scored matches appear, each with the similarity evidence behind it and a signed score receipt](docs/assets/aml-filter-screening-demo.gif)
+
+**[Try it at aml-filter.com](https://aml-filter.com)** — nothing to install. Or run the whole thing locally:
+
+```bash
+git clone https://github.com/hseshadr/aml-filter && cd aml-filter/frontend && corepack enable && pnpm install && pnpm --filter aml-filter-app dev
+```
+
+The recording starts from a warm tab. A first visit has to fetch the list before it can screen anything: 34.3 MB of OFAC SDN data (zstd-compressed in transit) plus a 23 MB embedding model. After that it is cached and keeps working with the network off. The live demo loads OFAC SDN — 19,181 entities — on a cold visit; the EU, UN and UK OFSI lists are opt-in under Settings. Screening time is measured in your own browser and printed with every result, which is the only honest place for that number.
+
+---
 
 [![CI](https://github.com/hseshadr/aml-filter/actions/workflows/ci.yml/badge.svg)](https://github.com/hseshadr/aml-filter/actions/workflows/ci.yml)
 [![Live demo](https://img.shields.io/badge/demo-live%20at%20aml--filter.com-brightgreen.svg)](https://aml-filter.com)
@@ -8,19 +20,9 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue.svg)](https://www.typescriptlang.org/)
 [![Node 22.13](https://img.shields.io/badge/node-22.13-green.svg)](frontend/.nvmrc)
 
-▶ **Try it now at [aml-filter.com](https://aml-filter.com)** — the whole app runs in your browser tab, no server and no signup. Or **[run it locally in ~10 minutes](#quickstart--clone-to-screening-in-10-minutes)** (clone, `pnpm install`, `pnpm --filter aml-filter-app dev`).
+**A free, zero-server watchlist-filtering and KYC-review app that runs entirely in your browser — screens your customers against multiple sanctions lists, shows exactly why each one matched, and gives reviewers an auditable workflow.**
 
 > **Live at [`aml-filter.com`](https://aml-filter.com)** — hosted on Cloudflare Pages, screening entirely in your browser (the signed watchlist bundle is served same-origin). The source is public and MIT-licensed: clone it and the whole thing runs locally with no backend, no key, and no account. [`docs/DEPLOY.md`](docs/DEPLOY.md) covers self-hosting.
-
-**Browser support:** the supported production baseline is the current and previous
-desktop releases of Chrome, Edge, Firefox, and Safari 17+. The browser must expose
-module Workers, OPFS, WebCrypto, and Web Locks in a secure context. The app detects
-these before boot and shows an explicit unsupported-browser screen. Mobile Safari
-and Chrome use bounded one-list-at-a-time vector residency so the workstation does
-not overlap every watchlist with the ONNX/WASM model. Desktop browsers use the same
-bounded mode when memory is unknown or ≤8 GB; eager residency is reserved for an
-explicitly reported >8 GB desktop. Embedded WebViews are not part of the release
-contract.
 
 ## Status (verified 2026-07-23)
 
@@ -30,7 +32,7 @@ CI badge above always reflects the latest run on `main`, and per-commit CI + dep
 are in the repository's
 [Actions tab](https://github.com/hseshadr/aml-filter/actions). The exact SHA the live
 site is serving is always at [`aml-filter.com/build.json`](https://aml-filter.com/build.json).
-The full `pnpm gate` is green on Node 22.13.0: **1,093 Vitest unit tests across 119 files
+The full `pnpm gate` is green on Node 22.13.0: **1,215 Vitest unit tests across 127 files
 (the five workspace packages), plus all five real-Chromium Playwright e2e lanes**. On
 mobile, the
   workstation serializes engine boot, keeps one list resident at a time, and
@@ -50,7 +52,7 @@ pnpm gate
 curl -fsSL https://aml-filter.com/build.json
 ```
 
-The repository gate covers 366 browser-package tests and 357 application tests, plus
+The repository gate covers 395 browser-package tests and 385 application tests, plus
 typecheck, lint, build, i18n, KYC, bundle, and Android Chromium + desktop mobile
 smoke checks. Playwright WebKit is kept as a local/macOS profile but explicitly skips
 when its emulator lacks OPFS/SQLite; a physical iPhone fresh-tab check remains the
@@ -58,6 +60,17 @@ owner-gated acceptance step. A production iPhone-sized browser smoke previously
 reached `/settings` with a roughly 26 MB JS heap and no console errors.
 The app is still a reference implementation, not legal or regulatory advice, and
 embedded WebViews remain outside the release contract.
+
+## Browser support
+
+The supported production baseline is the current and previous desktop releases of
+Chrome, Edge, Firefox, and Safari 17+. The browser must expose module Workers, OPFS,
+WebCrypto, and Web Locks in a secure context. The app detects these before boot and
+shows an explicit unsupported-browser screen. Mobile Safari and Chrome use bounded
+one-list-at-a-time vector residency so the workstation does not overlap every watchlist
+with the ONNX/WASM model. Desktop browsers use the same bounded mode when memory is
+unknown or ≤8 GB; eager residency is reserved for an explicitly reported >8 GB desktop.
+Embedded WebViews are not part of the release contract.
 
 ## TL;DR
 
