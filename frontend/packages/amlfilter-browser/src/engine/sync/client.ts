@@ -83,11 +83,13 @@ export class EngineClient {
 
 	/** Sync the signed bundle at `baseUrl`, pinning the raw pubkey at `pubkeyUrl`.
 	 * `onProgress`, when given, receives one tick per fetched chunk (the long
-	 * cold-sync phase) via the Worker's one-way `sync-progress` channel. */
+	 * cold-sync phase) via the Worker's one-way `sync-progress` channel.
+	 * `wantedPaths`, when given, restricts the sync to part of the bundle. */
 	public async sync(
 		baseUrl: string,
 		pubkeyUrl: string,
 		onProgress?: OnSyncProgress,
+		wantedPaths?: ReadonlyArray<string>,
 	): Promise<SyncResult> {
 		const id = this.#allocId();
 		if (onProgress !== undefined) {
@@ -99,6 +101,11 @@ export class EngineClient {
 				id,
 				baseUrl,
 				pubkeyUrl,
+				// Omitted rather than set to undefined: the protocol distinguishes
+				// "no scope" (sync everything) from a scope, and under
+				// exactOptionalPropertyTypes an explicit undefined is not the same
+				// thing as an absent key.
+				...(wantedPaths === undefined ? {} : { wantedPaths }),
 			});
 			if (response.ok && response.kind === "sync") {
 				return response.result;

@@ -111,6 +111,33 @@ function slugOf(entry: WatchlistCatalogEntry): string {
 	return entry.path.replace(/\/$/, "");
 }
 
+/** The catalog file, always in scope: it is what every other scope is derived from. */
+const CATALOG_PATH = "catalog.json";
+
+/**
+ * Translate a list selection into the manifest paths a sync must cover: the
+ * catalog, plus one `slug/` directory prefix per selected list.
+ *
+ * `undefined` means "no selection expressed", which keeps the pre-scoping
+ * behavior of syncing every list. An EMPTY array is a real selection of nothing
+ * and correctly yields the catalog alone — it must not be confused with the
+ * undefined case, which is why this is an explicit branch and not a falsy check.
+ * An id that is not in the catalog is ignored; the catalog is the source of truth
+ * for existence, matching how the runtime filters lists.
+ */
+function wantedPathsFor(
+	catalog: WatchlistCatalog,
+	enabledLists: ReadonlyArray<string> | undefined,
+): ReadonlyArray<string> | undefined {
+	if (enabledLists === undefined) {
+		return undefined;
+	}
+	const selected = catalog.lists.filter((entry) =>
+		enabledLists.includes(entry.id),
+	);
+	return [CATALOG_PATH, ...selected.map((entry) => `${slugOf(entry)}/`)];
+}
+
 /** The worker-backed sync client seam the bundle source drives: `sync` runs the
  * delta-sync in the Worker (where OPFS is legal), `readFile` materializes a synced
  * file's bytes out of the Worker's store. {@link EngineClient} satisfies it in the
@@ -120,6 +147,7 @@ export interface BundleEngineClient {
 		baseUrl: string,
 		pubkeyUrl: string,
 		onProgress?: OnSyncProgress,
+		wantedPaths?: ReadonlyArray<string>,
 	): Promise<SyncResult>;
 	readFile(path: string): Promise<Uint8Array>;
 	clear(): Promise<void>;
@@ -171,18 +199,43 @@ export async function openBundleSource(
 	pubkeyUrl: string,
 	deps: BundleSourceDeps = defaultBundleSourceDeps,
 	onProgress?: OnSyncProgress,
+	enabledLists?: ReadonlyArray<string>,
 ): Promise<BundleSource> {
 	const client = deps.createClient();
 	try {
-		// `onProgress` threads the cold-sync per-chunk ticks up to the boot banner;
-		// undefined on reload/version-poll paths (no banner to feed).
-		const result = await client.sync(baseUrl, pubkeyUrl, onProgress);
+		// TWO-PHASE SYNC.
+		//
+		// The bundle carries one directory per watchlist, and /screen's default
+		// selection is OFAC SDN alone — so a cold boot has no business downloading
+		// the EU, UK and UN directories it will never read (527 of the 1,296 chunks
+		// and 18.4 MB of the 46.7 MB, measured against the live 2026-08-01 bundle).
+		//
+		// But the id -> slug mapping lives in `catalog.json`, INSIDE the bundle. So
+		// phase one syncs the catalog alone (one chunk, ~700 bytes), and phase two
+		// syncs the directories the selection actually resolves to.
+		//
+		// Both phases are complete, independent, fail-closed syncs: each re-fetches
+		// the no-store `/latest` pointer, re-checks its ed25519 signature, re-checks
+		// the manifest's content-address, and re-runs the anti-rollback sequence
+		// gate. Splitting the FETCH did not split the VERIFY. Phase two costs one
+		// extra pointer fetch (256 bytes); its manifest request is a conditional GET
+		// against an immutable content-addressed URL.
+		await client.sync(baseUrl, pubkeyUrl, undefined, [CATALOG_PATH]);
 
 		const bundleCatalog: unknown = JSON.parse(
-			DECODER.decode(await client.readFile("catalog.json")),
+			DECODER.decode(await client.readFile(CATALOG_PATH)),
 		);
 		assertBundleCatalog(bundleCatalog);
 		const catalog = toWatchlistCatalog(bundleCatalog);
+
+		// `onProgress` threads the cold-sync per-chunk ticks up to the boot banner;
+		// undefined on reload/version-poll paths (no banner to feed).
+		const result = await client.sync(
+			baseUrl,
+			pubkeyUrl,
+			onProgress,
+			wantedPathsFor(catalog, enabledLists),
+		);
 
 		const loadList = async (
 			entry: WatchlistCatalogEntry,

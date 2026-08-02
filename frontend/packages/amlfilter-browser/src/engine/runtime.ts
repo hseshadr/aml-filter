@@ -297,6 +297,7 @@ export interface RuntimeDeps {
 		pubkeyUrl: string,
 		deps?: BundleSourceDeps,
 		onProgress?: OnSyncProgress,
+		enabledLists?: ReadonlyArray<string>,
 	) => Promise<BundleSource>;
 }
 
@@ -757,9 +758,18 @@ export class EngineRuntime {
 		// per-entry versions detect a bumped list or an add/remove. Keep the active
 		// memoized source alive: streamed engines retain loaders that close over it.
 		// Open a short-lived poll source instead, then terminate only that source.
+		// Scoped to NOTHING but the catalog: the poll reads `catalog.json` and
+		// nothing else, so it has no business pulling list payloads. An empty
+		// selection is a real selection of zero lists (distinct from `undefined`,
+		// which means "no selection expressed" and syncs everything) — so this
+		// resolves to the catalog file alone. Before scoping, every version poll
+		// re-ran a whole-bundle delta-sync.
 		const pollSource = await this.#deps.openBundleSource(
 			this.#config.bundleBaseUrl,
 			this.#config.pubkeyUrl,
+			undefined,
+			undefined,
+			[],
 		);
 		try {
 			const catalog = pollSource.loadCatalog();
@@ -789,12 +799,20 @@ export class EngineRuntime {
 		if (this.#bundleSource === null) {
 			// The Worker fetches + verifies the pinned same-origin pubkey itself; the
 			// main thread never touches OPFS (sync access handles are Worker-only).
+			//
+			// The selection is handed to the sync, not just applied after it. It used
+			// to be consulted only in #loadEnabledLists / #loadStreamingSources —
+			// AFTER every list had already been downloaded — so /screen paid for four
+			// watchlists to read one. Enabling a list later drops this memo (see
+			// #reload), which re-opens with the wider selection; the content-addressed
+			// store makes that a top-up of the new list's chunks, not a re-download.
 			this.#bundleSource = this.#deps
 				.openBundleSource(
 					baseUrl,
 					config.pubkeyUrl,
 					undefined,
 					this.#onSyncProgress,
+					this.#selection.enabledLists,
 				)
 				.catch((error: unknown) => {
 					this.#bundleSource = null;

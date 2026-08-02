@@ -41,6 +41,21 @@ interface SyncArgs {
 	/** Backoff delay seam for the per-chunk retry. Production uses a real timer;
 	 * tests pass a no-op so the retry budget is asserted without real waits. */
 	readonly sleep?: (ms: number) => Promise<void>;
+	/**
+	 * Restrict this sync to part of the bundle. An entry matches a manifest file
+	 * whose path equals it, or — when the entry ends in `/` — whose path starts
+	 * with it. OMITTED MEANS EVERY FILE, so every existing caller is unchanged.
+	 *
+	 * This exists because /screen's default selection is OFAC SDN alone, while the
+	 * published bundle carries four lists in sibling directories. Without a scope
+	 * the cold boot pulled all four: 1,296 chunks / 46,714,573 bytes measured
+	 * against the live 2026-08-01 bundle, of which 527 chunks / 18.4 MB were for
+	 * lists the page never reads.
+	 *
+	 * A scope narrows WHAT is fetched. It must never narrow HOW anything is
+	 * checked — see {@link scopedFiles} for the single walk every check shares.
+	 */
+	readonly wantedPaths?: ReadonlyArray<string>;
 }
 
 const DECODER = new TextDecoder();
@@ -272,16 +287,45 @@ async function fetchManifest(
 	return parseJson<IndexManifest>(raw);
 }
 
+/**
+ * The manifest files this sync is responsible for.
+ *
+ * EVERY walk over `manifest.files` goes through here — the missing-chunk diff,
+ * the reused-chunk verification, the quota preflight, the offline reassembly
+ * check, and the cached-result chunk count. That is the point: five walks that
+ * each decided membership for themselves would be five chances to drift, and a
+ * drift between "what I fetched" and "what I verified" is exactly the kind of
+ * gap that promotes an unverified chunk.
+ *
+ * An undefined scope returns every file, so the default path is byte-identical
+ * to the pre-scoping behavior.
+ */
+function scopedFiles(
+	manifest: IndexManifest,
+	wantedPaths: ReadonlyArray<string> | undefined,
+): ReadonlyArray<FileEntry> {
+	if (wantedPaths === undefined) {
+		return manifest.files;
+	}
+	return manifest.files.filter((entry) =>
+		wantedPaths.some((wanted) =>
+			wanted.endsWith("/")
+				? entry.path.startsWith(wanted)
+				: entry.path === wanted,
+		),
+	);
+}
+
 /** Return [chunks to fetch, reused count] over the manifest's deduped chunk set. */
 async function missingChunks(
-	manifest: IndexManifest,
+	files: ReadonlyArray<FileEntry>,
 	store: CacheStore,
 ): Promise<{
 	readonly missing: ReadonlyArray<string>;
 	readonly reused: number;
 }> {
 	const wanted = new Set<string>();
-	for (const entry of manifest.files) {
+	for (const entry of files) {
 		for (const ref of entry.chunks) {
 			wanted.add(ref.hash);
 		}
@@ -394,13 +438,13 @@ async function reassemble(
  * before promote.
  */
 async function verifyReusedChunks(
-	manifest: IndexManifest,
+	files: ReadonlyArray<FileEntry>,
 	missing: ReadonlyArray<string>,
 	store: CacheStore,
 ): Promise<void> {
 	const fetched = new Set(missing);
 	const seen = new Set<string>();
-	for (const entry of manifest.files) {
+	for (const entry of files) {
 		for (const ref of entry.chunks) {
 			if (fetched.has(ref.hash) || seen.has(ref.hash)) {
 				continue;
@@ -415,10 +459,10 @@ async function verifyReusedChunks(
  * on the OFFLINE fallback path (syncFromCache), which re-serves cached bytes not
  * re-verified on write this run, so it re-verifies them fail-closed. */
 async function verifyReassembly(
-	manifest: IndexManifest,
+	files: ReadonlyArray<FileEntry>,
 	store: CacheStore,
 ): Promise<void> {
-	for (const entry of manifest.files) {
+	for (const entry of files) {
 		await reassemble(entry, store);
 	}
 }
@@ -428,12 +472,12 @@ async function verifyReassembly(
  * this over-estimates, keeping the quota preflight conservative (it never
  * under-warns). */
 function neededBytes(
-	manifest: IndexManifest,
+	files: ReadonlyArray<FileEntry>,
 	missing: ReadonlyArray<string>,
 ): number {
 	const wanted = new Set(missing);
 	const sizeOf = new Map<string, number>();
-	for (const entry of manifest.files) {
+	for (const entry of files) {
 		for (const ref of entry.chunks) {
 			if (wanted.has(ref.hash)) {
 				sizeOf.set(ref.hash, ref.size);
@@ -451,14 +495,14 @@ function neededBytes(
  * can't hold the missing chunks. A no-op when no estimate seam is wired or the
  * browser can't report quota/usage. */
 async function assertRoomForChunks(
-	manifest: IndexManifest,
+	files: ReadonlyArray<FileEntry>,
 	missing: ReadonlyArray<string>,
 	estimateStorage: EstimateStorage | undefined,
 ): Promise<void> {
 	if (estimateStorage === undefined || missing.length === 0) {
 		return;
 	}
-	const needed = neededBytes(manifest, missing);
+	const needed = neededBytes(files, missing);
 	const estimate = await estimateStorage();
 	if (!fitsInQuota(estimate, needed)) {
 		const mb = Math.ceil(needed / 1_000_000);
@@ -470,9 +514,9 @@ async function assertRoomForChunks(
 }
 
 /** Count the distinct chunk hashes a manifest references (for the cache result). */
-function distinctChunks(manifest: IndexManifest): number {
+function distinctChunks(files: ReadonlyArray<FileEntry>): number {
 	const seen = new Set<string>();
-	for (const entry of manifest.files) {
+	for (const entry of files) {
 		for (const ref of entry.chunks) {
 			seen.add(ref.hash);
 		}
@@ -488,19 +532,26 @@ function distinctChunks(manifest: IndexManifest): number {
  * path runs ONLY for a NetworkError — integrity/signature failures never reach
  * here, so a tampered-but-present pointer still throws.
  */
-async function syncFromCache(store: CacheStore): Promise<SyncResult | null> {
+async function syncFromCache(
+	store: CacheStore,
+	wantedPaths: ReadonlyArray<string> | undefined,
+): Promise<SyncResult | null> {
 	const active = await store.readActive();
 	if (active === null) {
 		return null;
 	}
 	const raw = await store.getManifest(active.manifest_hash);
 	const manifest = parseJson<IndexManifest>(raw);
-	await verifyReassembly(manifest, store);
+	// Scoped: a list that was never fetched has no chunks to reassemble, so an
+	// unscoped walk here would turn a perfectly good offline boot into a spurious
+	// integrity failure. What IS in scope is still fully re-verified.
+	const files = scopedFiles(manifest, wantedPaths);
+	await verifyReassembly(files, store);
 	return {
 		version: active.version,
 		manifestHash: active.manifest_hash,
 		chunksFetched: 0,
-		chunksReused: distinctChunks(manifest),
+		chunksReused: distinctChunks(files),
 		bytesFetched: 0,
 	};
 }
@@ -516,7 +567,7 @@ export async function syncIndex(args: SyncArgs): Promise<SyncResult> {
 		// but invalid pointer (bad signature) is an IntegrityError-class failure
 		// and must propagate, promoting nothing.
 		if (error instanceof NetworkError) {
-			const cached = await syncFromCache(store);
+			const cached = await syncFromCache(store, args.wantedPaths);
 			if (cached !== null) {
 				return cached;
 			}
@@ -529,10 +580,14 @@ export async function syncIndex(args: SyncArgs): Promise<SyncResult> {
 	const active = await store.readActive();
 	assertNotRollback(active, pointer);
 	const manifest = await fetchManifest(baseUrl, pointer, fetchBytes, store);
-	const { missing, reused } = await missingChunks(manifest, store);
+	// The one place the scope is applied. Everything downstream — the diff, the
+	// preflight, the fetch, the reused-chunk verification, the reported counts —
+	// works off this same list, so "fetched" and "verified" cannot drift apart.
+	const files = scopedFiles(manifest, args.wantedPaths);
+	const { missing, reused } = await missingChunks(files, store);
 	// Quota preflight: refuse fail-fast (QuotaError) before fetching any chunk if
 	// the device can't hold them. Best-effort — a no-op without an estimate seam.
-	await assertRoomForChunks(manifest, missing, args.estimateStorage);
+	await assertRoomForChunks(files, missing, args.estimateStorage);
 	const bytesFetched = await fetchMissing(
 		baseUrl,
 		missing,
@@ -548,7 +603,7 @@ export async function syncIndex(args: SyncArgs): Promise<SyncResult> {
 	// it keeps fail-closed intact: fetched chunks were verified on write, reused
 	// chunks are verified here, and each file's sha256 is checked once at
 	// materialize BEFORE its bytes are used.
-	await verifyReusedChunks(manifest, missing, store);
+	await verifyReusedChunks(files, missing, store);
 	// The optimistic gate above avoids needless bundle work for an obvious replay.
 	// Re-read under the cross-tab promotion lock immediately before the write: a
 	// newer tab may have promoted while this tab downloaded and verified chunks.

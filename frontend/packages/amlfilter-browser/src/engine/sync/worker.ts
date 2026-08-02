@@ -55,6 +55,10 @@ async function handleSync(req: SyncRequest): Promise<EngineResponse> {
 		const pubkey = await loadPubkey(req.pubkeyUrl);
 		const result = await syncIndex({
 			baseUrl: req.baseUrl,
+			// Scope the sync to the selected lists. Narrows WHAT is fetched only —
+			// signature, content-address, anti-rollback and the reused-chunk
+			// verification all still run over exactly what this sync claims.
+			wantedPaths: req.wantedPaths,
 			store: cacheStore,
 			fetchBytes,
 			verify: (message, signature) => verifyEd25519(pubkey, message, signature),

@@ -1478,8 +1478,11 @@ describe("defaultRuntimeDeps (production seams over a scripted Worker)", () => {
 
 		await defaultRuntimeDeps().clearCache();
 
-		// The transient bundle source syncs, validates the catalog, then clears.
-		expect(scriptedRequests).toEqual(["sync", "readFile", "clear"]);
+		// The transient bundle source runs the TWO-PHASE sync — phase one pulls
+		// catalog.json alone so the list selection can be resolved to bundle
+		// directories, phase two pulls those directories — validates the catalog
+		// between them, then clears.
+		expect(scriptedRequests).toEqual(["sync", "readFile", "sync", "clear"]);
 	});
 
 	it("makeEmbedder builds a Worker-backed embedder", () => {

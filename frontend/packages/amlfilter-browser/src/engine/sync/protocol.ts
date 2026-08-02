@@ -10,6 +10,9 @@ export interface SyncRequest {
 	readonly id: number;
 	readonly baseUrl: string;
 	readonly pubkeyUrl: string;
+	/** Restrict the sync to part of the bundle (see `syncIndex`'s `wantedPaths`).
+	 * Omitted = the whole bundle, so an old caller behaves exactly as before. */
+	readonly wantedPaths?: ReadonlyArray<string>;
 }
 
 /** Materialize a synced file's bytes from the active manifest. */
