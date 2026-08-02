@@ -27,6 +27,7 @@ import {
 	type OnEmbedProgress,
 } from "./embedder";
 import { createWorkerEmbedder, spawnEmbedderWorker } from "./embedderClient";
+import { withIdleTimeout } from "./idleTimeout";
 import {
 	createMultiListScreeningEngine,
 	createStreamingMultiListScreeningEngine,
@@ -48,14 +49,31 @@ import { WatchlistFormatError } from "./watchlist";
 const WARMUP_PROMPT = "warm up the model";
 
 /**
- * Hard ceiling on the warmup embed — the ~23 MB model download + ONNX compile.
- * A stalled HF CDN would otherwise leave bootstrap pending forever (the boot
- * banner never resolves and never errors); this turns a stall into a reject so
- * the caller's `.catch` runs and the UI can offer a retry. This is the
- * PRODUCTION default; the cold-cache e2e overrides it via
- * `VITE_MODEL_LOAD_TIMEOUT_MS` (see {@link modelLoadTimeoutMs}) to fail fast.
+ * The model-load bound: the longest the warmup embed (the ~23 MB model download
+ * + ONNX compile) may stay SILENT — not the longest it may take.
+ *
+ * It replaced a 120 s WALL CLOCK, and a wall clock on a download is a bandwidth
+ * floor in disguise — 23 MB in 120 s is ~1.6 Mbps, so every
+ * visitor slower than that was shown a Retry banner for a download that was
+ * working. Measured live on 2026-08-01: a sub-3 Mbps link failed the boot at
+ * 356 s with the model as the remaining cause. Exactly the bug already fixed on
+ * the sync path, and the wall clock is GONE rather than kept alongside this —
+ * two ceilings on one operation is how the next drift starts.
+ *
+ * WHY 90 s. The window has to exceed the longest legitimate GAP between progress
+ * ticks, not the load's duration. Two gaps exist:
+ *   - between network chunks. The transport meter emits per stream chunk, so
+ *     even a 0.5 Mbps link ticks roughly every 4 s. Never close.
+ *   - after the last byte, while ONNX Runtime compiles the graph. NOTHING emits
+ *     during that stretch, so it is what sets the floor. Measured at ~6 s on
+ *     this hardware; 90 s leaves an order of magnitude for a cold, throttled, or
+ *     low-core device.
+ *
+ * What it costs a genuinely stalled visitor: 90 s to the error banner — better
+ * than the 120 s the wall clock charged them, and now the ONLY people who pay it
+ * are people whose download really has stopped.
  */
-export const MODEL_LOAD_TIMEOUT_MS = 120_000;
+export const MODEL_LOAD_IDLE_TIMEOUT_MS = 90_000;
 
 /**
  * Last-resort ceiling on the WHOLE boot (download → verify → model load). On
@@ -117,16 +135,6 @@ function parsePositiveMs(raw: string | undefined, fallback: number): number {
 }
 
 /**
- * Parse a model-load timeout override (ms) fail-closed: an absent, non-numeric,
- * non-finite, or non-positive value falls back to {@link MODEL_LOAD_TIMEOUT_MS},
- * so a malformed env var can never weaken the production ceiling to 0/NaN. Pure
- * over its input — the caller supplies the raw env string (or undefined).
- */
-export function parseTimeoutMs(raw: string | undefined): number {
-	return parsePositiveMs(raw, MODEL_LOAD_TIMEOUT_MS);
-}
-
-/**
  * The effective overall-boot timeout: the `VITE_BOOT_TIMEOUT_MS` override if
  * present and valid, otherwise {@link BOOT_TIMEOUT_MS}. The override exists only
  * so the cold-cache e2e can bound the "everything blocked" boot to seconds.
@@ -138,15 +146,18 @@ export function bootTimeoutMs(
 }
 
 /**
- * The effective model-load timeout: the `VITE_MODEL_LOAD_TIMEOUT_MS` override if
- * present and valid, otherwise the production default. The override exists ONLY
- * so the cold-cache e2e can bound the "everything blocked" case to seconds; in a
- * normal build the env var is unset and the default stands.
+ * The effective model-load IDLE window: the `VITE_MODEL_LOAD_IDLE_TIMEOUT_MS`
+ * override if present and valid, otherwise {@link MODEL_LOAD_IDLE_TIMEOUT_MS}.
+ * Fail-closed on a malformed value, like every other ceiling here — the override
+ * exists so the cold-cache e2e can bound a blocked model to seconds.
  */
-export function modelLoadTimeoutMs(
+export function modelLoadIdleTimeoutMs(
 	env: Readonly<Record<string, string | undefined>>,
 ): number {
-	return parseTimeoutMs(env.VITE_MODEL_LOAD_TIMEOUT_MS);
+	return parsePositiveMs(
+		env.VITE_MODEL_LOAD_IDLE_TIMEOUT_MS,
+		MODEL_LOAD_IDLE_TIMEOUT_MS,
+	);
 }
 
 /**
@@ -955,22 +966,36 @@ export class EngineRuntime {
 		// chunk; without this every chunk would re-render the banner. The precise
 		// progress is preserved on the stage; only the rendered step gates the
 		// emit, matching what the banner draws.
-		const onModelProgress = throttleModelProgress((progress) =>
+		const throttled = throttleModelProgress((progress) =>
 			onStage({ kind: "loading-model", progress }),
 		);
+		// The idle bound is fed from the RAW sink, before throttleModelProgress.
+		// The throttle deliberately drops ticks that would not change the rendered
+		// value, so keying proof-of-life off it would let a moving download look
+		// silent whenever it happened not to advance a whole percent.
+		const idleMs = modelLoadIdleTimeoutMs(import.meta.env);
+		let modelProgressTick: () => void = () => undefined;
+		const onModelProgress: OnEmbedProgress = (progress) => {
+			modelProgressTick();
+			throttled(progress);
+		};
 		const embedder = this.#embedder ?? this.#deps.makeEmbedder(onModelProgress);
 		this.#embedder = embedder;
 		// Force the ~23 MB model download/compile now so "loading-model" reflects
-		// real work and the first user query is fast. Bounded: a stalled CDN must
-		// reject (bootstrap clears its memo + the UI errors) rather than hang. The
-		// ceiling is the production default unless the cold-cache e2e overrode it
-		// via VITE_MODEL_LOAD_TIMEOUT_MS, so that test can fail fast and loud.
-		const timeoutMs = modelLoadTimeoutMs(import.meta.env);
-		await withTimeout(
+		// real work and the first user query is fast. Bounded on SILENCE, not on
+		// duration: a stalled CDN must reject (bootstrap clears its memo + the UI
+		// errors) rather than hang, but a slow link that is still delivering bytes
+		// must be allowed to finish. See MODEL_LOAD_IDLE_TIMEOUT_MS.
+		const warmup = withIdleTimeout(
 			embedder.embed(WARMUP_PROMPT),
-			timeoutMs,
-			`loading the name-matching model timed out after ${timeoutMs}ms`,
+			idleMs,
+			// Keep the words "timed out" — the app's error registry classifies
+			// bundle.timeout on that text, and losing it silently downgrades this to
+			// internal.unknown ("Local screening engine unavailable").
+			`loading the name-matching model timed out after ${idleMs}ms with no progress`,
 		);
+		modelProgressTick = warmup.tick;
+		await warmup.promise;
 		assertCurrent();
 
 		const engine =

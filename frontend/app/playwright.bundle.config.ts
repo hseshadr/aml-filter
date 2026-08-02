@@ -55,7 +55,7 @@ export default defineConfig({
 				VITE_BUNDLE_BASE_URL: "/bundle/origin",
 				// 120s production ceiling — full headroom for a cold in-tab model
 				// compile on a slow CI runner.
-				VITE_MODEL_LOAD_TIMEOUT_MS: "120000",
+				VITE_MODEL_LOAD_IDLE_TIMEOUT_MS: "120000",
 				// The overall boot ceiling, lowered from its 900s production value so
 				// `boot-ceiling.spec.ts` can actually WATCH it fire. That spec holds a
 				// sync in the slow-but-moving state — one `sync-progress` tick every

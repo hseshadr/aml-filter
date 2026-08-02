@@ -53,17 +53,18 @@ export default defineConfig({
 			url: `http://localhost:${SPA_PORT}/screen`,
 			reuseExistingServer: !process.env.CI,
 			timeout: 240_000,
-			// VITE_MODEL_LOAD_TIMEOUT_MS bounds the in-tab model warmup. Set to the
+			// VITE_MODEL_LOAD_IDLE_TIMEOUT_MS bounds the in-tab model warmup by SILENCE
+			// (no progress tick), not by elapsed time. Set to the
 			// 120s production ceiling so the WARM specs get full headroom for a cold
 			// ~23 MB compile on a slow/loaded CI runner (45s was marginal and flaked).
 			// The "everything blocked" negative spec still rejects at this ceiling —
-			// its coupled MODEL_LOAD_TIMEOUT_MS in screen-cold-blocked.spec.ts is kept
+			// its coupled MODEL_LOAD_IDLE_TIMEOUT_MS in screen-cold-blocked.spec.ts is kept
 			// in sync — so it stays loud, just bounded by 120s instead of 45s.
 			// No pubkey env here on purpose: the local preview server pairs the committed
 			// demo bundle with the demo verify key by default (vite.config
 			// localDemoPubkeyPin), so this lane boots the way a cold clone does.
 			env: {
-				VITE_MODEL_LOAD_TIMEOUT_MS: "120000",
+				VITE_MODEL_LOAD_IDLE_TIMEOUT_MS: "120000",
 			},
 		},
 	],

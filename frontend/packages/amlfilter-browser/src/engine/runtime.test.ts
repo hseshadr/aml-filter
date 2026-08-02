@@ -9,9 +9,8 @@ import {
 	configFromEnv,
 	defaultRuntimeDeps,
 	EngineRuntime,
-	MODEL_LOAD_TIMEOUT_MS,
-	modelLoadTimeoutMs,
-	parseTimeoutMs,
+	MODEL_LOAD_IDLE_TIMEOUT_MS,
+	modelLoadIdleTimeoutMs,
 	type RuntimeConfig,
 	type RuntimeDeps,
 	SLOWEST_HEALTHY_COLD_SYNC_MS,
@@ -139,30 +138,34 @@ function bundleSourceOf(
 	return bundleSourceFromCatalogs([catalogOf(pairs)], () => fakeLoaded());
 }
 
-describe("parseTimeoutMs (model-load timeout override, fail-closed)", () => {
+describe("modelLoadIdleTimeoutMs (model-load idle override, fail-closed)", () => {
 	it("returns the production default when the override is absent", () => {
-		expect(parseTimeoutMs(undefined)).toBe(MODEL_LOAD_TIMEOUT_MS);
+		expect(modelLoadIdleTimeoutMs({})).toBe(MODEL_LOAD_IDLE_TIMEOUT_MS);
 	});
 
 	it("uses a valid positive numeric override", () => {
-		expect(parseTimeoutMs("2500")).toBe(2500);
+		expect(
+			modelLoadIdleTimeoutMs({ VITE_MODEL_LOAD_IDLE_TIMEOUT_MS: "2500" }),
+		).toBe(2500);
 	});
 
 	it.each(["", "abc", "0", "-1", "NaN", "Infinity"])(
 		"falls back to the default for the invalid override %p",
 		(raw) => {
-			expect(parseTimeoutMs(raw)).toBe(MODEL_LOAD_TIMEOUT_MS);
+			expect(
+				modelLoadIdleTimeoutMs({ VITE_MODEL_LOAD_IDLE_TIMEOUT_MS: raw }),
+			).toBe(MODEL_LOAD_IDLE_TIMEOUT_MS);
 		},
 	);
 
-	it("reads VITE_MODEL_LOAD_TIMEOUT_MS from the env record", () => {
-		expect(modelLoadTimeoutMs({ VITE_MODEL_LOAD_TIMEOUT_MS: "1234" })).toBe(
-			1234,
-		);
+	it("reads VITE_MODEL_LOAD_IDLE_TIMEOUT_MS from the env record", () => {
+		expect(
+			modelLoadIdleTimeoutMs({ VITE_MODEL_LOAD_IDLE_TIMEOUT_MS: "1234" }),
+		).toBe(1234);
 	});
 
 	it("falls back to the default when the env var is unset", () => {
-		expect(modelLoadTimeoutMs({})).toBe(MODEL_LOAD_TIMEOUT_MS);
+		expect(modelLoadIdleTimeoutMs({})).toBe(MODEL_LOAD_IDLE_TIMEOUT_MS);
 	});
 });
 
@@ -177,7 +180,7 @@ describe("bootTimeoutMs (overall boot deadline override, fail-closed)", () => {
 	});
 
 	it("is longer than the model-load ceiling so the model timeout stays the tighter bound", () => {
-		expect(BOOT_TIMEOUT_MS).toBeGreaterThan(MODEL_LOAD_TIMEOUT_MS);
+		expect(BOOT_TIMEOUT_MS).toBeGreaterThan(MODEL_LOAD_IDLE_TIMEOUT_MS);
 	});
 
 	/**
@@ -207,7 +210,7 @@ describe("bootTimeoutMs (overall boot deadline override, fail-closed)", () => {
 	it("is the loosest bound: the stall detectors stay tighter", () => {
 		expect(FETCH_TIMEOUT_MS).toBeLessThan(BOOT_TIMEOUT_MS);
 		expect(DEFAULT_REQUEST_TIMEOUT_MS).toBeLessThan(BOOT_TIMEOUT_MS);
-		expect(MODEL_LOAD_TIMEOUT_MS).toBeLessThan(BOOT_TIMEOUT_MS);
+		expect(MODEL_LOAD_IDLE_TIMEOUT_MS).toBeLessThan(BOOT_TIMEOUT_MS);
 	});
 });
 
@@ -278,7 +281,7 @@ describe("EngineRuntime bootstrap timeout", () => {
 		const runtime = new EngineRuntime(deps(neverEmbedder()));
 		const pending = runtime.bootstrap(CONFIG);
 		const assertion = expect(pending).rejects.toThrow(/model/i);
-		await vi.advanceTimersByTimeAsync(MODEL_LOAD_TIMEOUT_MS);
+		await vi.advanceTimersByTimeAsync(MODEL_LOAD_IDLE_TIMEOUT_MS);
 		await assertion;
 	});
 
@@ -293,13 +296,13 @@ describe("EngineRuntime bootstrap timeout", () => {
 
 		const first = runtime.bootstrap(CONFIG);
 		const firstAssert = expect(first).rejects.toThrow();
-		await vi.advanceTimersByTimeAsync(MODEL_LOAD_TIMEOUT_MS);
+		await vi.advanceTimersByTimeAsync(MODEL_LOAD_IDLE_TIMEOUT_MS);
 		await firstAssert;
 		expect(embed).toHaveBeenCalledTimes(1);
 
 		const second = runtime.bootstrap(CONFIG);
 		const secondAssert = expect(second).rejects.toThrow();
-		await vi.advanceTimersByTimeAsync(MODEL_LOAD_TIMEOUT_MS);
+		await vi.advanceTimersByTimeAsync(MODEL_LOAD_IDLE_TIMEOUT_MS);
 		await secondAssert;
 		// A fresh #build ran (warmup re-attempted) — the rejected memo was cleared.
 		expect(embed).toHaveBeenCalledTimes(2);
@@ -944,7 +947,7 @@ describe("EngineRuntime boot stages", () => {
 		const pending = runtime.bootstrap(CONFIG, (s) => stages.push(s));
 		const assertion = expect(pending).rejects.toThrow();
 		// Let the (real-timer) fetch + load microtasks flush before the deadline.
-		await vi.advanceTimersByTimeAsync(MODEL_LOAD_TIMEOUT_MS);
+		await vi.advanceTimersByTimeAsync(MODEL_LOAD_IDLE_TIMEOUT_MS);
 		await assertion;
 		expect(stages[0]).toEqual({ kind: "downloading" });
 		// The verified stage carries the COMPOSITE stamp, not a bare version.

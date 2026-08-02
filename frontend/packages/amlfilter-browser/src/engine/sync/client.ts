@@ -2,6 +2,7 @@
 // OPFS sync access handles, so it only sends typed requests and awaits replies.
 // One in-flight map keyed by request id correlates responses to promises.
 
+import { type IdleTimer, startIdleTimer } from "../idleTimeout";
 import { fromErrorResponse } from "./errorEnvelope";
 import type { EngineOutbound, EngineRequest, EngineResponse } from "./protocol";
 import type { OnSyncProgress, SyncResult } from "./types";
@@ -9,9 +10,8 @@ import type { OnSyncProgress, SyncResult } from "./types";
 interface Pending {
 	readonly resolve: (response: EngineResponse) => void;
 	readonly reject: (error: Error) => void;
-	timer: ReturnType<typeof setTimeout>;
-	/** Re-arm the stall timer; called on every proof-of-life from the Worker. */
-	readonly rearm: () => void;
+	/** The silence bound. `tick()` on every proof-of-life from the Worker. */
+	readonly timer: IdleTimer;
 }
 
 /**
@@ -170,18 +170,14 @@ export class EngineClient {
 			const pending: Pending = {
 				resolve,
 				reject,
-				timer: setTimeout(expire, this.#timeoutMs),
-				rearm: () => {
-					clearTimeout(pending.timer);
-					pending.timer = setTimeout(expire, this.#timeoutMs);
-				},
+				timer: startIdleTimer(this.#timeoutMs, expire),
 			};
 			this.#pending.set(request.id, pending);
 			try {
 				this.#worker.postMessage(request);
 			} catch (error) {
 				this.#pending.delete(request.id);
-				clearTimeout(pending.timer);
+				pending.timer.cancel();
 				reject(error instanceof Error ? error : new Error(String(error)));
 			}
 		});
@@ -193,7 +189,7 @@ export class EngineClient {
 		// life, though, so it re-arms the stall timer: a slow-but-moving cold sync
 		// must never be terminated for taking longer than one timeout window.
 		if ("kind" in message && message.kind === "sync-progress") {
-			this.#pending.get(message.id)?.rearm();
+			this.#pending.get(message.id)?.timer.tick();
 			this.#progress.get(message.id)?.(message.progress);
 			return;
 		}
@@ -202,7 +198,7 @@ export class EngineClient {
 			return;
 		}
 		this.#pending.delete(message.id);
-		clearTimeout(pending.timer);
+		pending.timer.cancel();
 		pending.resolve(message);
 	}
 
@@ -212,7 +208,7 @@ export class EngineClient {
 		}
 		this.#closed = error;
 		for (const pending of this.#pending.values()) {
-			clearTimeout(pending.timer);
+			pending.timer.cancel();
 			pending.reject(error);
 		}
 		this.#pending.clear();
