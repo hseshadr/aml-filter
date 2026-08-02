@@ -35,6 +35,23 @@ const clearEntity = {
 vi.mock("@amlfilter/browser", async (importActual) => {
 	const actual = await importActual<typeof import("@amlfilter/browser")>();
 	class EngineRuntime {
+		// The real runtime always exposes this, and /screen reads it to state the
+		// age of the list it screens against. A mock without it would leave the page
+		// permanently reporting "age unknown".
+		catalogLists() {
+			return Promise.resolve([
+				{
+					id: "OFAC_SDN",
+					title: "OFAC SDN",
+					version: "demo-1",
+					entitiesCount: 1,
+					fetchedAt: "2026-08-01T08:00:00Z",
+					sourceUpdatedAt: null,
+					stale: false,
+					staleReason: null,
+				},
+			]);
+		}
 		bootstrap(): Promise<void> {
 			return Promise.resolve();
 		}

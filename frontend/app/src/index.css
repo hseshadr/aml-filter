@@ -27,6 +27,26 @@ code {
 	color: #475569;
 	margin: 0.5rem 0 1.25rem;
 }
+/* How old the list being screened against actually is. Quiet when everything is
+   fine; unmissable when it is not. The meaning lives in the words, so it
+   survives monochrome and screen readers — colour and ⚠ only reinforce it. */
+.screen-list-age {
+	color: #475569;
+	font-size: 0.88rem;
+	margin: 0 0 0.75rem;
+}
+.screen-list-age--stale {
+	background: #fef2f2;
+	border: 1px solid #fecaca;
+	border-radius: 8px;
+	color: #991b1b;
+	font-size: 0.92rem;
+	font-weight: 600;
+	padding: 0.6rem 0.9rem;
+}
+.screen-list-age__icon {
+	margin-right: 0.35em;
+}
 .screen-banner {
 	background: #eff6ff;
 	border: 1px solid #bfdbfe;
