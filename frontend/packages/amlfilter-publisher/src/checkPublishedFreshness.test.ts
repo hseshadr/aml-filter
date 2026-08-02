@@ -149,8 +149,21 @@ interface ListOverrides {
 	readonly id?: string;
 	readonly slug?: string;
 	readonly fetchedAt?: unknown;
-	readonly stale?: boolean;
-	readonly staleReason?: string | null;
+	readonly entitiesCount?: unknown;
+	readonly stale?: unknown;
+	readonly staleReason?: unknown;
+}
+
+/** Drop keys entirely, so the published entry genuinely lacks them. */
+function without(
+	entry: Record<string, unknown>,
+	...keys: readonly string[]
+): Record<string, unknown> {
+	const out = { ...entry };
+	for (const key of keys) {
+		delete out[key];
+	}
+	return out;
 }
 
 /** One catalog list entry, fresh unless the test says otherwise. */
@@ -202,12 +215,48 @@ async function messageFrom(
 	throw new Error("expected the freshness check to FAIL, but it passed");
 }
 
+/** Run the check and return the individual breach lines it refused with. */
+async function breachesFrom(
+	catalog: unknown,
+	options: OriginOptions = {},
+): Promise<readonly string[]> {
+	try {
+		await check(catalog, options);
+	} catch (error) {
+		if (error instanceof StaleBundleError) {
+			return error.breaches;
+		}
+		throw error;
+	}
+	throw new Error("expected the freshness check to FAIL, but it passed");
+}
+
 const FRESH = catalogOf([
 	list(),
 	list({ id: "EU_CONSOLIDATED", slug: "eu" }),
 	list({ id: "UN_CONSOLIDATED", slug: "un" }),
 	list({ id: "UK_HMT", slug: "uk" }),
 ]);
+
+/** A catalog entry as published BEFORE per-list freshness existed: identity
+ * fields only, no `fetchedAt`. This is the exact shape live on aml-filter.com
+ * on 2026-08-02. */
+function legacyList(id: string, slug: string): Record<string, unknown> {
+	return {
+		id,
+		title: id,
+		slug,
+		version: "2026-08-01",
+		entitiesCount: 6239,
+	};
+}
+
+const LEGACY_LISTS = [
+	legacyList("OFAC_SDN", "ofac"),
+	legacyList("UN_CONSOLIDATED", "un"),
+	legacyList("EU_CONSOLIDATED", "eu"),
+	legacyList("UK_HMT", "uk"),
+];
 
 describe("checkPublishedFreshness passes a genuinely fresh bundle", () => {
 	it("reports every list's real age and does not throw", async () => {
@@ -260,14 +309,26 @@ describe("checkPublishedFreshness goes RED on a stale bundle", () => {
 		expect(message).not.toContain("OFAC_SDN");
 	});
 
-	it("fails a list whose fetchedAt is MISSING — 'can't tell' is not 'fine'", async () => {
-		const missing = catalogOf([list({ id: "UK_HMT", fetchedAt: undefined })]);
+	// CONTRACT REVERSED, deliberately. This test used to assert that an ABSENT
+	// `fetchedAt` always fails. That was right while every published bundle was
+	// expected to carry one — but it would have opened a false alarm against the
+	// pre-per-list-freshness bundle that was live when this guard shipped, and a
+	// guard that cries wolf on day one gets muted. An absent `fetchedAt` now
+	// falls back to the bundle's `generatedAt` (see the migration block below).
+	// The fail-closed half is preserved, and split in two: absent WITH no
+	// generatedAt still fails, and a PRESENT-but-malformed value still fails.
+	it("falls back for an ABSENT fetchedAt but still fails with no anchor at all", async () => {
+		const absent = list({ id: "UK_HMT", fetchedAt: undefined });
 
-		const message = await messageFrom(missing);
+		// Fresh bundle stamp: the list is aged from it rather than accused.
+		await expect(
+			check(catalogOf([absent], hoursAgo(4))),
+		).resolves.toBeDefined();
 
+		// No bundle stamp either: nothing can age it, so it fails.
+		const message = await messageFrom({ schemaVersion: 1, lists: [absent] });
 		expect(message).toContain("UK_HMT");
-		expect(message).toMatch(/fetchedAt/);
-		expect(message).toMatch(/missing|unparseable|cannot be proven/i);
+		expect(message).toMatch(/cannot be proven/i);
 	});
 
 	it("fails a list whose fetchedAt is unparseable", async () => {
@@ -299,7 +360,8 @@ describe("checkPublishedFreshness goes RED on a stale bundle", () => {
 		const broken = catalogOf([
 			list(),
 			list({ id: "EU_CONSOLIDATED", slug: "eu", fetchedAt: hoursAgo(72) }),
-			list({ id: "UN_CONSOLIDATED", slug: "un", fetchedAt: undefined }),
+			// Present but malformed — gets no migration fallback, so it breaches.
+			list({ id: "UN_CONSOLIDATED", slug: "un", fetchedAt: "not-a-date" }),
 			list({
 				id: "UK_HMT",
 				slug: "uk",
@@ -329,6 +391,158 @@ describe("checkPublishedFreshness goes RED on a stale bundle", () => {
 		const message = await messageFrom({ schemaVersion: 1, lists: [list()] });
 
 		expect(message).toMatch(/generatedAt/);
+	});
+});
+
+// A bundle published before per-list `fetchedAt` existed carries no per-list
+// age — but in THAT model all four lists were refreshed together in one run, so
+// the catalog's own `generatedAt` is a truthful age for every one of them. This
+// mirrors carryForwardList.ts's publishedFetchedAt() fallback, and it is the
+// only reason this guard does not cry wolf on its very first production run.
+//
+// The fallback is deliberately narrow: it applies ONLY when `fetchedAt` is
+// absent. A `fetchedAt` that is present but malformed is corruption, not
+// migration, and must never be laundered into a fresh-looking age.
+describe("checkPublishedFreshness ages a pre-per-list-freshness bundle", () => {
+	it("falls back to generatedAt and says so", async () => {
+		const report = await check(catalogOf(LEGACY_LISTS, hoursAgo(18)));
+
+		expect(report.lists).toHaveLength(4);
+		expect(report.lists.every((entry) => entry.ageHours === 18)).toBe(true);
+		expect(
+			report.lists.every((entry) => entry.agedFrom === "generatedAt"),
+		).toBe(true);
+		// The reader is never misled about where the number came from.
+		expect(report.table).toContain("generatedAt");
+	});
+
+	it("still fails the fallback when the bundle itself is three days old", async () => {
+		const breaches = await breachesFrom(catalogOf(LEGACY_LISTS, hoursAgo(72)));
+
+		// Every list is accused BY AGE (72h), not by "we cannot tell" — the
+		// fallback must produce a real number, then judge it.
+		for (const id of [
+			"OFAC_SDN",
+			"UN_CONSOLIDATED",
+			"EU_CONSOLIDATED",
+			"UK_HMT",
+		]) {
+			const line = breaches.find((entry) => entry.includes(id));
+			expect(line, `no breach line for ${id}`).toBeDefined();
+			expect(line).toContain("72.0h");
+			expect(line).toContain("generatedAt");
+		}
+	});
+
+	it.each([
+		["an empty string", ""],
+		["a garbage string", "whenever"],
+		["a number", 12_345],
+		["an explicit null", null],
+	])(
+		"refuses a PRESENT but malformed fetchedAt (%s) even when generatedAt is fresh",
+		async (_label, fetchedAt) => {
+			const message = await messageFrom(
+				catalogOf(
+					[{ ...legacyList("EU_CONSOLIDATED", "eu"), fetchedAt }],
+					hoursAgo(1),
+				),
+			);
+
+			expect(message).toContain("EU_CONSOLIDATED");
+			expect(message).toMatch(/unparseable|cannot be proven/i);
+			// The fallback must NOT have been used to launder the bad value.
+			expect(message).not.toContain("aged from");
+		},
+	);
+
+	it("refuses a legacy list when the catalog has no generatedAt either", async () => {
+		// No per-list anchor AND no bundle anchor: nothing can age this list.
+		const breaches = await breachesFrom({
+			schemaVersion: 1,
+			lists: [legacyList("OFAC_SDN", "ofac")],
+		});
+
+		const line = breaches.find((entry) => entry.includes("OFAC_SDN"));
+		expect(line, "no breach line for OFAC_SDN").toBeDefined();
+		expect(line).toMatch(/generatedAt/);
+		expect(line).toMatch(/cannot be proven/i);
+	});
+});
+
+// `stale: wire.stale === true` would read a MISSING `stale` as "not stale" —
+// the shape-not-property hole this repo keeps rediscovering. Drop one field and
+// the list reports itself healthy. The presence of `fetchedAt` is the signal
+// that says which format an entry is in, so it also decides which fields are
+// mandatory: a NEW-format entry must carry the fields that prove its freshness,
+// and a missing one is a malformed catalog, not a healthy list.
+describe("checkPublishedFreshness requires a new-format entry to carry its proof", () => {
+	it.each([
+		["stale missing", without(list(), "stale")],
+		['stale as the string "false"', list({ stale: "false" })],
+		["stale as 0", list({ stale: 0 })],
+		["stale as an object", list({ stale: {} })],
+		["stale as null", list({ stale: null })],
+	])("fails a fresh-looking list with %s", async (_label, entry) => {
+		const message = await messageFrom(catalogOf([entry]));
+
+		expect(message).toContain("OFAC_SDN");
+		expect(message).toMatch(/stale/);
+		expect(message).toMatch(/malformed/i);
+	});
+
+	it.each([
+		["staleReason missing", without(list(), "staleReason")],
+		["staleReason as a number", list({ staleReason: 42 })],
+		["staleReason as an object", list({ staleReason: {} })],
+	])("fails a fresh-looking list with %s", async (_label, entry) => {
+		const message = await messageFrom(catalogOf([entry]));
+
+		expect(message).toContain("OFAC_SDN");
+		expect(message).toMatch(/staleReason/);
+		expect(message).toMatch(/malformed/i);
+	});
+
+	it.each([
+		["entitiesCount missing", without(list(), "entitiesCount")],
+		["entitiesCount as a string", list({ entitiesCount: "17123" })],
+	])("fails a fresh-looking list with %s", async (_label, entry) => {
+		const message = await messageFrom(catalogOf([entry]));
+
+		expect(message).toContain("OFAC_SDN");
+		expect(message).toMatch(/entitiesCount/);
+	});
+
+	it("accepts a well-formed staleReason string alongside stale: true", async () => {
+		const message = await messageFrom(
+			catalogOf([list({ stale: true, staleReason: "EU webgate 500" })]),
+		);
+
+		// It breaches for being stale — NOT for being malformed.
+		expect(message).toContain("EU webgate 500");
+		expect(message).not.toMatch(/malformed/i);
+	});
+
+	it("does NOT impose the new-format fields on a legacy entry", async () => {
+		// A pre-freshness entry has no per-list staleness at all; requiring it
+		// would reintroduce exactly the day-one false alarm we just removed.
+		const report = await check(catalogOf(LEGACY_LISTS, hoursAgo(18)));
+
+		expect(report.lists.every((entry) => entry.stale === false)).toBe(true);
+		expect(report.lists.flatMap((entry) => entry.breaches)).toEqual([]);
+	});
+
+	it("renders an unknown entitiesCount as 'unknown', never as -1", async () => {
+		const report = await check(
+			catalogOf(
+				[without(legacyList("OFAC_SDN", "ofac"), "entitiesCount")],
+				hoursAgo(4),
+			),
+		);
+
+		expect(report.lists[0]?.entitiesCount).toBeNull();
+		expect(report.table).toContain("unknown");
+		expect(report.table).not.toContain("-1");
 	});
 });
 
@@ -394,7 +608,9 @@ describe("checkPublishedFreshness fails closed when it cannot tell", () => {
 	it("refuses a list entry with no id, slug or fetchedAt at all", async () => {
 		// Every identity field missing: the checker must still name the offender
 		// and refuse, rather than crash or silently skip an unrecognisable entry.
-		const message = await messageFrom(catalogOf([{ entitiesCount: "lots" }]));
+		const message = await messageFrom(
+			catalogOf([{ entitiesCount: "lots", fetchedAt: "nope" }]),
+		);
 
 		expect(message).toContain("(unnamed list)");
 		expect(message).toMatch(/cannot be proven/);

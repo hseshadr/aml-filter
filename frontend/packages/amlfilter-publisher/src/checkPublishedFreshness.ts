@@ -75,16 +75,23 @@ const DECODER = new TextDecoder();
 const ISO_INSTANT =
 	/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
 
+/** Which instant a list's age was measured from. `generatedAt` means the list
+ * predates per-list freshness and was aged from the bundle's own stamp. */
+export type AgeSource = "fetchedAt" | "generatedAt";
+
 /** One list's proven age, and every way it breaches the freshness claim. */
 export interface ListAge {
 	readonly id: string;
 	readonly title: string;
 	readonly slug: string;
 	readonly version: string;
-	readonly entitiesCount: number;
-	/** As published; null when absent or not a provable instant. */
+	/** Null when the catalog did not publish a number — never a -1 sentinel. */
+	readonly entitiesCount: number | null;
+	/** The instant the age was measured from; null when none could be proven. */
 	readonly fetchedAt: string | null;
-	/** Null when `fetchedAt` could not be proven — never a guessed zero. */
+	/** Where that instant came from; null when the age is unprovable. */
+	readonly agedFrom: AgeSource | null;
+	/** Null when no anchor could be proven — never a guessed zero. */
 	readonly ageHours: number | null;
 	readonly stale: boolean;
 	readonly staleReason: string | null;
@@ -203,48 +210,169 @@ async function fetchCatalog(
 
 // --- grading ----------------------------------------------------------------
 
-/** Everything wrong with one list, so one alert carries the whole picture. */
-function listBreaches(entry: ListAge, maxAgeHours: number): readonly string[] {
-	const who = `${entry.id} (${entry.slug})`;
+/** Which instant a list's age was measured from, and whether it was provable. */
+interface AgeAnchor {
+	readonly ms: number | null;
+	readonly at: string | null;
+	readonly from: AgeSource | null;
+	/** `fetchedAt` was PRESENT but malformed — corruption, not migration. */
+	readonly malformed: boolean;
+}
+
+/**
+ * Anchor one list's age.
+ *
+ * MIGRATION FALLBACK, deliberately narrow. A bundle published before per-list
+ * freshness existed carries no `fetchedAt`, and in that model all lists were
+ * refreshed together in one run — so the catalog's own `generatedAt` is a
+ * truthful age for every one of them. This mirrors carryForwardList.ts's
+ * `publishedFetchedAt()`, and it is the only reason this guard does not open a
+ * false alarm against the bundle that was live when it shipped.
+ *
+ * The fallback applies ONLY when `fetchedAt` is ABSENT. A `fetchedAt` that is
+ * present but empty, unparseable or the wrong type gets no fallback: that is
+ * corruption rather than migration, and "cannot tell" must keep meaning REJECT.
+ * Otherwise a malformed value could be laundered into a fresh-looking age.
+ */
+function ageAnchor(
+	wire: Record<string, unknown>,
+	generatedAt: unknown,
+): AgeAnchor {
+	if ("fetchedAt" in wire) {
+		const ms = instantMs(wire.fetchedAt);
+		return ms === null
+			? { ms: null, at: null, from: null, malformed: true }
+			: { ms, at: text(wire.fetchedAt), from: "fetchedAt", malformed: false };
+	}
+	const ms = instantMs(generatedAt);
+	return ms === null
+		? { ms: null, at: null, from: null, malformed: false }
+		: { ms, at: text(generatedAt), from: "generatedAt", malformed: false };
+}
+
+/** The one age-related complaint about a list, or null when its age is fine. */
+function ageBreach(
+	who: string,
+	ageHours: number | null,
+	anchor: AgeAnchor,
+	maxAgeHours: number,
+): string | null {
+	if (ageHours === null) {
+		return anchor.malformed
+			? `${who}: fetchedAt is present but unparseable — this list's freshness cannot be proven, so it is not fresh`
+			: `${who}: has no fetchedAt, and the catalog has no parseable generatedAt to age it from — this list's freshness cannot be proven`;
+	}
+	if (ageHours <= maxAgeHours) {
+		return null;
+	}
+	const provenance =
+		anchor.from === "generatedAt"
+			? " (aged from the bundle's generatedAt — pre-per-list-freshness bundle)"
+			: "";
+	return `${who}: last refreshed ${hoursLabel(ageHours)} ago${provenance}, past the ${maxAgeHours}h ceiling`;
+}
+
+function typeName(value: unknown): string {
+	if (value === null) {
+		return "null";
+	}
+	if (value === undefined) {
+		return "nothing";
+	}
+	return Array.isArray(value) ? "an array" : `a ${typeof value}`;
+}
+
+function malformed(
+	who: string,
+	field: string,
+	got: unknown,
+	want: string,
+): string {
+	return `${who}: ${field} must be ${want}, got ${typeName(got)} — this catalog entry is malformed, so its freshness cannot be trusted`;
+}
+
+/**
+ * A NEW-format entry — one that carries `fetchedAt` — must also carry the
+ * fields that prove its freshness.
+ *
+ * Reading a MISSING `stale` as "not stale" (`wire.stale === true`) would mean a
+ * dropped or corrupted field reports the list HEALTHY: shape checked, property
+ * not. The only way to be graded fresh must be to actually carry the proof.
+ *
+ * A LEGACY entry (no `fetchedAt`) predates per-list staleness entirely, so none
+ * of this is required of it — demanding it there would reintroduce the day-one
+ * false alarm the `generatedAt` fallback exists to prevent.
+ */
+function shapeBreaches(
+	who: string,
+	wire: Record<string, unknown>,
+): readonly string[] {
+	if (!("fetchedAt" in wire)) {
+		return [];
+	}
 	const out: string[] = [];
-	if (entry.ageHours === null) {
+	if (typeof wire.stale !== "boolean") {
+		out.push(malformed(who, "stale", wire.stale, "a boolean"));
+	}
+	if (!(wire.staleReason === null || typeof wire.staleReason === "string")) {
 		out.push(
-			`${who}: fetchedAt is missing or unparseable — this list's freshness cannot be proven, so it is not fresh`,
-		);
-	} else if (entry.ageHours > maxAgeHours) {
-		out.push(
-			`${who}: last refreshed ${hoursLabel(entry.ageHours)} ago, past the ${maxAgeHours}h ceiling`,
+			malformed(who, "staleReason", wire.staleReason, "a string or null"),
 		);
 	}
+	if (typeof wire.entitiesCount !== "number") {
+		out.push(malformed(who, "entitiesCount", wire.entitiesCount, "a number"));
+	}
+	return out;
+}
+
+/** Everything wrong with one list, so one alert carries the whole picture. */
+function listBreaches(
+	entry: ListAge,
+	wire: Record<string, unknown>,
+	anchor: AgeAnchor,
+	maxAgeHours: number,
+): readonly string[] {
+	const who = `${entry.id} (${entry.slug})`;
+	const age = ageBreach(who, entry.ageHours, anchor, maxAgeHours);
+	const out: string[] = age === null ? [] : [age];
 	if (entry.stale) {
 		out.push(
 			`${who}: the publisher could not refresh it and re-served the last good copy — ${entry.staleReason ?? "no reason recorded"}`,
 		);
 	}
+	out.push(...shapeBreaches(who, wire));
 	return out;
 }
 
 function listAge(
 	wire: Record<string, unknown>,
+	generatedAt: unknown,
 	nowMs: number,
 	maxAgeHours: number,
 ): ListAge {
-	const fetchedMs = instantMs(wire.fetchedAt);
+	const anchor = ageAnchor(wire, generatedAt);
 	const partial = {
 		id: text(wire.id) ?? "(unnamed list)",
 		title: text(wire.title) ?? "",
 		slug: text(wire.slug) ?? "?",
 		version: text(wire.version) ?? "?",
+		// Null, never a -1 sentinel: a sentinel printed in the table is a quiet lie.
 		entitiesCount:
-			typeof wire.entitiesCount === "number" ? wire.entitiesCount : -1,
-		fetchedAt: fetchedMs === null ? null : text(wire.fetchedAt),
-		ageHours: fetchedMs === null ? null : (nowMs - fetchedMs) / MS_PER_HOUR,
+			typeof wire.entitiesCount === "number" ? wire.entitiesCount : null,
+		fetchedAt: anchor.at,
+		agedFrom: anchor.from,
+		ageHours: anchor.ms === null ? null : (nowMs - anchor.ms) / MS_PER_HOUR,
 		stale: wire.stale === true,
 		staleReason: text(wire.staleReason),
 	};
 	return {
 		...partial,
-		breaches: listBreaches({ ...partial, breaches: [] }, maxAgeHours),
+		breaches: listBreaches(
+			{ ...partial, breaches: [] },
+			wire,
+			anchor,
+			maxAgeHours,
+		),
 	};
 }
 
@@ -276,29 +404,36 @@ const COLUMNS = [
 	"slug",
 	"version",
 	"entities",
-	"fetchedAt",
+	"refreshed",
+	"source",
 	"age",
 	"stale",
 ];
 
+/** The `source` column exists so a reader is never misled about where an age
+ * came from: `generatedAt` means it was inferred from the bundle stamp. */
 function row(entry: ListAge): readonly string[] {
 	return [
 		entry.id,
 		entry.slug,
 		entry.version,
-		String(entry.entitiesCount),
+		entry.entitiesCount === null ? "unknown" : String(entry.entitiesCount),
 		entry.fetchedAt ?? "(none)",
+		entry.agedFrom ?? "(none)",
 		entry.ageHours === null ? "(unprovable)" : hoursLabel(entry.ageHours),
 		entry.stale ? "STALE" : "no",
 	];
 }
+
+const LEGACY_NOTE =
+	"note: lists sourced from `generatedAt` predate per-list freshness — they are aged from the bundle's own stamp, which is truthful for a bundle whose lists were all refreshed in one run. Per-list ages appear after the next publish.";
 
 function renderTable(lists: readonly ListAge[]): string {
 	const rows = [COLUMNS, ...lists.map(row)];
 	const widths = COLUMNS.map((_, column) =>
 		Math.max(...rows.map((cells) => (cells[column] ?? "").length)),
 	);
-	return rows
+	const table = rows
 		.map((cells) =>
 			cells
 				.map((cell, column) => cell.padEnd(widths[column] ?? 0))
@@ -306,6 +441,9 @@ function renderTable(lists: readonly ListAge[]): string {
 				.trimEnd(),
 		)
 		.join("\n");
+	return lists.some((entry) => entry.agedFrom === "generatedAt")
+		? `${table}\n${LEGACY_NOTE}`
+		: table;
 }
 
 function assertFresh(
@@ -344,7 +482,9 @@ export async function checkPublishedFreshness(
 	);
 	const catalog = await fetchCatalog(baseUrl, fetchBytes, manifest);
 	const bundle = bundleAge(catalog.generatedAt, nowMs, maxAgeHours);
-	const lists = catalog.lists.map((wire) => listAge(wire, nowMs, maxAgeHours));
+	const lists = catalog.lists.map((wire) =>
+		listAge(wire, catalog.generatedAt, nowMs, maxAgeHours),
+	);
 	const report: FreshnessReport = {
 		version: pointer.version,
 		sequence: pointer.sequence ?? 0,
