@@ -448,10 +448,32 @@ function BootBanner({
 		);
 	}
 	return (
-		<div className="screen-banner" role="status">
-			{stageMessage(phase.stage, t)}
+		<div className="screen-banner screen-banner--booting" role="status">
+			<span>{stageMessage(phase.stage, t)}</span>
+			{isFirstRunDownload(phase.stage) ? (
+				<span className="screen-banner__note">{t("boot.firstRunNote")}</span>
+			) : null}
 		</div>
 	);
+}
+
+/**
+ * True for the two stages that actually move bytes on a cold boot. A first-time
+ * visitor waits ~11s on broadband and much longer on a phone, so those two
+ * stages carry the payoff note ("downloaded once, then it works offline"). The
+ * instant stages don't: promising a one-time download next to a verify step
+ * that transfers nothing is noise, especially on a warm reload.
+ */
+function isFirstRunDownload(stage: BootStage): boolean {
+	return (
+		(stage.kind === "downloading" && stage.progress !== undefined) ||
+		stage.kind === "loading-model"
+	);
+}
+
+/** Bytes as megabytes, one decimal — real transferred bytes, never extrapolated. */
+function megabytes(bytes: number): string {
+	return (bytes / 1_000_000).toFixed(1).replace(/\.0$/, "");
 }
 
 // The banner line for a stage. Production model loading is indeterminate because
@@ -464,14 +486,16 @@ function stageMessage(stage: BootStage, t: TFunction): string {
 			pct: Math.round(stage.progress.pct),
 		});
 	}
-	// Show the cold-sync chunk count so the long download reads as making
-	// progress (n/total) instead of a frozen "Downloading…" line.
+	// The cold sync is ~1,296 chunks / ~48 MB. Report BOTH how far along it is
+	// and how much has actually arrived: the percentage comes from exact chunk
+	// counts, and the megabytes are bytes genuinely transferred — neither is an
+	// extrapolated guess at a total we don't know yet.
 	if (stage.kind === "downloading" && stage.progress !== undefined) {
-		const { fetched, total } = stage.progress;
+		const { fetched, total, bytes } = stage.progress;
 		return t("boot.downloadingProgress", {
 			label: t("boot.downloading"),
-			fetched,
-			total,
+			pct: total > 0 ? Math.round((fetched / total) * 100) : 0,
+			mb: megabytes(bytes),
 		});
 	}
 	return t(STAGE_KEY[stage.kind]);
