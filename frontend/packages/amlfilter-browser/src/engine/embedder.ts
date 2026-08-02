@@ -10,7 +10,12 @@
 // the load + inference off the main thread; the pure Embedder below is what the
 // parity test exercises directly in Node.
 
-import { env, type ProgressInfo, pipeline } from "@huggingface/transformers";
+import { env, pipeline } from "@huggingface/transformers";
+import {
+	type FetchScope,
+	MODEL_ASSET_PREFIX,
+	withModelFetchProgress,
+} from "./modelFetchProgress";
 
 // transformers.js browser env.
 //
@@ -39,7 +44,7 @@ import { env, type ProgressInfo, pipeline } from "@huggingface/transformers";
 // reuses the cached weights instead of re-fetching them from /models/.
 env.useBrowserCache = true;
 env.allowLocalModels = true;
-env.localModelPath = "/models/";
+env.localModelPath = MODEL_ASSET_PREFIX;
 // FAIL CLOSED: never fall back to fetching an unpinned model from huggingface.co.
 // transformers.js defaults `allowRemoteModels` to true, so a missing/renamed local
 // weight would silently pull from the HF CDN — unacceptable for an AML tool, where
@@ -114,38 +119,27 @@ export interface Embedder {
 	dispose?(): void;
 }
 
-/** Model-download progress, surfaced once per transformers.js "progress" event. */
+/**
+ * Model-download progress, aggregated over the whole model load (see
+ * modelFetchProgress.ts for why it is aggregated rather than per-file).
+ *
+ * `total` and `pct` are OPTIONAL on purpose. A server that answers without a
+ * `content-length` (chunked transfer) leaves no honest denominator, and
+ * inventing one would put a fabricated percentage on the boot banner. Bytes are
+ * always known; a percentage is not.
+ */
 export interface EmbedProgress {
-	/** Bytes loaded so far for the file currently downloading. */
+	/** Bytes streamed so far across the model files of this load. */
 	readonly loaded: number;
-	/** Total bytes for that file. */
-	readonly total: number;
-	/** Percent loaded (0–100), derived from loaded/total. */
-	readonly pct: number;
+	/** Sum of the declared file sizes, or undefined when a size was withheld. */
+	readonly total?: number;
+	/** Percent loaded (0–100), derived from loaded/total; undefined with no total. */
+	readonly pct?: number;
 }
 
 /** A construction-time sink for model-load progress. Optional: progress is a
  * boot-banner nicety, not part of the shared {@link Embedder.embed} contract. */
 export type OnEmbedProgress = (progress: EmbedProgress) => void;
-
-/**
- * Map a transformers.js {@link ProgressInfo} to {@link EmbedProgress}, but only
- * for the "progress" status (the per-file download tick that carries byte
- * counts). Every other status — initiate / done / ready / progress_total —
- * yields undefined, so the banner only ever moves on real download progress.
- * `pct` is computed from loaded/total (total 0 ⇒ 0) rather than trusting the
- * library's own field, keeping this the single source of truth, then clamped to
- * [0, 100] — transformers.js can report `loaded > total` (compressed transfer
- * sizes) or a transient negative, which would otherwise render as e.g. "108%".
- */
-export function mapProgress(info: ProgressInfo): EmbedProgress | undefined {
-	if (info.status !== "progress") {
-		return undefined;
-	}
-	const raw = info.total > 0 ? (info.loaded / info.total) * 100 : 0;
-	const pct = Math.min(100, Math.max(0, raw));
-	return { loaded: info.loaded, total: info.total, pct };
-}
 
 /** A feature-extraction call producing a flat numeric data buffer. */
 type ExtractFn = (
@@ -153,10 +147,12 @@ type ExtractFn = (
 	options: { readonly pooling: "mean"; readonly normalize: boolean },
 ) => Promise<{ readonly data: ArrayLike<number> }>;
 
-/** Pipeline options this module passes through. The dtype stays pinned, while the
- * transformers.js progress callback is deliberately omitted: in 4.2.0 it starts
- * overlapping metadata/model fetches for the same ONNX file, which can fail the
- * browser HTTP cache and abort an otherwise healthy same-origin model load. */
+/** Pipeline options this module passes through. The dtype stays pinned, and the
+ * transformers.js progress callback stays deliberately OMITTED: in 4.2.0 its
+ * mere presence makes `pipeline()` probe every expected file first, and under
+ * this app's `allowLocalModels` self-hosting that probe is a second full GET of
+ * the ~23 MB ONNX. Progress is metered at the transport instead — see
+ * modelFetchProgress.ts. */
 interface PipelineOptions {
 	readonly dtype?: string;
 }
@@ -206,22 +202,48 @@ function pipelineOptions(): PipelineOptions {
 	return { dtype: EMBEDDING_DTYPE };
 }
 
-/** Load the feature-extraction pipeline via an injected `pipeline`, pinning the
- * shared dtype. The optional sink remains a source-compatible API seam but does
- * not fire until transformers.js can report progress without duplicate fetches. */
+/**
+ * The transformers.js fetch knob, reached through its loosely typed `env`.
+ * FAIL LOUD if it is missing: `env.fetch` is what every weight download goes
+ * through, so an absent knob means the library moved it — and a silent no-op
+ * here would put the frozen banner back without anyone noticing.
+ */
+export function transformersFetchScope(): FetchScope {
+	const scope = env as unknown as Partial<FetchScope>;
+	if (typeof scope.fetch !== "function") {
+		throw new Error(
+			"transformers.js fetch knob (env.fetch) is unavailable — cannot meter " +
+				"the model download; refusing to boot with a frozen progress banner.",
+		);
+	}
+	return scope as FetchScope;
+}
+
+/**
+ * Load the feature-extraction pipeline via an injected `pipeline`, pinning the
+ * shared dtype. When a sink is wired, the load runs inside
+ * {@link withModelFetchProgress}, which counts the model bytes as they stream
+ * and restores the original fetch when the load settles either way. Without a
+ * sink nothing is wrapped at all.
+ */
 function loadWith(
 	load: LoadFeatureExtraction,
-	_onProgress: OnEmbedProgress | undefined,
+	onProgress: OnEmbedProgress | undefined,
+	scope: () => FetchScope = transformersFetchScope,
 ): () => Promise<ExtractFn> {
-	return () => load("feature-extraction", EMBEDDING_MODEL, pipelineOptions());
+	const start = (): Promise<ExtractFn> =>
+		load("feature-extraction", EMBEDDING_MODEL, pipelineOptions());
+	if (onProgress === undefined) {
+		return start;
+	}
+	return () => withModelFetchProgress(scope(), onProgress, start);
 }
 
 /**
  * The default embedder, backed by the transformers.js feature-extraction
  * pipeline. The model is fetched + compiled lazily on the first embed call and
- * cached for the lifetime of the embedder. The optional progress sink is retained
- * for API compatibility but intentionally receives no events with transformers.js
- * 4.2.0; the UI shows an indeterminate loading state instead.
+ * cached for the lifetime of the embedder. When a progress sink is supplied it
+ * receives the real byte counts of the ~23 MB download, metered off `env.fetch`.
  */
 export function createEmbedder(onProgress?: OnEmbedProgress): Embedder {
 	const load = pipeline as unknown as LoadFeatureExtraction;
@@ -230,13 +252,15 @@ export function createEmbedder(onProgress?: OnEmbedProgress): Embedder {
 
 /**
  * An embedder over an injected `pipeline` — the seam tests use to verify the
- * production options without the real ~23 MB download.
+ * production options without the real ~23 MB download. The fetch scope is
+ * injectable too, so a test can drive progress without touching a global.
  */
 export function createEmbedderWithPipeline(
 	load: LoadFeatureExtraction,
 	onProgress?: OnEmbedProgress,
+	scope?: () => FetchScope,
 ): Embedder {
-	return new PipelineEmbedder(loadWith(load, onProgress));
+	return new PipelineEmbedder(loadWith(load, onProgress, scope));
 }
 
 /**

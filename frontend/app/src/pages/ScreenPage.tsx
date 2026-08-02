@@ -17,6 +17,7 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { Footer } from "../components/Footer";
+import { formatBytes } from "../lib/formatBytes";
 import {
 	bootErrorMessage,
 	deviceUnsupportedMessage,
@@ -448,30 +449,70 @@ function BootBanner({
 		);
 	}
 	return (
-		<div className="screen-banner" role="status">
-			{stageMessage(phase.stage, t)}
+		<div className="screen-banner screen-banner--booting" role="status">
+			<span>{stageMessage(phase.stage, t)}</span>
+			{isFirstRunDownload(phase.stage) ? (
+				<span className="screen-banner__note">{t("boot.firstRunNote")}</span>
+			) : null}
 		</div>
 	);
 }
 
-// The banner line for a stage. Production model loading is indeterminate because
-// transformers.js 4.2.0's progress callback duplicates the ONNX fetch; injected
-// runtimes can still supply a percentage through the same stage contract.
-function stageMessage(stage: BootStage, t: TFunction): string {
-	if (stage.kind === "loading-model" && stage.progress !== undefined) {
-		return t("boot.loadingModelProgress", {
-			label: t("boot.loadingModel"),
-			pct: Math.round(stage.progress.pct),
+/**
+ * True for the two stages that actually move bytes on a cold boot. A first-time
+ * visitor waits ~11s on broadband and much longer on a phone, so those two
+ * stages carry the payoff note ("downloaded once, then it works offline"). The
+ * instant stages don't: promising a one-time download next to a verify step
+ * that transfers nothing is noise, especially on a warm reload.
+ */
+function isFirstRunDownload(stage: BootStage): boolean {
+	return (
+		(stage.kind === "downloading" && stage.progress !== undefined) ||
+		stage.kind === "loading-model"
+	);
+}
+
+/** The model-load progress the engine reports, read off the stage contract so
+ * this page does not widen the package's export surface. */
+type ModelProgress = NonNullable<
+	Extract<BootStage, { kind: "loading-model" }>["progress"]
+>;
+
+/**
+ * The model line. A percentage whenever the download has an honest denominator;
+ * otherwise bytes loaded — a server that withholds `content-length` gives no
+ * total, and a fabricated one is worse than none. Either way the line MOVES:
+ * this ~23 MB download used to be the only frozen phase of the cold boot.
+ */
+function modelMessage(progress: ModelProgress, t: TFunction): string {
+	const label = t("boot.loadingModel");
+	if (progress.pct === undefined) {
+		return t("boot.loadingModelBytes", {
+			label,
+			size: formatBytes(progress.loaded),
 		});
 	}
-	// Show the cold-sync chunk count so the long download reads as making
-	// progress (n/total) instead of a frozen "Downloading…" line.
+	return t("boot.loadingModelProgress", {
+		label,
+		pct: Math.round(progress.pct),
+	});
+}
+
+// The banner line for a stage.
+function stageMessage(stage: BootStage, t: TFunction): string {
+	if (stage.kind === "loading-model" && stage.progress !== undefined) {
+		return modelMessage(stage.progress, t);
+	}
+	// The cold sync is ~1,296 chunks / ~48 MB. Report BOTH how far along it is
+	// and how much has actually arrived: the percentage comes from exact chunk
+	// counts, and the megabytes are bytes genuinely transferred — neither is an
+	// extrapolated guess at a total we don't know yet.
 	if (stage.kind === "downloading" && stage.progress !== undefined) {
-		const { fetched, total } = stage.progress;
+		const { fetched, total, bytes } = stage.progress;
 		return t("boot.downloadingProgress", {
 			label: t("boot.downloading"),
-			fetched,
-			total,
+			pct: total > 0 ? Math.round((fetched / total) * 100) : 0,
+			size: formatBytes(bytes),
 		});
 	}
 	return t(STAGE_KEY[stage.kind]);

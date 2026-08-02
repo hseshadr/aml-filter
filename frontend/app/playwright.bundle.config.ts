@@ -56,6 +56,17 @@ export default defineConfig({
 				// 120s production ceiling — full headroom for a cold in-tab model
 				// compile on a slow CI runner.
 				VITE_MODEL_LOAD_TIMEOUT_MS: "120000",
+				// The overall boot ceiling, lowered from its 900s production value so
+				// `boot-ceiling.spec.ts` can actually WATCH it fire. That spec holds a
+				// sync in the slow-but-moving state — one `sync-progress` tick every
+				// fake-20s, which keeps re-arming the 30s no-progress watchdog — until
+				// the ceiling expires. Every tick costs a chunk and this fixture bundle
+				// has 13, so the deadline under test must be reachable inside ~13
+				// ticks; 900s is not. The PRODUCTION value is pinned by unit tests
+				// instead (runtime.test.ts, "cannot fire before a healthy slow-link
+				// cold download has finished"). 200s is LOOSER than the 180s this lane
+				// inherited before, so no existing bundle spec loses headroom.
+				VITE_BOOT_TIMEOUT_MS: "200000",
 				// No pubkey env here on purpose: the local preview server pairs the
 				// committed demo bundle with the demo verify key by default
 				// (vite.config localDemoPubkeyPin), the way a cold clone does.

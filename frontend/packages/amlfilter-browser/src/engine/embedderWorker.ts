@@ -3,9 +3,9 @@
 // query string and reply with the normalized vector over postMessage. The model
 // is loaded once on the first request and cached by createEmbedder().
 //
-// The client protocol can carry progress, but transformers.js 4.2.0's callback
-// triggers duplicate ONNX fetches, so the production embedder intentionally
-// emits only the indeterminate loading state until that upstream behavior is safe.
+// Download progress rides the same postMessage channel. transformers.js 4.2.0's
+// own callback stays off (its presence duplicates the ONNX fetch); the bytes are
+// counted off `env.fetch` inside this worker instead — see modelFetchProgress.ts.
 
 /// <reference lib="webworker" />
 
@@ -52,8 +52,7 @@ let embedder: Embedder | undefined;
  * inside the callback — so progress ticks carry the id of the request that
  * actually triggered the load even if a future change lets embeds overlap.
  *
- * Progress is currently suppressed by createEmbedder because the upstream
- * callback duplicates the model fetch. Invariant today: exactly one embed is in flight during the single model load
+ * Invariant today: exactly one embed is in flight during the single model load
  * (the first request), so the embedder built here is the cached one. A second
  * concurrent request reuses this same embedder and never re-enters the load, so
  * no in-flight progress can be mis-tagged.

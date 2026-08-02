@@ -14,12 +14,13 @@ type BootStage =
 				readonly bytes: number;
 			};
 	  }
+	| { readonly kind: "verified"; readonly version: string }
 	| {
 			readonly kind: "loading-model";
 			readonly progress?: {
 				readonly loaded: number;
-				readonly total: number;
-				readonly pct: number;
+				readonly total?: number;
+				readonly pct?: number;
 			};
 	  }
 	| { readonly kind: "ready" };
@@ -80,6 +81,18 @@ describe("ScreenPage boot banner — model-load progress", () => {
 		expect(screen.getByRole("status").textContent).toMatch(/42\s*%/);
 	});
 
+	it("shows megabytes, never a fabricated percent, when no total is known", async () => {
+		// A server that withholds content-length leaves no honest denominator.
+		// The banner must still move — bytes are always known — but it must not
+		// print a percentage derived from a made-up total.
+		setScript([{ kind: "loading-model", progress: { loaded: 5_242_880 } }]);
+		render(<ScreenPage />);
+		await waitFor(() => expect(screen.getByRole("status")).toBeTruthy());
+		const text = screen.getByRole("status").textContent ?? "";
+		expect(text).toMatch(/5\.2\s*MB/i);
+		expect(text).not.toMatch(/%/);
+	});
+
 	it("renders the plain loading line when there is no progress yet", async () => {
 		setScript([{ kind: "loading-model" }]);
 		render(<ScreenPage />);
@@ -89,18 +102,28 @@ describe("ScreenPage boot banner — model-load progress", () => {
 		expect(text).not.toMatch(/%/);
 	});
 
-	it("shows n/total chunk progress on the downloading stage (not a frozen banner)", async () => {
+	/**
+	 * CONTRACT CHANGE: this used to assert a raw chunk counter ("42/1269").
+	 * The intent — the long download must read as moving, never frozen — is
+	 * unchanged, but the representation is now a percentage plus megabytes,
+	 * because "42/1269" does not tell a visitor what a chunk is or how much
+	 * of the wait is left. The old assertion is inverted, not deleted.
+	 */
+	it("shows live download progress on the downloading stage (not a frozen banner)", async () => {
 		setScript([
 			{
 				kind: "downloading",
-				progress: { fetched: 42, total: 1269, bytes: 10 },
+				progress: { fetched: 634, total: 1269, bytes: 24_000_000 },
 			},
 		]);
 		render(<ScreenPage />);
 		await waitFor(() => expect(screen.getByRole("status")).toBeTruthy());
 		const text = screen.getByRole("status").textContent ?? "";
 		expect(text).toMatch(/downloading/i);
-		expect(text).toMatch(/42\s*\/\s*1269/);
+		expect(text).toMatch(/50\s*%/);
+		expect(text).toMatch(/24\s*MB/i);
+		// The bare chunk count is deliberately gone.
+		expect(text).not.toMatch(/634\s*\/\s*1269/);
 	});
 
 	it("shows the plain downloading line before any chunk progress arrives", async () => {
@@ -110,5 +133,103 @@ describe("ScreenPage boot banner — model-load progress", () => {
 		const text = screen.getByRole("status").textContent ?? "";
 		expect(text).toMatch(/downloading/i);
 		expect(text).not.toMatch(/\//);
+	});
+});
+
+/**
+ * A cold boot moves ~70 MB and takes 11–13s on broadband, far longer on a phone.
+ * A counter alone ("427/1296") does not tell a first-time visitor what is being
+ * downloaded, how far along it is, or why it is worth waiting. These assert the
+ * three things the banner owes them: how far (a percentage), how much (real
+ * megabytes, not an extrapolated guess), and what they get for it (it is a
+ * one-time download and afterwards the app works offline).
+ */
+describe("ScreenPage boot banner — a first-time visitor can tell what is happening", () => {
+	it("reports how far along the download is as a percentage", async () => {
+		setScript([
+			{
+				kind: "downloading",
+				progress: { fetched: 324, total: 1296, bytes: 12_000_000 },
+			},
+		]);
+		render(<ScreenPage />);
+		await waitFor(() => expect(screen.getByRole("status")).toBeTruthy());
+		// 324/1296 is exactly 25% — chunk counts are known exactly, so this
+		// percentage is real rather than an estimate.
+		expect(screen.getByRole("status").textContent ?? "").toMatch(/25\s*%/);
+	});
+
+	it("reports megabytes actually downloaded so far", async () => {
+		setScript([
+			{
+				kind: "downloading",
+				progress: { fetched: 324, total: 1296, bytes: 12_000_000 },
+			},
+		]);
+		render(<ScreenPage />);
+		await waitFor(() => expect(screen.getByRole("status")).toBeTruthy());
+		expect(screen.getByRole("status").textContent ?? "").toMatch(/12\s*MB/i);
+	});
+
+	it("reports kilobytes rather than a meaningless '0 MB' early in the download", async () => {
+		// The first ticks of a real cold sync carry tens of KB. Rounding those to
+		// "0 MB" makes a working download look stuck at zero — observed on the
+		// live site, where the first second of the sync read "0 MB so far".
+		setScript([
+			{
+				kind: "downloading",
+				progress: { fetched: 2, total: 1296, bytes: 74_000 },
+			},
+		]);
+		render(<ScreenPage />);
+		await waitFor(() => expect(screen.getByRole("status")).toBeTruthy());
+		const text = screen.getByRole("status").textContent ?? "";
+		expect(text).toMatch(/74\s*KB/i);
+		// Scoped to the stage line: the payoff note legitimately says "70 MB".
+		expect(text).not.toMatch(/0\s*MB so far/i);
+	});
+
+	it("keeps one decimal just above a megabyte, where it still carries meaning", async () => {
+		setScript([
+			{
+				kind: "downloading",
+				progress: { fetched: 40, total: 1296, bytes: 1_450_000 },
+			},
+		]);
+		render(<ScreenPage />);
+		await waitFor(() => expect(screen.getByRole("status")).toBeTruthy());
+		expect(screen.getByRole("status").textContent ?? "").toMatch(/1\.4\s*MB/i);
+	});
+
+	it("tells the visitor the download is one-time and enables offline use", async () => {
+		setScript([
+			{
+				kind: "downloading",
+				progress: { fetched: 324, total: 1296, bytes: 12_000_000 },
+			},
+		]);
+		render(<ScreenPage />);
+		await waitFor(() => expect(screen.getByRole("status")).toBeTruthy());
+		const text = screen.getByRole("status").textContent ?? "";
+		expect(text).toMatch(/once|one-time|first/i);
+		expect(text).toMatch(/offline/i);
+	});
+
+	it("keeps the payoff note up during the model phase too", async () => {
+		setScript([{ kind: "loading-model" }]);
+		render(<ScreenPage />);
+		await waitFor(() => expect(screen.getByRole("status")).toBeTruthy());
+		expect(screen.getByRole("status").textContent ?? "").toMatch(/offline/i);
+	});
+
+	it("does NOT claim a one-time download before any bytes have moved", async () => {
+		// The verify step is instant and carries no download; promising a
+		// one-time download there would be noise on a warm reload.
+		setScript([{ kind: "verified", version: "2026-08-01" }]);
+		render(<ScreenPage />);
+		await waitFor(() => expect(screen.getByRole("status")).toBeTruthy());
+		expect(screen.getByRole("status").textContent ?? "").not.toMatch(
+			/offline/i,
+		);
 	});
 });

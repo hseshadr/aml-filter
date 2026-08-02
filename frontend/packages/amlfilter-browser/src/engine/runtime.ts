@@ -58,18 +58,49 @@ const WARMUP_PROMPT = "warm up the model";
 export const MODEL_LOAD_TIMEOUT_MS = 120_000;
 
 /**
- * Hard ceiling on the WHOLE boot (download → verify → model load), a superset of
- * the model-load ceiling. Its job is the phase the model timeout doesn't cover:
- * a signed-bundle sync that stalls — many chunk fetches each under the per-fetch
- * ceiling but collectively hanging, or a wedged Worker — which would otherwise
- * leave the banner on "Downloading the signed sanctions list…" forever (the
- * exact iOS symptom). On expiry the boot rejects, the memo clears, and the UI's
- * error banner + Retry appears. Deliberately LONGER than
- * {@link MODEL_LOAD_TIMEOUT_MS} so the model-load timeout stays the tighter, more
- * specific bound; the cold-cache e2e overrides it via `VITE_BOOT_TIMEOUT_MS`.
- * Maps to the future canonical `bundle.timeout` error code.
+ * Last-resort ceiling on the WHOLE boot (download → verify → model load). On
+ * expiry the boot rejects, the memo clears, and the UI's error banner + Retry
+ * appears. Maps to the future canonical `bundle.timeout` error code; the
+ * cold-cache e2e overrides it via `VITE_BOOT_TIMEOUT_MS`.
+ *
+ * IT IS A BACKSTOP, NOT THE STALL DETECTOR — and it was 180 s until 2026-08-01,
+ * which made it the wrong thing entirely. A stalled boot is already caught in
+ * seconds by two tighter bounds that key on SILENCE rather than on elapsed time:
+ * `FETCH_TIMEOUT_MS` (15 s per transport fetch) and the engine client's
+ * `DEFAULT_REQUEST_TIMEOUT_MS` (30 s with no `sync-progress` tick, re-armed by
+ * every chunk). A wedged Worker, a dead origin, a hung fetch — all of those
+ * surface long before this ceiling is anywhere near.
+ *
+ * What is left for this ceiling is only the residual case those two cannot see:
+ * a boot that keeps reporting progress and still never finishes. Since it can
+ * see nothing but wall-clock time, it CANNOT distinguish that case from a
+ * visitor on a slow link — so its only safe setting is one that a healthy slow
+ * download can never reach. At 180 s it was below
+ * {@link SLOWEST_HEALTHY_COLD_SYNC_MS}: the boot ceiling fired correctly (proven
+ * in a real browser) on exactly the people it should have left alone, handing a
+ * Fast-3G visitor "Screening list could not be loaded" while their download was
+ * two-thirds done and perfectly healthy.
+ *
+ * 15 minutes clears that worst case by ~68%. The cost is the honest one: a boot
+ * that genuinely progresses-but-never-completes now shows its spinner for up to
+ * 15 minutes before offering Retry. That path requires an origin feeding real,
+ * verified chunks the entire time — every way of getting stuck WITHOUT that is
+ * still bounded in ≤30 s.
  */
-export const BOOT_TIMEOUT_MS = 180_000;
+export const BOOT_TIMEOUT_MS = 900_000;
+
+/**
+ * The slowest HEALTHY cold download the boot ceiling must never cut short.
+ *
+ * The production bundle is ~47 MB fetched as ~1,296 content-addressed chunks,
+ * eight at a time. On Chrome's "Fast 3G" profile that is ~1.6 Mbit/s of
+ * throughput plus ~560 ms of round trip on every one of those requests, and a
+ * complete, entirely healthy download of it was measured at ~535 s on
+ * 2026-08-01. Nothing is wrong on that connection — it is a phone on a bad
+ * train. {@link BOOT_TIMEOUT_MS} has to sit above this with room to spare, or
+ * the first visitors it ever fires on are the ones it was never meant to catch.
+ */
+export const SLOWEST_HEALTHY_COLD_SYNC_MS = 535_000;
 
 /** Parse a positive-millisecond override fail-closed: an absent, non-numeric,
  * non-finite, or non-positive value yields `fallback`, so a malformed env var can
@@ -162,21 +193,36 @@ function withAbort<T>(
 	});
 }
 
+/** One mebibyte — the step the banner moves in when there is no percentage. */
+const BYTES_PER_MIB = 1024 * 1024;
+
 /**
- * Wrap an {@link OnEmbedProgress} so it fires only when `Math.round(pct)`
- * changes. transformers.js streams many sub-percent download ticks; passing each
- * straight through would re-render the boot banner on every tick. The precise
- * `pct` is forwarded unchanged (the banner rounds for display); only the rounded
- * value gates the emit, so at most ~101 stage emissions occur over a full 0→100.
+ * The value the boot banner would actually render for this tick: a rounded
+ * percent, or whole mebibytes loaded when the server withheld a total. Prefixed
+ * so the two scales can never collide in the dedupe below.
  */
-export function throttleByRoundedPct(emit: OnEmbedProgress): OnEmbedProgress {
-	let lastRounded: number | undefined;
+function renderedStep(progress: EmbedProgress): string {
+	return progress.pct === undefined
+		? `b${Math.floor(progress.loaded / BYTES_PER_MIB)}`
+		: `p${Math.round(progress.pct)}`;
+}
+
+/**
+ * Wrap an {@link OnEmbedProgress} so it fires only when the value the banner
+ * DISPLAYS changes. The model download streams a tick per network chunk;
+ * passing each straight through would re-render the banner hundreds of times.
+ * The precise progress is forwarded unchanged (the banner does its own
+ * rounding); only the rendered step gates the emit, so a full 0→100 costs at
+ * most ~101 stage emissions — or ~1 per megabyte when there is no percentage.
+ */
+export function throttleModelProgress(emit: OnEmbedProgress): OnEmbedProgress {
+	let lastStep: string | undefined;
 	return (progress) => {
-		const rounded = Math.round(progress.pct);
-		if (rounded === lastRounded) {
+		const step = renderedStep(progress);
+		if (step === lastStep) {
 			return;
 		}
-		lastRounded = rounded;
+		lastStep = step;
 		emit(progress);
 	};
 }
@@ -885,13 +931,13 @@ export class EngineRuntime {
 		onStage({ kind: "verified", version: this.#version });
 
 		onStage({ kind: "loading-model" });
-		// Re-fire the stage with each download tick so the banner shows a percent,
-		// but throttled to a CHANGED rounded percent. transformers.js fires many
-		// ticks for the ~23 MB download; without this every tick would re-render
-		// the banner. Deduping on Math.round(pct) caps emissions at ~100. The
-		// precise pct is preserved on the stage; only the rounded value gates the
-		// emit, matching the banner's own Math.round(pct) render.
-		const onModelProgress = throttleByRoundedPct((progress) =>
+		// Re-fire the stage with each download tick so the banner shows a percent
+		// instead of freezing for the whole ~23 MB model download — but throttled
+		// to a CHANGED rendered value. The transport meter emits per network
+		// chunk; without this every chunk would re-render the banner. The precise
+		// progress is preserved on the stage; only the rendered step gates the
+		// emit, matching what the banner draws.
+		const onModelProgress = throttleModelProgress((progress) =>
 			onStage({ kind: "loading-model", progress }),
 		);
 		const embedder = this.#embedder ?? this.#deps.makeEmbedder(onModelProgress);

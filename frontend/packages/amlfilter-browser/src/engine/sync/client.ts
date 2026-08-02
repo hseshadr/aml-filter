@@ -8,10 +8,22 @@ import type { OnSyncProgress, SyncResult } from "./types";
 interface Pending {
 	readonly resolve: (response: EngineResponse) => void;
 	readonly reject: (error: Error) => void;
-	readonly timer: ReturnType<typeof setTimeout>;
+	timer: ReturnType<typeof setTimeout>;
+	/** Re-arm the stall timer; called on every proof-of-life from the Worker. */
+	readonly rearm: () => void;
 }
 
-/** The maximum time a Worker request may remain unresolved. */
+/**
+ * The maximum time a Worker request may remain SILENT.
+ *
+ * This bounds a wedged Worker, not a slow one. The whole cold sync (~1,296
+ * chunks / ~48 MB on the production bundle) runs inside a single `sync`
+ * request, so treating this as a cap on total duration would terminate a
+ * perfectly healthy download on any connection slower than roughly 15 Mbps —
+ * the visitor sees a Retry banner for what is really just a slow link. Each
+ * `sync-progress` tick re-arms the timer, so the budget applies to the gap
+ * between chunks rather than to the sum of them.
+ */
 export const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 
 interface WorkerLike {
@@ -135,19 +147,28 @@ export class EngineClient {
 			return Promise.reject(this.#closed);
 		}
 		return new Promise<EngineResponse>((resolve, reject) => {
-			const timer = setTimeout(() => {
+			const expire = (): void => {
 				this.#close(
 					new Error(
-						`engine request ${request.id} (${request.kind}) timed out after ${this.#timeoutMs}ms`,
+						`engine request ${request.id} (${request.kind}) timed out after ${this.#timeoutMs}ms with no progress`,
 					),
 				);
-			}, this.#timeoutMs);
-			this.#pending.set(request.id, { resolve, reject, timer });
+			};
+			const pending: Pending = {
+				resolve,
+				reject,
+				timer: setTimeout(expire, this.#timeoutMs),
+				rearm: () => {
+					clearTimeout(pending.timer);
+					pending.timer = setTimeout(expire, this.#timeoutMs);
+				},
+			};
+			this.#pending.set(request.id, pending);
 			try {
 				this.#worker.postMessage(request);
 			} catch (error) {
 				this.#pending.delete(request.id);
-				clearTimeout(timer);
+				clearTimeout(pending.timer);
 				reject(error instanceof Error ? error : new Error(String(error)));
 			}
 		});
@@ -155,8 +176,11 @@ export class EngineClient {
 
 	#onMessage(message: EngineOutbound): void {
 		// A one-way progress notification: route it to the sync's sink (if any) and
-		// return — it must NOT settle the pending sync promise.
+		// return — it must NOT settle the pending sync promise. It IS proof of
+		// life, though, so it re-arms the stall timer: a slow-but-moving cold sync
+		// must never be terminated for taking longer than one timeout window.
 		if ("kind" in message && message.kind === "sync-progress") {
+			this.#pending.get(message.id)?.rearm();
 			this.#progress.get(message.id)?.(message.progress);
 			return;
 		}

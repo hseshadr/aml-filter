@@ -73,12 +73,13 @@ class WorkerEmbedder implements Embedder {
 		}
 	}
 
+	/** Forward the payload with the transport tags stripped. Destructured rather
+	 * than rebuilt field by field so an ABSENT `total`/`pct` (a download with no
+	 * honest denominator) stays absent instead of becoming an explicit undefined
+	 * — the two are different under `exactOptionalPropertyTypes`. */
 	#emitProgress(message: ProgressMessage): void {
-		this.#onProgress?.({
-			loaded: message.loaded,
-			total: message.total,
-			pct: message.pct,
-		});
+		const { type: _type, id: _id, ...progress } = message;
+		this.#onProgress?.(progress);
 	}
 
 	#settle(response: EmbedResponse): void {

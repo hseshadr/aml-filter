@@ -401,6 +401,20 @@ code {
 	box-shadow: var(--shadow-sm);
 }
 
+/* The boot banner stacks: the live stage line, then the one-time-download note.
+   The error banner keeps the row layout (copy on the left, Retry on the right). */
+.screen-banner--booting {
+	flex-direction: column;
+	align-items: flex-start;
+	justify-content: center;
+	gap: 0.25rem;
+}
+
+.screen-banner__note {
+	font-size: 0.85em;
+	opacity: 0.8;
+}
+
 .screen-banner--error {
 	border-color: var(--color-alert-error-border);
 	border-left-color: var(--color-danger);

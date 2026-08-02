@@ -18,6 +18,7 @@ import {
 	useState,
 } from "react";
 import { useTranslation } from "react-i18next";
+import { formatBytes } from "../lib/formatBytes";
 import { checkForWatchlistUpdates, runWatchlistSync } from "../lib/sync";
 import {
 	retainWorkstationRuntime,
@@ -184,10 +185,26 @@ function engineStageLabel(stage: BootStage, t: TFunction): string | null {
 		return t("common:workstation.engine.verified");
 	}
 	if (stage.kind === "loading-model") {
-		const pct = stage.progress ? ` ${Math.round(stage.progress.pct)}%` : "";
-		return t("common:workstation.engine.loadingModel", { pct });
+		return t("common:workstation.engine.loadingModel", {
+			detail: modelDetail(stage.progress),
+		});
 	}
 	return null; // ready
+}
+
+/** The suffix on the engine-strip model line: a percent when the download has a
+ * real denominator, megabytes when the server withheld `content-length`, and
+ * nothing before the first byte lands. Never a fabricated percentage. */
+function modelDetail(
+	progress: Extract<BootStage, { kind: "loading-model" }>["progress"],
+): string {
+	if (progress === undefined) {
+		return "";
+	}
+	if (progress.pct === undefined) {
+		return ` ${formatBytes(progress.loaded)}`;
+	}
+	return ` ${Math.round(progress.pct)}%`;
 }
 
 function EngineStatusStrip() {

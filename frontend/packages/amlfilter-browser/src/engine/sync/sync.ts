@@ -38,10 +38,104 @@ interface SyncArgs {
 	/** Cross-tab exclusive section for the final active-pointer re-check and
 	 * promotion. Production supplies a bounded Web Lock; pure tests may omit it. */
 	readonly promoteExclusive?: <T>(operation: () => Promise<T>) => Promise<T>;
+	/** Backoff delay seam for the per-chunk retry. Production uses a real timer;
+	 * tests pass a no-op so the retry budget is asserted without real waits. */
+	readonly sleep?: (ms: number) => Promise<void>;
 }
 
 const DECODER = new TextDecoder();
 const MAX_CONCURRENT_CHUNK_FETCHES = 8;
+
+/**
+ * Per-chunk retry budget for the cold sync.
+ *
+ * A cold sync of the production bundle is ~1,296 independent chunk requests
+ * fanned out 8 at a time. With a single attempt each, ONE transient failure
+ * anywhere in that fan aborts the entire sync and shows a first-time visitor a
+ * Retry banner — at a 0.1% per-request failure rate that is a ~73% chance of a
+ * failed first boot. Retrying with exponential backoff turns a blip into a
+ * pause instead of a dead end.
+ *
+ * WHY SIX AND NOT THREE. The budget that matters is SECONDS OF OUTAGE ABSORBED,
+ * not attempts taken. Three attempts absorb only 750–1250 ms, and a 3-second
+ * offline blip — a wifi/cell handover, a lift, a tunnel — was measured stranding
+ * the boot 0/5 against the live site on 2026-08-01: the ladder expired ~1.9 s
+ * before the network came back. Six attempts absorb 7.75–9.0 s
+ * ({@link MAX_CHUNK_RETRY_BUDGET_MS}), roughly 2.5× the blip actually observed.
+ *
+ * WHAT IT COSTS SOMEONE GENUINELY OFFLINE. A retry pause is silence, so the
+ * ceiling is bounded from above by the engine client's 30 s no-progress
+ * watchdog: overshoot it and a blip the ladder was about to absorb would instead
+ * tear the whole engine client down. 9 s worst case leaves 21 s of headroom.
+ * A visitor who is offline BEFORE the boot starts is unaffected — the `/latest`
+ * pointer fetch has no ladder and fails immediately. The cost lands only on a
+ * visitor who loses the network MID-download: they wait ~9 s instead of ~1 s for
+ * the Retry banner. That is the trade — 8 extra seconds of "please wait" for the
+ * offline user, in exchange for the mid-download blip no longer being terminal.
+ *
+ * This sits strictly BELOW every verification boundary: the pointer signature
+ * was checked before any chunk was requested, and `putChunkCompressed` still
+ * content-address-verifies each chunk before it lands. Only NetworkError is
+ * retried (see {@link isRetriableFetchFailure}).
+ */
+const CHUNK_FETCH_ATTEMPTS = 6;
+const CHUNK_RETRY_BASE_DELAY_MS = 250;
+
+/**
+ * Worst-case outage this ladder absorbs, in milliseconds — the number that
+ * actually decides whether a blip is a pause or a dead end.
+ *
+ * Gap i (1-based) waits `base * 2^(i-1)` plus up to `base` of jitter, over
+ * `attempts - 1` gaps: `base * (2^(attempts-1) - 1) + base * (attempts - 1)`.
+ * Exported because it is an INVARIANT, not a detail: it must stay under the
+ * engine client's no-progress watchdog (a retry pause is silence on the
+ * `sync-progress` channel) and above the outage a real visitor hits.
+ */
+export const MAX_CHUNK_RETRY_BUDGET_MS =
+	CHUNK_RETRY_BASE_DELAY_MS * (2 ** (CHUNK_FETCH_ATTEMPTS - 1) - 1) +
+	CHUNK_RETRY_BASE_DELAY_MS * (CHUNK_FETCH_ATTEMPTS - 1);
+
+const realSleep = (ms: number): Promise<void> =>
+	new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Only an unreachable origin is worth re-requesting.
+ *
+ * An IntegrityError means the returned bytes did not hash to the content
+ * address we asked for; the address is immutable, so a retry either returns the
+ * same bad bytes or lets a tampering origin keep trying until it gets lucky.
+ * SignatureError and RollbackError are likewise verdicts, not blips. Retrying
+ * any of them would convert a fail-closed check into a retry loop.
+ */
+function isRetriableFetchFailure(error: unknown): boolean {
+	return error instanceof NetworkError;
+}
+
+/** Fetch one chunk, absorbing transient transport failures within the budget. */
+async function fetchChunkWithRetry(
+	url: string,
+	fetchBytes: FetchBytes,
+	sleep: (ms: number) => Promise<void>,
+): Promise<Uint8Array> {
+	let lastError: unknown;
+	for (let attempt = 1; attempt <= CHUNK_FETCH_ATTEMPTS; attempt += 1) {
+		try {
+			return await fetchBytes(url);
+		} catch (error) {
+			if (!isRetriableFetchFailure(error)) {
+				throw error;
+			}
+			lastError = error;
+			if (attempt < CHUNK_FETCH_ATTEMPTS) {
+				// Exponential backoff with jitter so 8 pooled workers that all trip
+				// on the same blip do not resynchronize into a thundering retry.
+				const backoff = CHUNK_RETRY_BASE_DELAY_MS * 2 ** (attempt - 1);
+				await sleep(backoff + Math.random() * CHUNK_RETRY_BASE_DELAY_MS);
+			}
+		}
+	}
+	throw lastError;
+}
 
 /**
  * A signature-valid pointer whose monotonic `sequence` would move the active
@@ -210,6 +304,7 @@ async function fetchMissing(
 	fetchBytes: FetchBytes,
 	store: CacheStore,
 	onProgress?: OnSyncProgress,
+	sleep: (ms: number) => Promise<void> = realSleep,
 ): Promise<number> {
 	let nextIndex = 0;
 	// Shared across the worker pool: total chunks + bytes completed so far.
@@ -223,7 +318,11 @@ async function fetchMissing(
 			if (chunkHash === undefined) {
 				break;
 			}
-			const compressed = await fetchBytes(`${baseUrl}/chunk/${chunkHash}`);
+			const compressed = await fetchChunkWithRetry(
+				`${baseUrl}/chunk/${chunkHash}`,
+				fetchBytes,
+				sleep,
+			);
 			await store.putChunkCompressed(chunkHash, compressed);
 			workerBytes += compressed.byteLength;
 			fetched += 1;
@@ -236,8 +335,25 @@ async function fetchMissing(
 		{ length: Math.min(MAX_CONCURRENT_CHUNK_FETCHES, missing.length) },
 		fetchNext,
 	);
-	const fetchedByWorker = await Promise.all(workers);
-	return fetchedByWorker.reduce((total, workerBytes) => total + workerBytes, 0);
+	// allSettled, not all: `Promise.all` would reject the instant the FIRST
+	// worker exhausts its retry ladder, leaving the other seven fetching and
+	// retrying against a network that is still down. Their eventual rejections
+	// would have nobody left to catch them — unhandled rejections in the
+	// visitor's console — and their requests would fire after the boot had
+	// already given up. Waiting for every worker costs nothing extra in the case
+	// that matters (during an outage they are all failing together, inside the
+	// same retry budget) and guarantees no fetch outlives the sync.
+	const settled = await Promise.allSettled(workers);
+	const failure = settled.find((outcome) => outcome.status === "rejected");
+	if (failure !== undefined) {
+		// Fail closed on the first worker's cause, exactly as Promise.all did.
+		throw failure.reason;
+	}
+	return settled.reduce(
+		(total, outcome) =>
+			total + (outcome.status === "fulfilled" ? outcome.value : 0),
+		0,
+	);
 }
 
 function concat(parts: ReadonlyArray<Uint8Array>): Uint8Array {
@@ -423,6 +539,7 @@ export async function syncIndex(args: SyncArgs): Promise<SyncResult> {
 		fetchBytes,
 		store,
 		args.onProgress,
+		args.sleep,
 	);
 	// Fresh path: verify only the REUSED chunks (self-healing a poisoned present
 	// chunk), NOT a full verifyReassembly. The old eager pass reassembled + hashed

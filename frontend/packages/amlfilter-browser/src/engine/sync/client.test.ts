@@ -278,6 +278,81 @@ describe("EngineClient request/response correlation", () => {
 	});
 });
 
+/**
+ * The cold sync of the production bundle is ~1,296 chunks / ~48 MB and it all
+ * lives inside ONE `sync` request. A fixed request cap therefore doubles as a
+ * hard cap on total download time: a visitor on a slow link gets the worker
+ * terminated mid-download and an error banner, even though the sync was healthy
+ * and still moving.
+ *
+ * The timeout must bound SILENCE (a wedged worker), not DURATION (a slow link).
+ * Every `sync-progress` tick is proof of life and must re-arm the timer.
+ */
+describe("EngineClient stall timeout (progress is proof of life)", () => {
+	const progressFor = (id: number, fetched: number): EngineOutbound => ({
+		kind: "sync-progress",
+		id,
+		progress: { fetched, total: 1296, bytes: fetched * 37_000 },
+	});
+
+	it("does NOT time out a sync that keeps reporting progress past the cap", async () => {
+		vi.useFakeTimers();
+		try {
+			const worker = new FakeWorker();
+			const client = new EngineClient(worker as unknown as Worker, {
+				requestTimeoutMs: 1_000,
+			});
+			const pending = client.sync("/bundle/origin", "/public.key");
+			const id = worker.posted[0]?.id ?? 1;
+
+			// Six stall-windows' worth of wall clock, but a tick every 600ms —
+			// exactly the shape of a slow-but-healthy cold sync.
+			for (let i = 1; i <= 10; i += 1) {
+				await vi.advanceTimersByTimeAsync(600);
+				worker.emit(progressFor(id, i * 100));
+			}
+			expect(worker.terminated).toBe(false);
+
+			worker.emit({
+				ok: true,
+				id,
+				kind: "sync",
+				result: {
+					version: "2026-08-01",
+					fetchedBytes: 1,
+					reusedChunks: 0,
+				} as unknown as SyncResult,
+			} as EngineOutbound);
+			await expect(pending).resolves.toMatchObject({ version: "2026-08-01" });
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("still terminates a sync that goes silent for the whole window", async () => {
+		vi.useFakeTimers();
+		try {
+			const worker = new FakeWorker();
+			const client = new EngineClient(worker as unknown as Worker, {
+				requestTimeoutMs: 1_000,
+			});
+			const pending = client.sync("/bundle/origin", "/public.key");
+			const id = worker.posted[0]?.id ?? 1;
+			const settled = pending.catch((error: Error) => error);
+
+			// Progress, then silence: the timer re-arms once, then expires.
+			await vi.advanceTimersByTimeAsync(600);
+			worker.emit(progressFor(id, 100));
+			await vi.advanceTimersByTimeAsync(1_001);
+
+			expect(String(await settled)).toMatch(/timed out/);
+			expect(worker.terminated).toBe(true);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+});
+
 describe("EngineClient.spawn", () => {
 	it("spawns the bundled sync worker as a module Worker and wires the client", () => {
 		const constructed: Array<{ url: string; options?: WorkerOptions }> = [];
