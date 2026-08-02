@@ -113,3 +113,24 @@ describe("boot error copy for Worker-origin failures", () => {
 		});
 	});
 });
+
+describe("classifying a failure that has been flattened to a string", () => {
+	it("cannot recover the type — which is why ScreenPage must classify early", () => {
+		// This is not a wish, it is the constraint that shaped ScreenPage's `Phase`.
+		// The banner used to hold only `bootErrorMessage(error)` — a STRING — and
+		// re-derive its copy by calling `userFacingBootError(phase.message)` on it.
+		// A string has no `.name`, so every `.name`-matched branch was unreachable
+		// and EVERY boot failure rendered the engine-unavailable fallback, live.
+		//
+		// Same defect as the Worker boundary, one layer further in: React state is
+		// another place a typed error gets flattened. The fix is to classify while
+		// the error is still an error and carry the RESULT.
+		const caught = acrossTheWorkerBoundary(
+			new SignatureError("signature verification failed"),
+		);
+		const flattened = `Could not load the screening bundle: ${caught.message}`;
+
+		expect(classifyBundleError(caught)).toBe("integrity_failed");
+		expect(classifyBundleError(flattened)).toBe("unknown");
+	});
+});
