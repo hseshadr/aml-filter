@@ -89,38 +89,182 @@ export interface ListFreshness {
 	readonly staleReason: string | null;
 }
 
-/** True when `value` is a string that parses as a real instant. */
+/** True when `value` is a string that parses as a real instant. Deliberately
+ * lenient — it grades UPSTREAM-authored text (`sourceUpdatedAt`), whose format
+ * is the feed's choice, not ours. Our OWN stamps go through
+ * {@link isListInstant}, which is strict. */
 function isInstantString(value: unknown): value is string {
 	return typeof value === "string" && Number.isFinite(Date.parse(value));
 }
 
-/**
- * Narrow the four per-list freshness fields fail-closed.
- *
- * Every field is REQUIRED. Nothing is defaulted and nothing is invented: a
- * missing `fetchedAt` is NOT "fetched now", and a missing `stale` is NOT
- * `false`. A list whose age we cannot prove is a list we cannot honestly serve,
- * so it is rejected rather than silently rendered as fresh.
- *
- * Takes the CONTAINING object (catalog entry or meta.json), because the wire
- * format spreads these four fields flat into both.
- */
-export function hasListFreshness(value: unknown): value is ListFreshness {
-	if (typeof value !== "object" || value === null) {
-		return false;
-	}
-	const f = value as Record<string, unknown>;
+/** Exactly what `Date#toISOString()` emits, plus an explicit-offset variant.
+ * Anything looser (a bare date, "3000", "last Tuesday") is refused rather than
+ * guessed: `Date.parse("3000")` is the year 3000, and an age computed from that
+ * reads as FRESH. */
+const ISO_INSTANT =
+	/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
+
+/** True when `value` is one of OUR stamps: a full ISO-8601 instant we wrote. */
+function isListInstant(value: unknown): value is string {
 	return (
-		isInstantString(f.fetchedAt) &&
-		(f.sourceUpdatedAt === null || isInstantString(f.sourceUpdatedAt)) &&
-		typeof f.stale === "boolean" &&
-		(f.staleReason === null || typeof f.staleReason === "string")
+		typeof value === "string" &&
+		ISO_INSTANT.test(value) &&
+		Number.isFinite(Date.parse(value))
 	);
 }
 
+/** Which instant a list's age was measured from. `"generatedAt"` means the entry
+ * predates per-list freshness and was aged from the bundle's own build stamp. */
+export type ListAgeSource = "fetchedAt" | "generatedAt";
+
+/** The instant one list is aged from, and where that instant came from. */
+export interface ResolvedListAge {
+	readonly at: string;
+	readonly from: ListAgeSource;
+}
+
+/**
+ * A list's freshness AS RESOLVED — the wire fields plus the anchor actually
+ * used. Distinct from {@link ListFreshness}, which is the wire shape a
+ * new-format bundle carries: a legacy entry has no wire freshness at all and
+ * still resolves to a truthful age.
+ */
+export interface ResolvedListFreshness {
+	/** The instant this list's data is aged from (see `agedFrom` for which). */
+	readonly fetchedAt: string;
+	readonly agedFrom: ListAgeSource;
+	readonly sourceUpdatedAt: string | null;
+	readonly stale: boolean;
+	readonly staleReason: string | null;
+}
+
+/** True when the entry carries a per-list fetch instant AT ALL — the
+ * new-format/legacy discriminator. An explicit `undefined` is ABSENT (the key
+ * simply is not there in a pre-freshness bundle); a `null` or an empty string is
+ * PRESENT and therefore corruption. */
+export function hasFetchedAt(entry: unknown): boolean {
+	return (
+		typeof entry === "object" &&
+		entry !== null &&
+		(entry as Record<string, unknown>).fetchedAt !== undefined
+	);
+}
+
+/**
+ * THE canonical age rule. One function, consumed by every tier — the browser's
+ * catalog + meta narrows, the publisher's carry-forward anchor, and the
+ * publisher's published-freshness gate — so no copy of it can drift out of
+ * agreement with another.
+ *
+ *   fetchedAt present + parseable -> aged from fetchedAt
+ *   fetchedAt ABSENT              -> legacy bundle: aged from `catalogGeneratedAt`
+ *   fetchedAt present + malformed -> null. Never laundered into the fallback.
+ *   no usable anchor at all       -> null
+ *
+ * WHY THE LEGACY FALLBACK EXISTS. Every bundle published before per-list
+ * freshness carries no `fetchedAt`, and in that model all lists were refreshed
+ * together in one run — so the bundle's own `generatedAt` is a truthful age for
+ * each of them. Without this, shipping the strict client against an
+ * already-published bundle stops the deployed app loading its watchlist at all.
+ *
+ * REMOVAL CONDITION: once every published bundle carries per-list `fetchedAt`
+ * (i.e. no origin the client may still be served can be pre-freshness), delete
+ * the `generatedAt` fallback here — that removes it from all three call sites at
+ * once, because they all read this one function.
+ */
+export function resolveListAge(
+	entry: unknown,
+	catalogGeneratedAt: unknown,
+): ResolvedListAge | null {
+	// A non-object is not a legacy entry, it is garbage — it gets no fallback.
+	if (typeof entry !== "object" || entry === null) {
+		return null;
+	}
+	if (hasFetchedAt(entry)) {
+		const fetchedAt = (entry as Record<string, unknown>).fetchedAt;
+		return isListInstant(fetchedAt)
+			? { at: fetchedAt, from: "fetchedAt" }
+			: null;
+	}
+	return isListInstant(catalogGeneratedAt)
+		? { at: catalogGeneratedAt, from: "generatedAt" }
+		: null;
+}
+
+/** `sourceUpdatedAt` narrowed: absent -> null, null -> null, a parseable string
+ * -> itself. Anything else is corruption and fails the whole entry. */
+function resolveSourceUpdatedAt(
+	value: unknown,
+): { readonly at: string | null } | null {
+	if (value === undefined || value === null) {
+		return { at: null };
+	}
+	return isInstantString(value) ? { at: value } : null;
+}
+
+/** The staleness pair narrowed. A NEW-format entry must carry both — reading a
+ * dropped `stale` as "not stale" would let a corrupted field report the list
+ * HEALTHY. A LEGACY entry predates the fields entirely, so absent means
+ * not-stale; present-but-wrong is still corruption. */
+function resolveStale(
+	entry: Record<string, unknown>,
+	required: boolean,
+): { readonly stale: boolean; readonly staleReason: string | null } | null {
+	const { stale, staleReason } = entry;
+	if (stale === undefined ? required : typeof stale !== "boolean") {
+		return null;
+	}
+	if (
+		staleReason === undefined
+			? required
+			: !(staleReason === null || typeof staleReason === "string")
+	) {
+		return null;
+	}
+	return {
+		stale: stale === true,
+		staleReason: typeof staleReason === "string" ? staleReason : null,
+	};
+}
+
+/**
+ * THE canonical freshness rule: {@link resolveListAge} plus the companion shape
+ * rule, in one place so the browser and the publisher cannot answer differently.
+ *
+ * Returns null — meaning REJECT — when the age cannot be resolved or the
+ * staleness proof is malformed. A new-format entry must prove its staleness; a
+ * legacy entry, which predates those fields, is read as not-stale.
+ */
+export function resolveListFreshness(
+	entry: unknown,
+	catalogGeneratedAt: unknown,
+): ResolvedListFreshness | null {
+	const age = resolveListAge(entry, catalogGeneratedAt);
+	if (age === null) {
+		return null;
+	}
+	const record = entry as Record<string, unknown>;
+	// A new-format entry must SAY what upstream claimed, even if that is null.
+	const isNewFormat = age.from === "fetchedAt";
+	if (isNewFormat && record.sourceUpdatedAt === undefined) {
+		return null;
+	}
+	const source = resolveSourceUpdatedAt(record.sourceUpdatedAt);
+	const staleness = resolveStale(record, isNewFormat);
+	if (source === null || staleness === null) {
+		return null;
+	}
+	return {
+		fetchedAt: age.at,
+		agedFrom: age.from,
+		sourceUpdatedAt: source.at,
+		...staleness,
+	};
+}
+
 /** One list entry in the signed catalog: id, title, version, count, dir path —
- * plus the per-list freshness the settings UI ages the list with. */
-export interface WatchlistCatalogEntry extends ListFreshness {
+ * plus the RESOLVED per-list freshness the settings UI ages the list with. */
+export interface WatchlistCatalogEntry extends ResolvedListFreshness {
 	readonly id: string;
 	readonly title: string;
 	readonly version: string;
@@ -325,14 +469,23 @@ export function buildLoadedWatchlist(watchlist: Watchlist): LoadedWatchlist {
 /** The per-list `meta.json` the content-addressed bundle stages (mirror of the
  * publisher's BundleListMeta). Carries the version + dim + count the bundle path
  * needs; the version becomes the LoadedWatchlist version (catalog cross-check
- * happens in the runtime, against the bundle catalog entry). */
-export interface BundleListMeta extends ListFreshness {
+ * happens in the runtime, against the bundle catalog entry).
+ *
+ * The freshness block is OPTIONAL on the wire because every bundle published
+ * before per-list freshness omits it — such a meta is aged from its own
+ * `generatedAt` (see {@link resolveListAge}). It is validated here, but the
+ * catalog is what the UI actually ages a list from. */
+export interface BundleListMeta {
 	readonly listId: string;
 	readonly version: string;
 	readonly generatedAt: string;
 	readonly model: string;
 	readonly dim: number;
 	readonly entitiesCount: number;
+	readonly fetchedAt?: string;
+	readonly sourceUpdatedAt?: string | null;
+	readonly stale?: boolean;
+	readonly staleReason?: string | null;
 }
 
 /** The identity + geometry half of a bundle meta, narrowed.
@@ -354,7 +507,9 @@ function hasBundleMetaShape(m: Record<string, unknown>): boolean {
 }
 
 /** Narrow a materialized, JSON-parsed bundle meta fail-closed — including the
- * per-list freshness, which is required, never defaulted (see hasListFreshness). */
+ * per-list freshness, which must RESOLVE (see {@link resolveListFreshness}). A
+ * pre-freshness meta carries no `fetchedAt` and is aged from its own
+ * `generatedAt`; a meta whose `fetchedAt` is present but malformed is rejected. */
 function assertBundleListMeta(value: unknown): asserts value is BundleListMeta {
 	if (typeof value !== "object" || value === null) {
 		throw new WatchlistFormatError("bundle meta.json is not an object");
@@ -365,9 +520,9 @@ function assertBundleListMeta(value: unknown): asserts value is BundleListMeta {
 			`bundle meta.json is malformed: ${JSON.stringify(value)}`,
 		);
 	}
-	if (!hasListFreshness(m)) {
+	if (resolveListFreshness(m, m.generatedAt) === null) {
 		throw new WatchlistFormatError(
-			`bundle meta.json has no provable freshness (fetchedAt, sourceUpdatedAt, stale, staleReason are all required): ${JSON.stringify(value)}`,
+			`bundle meta.json has no provable freshness (a fetchedAt that is present must parse, and must come with sourceUpdatedAt, stale and staleReason): ${JSON.stringify(value)}`,
 		);
 	}
 }

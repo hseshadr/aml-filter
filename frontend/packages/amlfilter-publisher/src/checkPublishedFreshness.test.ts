@@ -21,11 +21,6 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-	canonicalBytes,
-	type JsonValue,
-	sha256Hex,
-} from "@amlfilter/browser/engine";
 import { describe, expect, it, vi } from "vitest";
 import {
 	checkPublishedFreshness,
@@ -35,16 +30,17 @@ import {
 	runCheckPublishedFreshness,
 	StaleBundleError,
 } from "./checkPublishedFreshness.ts";
-import { signBytes } from "./signing.ts";
-import type { OriginFetch } from "./verifyPublishedOrigin.ts";
+import {
+	fetchFrom,
+	type OriginOptions,
+	signedOriginFactory,
+} from "./signedOriginFixture.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FIXTURES = join(HERE, "..", "fixtures");
 const PUBKEY = new Uint8Array(readFileSync(join(FIXTURES, "demo-public.key")));
 const PRIVKEY = new Uint8Array(readFileSync(join(FIXTURES, "demo.key")));
 const BASE = "https://aml-filter.com/bundle/origin";
-
-const ENCODER = new TextEncoder();
 /** A fixed "now" so every age in this suite is exact, not clock-dependent. */
 const NOW = new Date("2026-08-01T12:00:00.000Z");
 const now = (): Date => NOW;
@@ -53,97 +49,9 @@ function hoursAgo(hours: number): string {
 	return new Date(NOW.getTime() - hours * 60 * 60 * 1_000).toISOString();
 }
 
-/**
- * A single zstd frame carrying one RAW (uncompressed) block.
- *
- * Production chunks are compressed by `edgeproc publish`, whose zstd encoder is
- * not resolvable from this package. A raw-block frame is still one legitimate
- * frame that bindingly declares its Frame_Content_Size, so the CLIENT decode
- * path (`decompressAndVerify`, via @hpcc-js/wasm-zstd) accepts and decodes it
- * exactly as it does a compressed chunk — which is the path under test.
- */
-function zstdRawFrame(plaintext: Uint8Array): Uint8Array {
-	const frame = new Uint8Array(12 + plaintext.byteLength);
-	const view = new DataView(frame.buffer);
-	view.setUint32(0, 0xfd2f_b528, true); // Magic_Number
-	view.setUint8(4, 0b1010_0000); // FCS field = 4 bytes, Single_Segment set
-	view.setUint32(5, plaintext.byteLength, true); // Frame_Content_Size
-	// Block_Header, 24-bit LE: Last_Block=1, Block_Type=Raw(0), Block_Size.
-	const header = (plaintext.byteLength << 3) | 1;
-	frame[9] = header & 0xff;
-	frame[10] = (header >>> 8) & 0xff;
-	frame[11] = (header >>> 16) & 0xff;
-	frame.set(plaintext, 12);
-	return frame;
-}
-
-interface OriginOptions {
-	readonly version?: string;
-	readonly sequence?: number;
-	/** Sign with this key instead of the matching demo key. */
-	readonly signWith?: Uint8Array;
-	/** Drop catalog.json from the manifest entirely. */
-	readonly omitCatalog?: boolean;
-	/** Publish these exact bytes as catalog.json, valid JSON or not. */
-	readonly rawCatalog?: string;
-}
-
-/** Build a REAL signed origin whose only file is the given catalog. */
-async function signedOrigin(
-	catalog: unknown,
-	options: OriginOptions = {},
-): Promise<Map<string, Uint8Array>> {
-	const version = options.version ?? "2026-08-01";
-	const catalogBytes = ENCODER.encode(
-		options.rawCatalog ?? `${JSON.stringify(catalog, null, 2)}\n`,
-	);
-	const chunkHash = await sha256Hex(catalogBytes);
-	const files = options.omitCatalog === true ? [] : [catalogFile(chunkHash)];
-	const manifestBytes = ENCODER.encode(
-		JSON.stringify({ schema_version: 1, version, files }),
-	);
-	const manifestHash = await sha256Hex(manifestBytes);
-	const pointer = {
-		manifest_hash: manifestHash,
-		version,
-		bundle_id: null,
-		channel: null,
-		sequence: options.sequence ?? 50,
-	};
-	const signature = await signBytes(
-		options.signWith ?? PRIVKEY,
-		canonicalBytes(pointer as unknown as JsonValue, {
-			exclude: { signature: true, bundle_id: true, channel: true },
-		}),
-	);
-	return new Map([
-		[
-			`${BASE}/latest`,
-			ENCODER.encode(JSON.stringify({ ...pointer, signature })),
-		],
-		[`${BASE}/manifest/${manifestHash}`, manifestBytes],
-		[`${BASE}/chunk/${chunkHash}`, zstdRawFrame(catalogBytes)],
-	]);
-}
-
-function catalogFile(chunkHash: string): unknown {
-	return {
-		path: "catalog.json",
-		file_type: "json",
-		file_sha256: chunkHash,
-		chunks: [{ hash: chunkHash }],
-	};
-}
-
-/** An OriginFetch over an in-memory origin; an unknown URL is a 404, not a pass. */
-function fetchFrom(tree: Map<string, Uint8Array>): OriginFetch {
-	return (url: string) => {
-		const bytes = tree.get(url);
-		return bytes === undefined
-			? Promise.reject(new Error(`fetch ${url} failed: 404 Not Found`))
-			: Promise.resolve(bytes);
-	};
-}
+/** The signed-origin builder + in-memory fetch live in signedOriginFixture.ts,
+ * so this suite and the cross-implementation parity suite drive the SAME chain. */
+const signedOrigin = signedOriginFactory(BASE, PRIVKEY);
 
 interface ListOverrides {
 	readonly id?: string;

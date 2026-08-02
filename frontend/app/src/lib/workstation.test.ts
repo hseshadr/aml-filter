@@ -17,6 +17,7 @@ function catalogList(id: string, title: string) {
 		version: "demo-1",
 		entitiesCount: 2,
 		fetchedAt: "2026-08-01T08:00:00Z",
+		agedFrom: "fetchedAt" as const,
 		sourceUpdatedAt: "2026-08-01T06:00:00Z",
 		stale: false,
 		staleReason: null,

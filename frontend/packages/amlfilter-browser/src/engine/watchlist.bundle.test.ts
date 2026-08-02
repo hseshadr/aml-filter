@@ -256,14 +256,31 @@ describe("assertBundleListMeta — per-list freshness, fail-closed", () => {
 		expect(() => buildLoadedFromBundleFiles(files)).not.toThrow();
 	});
 
-	it("REJECTS a meta.json with no fetchedAt — a list we cannot age", () => {
+	// CONTRACT REVERSED, deliberately. This test used to assert that a meta.json
+	// with no `fetchedAt` is REJECTED. That contract was wrong and it was a
+	// production deploy hazard: every bundle published before per-list freshness —
+	// including the one aml-filter.com serves — has no per-list `fetchedAt` in its
+	// meta, so the strict client would refuse to load the deployed watchlist. A
+	// legacy meta is now aged from its OWN `generatedAt`. A `fetchedAt` that is
+	// PRESENT and malformed is still rejected (the three tests below).
+	it("ACCEPTS a legacy meta.json with no freshness block, aged from generatedAt", () => {
 		const files = filesWithMetaMutation((m) => {
 			delete m.fetchedAt;
+			delete m.sourceUpdatedAt;
+			delete m.stale;
+			delete m.staleReason;
+		});
+		expect(() => buildLoadedFromBundleFiles(files)).not.toThrow();
+	});
+
+	it("REJECTS a legacy meta.json whose generatedAt cannot be parsed", () => {
+		const files = filesWithMetaMutation((m) => {
+			delete m.fetchedAt;
+			m.generatedAt = "whenever";
 		});
 		expect(() => buildLoadedFromBundleFiles(files)).toThrow(
 			WatchlistFormatError,
 		);
-		expect(() => buildLoadedFromBundleFiles(files)).toThrow(/freshness/);
 	});
 
 	it("REJECTS an empty-string fetchedAt", () => {

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BundleSource } from "./bundleSource";
 import type { Embedder, EmbedProgress } from "./embedder";
-import { FRESH } from "./freshnessFixtures";
+import { FRESH_RESOLVED } from "./freshnessFixtures";
 import {
 	BOOT_TIMEOUT_MS,
 	type BootStage,
@@ -78,7 +78,7 @@ function entryFor(listId: string, version: string): WatchlistCatalogEntry {
 		version,
 		entitiesCount: 1,
 		path: `${listId.toLowerCase()}/`,
-		...FRESH,
+		...FRESH_RESOLVED,
 	};
 }
 
@@ -650,7 +650,7 @@ describe("EngineRuntime.reload", () => {
 				title: "OFAC_SDN",
 				version: "demo-1",
 				entitiesCount: 1,
-				...FRESH,
+				...FRESH_RESOLVED,
 			},
 		]);
 		expect(await runtime.catalogListIds()).toEqual(["OFAC_SDN"]);

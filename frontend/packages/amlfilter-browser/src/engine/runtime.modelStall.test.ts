@@ -13,7 +13,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BundleSource } from "./bundleSource";
 import type { EmbedProgress, OnEmbedProgress } from "./embedder";
-import { FRESH } from "./freshnessFixtures";
+import { FRESH_RESOLVED } from "./freshnessFixtures";
 import {
 	EngineRuntime,
 	MODEL_LOAD_IDLE_TIMEOUT_MS,
@@ -31,7 +31,7 @@ const CATALOG: WatchlistCatalog = {
 			version: "2026-08-01",
 			entitiesCount: 19_181,
 			path: "ofac/",
-			...FRESH,
+			...FRESH_RESOLVED,
 		},
 	],
 };

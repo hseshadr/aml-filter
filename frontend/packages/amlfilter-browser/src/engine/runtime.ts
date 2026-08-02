@@ -39,8 +39,8 @@ import { PRESETS } from "./scoring";
 import type { OnSyncProgress, SyncProgress } from "./sync/types";
 import { compositeVersion } from "./version";
 import type {
-	ListFreshness,
 	LoadedWatchlist,
+	ResolvedListFreshness,
 	WatchlistCatalog,
 	WatchlistCatalogEntry,
 } from "./watchlist";
@@ -297,13 +297,18 @@ export interface RuntimeSelection {
 /**
  * A selectable catalog list, surfaced to the settings UI for toggling.
  *
- * Carries the signed catalog entry's freshness verbatim. It used to be `{id,
+ * Carries the signed catalog entry's RESOLVED freshness. It used to be `{id,
  * title}` alone, and that one projection was why no UI could show how old a list
  * was: the metadata existed in the bundle, survived verification, and was then
  * thrown away one hop before the screen. A user picking lists needs to see that
  * the EU list is three days stale, so the age travels with the list.
+ *
+ * `agedFrom` says WHICH instant the age was measured from — the list's own
+ * `fetchedAt`, or (on a pre-per-list-freshness bundle) the bundle's build stamp.
+ * The UI words the age line differently for the two, so it never claims a
+ * per-list refresh time it does not have.
  */
-export interface CatalogListInfo extends ListFreshness {
+export interface CatalogListInfo extends ResolvedListFreshness {
 	readonly id: string;
 	readonly title: string;
 	readonly version: string;
@@ -636,6 +641,9 @@ export class EngineRuntime {
 			version: entry.version,
 			entitiesCount: entry.entitiesCount,
 			fetchedAt: entry.fetchedAt,
+			// Which anchor produced that instant travels with it: the UI must not
+			// present a bundle build stamp as a per-list refresh time.
+			agedFrom: entry.agedFrom,
 			sourceUpdatedAt: entry.sourceUpdatedAt,
 			stale: entry.stale,
 			staleReason: entry.staleReason,

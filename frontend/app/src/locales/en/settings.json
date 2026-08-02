@@ -19,6 +19,7 @@
 		"title": "Watchlists",
 		"description": "Which sanctions lists to screen against. Disabling a list removes its matches on the next re-screen.",
 		"fresh": "updated {{age}}",
+		"freshFromBundle": "in a bundle built {{age}}",
 		"stale": "Not updated for {{age}}",
 		"staleWithReason": "Not updated for {{age}} — {{reason}}",
 		"ageUnknown": "Age unknown — this list cannot say when it was last refreshed",

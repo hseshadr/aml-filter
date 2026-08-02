@@ -118,7 +118,12 @@ function SensitivityControl({
  * A list whose `fetchedAt` cannot be parsed reads "Age unknown", NEVER as fresh:
  * silently defaulting an unknown age to "just updated" is the exact lie the
  * engine's fail-closed bundle guard exists to prevent, and the UI must not
- * reintroduce it one layer up. */
+ * reintroduce it one layer up.
+ *
+ * A list from a pre-per-list-freshness bundle (`agedFrom === "generatedAt"`) has
+ * a REAL age — the bundle's build time — but no per-list refresh time, so it is
+ * worded as the bundle's age rather than as "updated". Claiming a refresh
+ * instant we do not have would be the same lie in a quieter voice. */
 function ageSentence(
 	list: CatalogListInfo,
 	t: TFunction,
@@ -128,7 +133,11 @@ function ageSentence(
 		return { text: t("watchlists.ageUnknown"), stale: true };
 	}
 	if (!list.stale) {
-		return { text: t("watchlists.fresh", { age: age.phrase }), stale: false };
+		const key =
+			list.agedFrom === "generatedAt"
+				? "watchlists.freshFromBundle"
+				: "watchlists.fresh";
+		return { text: t(key, { age: age.phrase }), stale: false };
 	}
 	const text =
 		list.staleReason === null

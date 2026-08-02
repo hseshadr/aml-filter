@@ -13,7 +13,7 @@
 
 import { describe, expect, it } from "vitest";
 import type { BundleSource } from "./bundleSource";
-import { FRESH } from "./freshnessFixtures";
+import { FRESH_RESOLVED } from "./freshnessFixtures";
 import { EngineRuntime, type RuntimeDeps } from "./runtime";
 import type { LoadedWatchlist, WatchlistCatalog } from "./watchlist";
 
@@ -27,7 +27,7 @@ const CATALOG: WatchlistCatalog = {
 			version: "2026-08-01",
 			entitiesCount: 19_181,
 			path: "ofac/",
-			...FRESH,
+			...FRESH_RESOLVED,
 		},
 		{
 			id: "EU_CONSOLIDATED",
@@ -35,7 +35,7 @@ const CATALOG: WatchlistCatalog = {
 			version: "2026-08-01",
 			entitiesCount: 5_000,
 			path: "eu/",
-			...FRESH,
+			...FRESH_RESOLVED,
 		},
 		{
 			id: "UK_OFSI",
@@ -43,7 +43,7 @@ const CATALOG: WatchlistCatalog = {
 			version: "2026-08-01",
 			entitiesCount: 4_000,
 			path: "uk/",
-			...FRESH,
+			...FRESH_RESOLVED,
 		},
 		{
 			id: "UN_CONSOLIDATED",
@@ -51,7 +51,7 @@ const CATALOG: WatchlistCatalog = {
 			version: "2026-08-01",
 			entitiesCount: 1_000,
 			path: "un/",
-			...FRESH,
+			...FRESH_RESOLVED,
 		},
 	],
 };

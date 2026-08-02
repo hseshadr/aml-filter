@@ -17,6 +17,7 @@
 
 // --- the signed-bundle delta-sync path: open + materialize a signed bundle ---
 export {
+	type BundleEngineClient,
 	type BundleSource,
 	type BundleSourceDeps,
 	openBundleSource,
@@ -137,10 +138,15 @@ export {
 	buildLoadedFromBundleFiles,
 	buildLoadedWatchlist,
 	buildLoadedWatchlistMetadataFromBundleFiles,
-	hasListFreshness,
+	hasFetchedAt,
+	type ListAgeSource,
 	type ListFreshness,
 	type LoadedWatchlist,
 	type LoadedWatchlistMetadata,
+	type ResolvedListAge,
+	type ResolvedListFreshness,
+	resolveListAge,
+	resolveListFreshness,
 	type Watchlist,
 	type WatchlistCatalog,
 	type WatchlistCatalogEntry,

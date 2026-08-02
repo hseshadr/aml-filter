@@ -42,6 +42,7 @@ function ofacList(over: Record<string, unknown> = {}) {
 		version: "demo-1",
 		entitiesCount: 3,
 		fetchedAt: "2026-08-01T06:00:00Z",
+		agedFrom: "fetchedAt",
 		sourceUpdatedAt: "2026-08-01T04:00:00Z",
 		stale: false,
 		staleReason: null,
@@ -101,6 +102,7 @@ describe("ScreenPage — the age of the list being screened against", () => {
 				Promise.resolve([
 					ofacList({
 						fetchedAt: "2026-07-29T12:00:00Z",
+						agedFrom: "fetchedAt",
 						sourceUpdatedAt: null,
 						stale: true,
 						staleReason: "the OFAC feed was unreachable",
@@ -120,6 +122,7 @@ describe("ScreenPage — the age of the list being screened against", () => {
 				Promise.resolve([
 					ofacList({
 						fetchedAt: "2026-07-29T12:00:00Z",
+						agedFrom: "fetchedAt",
 						stale: true,
 						staleReason: "the OFAC feed was unreachable",
 					}),
@@ -140,6 +143,24 @@ describe("ScreenPage — the age of the list being screened against", () => {
 		render(<ScreenPage />);
 		await screen.findByText(/Not updated for 3 days/i);
 		expect(screen.queryByText(/updated 3 days ago/i)).not.toBeInTheDocument();
+	});
+
+	// A pre-per-list-freshness bundle (what aml-filter.com serves today) has no
+	// per-list `fetchedAt`; the engine ages it from the bundle's own build stamp.
+	// That age is REAL, so this line must state it — but as the bundle's age, not
+	// as a per-list refresh time we cannot actually prove.
+	it("states a legacy list's age as the BUNDLE's build time, not as a refresh", async () => {
+		catalogListsResult = {
+			resolve: () =>
+				Promise.resolve([
+					ofacList({ agedFrom: "generatedAt", sourceUpdatedAt: null }),
+				]),
+		};
+		render(<ScreenPage />);
+		expect(
+			await screen.findByText(/OFAC SDN.*in a bundle built 6 hours ago/i),
+		).toBeInTheDocument();
+		expect(screen.queryByText(/age unknown/i)).not.toBeInTheDocument();
 	});
 
 	it("says the age is unknown rather than implying freshness when it cannot be read", async () => {

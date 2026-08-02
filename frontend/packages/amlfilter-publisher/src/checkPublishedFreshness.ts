@@ -38,6 +38,11 @@
 import { readFileSync } from "node:fs";
 import { decompressAndVerify } from "@amlfilter/browser/engine";
 import {
+	hasFetchedAt,
+	type ListAgeSource,
+	resolveListAge,
+} from "@amlfilter/browser/watchlist";
+import {
 	fetchAndVerifyManifest,
 	fetchAndVerifyPointer,
 	httpFetchBytes,
@@ -76,8 +81,9 @@ const ISO_INSTANT =
 	/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
 
 /** Which instant a list's age was measured from. `generatedAt` means the list
- * predates per-list freshness and was aged from the bundle's own stamp. */
-export type AgeSource = "fetchedAt" | "generatedAt";
+ * predates per-list freshness and was aged from the bundle's own stamp. Aliased
+ * to the shared type rather than restated — see `resolveListAge`. */
+export type AgeSource = ListAgeSource;
 
 /** One list's proven age, and every way it breaches the freshness claim. */
 export interface ListAge {
@@ -222,32 +228,31 @@ interface AgeAnchor {
 /**
  * Anchor one list's age.
  *
- * MIGRATION FALLBACK, deliberately narrow. A bundle published before per-list
- * freshness existed carries no `fetchedAt`, and in that model all lists were
- * refreshed together in one run — so the catalog's own `generatedAt` is a
- * truthful age for every one of them. This mirrors carryForwardList.ts's
- * `publishedFetchedAt()`, and it is the only reason this guard does not open a
- * false alarm against the bundle that was live when it shipped.
+ * The rule itself is NOT here — it is `resolveListAge` in
+ * `@amlfilter/browser/watchlist`, the one predicate the browser's bundle-open
+ * path reads too. This used to be a third copy of it (after
+ * carryForwardList.ts's), and copies of a rule diverge: this gate happily aged a
+ * pre-freshness list from `generatedAt` while the browser rejected the identical
+ * bytes and stopped loading the watchlist entirely.
  *
- * The fallback applies ONLY when `fetchedAt` is ABSENT. A `fetchedAt` that is
- * present but empty, unparseable or the wrong type gets no fallback: that is
- * corruption rather than migration, and "cannot tell" must keep meaning REJECT.
- * Otherwise a malformed value could be laundered into a fresh-looking age.
+ * All this adds is the DIAGNOSIS the operator needs: a `fetchedAt` that is
+ * present but unusable is corruption (and gets no fallback), whereas an absent
+ * one is migration.
  */
 function ageAnchor(
 	wire: Record<string, unknown>,
 	generatedAt: unknown,
 ): AgeAnchor {
-	if ("fetchedAt" in wire) {
-		const ms = instantMs(wire.fetchedAt);
-		return ms === null
-			? { ms: null, at: null, from: null, malformed: true }
-			: { ms, at: text(wire.fetchedAt), from: "fetchedAt", malformed: false };
+	const age = resolveListAge(wire, generatedAt);
+	if (age === null) {
+		return { ms: null, at: null, from: null, malformed: hasFetchedAt(wire) };
 	}
-	const ms = instantMs(generatedAt);
-	return ms === null
-		? { ms: null, at: null, from: null, malformed: false }
-		: { ms, at: text(generatedAt), from: "generatedAt", malformed: false };
+	return {
+		ms: Date.parse(age.at),
+		at: age.at,
+		from: age.from,
+		malformed: false,
+	};
 }
 
 /** The one age-related complaint about a list, or null when its age is fine. */
@@ -307,7 +312,7 @@ function shapeBreaches(
 	who: string,
 	wire: Record<string, unknown>,
 ): readonly string[] {
-	if (!("fetchedAt" in wire)) {
+	if (!hasFetchedAt(wire)) {
 		return [];
 	}
 	const out: string[] = [];

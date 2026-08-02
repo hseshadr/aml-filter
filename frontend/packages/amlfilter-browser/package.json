@@ -7,7 +7,8 @@
 	"description": "In-browser signed-bundle sync + explainable OFAC name screening (the aml-filter browser tier).",
 	"exports": {
 		".": "./src/index.ts",
-		"./engine": "./src/engine.ts"
+		"./engine": "./src/engine.ts",
+		"./watchlist": "./src/engine/watchlist.ts"
 	},
 	"scripts": {
 		"lint": "biome check .",

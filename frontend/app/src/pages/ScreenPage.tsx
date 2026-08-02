@@ -107,6 +107,10 @@ const SCREENED_LIST = { id: "OFAC_SDN", label: "OFAC SDN" } as const;
  *
  * An age that cannot be read says so. It never falls back to silence, because
  * silence next to "List verified." reads as "current".
+ *
+ * A list from a pre-per-list-freshness bundle (`agedFrom === "generatedAt"`) has
+ * a REAL age — the bundle's build time — but no per-list refresh time, so it is
+ * worded as the bundle's age rather than as "updated".
  */
 function screenedListAge(
 	list: CatalogListInfo | null,
@@ -118,8 +122,10 @@ function screenedListAge(
 		return { text: t("list.ageUnknown", { list: label }), stale: true };
 	}
 	if (!list.stale) {
+		const key =
+			list.agedFrom === "generatedAt" ? "list.freshFromBundle" : "list.fresh";
 		return {
-			text: t("list.fresh", { list: label, age: age.phrase }),
+			text: t(key, { list: label, age: age.phrase }),
 			stale: false,
 		};
 	}

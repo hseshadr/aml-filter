@@ -31,6 +31,7 @@
 // added to /latest, and the monotonic anti-rollback `sequence` is untouched.
 
 import { decompressAndVerify } from "@amlfilter/browser/engine";
+import { resolveListAge } from "@amlfilter/browser/watchlist";
 import type { ListFreshness } from "./stageBundle.ts";
 import type { WatchlistEntity } from "./types.ts";
 import { bytesToVectors } from "./vectors.ts";
@@ -286,11 +287,18 @@ function parseMeta(
 /**
  * The instant this data was last actually obtained.
  *
- * MIGRATION: bundles published before per-list freshness existed carry no
- * `fetchedAt`. `generatedAt` — when that bundle was assembled — is the truthful
- * fallback, and it is the only one. A list we cannot age is refused outright:
- * defaulting to "now" would relabel three-day-old sanctions data as current,
- * which is the exact failure this whole change exists to prevent.
+ * The rule itself is NOT here — it is `resolveListAge` in
+ * `@amlfilter/browser/watchlist`, the one predicate the browser's bundle-open
+ * path reads too. This used to be a second copy of it, and the two copies
+ * disagreed on the live bundle: the publisher aged a pre-freshness list from
+ * `generatedAt` and re-served it while the browser rejected the same bytes.
+ *
+ * MIGRATION: bundles published before per-list freshness carry no `fetchedAt`,
+ * so `generatedAt` — when that bundle was assembled — is the fallback (see
+ * `resolveListAge` for why that is truthful, and for its removal condition). A
+ * list we cannot age is refused outright: defaulting to "now" would relabel
+ * three-day-old sanctions data as current, which is the exact failure this
+ * whole change exists to prevent.
  */
 export function publishedFetchedAt(
 	slug: string,
@@ -299,17 +307,13 @@ export function publishedFetchedAt(
 		readonly generatedAt?: string;
 	},
 ): string {
-	const anchor = (meta.fetchedAt ?? meta.generatedAt)?.trim();
-	if (
-		anchor === undefined ||
-		anchor === "" ||
-		!Number.isFinite(Date.parse(anchor))
-	) {
+	const age = resolveListAge(meta, meta.generatedAt);
+	if (age === null) {
 		throw new CarryForwardError(
 			`published ${slug}/meta.json has no parseable age (fetchedAt/generatedAt); refusing to re-serve a list whose staleness cannot be stated`,
 		);
 	}
-	return anchor;
+	return age.at;
 }
 
 /** A carried list must match the population its published meta declares —

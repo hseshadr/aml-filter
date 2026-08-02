@@ -45,6 +45,7 @@ const LISTS = [
 		version: "2026-08-01",
 		entitiesCount: 19_181,
 		fetchedAt: "2026-08-01T08:00:00Z",
+		agedFrom: "fetchedAt",
 		sourceUpdatedAt: "2026-08-01T06:00:00Z",
 		stale: false,
 		staleReason: null,
@@ -55,6 +56,7 @@ const LISTS = [
 		version: "2026-07-29",
 		entitiesCount: 5_000,
 		fetchedAt: "2026-07-29T12:00:00Z",
+		agedFrom: "fetchedAt",
 		sourceUpdatedAt: null,
 		stale: true,
 		staleReason: "the EU feed was unreachable",
@@ -125,6 +127,27 @@ describe("SettingsPage — per-list freshness", () => {
 			expect(document.getElementById("watchlist-OFAC_SDN")).toBeTruthy();
 			expect(document.getElementById("watchlist-EU_CONSOLIDATED")).toBeTruthy();
 		});
+	});
+
+	// A bundle published before per-list freshness has no per-list `fetchedAt`, so
+	// the engine ages it from the bundle's own build stamp and says so. The age is
+	// real — it must NOT read "Age unknown" — but it is the BUNDLE's age, and the
+	// copy has to say that rather than claim a per-list refresh time we do not
+	// have. (aml-filter.com was serving exactly such a bundle when this shipped.)
+	it("states a legacy list's age as the BUNDLE's build time, not as a refresh", async () => {
+		mockCatalogLists.mockResolvedValue([
+			{
+				...LISTS[0],
+				fetchedAt: "2026-08-01T08:00:00Z",
+				agedFrom: "generatedAt",
+				sourceUpdatedAt: null,
+			},
+		]);
+		render(<SettingsPage />);
+		expect(
+			await screen.findByText(/in a bundle built 4 hours ago/i),
+		).toBeInTheDocument();
+		expect(screen.queryByText(/age unknown/i)).not.toBeInTheDocument();
 	});
 
 	it("says the age is UNKNOWN rather than fresh when fetchedAt is unusable", async () => {

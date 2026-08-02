@@ -20,6 +20,7 @@ vi.mock("@amlfilter/browser", () => {
 					version: "demo-1",
 					entitiesCount: 1,
 					fetchedAt: "2026-08-01T08:00:00Z",
+					agedFrom: "fetchedAt",
 					sourceUpdatedAt: null,
 					stale: false,
 					staleReason: null,

@@ -19,7 +19,6 @@ import {
 	openBundleSource,
 } from "./bundleSource";
 import type { SyncResult } from "./sync/types";
-import { WatchlistFormatError } from "./watchlist";
 
 const ENCODER = new TextEncoder();
 
@@ -85,6 +84,24 @@ function open(
 	return openBundleSource(BASE_URL, PUBKEY_URL, fakeDeps(catalogBytes(mutate)));
 }
 
+/** Open a bundle source over a catalog mutated at the DOCUMENT level — needed to
+ * break `generatedAt`, which is the fallback anchor for a legacy entry. */
+function openCatalog(
+	mutate: (catalog: Record<string, unknown>) => void,
+): Promise<unknown> {
+	const catalog: Record<string, unknown> = {
+		schemaVersion: 1,
+		generatedAt: "2026-06-22T00:00:00Z",
+		lists: [catalogEntry()],
+	};
+	mutate(catalog);
+	return openBundleSource(
+		BASE_URL,
+		PUBKEY_URL,
+		fakeDeps(ENCODER.encode(JSON.stringify(catalog))),
+	);
+}
+
 describe("isBundleCatalogList — per-list freshness, fail-closed", () => {
 	it("accepts a catalog entry carrying complete, parseable freshness", async () => {
 		const source = await open();
@@ -116,12 +133,39 @@ describe("isBundleCatalogList — per-list freshness, fail-closed", () => {
 		).resolves.toBeDefined();
 	});
 
-	it("REJECTS an entry with no fetchedAt — a list we cannot age", async () => {
+	// CONTRACT REVERSED, deliberately. This test used to assert that an entry with
+	// no `fetchedAt` is REJECTED. That contract was wrong and it was a production
+	// deploy hazard: EVERY bundle published before per-list freshness — including
+	// the one aml-filter.com was serving — carries no per-list `fetchedAt`, so the
+	// strict client would have stopped the deployed app loading its watchlist the
+	// moment the origin fell back to a pre-freshness bundle. A legacy entry is now
+	// ACCEPTED and aged from the catalog's `generatedAt`. What must still be
+	// rejected is a `fetchedAt` that is PRESENT and malformed (the two tests
+	// below), and a legacy entry with no `generatedAt` to fall back to.
+	it("ACCEPTS a legacy entry with no freshness block, aged from generatedAt", async () => {
+		const source = (await open((e) => {
+			delete e.fetchedAt;
+			delete e.sourceUpdatedAt;
+			delete e.stale;
+			delete e.staleReason;
+		})) as { loadCatalog(): { lists: ReadonlyArray<Record<string, unknown>> } };
+		expect(source.loadCatalog().lists[0]).toMatchObject({
+			id: "EU_CONSOLIDATED",
+			fetchedAt: "2026-06-22T00:00:00Z",
+			agedFrom: "generatedAt",
+			sourceUpdatedAt: null,
+			stale: false,
+			staleReason: null,
+		});
+	});
+
+	it("REJECTS a legacy entry when the catalog has no usable generatedAt", async () => {
 		await expect(
-			open((e) => {
-				delete e.fetchedAt;
+			openCatalog((c) => {
+				delete (c.lists as Record<string, unknown>[])[0]?.fetchedAt;
+				c.generatedAt = "whenever";
 			}),
-		).rejects.toThrow(WatchlistFormatError);
+		).rejects.toThrow(/malformed list entry/);
 	});
 
 	it("REJECTS an empty-string fetchedAt", async () => {

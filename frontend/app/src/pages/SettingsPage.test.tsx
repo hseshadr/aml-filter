@@ -40,6 +40,7 @@ const FOUR_LISTS = [
 	version: "2026-08-01",
 	entitiesCount: 100,
 	fetchedAt: "2026-08-01T08:00:00Z",
+	agedFrom: "fetchedAt",
 	sourceUpdatedAt: "2026-08-01T06:00:00Z",
 	stale: false,
 	staleReason: null,
