@@ -811,10 +811,7 @@ describe("syncIndex transient chunk-fetch resilience", () => {
 		const bundle = await syntheticBundle(20);
 		const store = new RecordingCacheStore();
 		// The 3rd distinct chunk fails twice before succeeding.
-		const { fetchBytes, attempts } = flakyChunks(
-			bundle,
-			new Map([[3, 2]]),
-		);
+		const { fetchBytes, attempts } = flakyChunks(bundle, new Map([[3, 2]]));
 
 		const result = await syncIndex({
 			baseUrl: "/o",

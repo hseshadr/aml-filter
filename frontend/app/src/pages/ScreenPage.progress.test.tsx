@@ -135,7 +135,10 @@ describe("ScreenPage boot banner — model-load progress", () => {
 describe("ScreenPage boot banner — a first-time visitor can tell what is happening", () => {
 	it("reports how far along the download is as a percentage", async () => {
 		setScript([
-			{ kind: "downloading", progress: { fetched: 324, total: 1296, bytes: 12_000_000 } },
+			{
+				kind: "downloading",
+				progress: { fetched: 324, total: 1296, bytes: 12_000_000 },
+			},
 		]);
 		render(<ScreenPage />);
 		await waitFor(() => expect(screen.getByRole("status")).toBeTruthy());
@@ -146,7 +149,10 @@ describe("ScreenPage boot banner — a first-time visitor can tell what is happe
 
 	it("reports megabytes actually downloaded so far", async () => {
 		setScript([
-			{ kind: "downloading", progress: { fetched: 324, total: 1296, bytes: 12_000_000 } },
+			{
+				kind: "downloading",
+				progress: { fetched: 324, total: 1296, bytes: 12_000_000 },
+			},
 		]);
 		render(<ScreenPage />);
 		await waitFor(() => expect(screen.getByRole("status")).toBeTruthy());
@@ -155,7 +161,10 @@ describe("ScreenPage boot banner — a first-time visitor can tell what is happe
 
 	it("tells the visitor the download is one-time and enables offline use", async () => {
 		setScript([
-			{ kind: "downloading", progress: { fetched: 324, total: 1296, bytes: 12_000_000 } },
+			{
+				kind: "downloading",
+				progress: { fetched: 324, total: 1296, bytes: 12_000_000 },
+			},
 		]);
 		render(<ScreenPage />);
 		await waitFor(() => expect(screen.getByRole("status")).toBeTruthy());
@@ -177,6 +186,8 @@ describe("ScreenPage boot banner — a first-time visitor can tell what is happe
 		setScript([{ kind: "verified", version: "2026-08-01" }]);
 		render(<ScreenPage />);
 		await waitFor(() => expect(screen.getByRole("status")).toBeTruthy());
-		expect(screen.getByRole("status").textContent ?? "").not.toMatch(/offline/i);
+		expect(screen.getByRole("status").textContent ?? "").not.toMatch(
+			/offline/i,
+		);
 	});
 });
