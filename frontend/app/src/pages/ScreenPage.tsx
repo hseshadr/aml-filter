@@ -471,9 +471,18 @@ function isFirstRunDownload(stage: BootStage): boolean {
 	);
 }
 
-/** Bytes as megabytes, one decimal — real transferred bytes, never extrapolated. */
-function megabytes(bytes: number): string {
-	return (bytes / 1_000_000).toFixed(1).replace(/\.0$/, "");
+/**
+ * Real transferred bytes in the unit a person would use, never extrapolated.
+ * Sub-megabyte totals are shown in KB: the first ticks of a cold sync carry
+ * tens of kilobytes, and rounding those to "0 MB" makes a download that is
+ * working look stuck at zero.
+ */
+function formatBytes(bytes: number): string {
+	if (bytes < 1_000_000) {
+		return `${Math.round(bytes / 1000)} KB`;
+	}
+	const mb = bytes / 1_000_000;
+	return `${mb < 10 ? mb.toFixed(1) : Math.round(mb)} MB`;
 }
 
 // The banner line for a stage. Production model loading is indeterminate because
@@ -495,7 +504,7 @@ function stageMessage(stage: BootStage, t: TFunction): string {
 		return t("boot.downloadingProgress", {
 			label: t("boot.downloading"),
 			pct: total > 0 ? Math.round((fetched / total) * 100) : 0,
-			mb: megabytes(bytes),
+			size: formatBytes(bytes),
 		});
 	}
 	return t(STAGE_KEY[stage.kind]);

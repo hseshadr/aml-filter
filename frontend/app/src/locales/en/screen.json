@@ -25,7 +25,7 @@
 	},
 	"boot": {
 		"downloading": "Downloading the signed sanctions list…",
-		"downloadingProgress": "{{label}} {{pct}}% — {{mb}} MB so far",
+		"downloadingProgress": "{{label}} {{pct}}% — {{size}} so far",
 		"firstRunNote": "First visit only — about 70 MB. Once it's here, screening runs offline and nothing you type leaves the device.",
 		"verified": "List verified.",
 		"loadingModel": "Loading the name-matching model (~23 MB, once)…",

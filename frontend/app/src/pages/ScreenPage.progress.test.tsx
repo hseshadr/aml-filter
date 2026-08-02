@@ -159,6 +159,36 @@ describe("ScreenPage boot banner — a first-time visitor can tell what is happe
 		expect(screen.getByRole("status").textContent ?? "").toMatch(/12\s*MB/i);
 	});
 
+	it("reports kilobytes rather than a meaningless '0 MB' early in the download", async () => {
+		// The first ticks of a real cold sync carry tens of KB. Rounding those to
+		// "0 MB" makes a working download look stuck at zero — observed on the
+		// live site, where the first second of the sync read "0 MB so far".
+		setScript([
+			{
+				kind: "downloading",
+				progress: { fetched: 2, total: 1296, bytes: 74_000 },
+			},
+		]);
+		render(<ScreenPage />);
+		await waitFor(() => expect(screen.getByRole("status")).toBeTruthy());
+		const text = screen.getByRole("status").textContent ?? "";
+		expect(text).toMatch(/74\s*KB/i);
+		// Scoped to the stage line: the payoff note legitimately says "70 MB".
+		expect(text).not.toMatch(/0\s*MB so far/i);
+	});
+
+	it("keeps one decimal just above a megabyte, where it still carries meaning", async () => {
+		setScript([
+			{
+				kind: "downloading",
+				progress: { fetched: 40, total: 1296, bytes: 1_450_000 },
+			},
+		]);
+		render(<ScreenPage />);
+		await waitFor(() => expect(screen.getByRole("status")).toBeTruthy());
+		expect(screen.getByRole("status").textContent ?? "").toMatch(/1\.4\s*MB/i);
+	});
+
 	it("tells the visitor the download is one-time and enables offline use", async () => {
 		setScript([
 			{
