@@ -162,21 +162,36 @@ function withAbort<T>(
 	});
 }
 
+/** One mebibyte — the step the banner moves in when there is no percentage. */
+const BYTES_PER_MIB = 1024 * 1024;
+
 /**
- * Wrap an {@link OnEmbedProgress} so it fires only when `Math.round(pct)`
- * changes. transformers.js streams many sub-percent download ticks; passing each
- * straight through would re-render the boot banner on every tick. The precise
- * `pct` is forwarded unchanged (the banner rounds for display); only the rounded
- * value gates the emit, so at most ~101 stage emissions occur over a full 0→100.
+ * The value the boot banner would actually render for this tick: a rounded
+ * percent, or whole mebibytes loaded when the server withheld a total. Prefixed
+ * so the two scales can never collide in the dedupe below.
  */
-export function throttleByRoundedPct(emit: OnEmbedProgress): OnEmbedProgress {
-	let lastRounded: number | undefined;
+function renderedStep(progress: EmbedProgress): string {
+	return progress.pct === undefined
+		? `b${Math.floor(progress.loaded / BYTES_PER_MIB)}`
+		: `p${Math.round(progress.pct)}`;
+}
+
+/**
+ * Wrap an {@link OnEmbedProgress} so it fires only when the value the banner
+ * DISPLAYS changes. The model download streams a tick per network chunk;
+ * passing each straight through would re-render the banner hundreds of times.
+ * The precise progress is forwarded unchanged (the banner does its own
+ * rounding); only the rendered step gates the emit, so a full 0→100 costs at
+ * most ~101 stage emissions — or ~1 per megabyte when there is no percentage.
+ */
+export function throttleModelProgress(emit: OnEmbedProgress): OnEmbedProgress {
+	let lastStep: string | undefined;
 	return (progress) => {
-		const rounded = Math.round(progress.pct);
-		if (rounded === lastRounded) {
+		const step = renderedStep(progress);
+		if (step === lastStep) {
 			return;
 		}
-		lastRounded = rounded;
+		lastStep = step;
 		emit(progress);
 	};
 }
@@ -885,13 +900,13 @@ export class EngineRuntime {
 		onStage({ kind: "verified", version: this.#version });
 
 		onStage({ kind: "loading-model" });
-		// Re-fire the stage with each download tick so the banner shows a percent,
-		// but throttled to a CHANGED rounded percent. transformers.js fires many
-		// ticks for the ~23 MB download; without this every tick would re-render
-		// the banner. Deduping on Math.round(pct) caps emissions at ~100. The
-		// precise pct is preserved on the stage; only the rounded value gates the
-		// emit, matching the banner's own Math.round(pct) render.
-		const onModelProgress = throttleByRoundedPct((progress) =>
+		// Re-fire the stage with each download tick so the banner shows a percent
+		// instead of freezing for the whole ~23 MB model download — but throttled
+		// to a CHANGED rendered value. The transport meter emits per network
+		// chunk; without this every chunk would re-render the banner. The precise
+		// progress is preserved on the stage; only the rendered step gates the
+		// emit, matching what the banner draws.
+		const onModelProgress = throttleModelProgress((progress) =>
 			onStage({ kind: "loading-model", progress }),
 		);
 		const embedder = this.#embedder ?? this.#deps.makeEmbedder(onModelProgress);

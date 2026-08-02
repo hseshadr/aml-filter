@@ -264,6 +264,22 @@ describe("EngineStatusStrip (rendered inside WorkstationGate once ready)", () =>
 			});
 			expect(label.textContent).toMatch(/43%/);
 		});
+
+		// loading-model with bytes but NO total → megabytes, never a made-up %
+		act(() =>
+			fireStage()({
+				kind: "loading-model",
+				progress: { loaded: 5_242_880 } as never,
+			}),
+		);
+		await waitFor(() => {
+			const label = screen.getByRole("status", {
+				name: (_, el) =>
+					(el?.textContent ?? "").includes("loading the name-matching model"),
+			});
+			expect(label.textContent).toMatch(/5\.0 MB/);
+			expect(label.textContent).not.toMatch(/%/);
+		});
 	});
 
 	it("hides the strip once the ready stage fires", async () => {

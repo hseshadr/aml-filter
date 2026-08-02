@@ -29,6 +29,7 @@
 		"verified": "List verified.",
 		"loadingModel": "Loading the name-matching model (~23 MB, once)…",
 		"loadingModelProgress": "{{label}} {{pct}}%",
+		"loadingModelBytes": "{{label}} {{mb}} MB",
 		"ready": "Ready.",
 		"retry": "Retry"
 	},

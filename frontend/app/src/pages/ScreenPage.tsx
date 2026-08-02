@@ -454,15 +454,36 @@ function BootBanner({
 	);
 }
 
-// The banner line for a stage. Production model loading is indeterminate because
-// transformers.js 4.2.0's progress callback duplicates the ONNX fetch; injected
-// runtimes can still supply a percentage through the same stage contract.
+/** The model-load progress the engine reports, read off the stage contract so
+ * this page does not widen the package's export surface. */
+type ModelProgress = NonNullable<
+	Extract<BootStage, { kind: "loading-model" }>["progress"]
+>;
+
+const BYTES_PER_MB = 1024 * 1024;
+
+/**
+ * The model line. A percentage whenever the download has an honest denominator;
+ * otherwise megabytes loaded — a server that withholds `content-length` gives no
+ * total, and a fabricated one is worse than none. Either way the line MOVES:
+ * this ~23 MB download used to be the only frozen phase of the cold boot.
+ */
+function modelMessage(progress: ModelProgress, t: TFunction): string {
+	const label = t("boot.loadingModel");
+	if (progress.pct === undefined) {
+		const mb = (progress.loaded / BYTES_PER_MB).toFixed(1);
+		return t("boot.loadingModelBytes", { label, mb });
+	}
+	return t("boot.loadingModelProgress", {
+		label,
+		pct: Math.round(progress.pct),
+	});
+}
+
+// The banner line for a stage.
 function stageMessage(stage: BootStage, t: TFunction): string {
 	if (stage.kind === "loading-model" && stage.progress !== undefined) {
-		return t("boot.loadingModelProgress", {
-			label: t("boot.loadingModel"),
-			pct: Math.round(stage.progress.pct),
-		});
+		return modelMessage(stage.progress, t);
 	}
 	// Show the cold-sync chunk count so the long download reads as making
 	// progress (n/total) instead of a frozen "Downloading…" line.

@@ -14,7 +14,7 @@ import {
 	parseTimeoutMs,
 	type RuntimeConfig,
 	type RuntimeDeps,
-	throttleByRoundedPct,
+	throttleModelProgress,
 	withTimeout,
 } from "./runtime";
 import { VectorIndex } from "./vectorIndex";
@@ -846,14 +846,14 @@ describe("compositeVersion", () => {
 	});
 });
 
-describe("throttleByRoundedPct", () => {
+describe("throttleModelProgress", () => {
 	function progress(pct: number): EmbedProgress {
 		return { loaded: pct, total: 100, pct };
 	}
 
 	it("emits once for repeated ticks at the same rounded percent", () => {
 		const emit = vi.fn();
-		const throttled = throttleByRoundedPct(emit);
+		const throttled = throttleModelProgress(emit);
 		// Four sub-percent ticks that all round to 42 → exactly one emit.
 		throttled(progress(42.0));
 		throttled(progress(42.1));
@@ -864,7 +864,7 @@ describe("throttleByRoundedPct", () => {
 
 	it("emits again when the rounded percent changes, forwarding precise pct", () => {
 		const emit = vi.fn();
-		const throttled = throttleByRoundedPct(emit);
+		const throttled = throttleModelProgress(emit);
 		throttled(progress(42.2));
 		throttled(progress(43.1)); // rounds to 43 → a new emit
 		expect(emit).toHaveBeenCalledTimes(2);
@@ -874,12 +874,27 @@ describe("throttleByRoundedPct", () => {
 
 	it("caps emissions at ~101 over a full 0→100 sub-percent stream", () => {
 		const emit = vi.fn();
-		const throttled = throttleByRoundedPct(emit);
+		const throttled = throttleModelProgress(emit);
 		// 1000 ticks evenly from 0 to 100 → at most 101 distinct rounded values.
 		for (let i = 0; i <= 1000; i += 1) {
 			throttled(progress((i / 1000) * 100));
 		}
 		expect(emit.mock.calls.length).toBeLessThanOrEqual(101);
+	});
+
+	it("throttles by whole MiB when the server withheld a total", () => {
+		// No content-length ⇒ no honest percent, so the banner shows megabytes and
+		// the gate must step on those instead. Rounding an undefined pct yields
+		// NaN, which never equals itself — every chunk would re-render the banner.
+		const emit = vi.fn();
+		const throttled = throttleModelProgress(emit);
+		const mib = 1024 * 1024;
+		for (let chunk = 1; chunk <= 64; chunk += 1) {
+			throttled({ loaded: chunk * (mib / 16) });
+		}
+		// 64 chunks of 64 KiB reach exactly 4 MiB, crossing the 0/1/2/3/4 MiB
+		// marks → 5 emits, not one per chunk.
+		expect(emit).toHaveBeenCalledTimes(5);
 	});
 });
 
