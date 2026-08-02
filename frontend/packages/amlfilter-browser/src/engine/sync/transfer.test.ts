@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { toErrorResponse } from "./errorEnvelope";
 import type { EngineResponse } from "./protocol";
 import { transferables } from "./transfer";
 
@@ -35,6 +36,6 @@ describe("transferables", () => {
 	});
 
 	it("transfers nothing for an error reply", () => {
-		expect(transferables({ ok: false, id: 4, error: "boom" })).toEqual([]);
+		expect(transferables(toErrorResponse(4, new Error("boom")))).toEqual([]);
 	});
 });

@@ -10,6 +10,9 @@ export interface SyncRequest {
 	readonly id: number;
 	readonly baseUrl: string;
 	readonly pubkeyUrl: string;
+	/** Restrict the sync to part of the bundle (see `syncIndex`'s `wantedPaths`).
+	 * Omitted = the whole bundle, so an old caller behaves exactly as before. */
+	readonly wantedPaths?: ReadonlyArray<string>;
 }
 
 /** Materialize a synced file's bytes from the active manifest. */
@@ -47,10 +50,18 @@ interface ClearOk {
 	readonly kind: "clear";
 }
 
-interface EngineErr {
+/**
+ * A failed request. `errorName` carries the thrown value's `.name` as DATA —
+ * structured clone drops prototypes, so this is the only thing that survives the
+ * boundary to tell a fail-closed `SignatureError` apart from an unknown failure.
+ * Build it with `toErrorResponse` and consume it with `fromErrorResponse`
+ * (errorEnvelope.ts) rather than by hand.
+ */
+export interface EngineErr {
 	readonly ok: false;
 	readonly id: number;
 	readonly error: string;
+	readonly errorName: string;
 }
 
 export type EngineResponse = SyncOk | ReadFileOk | ClearOk | EngineErr;

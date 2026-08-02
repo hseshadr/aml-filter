@@ -97,13 +97,16 @@ function memoryClient(): {
 	let manifest: IndexManifest | null = null;
 	const paths: string[] = [];
 	const client: BundleEngineClient = {
-		async sync(baseUrl, _pubkeyUrl) {
+		async sync(baseUrl, _pubkeyUrl, _onProgress, wantedPaths) {
 			const result = await syncIndex({
 				baseUrl,
 				store,
 				fetchBytes,
 				verify: (message, signature) =>
 					verifyEd25519(PUBKEY, message, signature),
+				// Honour the scope exactly as worker.ts does. A stand-in that dropped
+				// this would make every scoping test in this package vacuous.
+				wantedPaths,
 			});
 			manifest = JSON.parse(
 				DECODER.decode(await store.getManifest(result.manifestHash)),

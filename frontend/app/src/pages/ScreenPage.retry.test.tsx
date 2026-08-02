@@ -22,7 +22,9 @@ vi.mock("@amlfilter/browser", () => {
 			bootCalls.count += 1;
 			if (!bootCalls.retryRequested) {
 				return Promise.reject(
-					new Error("loading the name-matching model timed out after 120000ms"),
+					new Error(
+						"loading the name-matching model timed out after 90000ms with no progress",
+					),
 				);
 			}
 			return Promise.resolve();

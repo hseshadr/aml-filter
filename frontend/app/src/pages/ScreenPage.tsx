@@ -21,6 +21,7 @@ import { formatBytes } from "../lib/formatBytes";
 import {
 	bootErrorMessage,
 	deviceUnsupportedMessage,
+	type UserFacingBootError,
 	userFacingBootError,
 } from "./bootErrorMessage";
 import { DossierCard, dossierFromMatch } from "./DossierCard";
@@ -45,7 +46,23 @@ import {
 type Phase =
 	| { readonly kind: "booting"; readonly stage: BootStage }
 	| { readonly kind: "ready" }
-	| { readonly kind: "error"; readonly message: string }
+	| {
+			readonly kind: "error";
+			readonly message: string;
+			/**
+			 * Classified WHERE THE ERROR STILL IS AN ERROR.
+			 *
+			 * This used to hold only `message`, and the banner re-derived the copy by
+			 * calling `userFacingBootError(phase.message)` on that STRING. Every
+			 * `.name`-based branch in the registry is unreachable from a string, so
+			 * every boot failure rendered the `internal.unknown` fallback — "Local
+			 * screening engine unavailable — Close another AML-Filter tab" — no
+			 * matter what actually went wrong. It is the same defect as the Worker
+			 * boundary dropping the prototype, one layer further in: React state is
+			 * another place a typed error gets flattened.
+			 */
+			readonly detail: UserFacingBootError;
+	  }
 	// A device/browser that can't run the local engine at all (older iOS Safari /
 	// locked-down WebView missing OPFS, module Workers, or sync file access). A
 	// graceful dead-end detected BEFORE bootstrap — no Retry, since retrying can't
@@ -204,6 +221,7 @@ export function ScreenPage() {
 				setPhase({
 					kind: "error",
 					message: bootErrorMessage(error),
+					detail: userFacingBootError(error),
 				});
 			});
 	}, [runtime, bootNonce, support.supported]);
@@ -423,7 +441,13 @@ function BootBanner({
 		);
 	}
 	if (phase.kind === "error") {
-		const safeError = userFacingBootError(phase.message);
+		// The CLASSIFIED title + recovery (from the live error object), with the
+		// app's ONE "Could not load the screening bundle: <cause>" wrapper kept as
+		// the technical detail. Both are contracts: bootErrorMessage.ts states the
+		// wrapper is the single user-facing framing for a load failure, and
+		// screen-cold-blocked.spec.ts asserts that substring. Classifying early
+		// fixed the title; it must not cost the wrapper.
+		const safeError = { ...phase.detail, technicalDetail: phase.message };
 		return (
 			<div
 				className="screen-banner screen-banner--error"
@@ -503,7 +527,8 @@ function stageMessage(stage: BootStage, t: TFunction): string {
 	if (stage.kind === "loading-model" && stage.progress !== undefined) {
 		return modelMessage(stage.progress, t);
 	}
-	// The cold sync is ~1,296 chunks / ~48 MB. Report BOTH how far along it is
+	// The cold sync on /screen is ~769 chunks / ~28 MB (OFAC SDN only; the full
+	// four-list bundle is 1,296 / ~46.7 MB). Report BOTH how far along it is
 	// and how much has actually arrived: the percentage comes from exact chunk
 	// counts, and the megabytes are bytes genuinely transferred — neither is an
 	// extrapolated guess at a total we don't know yet.

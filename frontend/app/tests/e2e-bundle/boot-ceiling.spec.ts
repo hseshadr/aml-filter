@@ -31,8 +31,17 @@ import { expect, type Route, test } from "@playwright/test";
 
 /** Set by playwright.bundle.config.ts; see the comment there for why it differs
  * from the 900s production value, which unit tests pin instead. */
-const BOOT_CEILING_MS = 200_000;
-const TICK_MS = 20_000;
+const BOOT_CEILING_MS = 75_000;
+/** Must stay UNDER the 30s no-progress watchdog, and must divide the ceiling
+ * exactly so `firedAtMs` can assert the ceiling fired at the ceiling. */
+const TICK_MS = 25_000;
+/**
+ * Chunks the scoped /screen cold boot requests: `catalog.json` in phase one,
+ * then ofac/{entities.jsonl,meta.json,vectors.f32} in phase two. One is
+ * deliberately never released, so the sync stays permanently in-flight and the
+ * boot cannot complete out from under the ceiling.
+ */
+const SCOPED_COLD_BOOT_CHUNKS = 4;
 
 test("a slow-but-moving sync is still bounded by the boot ceiling", async ({
 	page,
@@ -62,9 +71,14 @@ test("a slow-but-moving sync is still bounded by the boot ceiling", async ({
 	// One tick past the ceiling is all this may take; anything more would mean
 	// the ceiling did not bind.
 	const maxTicks = Math.ceil(BOOT_CEILING_MS / TICK_MS) + 1;
+	// Never release the last one: a completed sync would let the boot move on to
+	// the model load, and the ceiling would be measuring the wrong thing.
+	const releasable = SCOPED_COLD_BOOT_CHUNKS - 1;
 	for (let tick = 0; tick < maxTicks; tick += 1) {
 		// Proof of life: one more verified chunk lands, re-arming the 30s watchdog.
-		held.shift()?.();
+		if (released < releasable) {
+			held.shift()?.();
+		}
 		await new Promise((resolve) => setTimeout(resolve, 700));
 		await page.clock.runFor(TICK_MS);
 		elapsedMs += TICK_MS;
@@ -85,6 +99,8 @@ test("a slow-but-moving sync is still bounded by the boot ceiling", async ({
 	// The sync really was progressing the whole time — the watchdog had a live
 	// reason to stay re-armed rather than simply never having been wired up.
 	expect(released).toBeGreaterThanOrEqual(BOOT_CEILING_MS / TICK_MS - 1);
+	// ...and the sync genuinely never finished, so the ceiling is what bound it.
+	expect(released).toBeLessThan(SCOPED_COLD_BOOT_CHUNKS);
 	// A bounded boot is a handled failure, not a crash.
 	expect(pageErrors).toEqual([]);
 });

@@ -5,6 +5,7 @@
 /// <reference lib="webworker" />
 
 import { verifyEd25519 } from "../crypto";
+import { toErrorResponse } from "./errorEnvelope";
 import { fetchBytes } from "./fetchBytes";
 import {
 	type WebLockManager,
@@ -54,6 +55,10 @@ async function handleSync(req: SyncRequest): Promise<EngineResponse> {
 		const pubkey = await loadPubkey(req.pubkeyUrl);
 		const result = await syncIndex({
 			baseUrl: req.baseUrl,
+			// Scope the sync to the selected lists. Narrows WHAT is fetched only —
+			// signature, content-address, anti-rollback and the reused-chunk
+			// verification all still run over exactly what this sync claims.
+			wantedPaths: req.wantedPaths,
 			store: cacheStore,
 			fetchBytes,
 			verify: (message, signature) => verifyEd25519(pubkey, message, signature),
@@ -127,12 +132,9 @@ self.addEventListener("message", (event: MessageEvent<EngineRequest>) => {
 			self.postMessage(response, transferables(response));
 		})
 		.catch((error: unknown) => {
-			const message = error instanceof Error ? error.message : String(error);
-			const response: EngineResponse = {
-				ok: false,
-				id: req.id,
-				error: message,
-			};
-			self.postMessage(response);
+			// Carry the error's TYPE, not just its text: postMessage structured-clones
+			// the payload and drops prototypes, so `.name` has to travel as data or
+			// every type-based branch on the main thread is dead. See errorEnvelope.ts.
+			self.postMessage(toErrorResponse(req.id, error));
 		});
 });

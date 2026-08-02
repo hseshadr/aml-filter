@@ -10,6 +10,7 @@
 /// <reference lib="webworker" />
 
 import { createEmbedder, type Embedder, type EmbedProgress } from "./embedder";
+import { type ErrorPayload, errorPayload } from "./sync/errorEnvelope";
 
 /** A request to embed one query string, correlated by id. */
 export interface EmbedRequest {
@@ -26,12 +27,14 @@ export type EmbedResponse =
 			readonly id: number;
 			readonly vector: Float32Array;
 	  }
-	| {
+	| ({
 			readonly type: "result";
 			readonly ok: false;
 			readonly id: number;
-			readonly error: string;
-	  };
+			// `errorName` carries the thrown value's TYPE across structured clone —
+			// without it a model-load failure reaches the UI indistinguishable from
+			// any other Error. See sync/errorEnvelope.ts.
+	  } & ErrorPayload);
 
 /** A one-way model-download progress notification (no request/response pairing);
  * `type: "progress"` discriminates it from {@link EmbedResponse} at the client. */
@@ -84,12 +87,11 @@ self.addEventListener("message", (event: MessageEvent<EmbedRequest>) => {
 			self.postMessage(response, [vector.buffer]);
 		})
 		.catch((error: unknown) => {
-			const message = error instanceof Error ? error.message : String(error);
 			const response: EmbedResponse = {
 				type: "result",
 				ok: false,
 				id: req.id,
-				error: message,
+				...errorPayload(error),
 			};
 			self.postMessage(response);
 		});

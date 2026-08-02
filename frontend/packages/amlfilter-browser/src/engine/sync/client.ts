@@ -2,23 +2,24 @@
 // OPFS sync access handles, so it only sends typed requests and awaits replies.
 // One in-flight map keyed by request id correlates responses to promises.
 
+import { type IdleTimer, startIdleTimer } from "../idleTimeout";
+import { fromErrorResponse } from "./errorEnvelope";
 import type { EngineOutbound, EngineRequest, EngineResponse } from "./protocol";
 import type { OnSyncProgress, SyncResult } from "./types";
 
 interface Pending {
 	readonly resolve: (response: EngineResponse) => void;
 	readonly reject: (error: Error) => void;
-	timer: ReturnType<typeof setTimeout>;
-	/** Re-arm the stall timer; called on every proof-of-life from the Worker. */
-	readonly rearm: () => void;
+	/** The silence bound. `tick()` on every proof-of-life from the Worker. */
+	readonly timer: IdleTimer;
 }
 
 /**
  * The maximum time a Worker request may remain SILENT.
  *
- * This bounds a wedged Worker, not a slow one. The whole cold sync (~1,296
- * chunks / ~48 MB on the production bundle) runs inside a single `sync`
- * request, so treating this as a cap on total duration would terminate a
+ * This bounds a wedged Worker, not a slow one. The whole cold sync (~769 chunks
+ * / ~28 MB for /screen's default selection, 1,296 / ~46.7 MB for all four
+ * lists) runs inside a single `sync` request, so treating this as a cap on total duration would terminate a
  * perfectly healthy download on any connection slower than roughly 15 Mbps —
  * the visitor sees a Retry banner for what is really just a slow link. Each
  * `sync-progress` tick re-arms the timer, so the budget applies to the gap
@@ -82,11 +83,13 @@ export class EngineClient {
 
 	/** Sync the signed bundle at `baseUrl`, pinning the raw pubkey at `pubkeyUrl`.
 	 * `onProgress`, when given, receives one tick per fetched chunk (the long
-	 * cold-sync phase) via the Worker's one-way `sync-progress` channel. */
+	 * cold-sync phase) via the Worker's one-way `sync-progress` channel.
+	 * `wantedPaths`, when given, restricts the sync to part of the bundle. */
 	public async sync(
 		baseUrl: string,
 		pubkeyUrl: string,
 		onProgress?: OnSyncProgress,
+		wantedPaths?: ReadonlyArray<string>,
 	): Promise<SyncResult> {
 		const id = this.#allocId();
 		if (onProgress !== undefined) {
@@ -98,11 +101,16 @@ export class EngineClient {
 				id,
 				baseUrl,
 				pubkeyUrl,
+				// Omitted rather than set to undefined: the protocol distinguishes
+				// "no scope" (sync everything) from a scope, and under
+				// exactOptionalPropertyTypes an explicit undefined is not the same
+				// thing as an absent key.
+				...(wantedPaths === undefined ? {} : { wantedPaths }),
 			});
 			if (response.ok && response.kind === "sync") {
 				return response.result;
 			}
-			throw new Error(this.#errorOf(response));
+			throw this.#rejectionFor(response);
 		} finally {
 			this.#progress.delete(id);
 		}
@@ -118,14 +126,14 @@ export class EngineClient {
 		if (response.ok && response.kind === "readFile") {
 			return response.bytes;
 		}
-		throw new Error(this.#errorOf(response));
+		throw this.#rejectionFor(response);
 	}
 
 	/** Drop the durable store (every chunk + manifest + the active pointer). */
 	public async clear(): Promise<void> {
 		const response = await this.#send({ kind: "clear", id: this.#allocId() });
 		if (!(response.ok && response.kind === "clear")) {
-			throw new Error(this.#errorOf(response));
+			throw this.#rejectionFor(response);
 		}
 	}
 
@@ -138,8 +146,13 @@ export class EngineClient {
 		return this.#nextId;
 	}
 
-	#errorOf(response: EngineResponse): string {
-		return response.ok ? "unexpected response kind" : response.error;
+	/** The rejection for a non-success reply, with the Worker's error TYPE intact.
+	 * A plain `new Error(response.error)` here would discard `.name` and leave
+	 * every downstream type-based branch unreachable in production. */
+	#rejectionFor(response: EngineResponse): Error {
+		return response.ok
+			? new Error("unexpected response kind")
+			: fromErrorResponse(response);
 	}
 
 	#send(request: EngineRequest): Promise<EngineResponse> {
@@ -157,18 +170,14 @@ export class EngineClient {
 			const pending: Pending = {
 				resolve,
 				reject,
-				timer: setTimeout(expire, this.#timeoutMs),
-				rearm: () => {
-					clearTimeout(pending.timer);
-					pending.timer = setTimeout(expire, this.#timeoutMs);
-				},
+				timer: startIdleTimer(this.#timeoutMs, expire),
 			};
 			this.#pending.set(request.id, pending);
 			try {
 				this.#worker.postMessage(request);
 			} catch (error) {
 				this.#pending.delete(request.id);
-				clearTimeout(pending.timer);
+				pending.timer.cancel();
 				reject(error instanceof Error ? error : new Error(String(error)));
 			}
 		});
@@ -180,7 +189,7 @@ export class EngineClient {
 		// life, though, so it re-arms the stall timer: a slow-but-moving cold sync
 		// must never be terminated for taking longer than one timeout window.
 		if ("kind" in message && message.kind === "sync-progress") {
-			this.#pending.get(message.id)?.rearm();
+			this.#pending.get(message.id)?.timer.tick();
 			this.#progress.get(message.id)?.(message.progress);
 			return;
 		}
@@ -189,7 +198,7 @@ export class EngineClient {
 			return;
 		}
 		this.#pending.delete(message.id);
-		clearTimeout(pending.timer);
+		pending.timer.cancel();
 		pending.resolve(message);
 	}
 
@@ -199,7 +208,7 @@ export class EngineClient {
 		}
 		this.#closed = error;
 		for (const pending of this.#pending.values()) {
-			clearTimeout(pending.timer);
+			pending.timer.cancel();
 			pending.reject(error);
 		}
 		this.#pending.clear();

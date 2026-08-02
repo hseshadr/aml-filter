@@ -27,9 +27,10 @@ import { expect, type Page, test } from "@playwright/test";
  *       mirror both blocked, the boot FAILS LOUDLY: a role="alert" banner with a
  *       working Retry button appears within a bounded time, instead of hanging
  *       forever. This is the direct regression guard for the original boot hang.
- *       The bound is enforced by VITE_MODEL_LOAD_TIMEOUT_MS (set in
- *       playwright.c1.config.ts) so the warmup rejects at the 120s ceiling
- *       instead of hanging forever.
+ *       The bound is enforced by VITE_MODEL_LOAD_IDLE_TIMEOUT_MS (set in
+ *       playwright.c1.config.ts). It is a SILENCE bound, not a wall clock: with
+ *       every weight source blocked nothing ever reports progress, so the window
+ *       expires once and the boot rejects instead of hanging forever.
  *
  *   (c) progress percent — intentionally absent. transformers.js 4.2.0's progress
  *       callback duplicates the ONNX request and can fail Chromium's HTTP cache.
@@ -37,30 +38,35 @@ import { expect, type Page, test } from "@playwright/test";
  */
 
 /**
- * Both bounds below are derived from the warmup ceiling the c1 config pins via
- * `VITE_MODEL_LOAD_TIMEOUT_MS=120000` (see playwright.c1.config.ts). Keeping them
- * tethered to that one number means a model-load regression fails within the
- * ceiling and the two values can't silently drift from the config. (120s is the
- * production ceiling — chosen so the WARM specs survive a slow CI cold compile;
- * the blocked path here still rejects loudly, just bounded by 120s.)
+ * Both bounds below are derived from the warmup window the c1 config pins via
+ * `VITE_MODEL_LOAD_IDLE_TIMEOUT_MS=120000` (see playwright.c1.config.ts).
+ * Keeping them tethered to that one number means a model-load regression fails
+ * within the window and the two values can't silently drift from the config.
+ *
+ * NOTE the semantics changed in 2026-08: this is the longest the warmup may stay
+ * SILENT, not the longest it may take. Production uses 90s. That is why scenario
+ * (a) below is no longer really a ceiling on a healthy load — a healthy load
+ * that keeps reporting progress is allowed to run as long as it needs, which is
+ * the entire point of the change. The generous value here still serves as a
+ * "something is badly wrong" backstop for CI.
  */
-const MODEL_LOAD_TIMEOUT_MS = 120_000;
+const MODEL_LOAD_IDLE_TIMEOUT_MS = 120_000;
 
 /**
- * Scenario (a) ready bound: the warmup is capped at MODEL_LOAD_TIMEOUT_MS, so a
- * healthy self-host load must enable the box within that ceiling plus modest
- * sync/headroom (135s = 120s + 15s). A self-host load that can't finish inside
- * the production ceiling is a regression.
+ * Scenario (a) ready bound: a healthy self-host load on CI hardware should
+ * comfortably enable the box inside one idle window plus sync headroom. This is
+ * a test-harness patience limit, NOT a claim that the app kills a slower load —
+ * it does not, by design.
  */
-const READY_TIMEOUT_MS = MODEL_LOAD_TIMEOUT_MS + 15_000;
+const READY_TIMEOUT_MS = MODEL_LOAD_IDLE_TIMEOUT_MS + 15_000;
 
 /**
- * Scenario (b) failure bound: with all weight sources blocked the warmup must
- * REJECT at the same MODEL_LOAD_TIMEOUT_MS ceiling (135s with headroom). This
- * proves "fails loudly within the bound", not merely "doesn't hang forever", and
- * tracks the config value if it changes.
+ * Scenario (b) failure bound: with all weight sources blocked NOTHING reports
+ * progress, so the idle window expires exactly once and the warmup must REJECT
+ * within it (135s with headroom). This proves "fails loudly within the bound",
+ * not merely "doesn't hang forever", and tracks the config value if it changes.
  */
-const FAILURE_TIMEOUT_MS = MODEL_LOAD_TIMEOUT_MS + 15_000;
+const FAILURE_TIMEOUT_MS = MODEL_LOAD_IDLE_TIMEOUT_MS + 15_000;
 
 const RESULT_TIMEOUT_MS = 30_000;
 
@@ -190,7 +196,8 @@ test("everything blocked → the boot fails loudly with a working Retry, not a s
 	collectErrors(page);
 
 	// Block BOTH the CDNs and the same-origin /models/ mirror: the model can load
-	// from nowhere, so the warmup must reject (bounded by VITE_MODEL_LOAD_TIMEOUT_MS).
+	// from nowhere, so the warmup must reject (bounded by
+	// VITE_MODEL_LOAD_IDLE_TIMEOUT_MS — no progress ever arrives, so it expires).
 	for (const glob of [...CDN_GLOBS, "**/models/**"]) {
 		await page.route(glob, (route) => route.abort());
 	}

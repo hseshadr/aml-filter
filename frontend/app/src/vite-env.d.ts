@@ -12,7 +12,7 @@ interface ImportMetaEnv {
 	readonly VITE_BUNDLE_BASE_URL?: string;
 	/** Bounds the in-tab ~23 MB model warmup (ms); fail-closed to the 120s
 	 * production ceiling when absent/invalid. Set by the e2e webServers. */
-	readonly VITE_MODEL_LOAD_TIMEOUT_MS?: string;
+	readonly VITE_MODEL_LOAD_IDLE_TIMEOUT_MS?: string;
 	/** Upper bound (ms) for the WHOLE bootstrap (bundle sync + verify + model
 	 * warmup) before `/screen` fails loudly; fail-closed to the production
 	 * `BOOT_TIMEOUT_MS` (180s) default when absent/invalid. Exists only so the
