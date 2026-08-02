@@ -316,7 +316,12 @@ export function ScreenPage() {
 				// page can state it. Failing to read it is NOT fatal to screening —
 				// but it must show as "age unknown", never as silence next to
 				// "List verified."
-				setScreenedList(await readScreenedList(runtime));
+				const list = await readScreenedList(runtime);
+				// Re-check: the await above is a second chance to unmount, and this
+				// runs after the page is already interactive.
+				if (alive.current) {
+					setScreenedList(list);
+				}
 			})
 			.catch((error: unknown) => {
 				if (!alive.current) {
