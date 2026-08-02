@@ -110,11 +110,13 @@ export const BOOT_TIMEOUT_MS = 900_000;
 /**
  * The slowest HEALTHY cold download the boot ceiling must never cut short.
  *
- * The production bundle is ~47 MB fetched as ~1,296 content-addressed chunks,
- * eight at a time. On Chrome's "Fast 3G" profile that is ~1.6 Mbit/s of
- * throughput plus ~560 ms of round trip on every one of those requests, and a
- * complete, entirely healthy download of it was measured at ~535 s on
- * 2026-08-01. Nothing is wrong on that connection — it is a phone on a bad
+ * The full four-list production bundle is ~46.7 MB fetched as 1,296
+ * content-addressed chunks, eight at a time. On Chrome's "Fast 3G" profile that
+ * is ~1.6 Mbit/s of throughput plus ~560 ms of round trip on every one of those
+ * requests, and a complete, entirely healthy download of it was measured at
+ * ~535 s on 2026-08-01. /screen's default OFAC-only selection now fetches ~769
+ * of those chunks, so this figure is the WORST case (a visitor who has enabled
+ * every list) — which is exactly what a backstop should be sized against. Nothing is wrong on that connection — it is a phone on a bad
  * train. {@link BOOT_TIMEOUT_MS} has to sit above this with room to spare, or
  * the first visitors it ever fires on are the ones it was never meant to catch.
  */

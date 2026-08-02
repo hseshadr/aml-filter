@@ -503,7 +503,8 @@ function stageMessage(stage: BootStage, t: TFunction): string {
 	if (stage.kind === "loading-model" && stage.progress !== undefined) {
 		return modelMessage(stage.progress, t);
 	}
-	// The cold sync is ~1,296 chunks / ~48 MB. Report BOTH how far along it is
+	// The cold sync on /screen is ~769 chunks / ~28 MB (OFAC SDN only; the full
+	// four-list bundle is 1,296 / ~46.7 MB). Report BOTH how far along it is
 	// and how much has actually arrived: the percentage comes from exact chunk
 	// counts, and the megabytes are bytes genuinely transferred — neither is an
 	// extrapolated guess at a total we don't know yet.

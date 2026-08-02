@@ -17,9 +17,9 @@ interface Pending {
 /**
  * The maximum time a Worker request may remain SILENT.
  *
- * This bounds a wedged Worker, not a slow one. The whole cold sync (~1,296
- * chunks / ~48 MB on the production bundle) runs inside a single `sync`
- * request, so treating this as a cap on total duration would terminate a
+ * This bounds a wedged Worker, not a slow one. The whole cold sync (~769 chunks
+ * / ~28 MB for /screen's default selection, 1,296 / ~46.7 MB for all four
+ * lists) runs inside a single `sync` request, so treating this as a cap on total duration would terminate a
  * perfectly healthy download on any connection slower than roughly 15 Mbps —
  * the visitor sees a Retry banner for what is really just a slow link. Each
  * `sync-progress` tick re-arms the timer, so the budget applies to the gap

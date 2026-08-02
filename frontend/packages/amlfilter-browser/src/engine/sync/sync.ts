@@ -64,8 +64,8 @@ const MAX_CONCURRENT_CHUNK_FETCHES = 8;
 /**
  * Per-chunk retry budget for the cold sync.
  *
- * A cold sync of the production bundle is ~1,296 independent chunk requests
- * fanned out 8 at a time. With a single attempt each, ONE transient failure
+ * A cold sync of the full production bundle is 1,296 independent chunk requests
+ * fanned out 8 at a time (~769 for /screen's default OFAC-only selection). With a single attempt each, ONE transient failure
  * anywhere in that fan aborts the entire sync and shows a first-time visitor a
  * Retry banner — at a 0.1% per-request failure rate that is a ~73% chance of a
  * failed first boot. Retrying with exponential backoff turns a blip into a
