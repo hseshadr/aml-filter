@@ -761,3 +761,137 @@ describe("syncIndex offline fallback to the cached active version", () => {
 		);
 	});
 });
+
+/**
+ * A production cold sync is ~1,296 independent chunk requests. `Promise.all`
+ * over a single-attempt fetch means ONE transient failure anywhere in that fan
+ * kills the whole sync and puts a Retry banner in front of a first-time visitor.
+ * At a 0.1% per-request failure rate that is a ~73% chance of failing the boot.
+ *
+ * So a transient NetworkError on a chunk must be absorbed by a bounded retry.
+ * The fail-closed boundary is unchanged: only NetworkError is retried. An
+ * IntegrityError means the bytes did not match the content address, and
+ * re-requesting the same address is pointless at best and a tamper-loop at
+ * worst — it must propagate on the first occurrence.
+ */
+describe("syncIndex transient chunk-fetch resilience", () => {
+	/**
+	 * Make the Nth DISTINCT chunk (by first-seen order) fail its first `times`
+	 * attempts with a NetworkError, then serve it normally. The first-seen index
+	 * is recorded once per hash so it stays stable across that chunk's retries.
+	 */
+	function flakyChunks(
+		bundle: { readonly fetchBytes: FetchBytes },
+		failuresByChunkOrder: ReadonlyMap<number, number>,
+	): { fetchBytes: FetchBytes; attempts: Map<string, number> } {
+		const attempts = new Map<string, number>();
+		const orderOf = new Map<string, number>();
+		const fetchBytes: FetchBytes = (url, options) => {
+			if (!url.includes("/chunk/")) {
+				return bundle.fetchBytes(url, options);
+			}
+			const hash = url.split("/").at(-1) ?? url;
+			if (!orderOf.has(hash)) {
+				orderOf.set(hash, orderOf.size + 1);
+			}
+			const seen = (attempts.get(hash) ?? 0) + 1;
+			attempts.set(hash, seen);
+			const failTimes = failuresByChunkOrder.get(orderOf.get(hash) ?? 0) ?? 0;
+			if (seen <= failTimes) {
+				return Promise.reject(new NetworkError(`transient blip: ${url}`));
+			}
+			return bundle.fetchBytes(url, options);
+		};
+		return { fetchBytes, attempts };
+	}
+
+	const noSleep = () => Promise.resolve();
+
+	it("absorbs a transient NetworkError on a chunk and still completes", async () => {
+		const bundle = await syntheticBundle(20);
+		const store = new RecordingCacheStore();
+		// The 3rd distinct chunk fails twice before succeeding.
+		const { fetchBytes, attempts } = flakyChunks(
+			bundle,
+			new Map([[3, 2]]),
+		);
+
+		const result = await syncIndex({
+			baseUrl: "/o",
+			store,
+			fetchBytes,
+			verify: passVerify,
+			sleep: noSleep,
+		});
+
+		expect(result.version).toBeDefined();
+		// Proof the retry actually happened rather than the failure being skipped.
+		expect(Math.max(...attempts.values())).toBeGreaterThanOrEqual(3);
+		// Every chunk still landed in the store.
+		expect(store.verifiedChunks.size).toBe(bundle.chunkHashes.length);
+	});
+
+	it("still fails closed when a chunk fails every attempt", async () => {
+		const bundle = await syntheticBundle(20);
+		const store = new RecordingCacheStore();
+		const { fetchBytes } = flakyChunks(
+			bundle,
+			new Map([[2, Number.MAX_SAFE_INTEGER]]),
+		);
+
+		await expect(
+			syncIndex({
+				baseUrl: "/o",
+				store,
+				fetchBytes,
+				verify: passVerify,
+				sleep: noSleep,
+			}),
+		).rejects.toBeInstanceOf(NetworkError);
+		// Nothing was promoted: a partial download must not become the active set.
+		expect(await store.readActive()).toBeNull();
+	});
+
+	/**
+	 * The classifier is the whole security surface of this retry, so it is tested
+	 * directly: the transport itself raises a NON-network failure. A retry loop
+	 * that re-requests an immutable content address after an integrity verdict is
+	 * a tamper-retry oracle — it must give up on the first occurrence.
+	 *
+	 * Testing this through a store-layer integrity failure would prove nothing:
+	 * the store verify runs OUTSIDE the retry loop, so such a test passes even if
+	 * the classifier is mutated to retry everything. Ask me how I know.
+	 */
+	it("does NOT retry a non-network chunk failure (integrity verdict)", async () => {
+		const bundle = await syntheticBundle(20);
+		const store = new RecordingCacheStore();
+		const attempts = new Map<string, number>();
+		let poisoned: string | undefined;
+		const fetchBytes: FetchBytes = (url, options) => {
+			if (!url.includes("/chunk/")) {
+				return bundle.fetchBytes(url, options);
+			}
+			const hash = url.split("/").at(-1) ?? url;
+			attempts.set(hash, (attempts.get(hash) ?? 0) + 1);
+			poisoned ??= hash;
+			if (hash === poisoned) {
+				return Promise.reject(
+					new IntegrityError(`chunk ${hash} failed content-address check`),
+				);
+			}
+			return bundle.fetchBytes(url, options);
+		};
+
+		await expect(
+			syncIndex({
+				baseUrl: "/o",
+				store,
+				fetchBytes,
+				verify: passVerify,
+				sleep: noSleep,
+			}),
+		).rejects.toBeInstanceOf(IntegrityError);
+		// Exactly one attempt on the poisoned chunk: integrity is never retried.
+		expect(attempts.get(poisoned ?? "")).toBe(1);
+	});
+});

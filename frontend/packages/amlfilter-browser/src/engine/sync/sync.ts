@@ -38,10 +38,73 @@ interface SyncArgs {
 	/** Cross-tab exclusive section for the final active-pointer re-check and
 	 * promotion. Production supplies a bounded Web Lock; pure tests may omit it. */
 	readonly promoteExclusive?: <T>(operation: () => Promise<T>) => Promise<T>;
+	/** Backoff delay seam for the per-chunk retry. Production uses a real timer;
+	 * tests pass a no-op so the retry budget is asserted without real waits. */
+	readonly sleep?: (ms: number) => Promise<void>;
 }
 
 const DECODER = new TextDecoder();
 const MAX_CONCURRENT_CHUNK_FETCHES = 8;
+
+/**
+ * Per-chunk retry budget for the cold sync.
+ *
+ * A cold sync of the production bundle is ~1,296 independent chunk requests
+ * fanned out 8 at a time. With a single attempt each, ONE transient failure
+ * anywhere in that fan aborts the entire sync and shows a first-time visitor a
+ * Retry banner — at a 0.1% per-request failure rate that is a ~73% chance of a
+ * failed first boot. Three attempts with exponential backoff turn a blip into a
+ * pause instead of a dead end.
+ *
+ * This sits strictly BELOW every verification boundary: the pointer signature
+ * was checked before any chunk was requested, and `putChunkCompressed` still
+ * content-address-verifies each chunk before it lands. Only NetworkError is
+ * retried (see {@link isRetriableFetchFailure}).
+ */
+const CHUNK_FETCH_ATTEMPTS = 3;
+const CHUNK_RETRY_BASE_DELAY_MS = 250;
+
+const realSleep = (ms: number): Promise<void> =>
+	new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Only an unreachable origin is worth re-requesting.
+ *
+ * An IntegrityError means the returned bytes did not hash to the content
+ * address we asked for; the address is immutable, so a retry either returns the
+ * same bad bytes or lets a tampering origin keep trying until it gets lucky.
+ * SignatureError and RollbackError are likewise verdicts, not blips. Retrying
+ * any of them would convert a fail-closed check into a retry loop.
+ */
+function isRetriableFetchFailure(error: unknown): boolean {
+	return error instanceof NetworkError;
+}
+
+/** Fetch one chunk, absorbing transient transport failures within the budget. */
+async function fetchChunkWithRetry(
+	url: string,
+	fetchBytes: FetchBytes,
+	sleep: (ms: number) => Promise<void>,
+): Promise<Uint8Array> {
+	let lastError: unknown;
+	for (let attempt = 1; attempt <= CHUNK_FETCH_ATTEMPTS; attempt += 1) {
+		try {
+			return await fetchBytes(url);
+		} catch (error) {
+			if (!isRetriableFetchFailure(error)) {
+				throw error;
+			}
+			lastError = error;
+			if (attempt < CHUNK_FETCH_ATTEMPTS) {
+				// Exponential backoff with jitter so 8 pooled workers that all trip
+				// on the same blip do not resynchronize into a thundering retry.
+				const backoff = CHUNK_RETRY_BASE_DELAY_MS * 2 ** (attempt - 1);
+				await sleep(backoff + Math.random() * CHUNK_RETRY_BASE_DELAY_MS);
+			}
+		}
+	}
+	throw lastError;
+}
 
 /**
  * A signature-valid pointer whose monotonic `sequence` would move the active
@@ -210,6 +273,7 @@ async function fetchMissing(
 	fetchBytes: FetchBytes,
 	store: CacheStore,
 	onProgress?: OnSyncProgress,
+	sleep: (ms: number) => Promise<void> = realSleep,
 ): Promise<number> {
 	let nextIndex = 0;
 	// Shared across the worker pool: total chunks + bytes completed so far.
@@ -223,7 +287,11 @@ async function fetchMissing(
 			if (chunkHash === undefined) {
 				break;
 			}
-			const compressed = await fetchBytes(`${baseUrl}/chunk/${chunkHash}`);
+			const compressed = await fetchChunkWithRetry(
+				`${baseUrl}/chunk/${chunkHash}`,
+				fetchBytes,
+				sleep,
+			);
 			await store.putChunkCompressed(chunkHash, compressed);
 			workerBytes += compressed.byteLength;
 			fetched += 1;
@@ -423,6 +491,7 @@ export async function syncIndex(args: SyncArgs): Promise<SyncResult> {
 		fetchBytes,
 		store,
 		args.onProgress,
+		args.sleep,
 	);
 	// Fresh path: verify only the REUSED chunks (self-healing a poisoned present
 	// chunk), NOT a full verifyReassembly. The old eager pass reassembled + hashed
