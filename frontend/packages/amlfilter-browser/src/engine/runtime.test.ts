@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BundleSource } from "./bundleSource";
 import type { Embedder, EmbedProgress } from "./embedder";
+import { FRESH_RESOLVED } from "./freshnessFixtures";
 import {
 	BOOT_TIMEOUT_MS,
 	type BootStage,
@@ -77,6 +78,7 @@ function entryFor(listId: string, version: string): WatchlistCatalogEntry {
 		version,
 		entitiesCount: 1,
 		path: `${listId.toLowerCase()}/`,
+		...FRESH_RESOLVED,
 	};
 }
 
@@ -639,8 +641,17 @@ describe("EngineRuntime.reload", () => {
 			),
 		});
 
+		// The signed catalog entry's version, count and FRESHNESS travel with the
+		// list: this hop used to project `{id, title}` and drop the rest, which is
+		// why no UI could tell a user how old the list they were selecting was.
 		expect(await runtime.catalogLists(CONFIG)).toEqual([
-			{ id: "OFAC_SDN", title: "OFAC_SDN" },
+			{
+				id: "OFAC_SDN",
+				title: "OFAC_SDN",
+				version: "demo-1",
+				entitiesCount: 1,
+				...FRESH_RESOLVED,
+			},
 		]);
 		expect(await runtime.catalogListIds()).toEqual(["OFAC_SDN"]);
 		expect(runtime.engine()).toBeNull();

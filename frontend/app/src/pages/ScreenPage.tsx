@@ -1,5 +1,6 @@
 import {
 	type BootStage,
+	type CatalogListInfo,
 	configFromEnv,
 	EngineRuntime,
 	type Entity,
@@ -18,6 +19,7 @@ import {
 import { useTranslation } from "react-i18next";
 import { Footer } from "../components/Footer";
 import { formatBytes } from "../lib/formatBytes";
+import { listAge } from "../lib/listAge";
 import {
 	bootErrorMessage,
 	deviceUnsupportedMessage,
@@ -83,6 +85,105 @@ const STAGE_KEY: Readonly<Record<BootStage["kind"], string>> = {
 const SEARCH_K = 25;
 const DEBOUNCE_MS = 180;
 
+/**
+ * The ONE list this public route screens against.
+ *
+ * The boot scope and the age line below it read the SAME constant, so the page
+ * can never state the age of a list it did not actually load. `label` is the
+ * fallback name used when the catalog read itself fails — a proper noun, not
+ * copy, which is why it is not in the translation catalogue.
+ */
+const SCREENED_LIST = { id: "OFAC_SDN", label: "OFAC SDN" } as const;
+
+/**
+ * The age line for the list being screened against: which list, how old its
+ * data is, and — when the publisher could not refresh it — why.
+ *
+ * WHY THIS IS ON THE PUBLIC PAGE. The lede promises a match "against the public
+ * OFAC sanctions list" and the boot banner ends on "List verified." Readers take
+ * that as a statement about the DATA; it is only a statement about the
+ * signature. A perfectly-signed three-day-old list is still three days old, and
+ * this route has no list selector to hang that fact off, so it goes here.
+ *
+ * An age that cannot be read says so. It never falls back to silence, because
+ * silence next to "List verified." reads as "current".
+ *
+ * A list from a pre-per-list-freshness bundle (`agedFrom === "generatedAt"`) has
+ * a REAL age — the bundle's build time — but no per-list refresh time, so it is
+ * worded as the bundle's age rather than as "updated".
+ */
+function screenedListAge(
+	list: CatalogListInfo | null,
+	t: TFunction,
+): { readonly text: string; readonly stale: boolean } {
+	const label = list?.title ?? SCREENED_LIST.label;
+	const age = list === null ? null : listAge(list.fetchedAt);
+	if (list === null || age === null) {
+		return { text: t("list.ageUnknown", { list: label }), stale: true };
+	}
+	if (!list.stale) {
+		const key =
+			list.agedFrom === "generatedAt" ? "list.freshFromBundle" : "list.fresh";
+		return {
+			text: t(key, { list: label, age: age.phrase }),
+			stale: false,
+		};
+	}
+	const text =
+		list.staleReason === null
+			? t("list.stale", { list: label, age: age.duration })
+			: t("list.staleWithReason", {
+					age: age.duration,
+					list: label,
+					reason: list.staleReason,
+				});
+	return { text, stale: true };
+}
+
+/** The pinned list's catalog entry, or `null` when it cannot be read — a catalog
+ * failure or an id the catalog does not carry both mean "we cannot state this
+ * list's age", which is the same honest answer. Never throws: a page that can
+ * screen must still screen. */
+async function readScreenedList(
+	runtime: EngineRuntime,
+): Promise<CatalogListInfo | null> {
+	try {
+		const lists = await runtime.catalogLists();
+		return lists.find((list) => list.id === SCREENED_LIST.id) ?? null;
+	} catch {
+		return null;
+	}
+}
+
+/** Renders {@link screenedListAge}. The stale form takes `role="alert"` because
+ * it appears AFTER load and changes what the result on screen means; the fresh
+ * form is ordinary text, so it never competes with the boot/search live regions.
+ * The ⚠ is decorative — the warning is carried by the words. */
+function ScreenedListAge({
+	list,
+	t,
+}: {
+	readonly list: CatalogListInfo | null;
+	readonly t: TFunction;
+}) {
+	const age = screenedListAge(list, t);
+	return (
+		<p
+			className={
+				age.stale ? "screen-list-age screen-list-age--stale" : "screen-list-age"
+			}
+			{...(age.stale ? { role: "alert" as const } : {})}
+		>
+			{age.stale && (
+				<span aria-hidden="true" className="screen-list-age__icon">
+					⚠
+				</span>
+			)}
+			{age.text}
+		</p>
+	);
+}
+
 const EXAMPLE_QUERIES = ["Ivan Fakovich", "fakovic", "Olga", "bank"] as const;
 
 // The strictness levels (named floors/gates/display lines with their declared
@@ -134,6 +235,13 @@ export function ScreenPage() {
 	const [strictness, setStrictness] = useState<Strictness>("balanced");
 	const [entities, setEntities] = useState<ReadonlyArray<Entity>>([]);
 	const [search, setSearch] = useState<SearchOutcome | null>(null);
+	// The pinned list's catalog entry. `undefined` means "not read yet" and shows
+	// nothing; `null` means "read and unavailable" and shows "age unknown". The
+	// distinction matters — flashing a stale-age warning during boot would train
+	// people to ignore the one that is real.
+	const [screenedList, setScreenedList] = useState<
+		CatalogListInfo | null | undefined
+	>(undefined);
 	// Bumped by Retry: it resets the boot guard and re-fires the boot effect so a
 	// boot that timed out (stalled CDN) can be re-attempted from the error banner.
 	const [bootNonce, setBootNonce] = useState(0);
@@ -201,15 +309,25 @@ export function ScreenPage() {
 			// ready. The workstation/settings flow remains the configurable multi-list
 			// surface.
 			.bootstrap(config, (stage) => setPhase({ kind: "booting", stage }), {
-				enabledLists: ["OFAC_SDN"],
+				enabledLists: [SCREENED_LIST.id],
 				residency: "streaming",
 			})
-			.then(() => {
+			.then(async () => {
 				if (!alive.current) {
 					return;
 				}
 				setEntities(runtime.engine()?.allEntities() ?? []);
 				setPhase({ kind: "ready" });
+				// The signed catalog already carries this list's age; read it so the
+				// page can state it. Failing to read it is NOT fatal to screening —
+				// but it must show as "age unknown", never as silence next to
+				// "List verified."
+				const list = await readScreenedList(runtime);
+				// Re-check: the await above is a second chance to unmount, and this
+				// runs after the page is already interactive.
+				if (alive.current) {
+					setScreenedList(list);
+				}
 			})
 			.catch((error: unknown) => {
 				if (!alive.current) {
@@ -232,6 +350,8 @@ export function ScreenPage() {
 		// cleared its memo when the prior attempt rejected).
 		started.current = false;
 		setPhase({ kind: "booting", stage: { kind: "downloading" } });
+		// Forget the previous attempt's age: re-reading it is part of re-booting.
+		setScreenedList(undefined);
 		setBootNonce((n) => n + 1);
 	}, []);
 
@@ -293,6 +413,10 @@ export function ScreenPage() {
 			<p className="screen-page__lede">{t("header.lede")}</p>
 
 			<BootBanner phase={phase} onRetry={retryBoot} />
+
+			{phase.kind === "ready" && screenedList !== undefined && (
+				<ScreenedListAge list={screenedList} t={t} />
+			)}
 
 			<input
 				className="screen-search"

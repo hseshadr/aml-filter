@@ -235,12 +235,26 @@ bundle**: a signed `latest` pointer → a content-hashed `manifest` → deduplic
 Entity IDs are namespaced per list (`OFAC_SDN:…`, `EU_CONSOLIDATED:…`). The wire format
 is documented in [`docs/WATCHLIST_FORMAT.md`](docs/WATCHLIST_FORMAT.md).
 
-Four live adapters ship: **OFAC SDN**, **UN**, **EU**, and **UK/OFSI**. A production
-publish requires every adapter to fetch successfully, produce a source-specific
-plausible entity count, and prove an upstream update time within 90 days. Any missing,
-empty, truncated, stale, or future-dated feed aborts the new bundle; a partial sanctions
-set is never signed. Every external feed request is abortable after 45 seconds, so an
-unresponsive upstream fails the publish rather than holding a CI runner indefinitely.
+Four live adapters ship: **OFAC SDN**, **UN**, **EU**, and **UK/OFSI**. Each must fetch
+successfully, produce a source-specific plausible entity count, and prove an upstream
+update time within 90 days. A missing, empty, truncated, stale or future-dated feed is
+rejected — that data is never signed into a bundle.
+
+**Each list is refreshed on its own.** These are four independent third parties and they
+go down separately. When one is unreachable that list is re-served from the copy already
+published — fetched back through the full trust chain, keeping its own older version,
+stamped with the age it actually has — while the others refresh normally. Before this,
+one 500 from the EU webgate also blocked the OFAC refresh, which is the list most people
+screen against.
+
+A re-served list is never presented as current: `catalog.json` and each
+`<slug>/meta.json` carry that list's own `fetchedAt`, `sourceUpdatedAt` and `stale` flag,
+and the app shows the age beside every list you can enable. A list that can be neither
+refreshed nor verified from the published bundle aborts the publish outright — a bundle
+never claims coverage it does not have.
+
+Every external feed request is abortable after 45 seconds, so an unresponsive upstream
+cannot hold a CI runner indefinitely.
 
 ```bash
 # from frontend/
@@ -255,9 +269,21 @@ The production publish CLI takes flags:
 ```
 
 In CI, [`.github/workflows/publish-watchlist.yml`](.github/workflows/publish-watchlist.yml)
-runs daily (cron `0 6 * * *`) and on manual dispatch: it fetches OFAC SDN, builds
-`entities.jsonl`, signs with the `WATCHLIST_SIGNING_KEY` repo secret (a base64-encoded
-raw 32-byte Ed25519 seed), and emits the signed static files.
+attempts a refresh daily (cron `0 6 * * *`) and on manual dispatch: it fetches the four
+live lists, builds `entities.jsonl`, signs with the `WATCHLIST_SIGNING_KEY` repo secret
+(a base64-encoded raw 32-byte Ed25519 seed), and emits the signed static files.
+
+**Daily is the schedule, not a promise.** Upstream feeds go down, and when one does its
+list keeps the age it has until that feed comes back. So the honest claim is: *each list
+is refreshed daily when its source is reachable, and every list shows you its own last
+successful update time.* Do not read a daily cron as a guarantee that every list is under
+24 hours old — read the age the app shows you.
+
+That claim is enforced rather than asserted:
+[`.github/workflows/watchlist-freshness.yml`](.github/workflows/watchlist-freshness.yml)
+checks the **live** published bundle several times a day, verifies the pointer signature,
+and opens an issue if any list has gone stale. It exists because the publish cron once
+failed for 22 consecutive days without anyone noticing.
 
 ### 2. Browser engine — `@amlfilter/browser`
 

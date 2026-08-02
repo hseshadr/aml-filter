@@ -29,6 +29,7 @@ import { readFile, rm } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { EMBEDDING_DIM, EMBEDDING_MODEL } from "@amlfilter/browser";
+import { removeProducerResidue } from "./buildRealBundle.ts";
 import { createNodeEmbedder } from "./nodeEmbedder.ts";
 import { publishBundle } from "./publishBundle.ts";
 import { parseEntities } from "./sourceEntity.ts";
@@ -120,6 +121,14 @@ async function buildStagedList(list: DemoList): Promise<StagedList> {
 		dim: EMBEDDING_DIM,
 		entities,
 		vectors,
+		// Fixed, and identical to v1's, so the three unchanged lists still stage
+		// to byte-identical bytes and their chunks dedupe against the v1 publish.
+		freshness: {
+			fetchedAt: DEMO_GENERATED_AT,
+			sourceUpdatedAt: null,
+			stale: false,
+			staleReason: null,
+		},
 	};
 }
 
@@ -138,11 +147,11 @@ async function main(): Promise<void> {
 		sequence: V2_SEQUENCE,
 	});
 	// edge-proc also writes a producer-side CAS mirror (chunks/<aa>/<hash>,
-	// manifests/<hash>) next to the served contract. The sync tier consumes ONLY
-	// chunk/<hash>, manifest/<hash>, latest — drop the duplicates so the committed
-	// tree is exactly the served contract. Also drop the intermediate staging.
-	await rm(resolve(ORIGIN, "chunks"), { recursive: true, force: true });
-	await rm(resolve(ORIGIN, "manifests"), { recursive: true, force: true });
+	// manifests/<hash>) and a .mutation.lock next to the served contract. The
+	// sync tier consumes ONLY chunk/<hash>, manifest/<hash>, latest — drop the
+	// rest so the COMMITTED tree is exactly the served contract. Also drop the
+	// intermediate staging.
+	await removeProducerResidue(ORIGIN);
 	await rm(STAGING, { recursive: true, force: true });
 	process.stdout.write(
 		`demo bundle v2 (${staged.length} lists, OFAC@${V2_VERSION}) -> ${ORIGIN}\n`,

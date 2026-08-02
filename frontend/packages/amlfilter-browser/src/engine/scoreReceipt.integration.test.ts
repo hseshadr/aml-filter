@@ -13,6 +13,7 @@ import { publicKeyHex } from "@edgeproc/avow";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { BundleSource } from "./bundleSource";
 import type { Embedder } from "./embedder";
+import { FRESH_RESOLVED } from "./freshnessFixtures";
 import { INSTALL_SEED_KEY } from "./installKey";
 import {
 	createMultiListScreeningEngine,
@@ -194,6 +195,7 @@ describe("EngineRuntime.bootstrap() — the documented entry point", () => {
 				version: "demo-1",
 				entitiesCount: 1,
 				path: "ofac_sdn/",
+				...FRESH_RESOLVED,
 			},
 		],
 	};

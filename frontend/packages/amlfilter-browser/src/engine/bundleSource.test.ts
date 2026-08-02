@@ -133,6 +133,52 @@ function memoryClient(): {
 
 const PUBKEY_URL = "https://app.example/public.key";
 
+// FRESHNESS, ON THE REAL COMMITTED BYTES.
+//
+// The fail-closed guard (isBundleCatalogList / assertBundleListMeta) rejects any
+// bundle whose lists cannot state their own age — the negative cases are pinned
+// field-by-field in bundleSource.freshness.test.ts and watchlist.bundle.test.ts
+// over hand-built documents. THIS is the other half: the bundle the SPA actually
+// ships must satisfy that guard, over the real signed, content-addressed bytes.
+//
+// It is also the drift alarm. Regenerate the demo bundle from a publisher that
+// forgets to stage freshness and this goes red — before anyone finds out from a
+// blank age in the settings screen.
+describe("openBundleSource — the committed demo bundle carries per-list freshness", () => {
+	it("loads: every catalog entry satisfies the fail-closed freshness guard", async () => {
+		const { deps } = memoryClient();
+		const source = await openBundleSource("/o", PUBKEY_URL, deps);
+		expect(source.loadCatalog().lists.length).toBeGreaterThan(0);
+	});
+
+	it("states a parseable fetchedAt and a real boolean stale flag for every list", async () => {
+		const { deps } = memoryClient();
+		const source = await openBundleSource("/o", PUBKEY_URL, deps);
+		for (const list of source.loadCatalog().lists) {
+			expect(Number.isFinite(Date.parse(list.fetchedAt))).toBe(true);
+			expect(typeof list.stale).toBe("boolean");
+			expect(
+				list.sourceUpdatedAt === null ||
+					Number.isFinite(Date.parse(list.sourceUpdatedAt)),
+			).toBe(true);
+			expect(
+				list.staleReason === null || typeof list.staleReason === "string",
+			).toBe(true);
+		}
+	});
+
+	it("carries freshness in each list's meta.json too, not only in the catalog", async () => {
+		const { deps } = memoryClient();
+		const source = await openBundleSource("/o", PUBKEY_URL, deps);
+		// loadList re-parses `<slug>/meta.json` through assertBundleListMeta, so a
+		// meta that dropped freshness throws here even when the catalog is fine —
+		// the two documents are narrowed independently, on purpose.
+		for (const entry of source.loadCatalog().lists) {
+			await expect(source.loadList(entry)).resolves.toBeDefined();
+		}
+	});
+});
+
 describe("openBundleSource — over the committed demo bundle", () => {
 	it("disposes the sync client exactly once when the source is evicted", async () => {
 		const { deps: baseDeps } = memoryClient();

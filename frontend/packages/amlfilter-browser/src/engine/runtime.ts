@@ -40,6 +40,7 @@ import type { OnSyncProgress, SyncProgress } from "./sync/types";
 import { compositeVersion } from "./version";
 import type {
 	LoadedWatchlist,
+	ResolvedListFreshness,
 	WatchlistCatalog,
 	WatchlistCatalogEntry,
 } from "./watchlist";
@@ -293,10 +294,25 @@ export interface RuntimeSelection {
 	readonly residency?: "eager" | "streaming";
 }
 
-/** A selectable catalog list, surfaced to the settings UI for toggling. */
-export interface CatalogListInfo {
+/**
+ * A selectable catalog list, surfaced to the settings UI for toggling.
+ *
+ * Carries the signed catalog entry's RESOLVED freshness. It used to be `{id,
+ * title}` alone, and that one projection was why no UI could show how old a list
+ * was: the metadata existed in the bundle, survived verification, and was then
+ * thrown away one hop before the screen. A user picking lists needs to see that
+ * the EU list is three days stale, so the age travels with the list.
+ *
+ * `agedFrom` says WHICH instant the age was measured from — the list's own
+ * `fetchedAt`, or (on a pre-per-list-freshness bundle) the bundle's build stamp.
+ * The UI words the age line differently for the two, so it never claims a
+ * per-list refresh time it does not have.
+ */
+export interface CatalogListInfo extends ResolvedListFreshness {
 	readonly id: string;
 	readonly title: string;
+	readonly version: string;
+	readonly entitiesCount: number;
 }
 
 /** The seams bootstrap depends on; defaulted to the real embedder Worker + the
@@ -575,8 +591,9 @@ export class EngineRuntime {
 		return this.#enginePromise;
 	}
 
-	/** EVERY list in the signed catalog as `{id, title}` — the real selectable set
-	 * the UI offers (the catalog is the source of truth for which lists exist).
+	/** EVERY list in the signed catalog as a {@link CatalogListInfo} — the real
+	 * selectable set the UI offers (the catalog is the source of truth for which
+	 * lists exist), each carrying its own version, entity count and freshness.
 	 * A config allows settings to read signed metadata before loading the model. */
 	public catalogLists(
 		config?: RuntimeConfig,
@@ -618,7 +635,19 @@ export class EngineRuntime {
 			throw new Error("catalogLists() requires a successful bootstrap first");
 		}
 		const catalog = await this.#loadCatalog(this.#config);
-		return catalog.lists.map((entry) => ({ id: entry.id, title: entry.title }));
+		return catalog.lists.map((entry) => ({
+			id: entry.id,
+			title: entry.title,
+			version: entry.version,
+			entitiesCount: entry.entitiesCount,
+			fetchedAt: entry.fetchedAt,
+			// Which anchor produced that instant travels with it: the UI must not
+			// present a bundle build stamp as a per-list refresh time.
+			agedFrom: entry.agedFrom,
+			sourceUpdatedAt: entry.sourceUpdatedAt,
+			stale: entry.stale,
+			staleReason: entry.staleReason,
+		}));
 	}
 
 	/** Just the ids of every catalog list (the selectable set, sans titles). */

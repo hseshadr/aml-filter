@@ -25,6 +25,7 @@ import {
 	buildLoadedWatchlistMetadataFromBundleFiles,
 	type LoadedWatchlist,
 	type LoadedWatchlistMetadata,
+	resolveListFreshness,
 	type WatchlistCatalog,
 	type WatchlistCatalogEntry,
 	WatchlistFormatError,
@@ -32,8 +33,11 @@ import {
 
 const DECODER = new TextDecoder();
 
-/** One list entry in the bundle's materialized `catalog.json`. */
-interface BundleCatalogList {
+/** The identity half of one entry in the materialized `catalog.json`. The
+ * freshness block is deliberately NOT here: it is optional on the wire (every
+ * bundle published before per-list freshness omits it) and is resolved through
+ * the shared rule, not read field by field. */
+interface BundleCatalogIdentity {
 	readonly id: string;
 	readonly title: string;
 	readonly slug: string;
@@ -41,15 +45,10 @@ interface BundleCatalogList {
 	readonly entitiesCount: number;
 }
 
-/** The bundle's materialized `catalog.json` (publisher BundleCatalog). */
-interface BundleCatalog {
-	readonly schemaVersion: 1;
-	readonly generatedAt: string;
-	readonly lists: ReadonlyArray<BundleCatalogList>;
-}
-
-/** Narrow a single materialized bundle catalog entry fail-closed. */
-function isBundleCatalogList(value: unknown): value is BundleCatalogList {
+/** Narrow the identity half of a materialized bundle catalog entry. */
+function isBundleCatalogIdentity(
+	value: unknown,
+): value is BundleCatalogIdentity {
 	if (typeof value !== "object" || value === null) {
 		return false;
 	}
@@ -64,8 +63,40 @@ function isBundleCatalogList(value: unknown): value is BundleCatalogList {
 	);
 }
 
-/** Validate a parsed bundle catalog fail-closed. */
-function assertBundleCatalog(value: unknown): asserts value is BundleCatalog {
+/** Project ONE catalog entry, resolving its age through the shared rule.
+ *
+ * `catalog.json` is the only place the settings UI can learn a list's age before
+ * any list directory is downloaded, so an entry whose age cannot be resolved is
+ * rejected rather than defaulted to fresh. A LEGACY entry (no `fetchedAt`) is
+ * aged from the catalog's `generatedAt` — see `resolveListAge` in watchlist.ts
+ * for why that is truthful, and for the condition under which it can be deleted. */
+function toCatalogEntry(
+	value: unknown,
+	generatedAt: unknown,
+): WatchlistCatalogEntry {
+	const freshness = resolveListFreshness(value, generatedAt);
+	if (!isBundleCatalogIdentity(value) || freshness === null) {
+		throw new WatchlistFormatError(
+			`bundle catalog has a malformed list entry (id, title, slug, version, entitiesCount and a resolvable age are all required): ${JSON.stringify(value)}`,
+		);
+	}
+	return {
+		id: value.id,
+		title: value.title,
+		version: value.version,
+		entitiesCount: value.entitiesCount,
+		// `slug/` mirrors the JSON catalog's `path` (e.g. "ofac/") so the slug is
+		// recoverable for materialization via `entry.path.replace(/\/$/, "")`.
+		path: `${value.slug}/`,
+		// Carried, not recomputed: this is the ONLY place a caller can learn how
+		// old the list actually is, so dropping it here would blind the UI.
+		...freshness,
+	};
+}
+
+/** Validate a parsed bundle catalog fail-closed and project it onto the engine's
+ * WatchlistCatalog shape. */
+function parseBundleCatalog(value: unknown): WatchlistCatalog {
 	if (typeof value !== "object" || value === null) {
 		throw new WatchlistFormatError("bundle catalog.json is not an object");
 	}
@@ -75,34 +106,18 @@ function assertBundleCatalog(value: unknown): asserts value is BundleCatalog {
 			`bundle catalog schemaVersion is ${String(c.schemaVersion)}; expected 1`,
 		);
 	}
+	if (typeof c.generatedAt !== "string") {
+		throw new WatchlistFormatError(
+			"bundle catalog is missing generatedAt — the only anchor a pre-per-list-freshness list can be aged from",
+		);
+	}
 	if (!Array.isArray(c.lists)) {
 		throw new WatchlistFormatError("bundle catalog is missing a lists[] array");
 	}
-	for (const entry of c.lists) {
-		if (!isBundleCatalogList(entry)) {
-			throw new WatchlistFormatError(
-				`bundle catalog has a malformed list entry: ${JSON.stringify(entry)}`,
-			);
-		}
-	}
-}
-
-/** Project a bundle catalog onto the engine's WatchlistCatalog shape, carrying
- * `slug` as the dir prefix (with the trailing slash the JSON path's `path` uses)
- * so the runtime's id-based enabled-list filter works unchanged. */
-function toWatchlistCatalog(bundle: BundleCatalog): WatchlistCatalog {
 	return {
 		schema: 1,
-		generatedAt: bundle.generatedAt,
-		lists: bundle.lists.map((l) => ({
-			id: l.id,
-			title: l.title,
-			version: l.version,
-			entitiesCount: l.entitiesCount,
-			// `slug/` mirrors the JSON catalog's `path` (e.g. "ofac/") so the slug is
-			// recoverable for materialization via `entry.path.replace(/\/$/, "")`.
-			path: `${l.slug}/`,
-		})),
+		generatedAt: c.generatedAt,
+		lists: c.lists.map((entry) => toCatalogEntry(entry, c.generatedAt)),
 	};
 }
 
@@ -222,11 +237,9 @@ export async function openBundleSource(
 		// against an immutable content-addressed URL.
 		await client.sync(baseUrl, pubkeyUrl, undefined, [CATALOG_PATH]);
 
-		const bundleCatalog: unknown = JSON.parse(
-			DECODER.decode(await client.readFile(CATALOG_PATH)),
+		const catalog = parseBundleCatalog(
+			JSON.parse(DECODER.decode(await client.readFile(CATALOG_PATH))),
 		);
-		assertBundleCatalog(bundleCatalog);
-		const catalog = toWatchlistCatalog(bundleCatalog);
 
 		// `onProgress` threads the cold-sync per-chunk ticks up to the boot banner;
 		// undefined on reload/version-poll paths (no banner to feed).

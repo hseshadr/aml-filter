@@ -156,6 +156,30 @@
 	font-weight: bold;
 }
 
+/* How old one watchlist's data is, shown beside its toggle.
+   The warning is carried by the WORDS ("Not updated for 3 days — …"), which sit
+   inside the checkbox's own label; colour and the ⚠ glyph only reinforce it, so
+   the meaning survives a monochrome screen or a screen reader. */
+.watchlist-age {
+	font-size: 0.85rem;
+	color: var(--color-text-muted);
+	white-space: nowrap;
+}
+
+.watchlist-age--stale {
+	color: var(--color-danger);
+	font-weight: 600;
+	white-space: normal;
+}
+
+.watchlist-age__icon {
+	margin-right: 0.25em;
+}
+
+.watchlist-age--count::before {
+	content: "· ";
+}
+
 .form-input {
 	width: 100%;
 	padding: var(--spacing-sm);

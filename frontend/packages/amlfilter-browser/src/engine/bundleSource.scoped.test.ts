@@ -16,6 +16,7 @@ import {
 	type BundleSourceDeps,
 	openBundleSource,
 } from "./bundleSource";
+import { FRESH } from "./freshnessFixtures";
 
 const ENCODER = new TextEncoder();
 
@@ -29,6 +30,7 @@ const CATALOG_JSON = JSON.stringify({
 			slug: "ofac",
 			version: "2026-08-01",
 			entitiesCount: 19_181,
+			...FRESH,
 		},
 		{
 			id: "EU_CONSOLIDATED",
@@ -36,6 +38,7 @@ const CATALOG_JSON = JSON.stringify({
 			slug: "eu",
 			version: "2026-08-01",
 			entitiesCount: 5_000,
+			...FRESH,
 		},
 		{
 			id: "UK_OFSI",
@@ -43,6 +46,7 @@ const CATALOG_JSON = JSON.stringify({
 			slug: "uk",
 			version: "2026-08-01",
 			entitiesCount: 4_000,
+			...FRESH,
 		},
 		{
 			id: "UN_CONSOLIDATED",
@@ -50,6 +54,7 @@ const CATALOG_JSON = JSON.stringify({
 			slug: "un",
 			version: "2026-08-01",
 			entitiesCount: 1_000,
+			...FRESH,
 		},
 	],
 });

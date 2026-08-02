@@ -29,12 +29,23 @@ vi.mock("../lib/workstation", () => ({
 	})),
 }));
 
+// Every catalog list now carries its own freshness (see `CatalogListInfo`), so
+// these mocks carry it too — a mock that lags the real contract stops testing it.
 const FOUR_LISTS = [
 	{ id: "OFAC_SDN", title: "OFAC SDN" },
 	{ id: "EU_CONSOLIDATED", title: "EU Consolidated" },
 	{ id: "UN_CONSOLIDATED", title: "UN Consolidated" },
 	{ id: "UK_OFSI", title: "UK OFSI" },
-];
+].map((list) => ({
+	version: "2026-08-01",
+	entitiesCount: 100,
+	fetchedAt: "2026-08-01T08:00:00Z",
+	agedFrom: "fetchedAt",
+	sourceUpdatedAt: "2026-08-01T06:00:00Z",
+	stale: false,
+	staleReason: null,
+	...list,
+}));
 
 const mockClient = vi.mocked(apiClient);
 
@@ -134,7 +145,7 @@ describe("SettingsPage", () => {
 		await waitFor(() => expect(mockCatalogLists).toHaveBeenCalled());
 		for (const list of FOUR_LISTS) {
 			const checkbox = await screen.findByRole("checkbox", {
-				name: list.title,
+				name: new RegExp(list.title),
 			});
 			expect(checkbox).toBeChecked();
 		}
@@ -158,7 +169,7 @@ describe("SettingsPage", () => {
 		render(<SettingsPage />);
 		await waitFor(() => expect(mockCatalogLists).toHaveBeenCalled());
 		const euCheckbox = await screen.findByRole("checkbox", {
-			name: "EU Consolidated",
+			name: /EU Consolidated/,
 		});
 		fireEvent.click(euCheckbox); // disable EU
 		fireEvent.click(screen.getByRole("button", { name: /apply/i }));
@@ -180,7 +191,7 @@ describe("SettingsPage", () => {
 		render(<SettingsPage />);
 		await waitFor(() => expect(mockCatalogLists).toHaveBeenCalled());
 		const euCheckbox = await screen.findByRole("checkbox", {
-			name: "EU Consolidated",
+			name: /EU Consolidated/,
 		});
 		fireEvent.click(euCheckbox);
 		fireEvent.click(screen.getByRole("button", { name: /apply/i }));

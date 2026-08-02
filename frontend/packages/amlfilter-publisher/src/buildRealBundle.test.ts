@@ -1,13 +1,20 @@
 // buildRealBundle's pure glue: fetch each configured source via its adapter,
 // parse + map to wire entities, embed the canonical names, and shape one
 // StagedList per required list whose fetchRaw and source-health checks succeed.
-// Any missing, empty, implausibly sized, or stale feed aborts the new bundle. The test
-// injects FAKE sources (no network) and the FAKE embedder (no 23 MB model), so
-// it exercises only the staging glue, never edge-proc and never a live fetch.
+//
+// A missing, empty, implausibly sized or stale feed no longer aborts the whole
+// bundle: that list is re-served from the copy already published, marked stale
+// with its real age, while every other list refreshes normally. It still aborts
+// when a list can be neither refreshed NOR proven from the published bundle.
+//
+// The test injects FAKE sources (no network) and the FAKE embedder (no 23 MB
+// model), so it exercises only the staging glue, never edge-proc and never a
+// live fetch.
 
 import { afterEach, describe, expect, test, vi } from "vitest";
 import {
 	BUNDLE_SOURCES,
+	type CarryForward,
 	parseRealBundleArgs,
 	type RealBundleSourceSpec,
 	stagedListsFromSources,
@@ -232,7 +239,13 @@ describe("stagedListsFromSources", () => {
 		expect(list.vectors).toHaveLength(DIM);
 	});
 
-	test("fails closed when any required source cannot be fetched", async () => {
+	// CONTRACT REVERSED (deliberately, see the sibling describe block below).
+	// This test used to assert that ANY unfetchable feed aborted the whole
+	// bundle. That coupling was the bug: the EU webgate 500ing blocked the OFAC
+	// refresh, and OFAC is the list every visitor screens against by default.
+	// The fail-closed half is preserved here — with no way to re-serve the
+	// already-published copy, an unfetchable feed still aborts.
+	test("fails closed when a source cannot be fetched AND cannot be carried", async () => {
 		const specs: readonly RealBundleSourceSpec[] = [
 			spec(fakeSource("OFAC_SDN", "OFAC SDN", "Ivan Fakovich"), "ofac"),
 			spec(throwingSource("EU_CONSOLIDATED", "EU Consolidated"), "eu"),
@@ -246,6 +259,139 @@ describe("stagedListsFromSources", () => {
 				() => NOW,
 			),
 		).rejects.toThrow(/EU_CONSOLIDATED.*required feed.*fetchRaw not wired/i);
+	});
+
+	test("records per-list freshness for a source this run DID refresh", async () => {
+		const {
+			lists: [list],
+		} = await stagedListsFromSources(
+			[spec(fakeSource("OFAC_SDN", "OFAC SDN", "Ivan Fakovich"), "ofac")],
+			createFakeEmbedder(),
+			VERSION,
+			undefined,
+			() => NOW,
+		);
+		expect(list?.freshness).toEqual({
+			fetchedAt: NOW.toISOString(),
+			// The upstream's own stated publication instant, carried through
+			// rather than discarded after the health check.
+			sourceUpdatedAt: "2026-07-01T00:00:00.000Z",
+			stale: false,
+			staleReason: null,
+		});
+	});
+	// THE COUPLING FIX. One flaky upstream must not age the lists that are healthy.
+	/** Stands in for carryForwardList: hands back the last good published copy. */
+	function carriedFrom(reasonSink: string[]): CarryForward {
+		return (failed, reason) => {
+			reasonSink.push(reason);
+			return Promise.resolve({
+				listId: failed.source.id,
+				slug: failed.slug,
+				title: failed.source.title,
+				// The PUBLISHED version, not this run's — it was not rebuilt today.
+				version: "2026-06-20",
+				model: "Xenova/all-MiniLM-L6-v2",
+				dim: DIM,
+				entities: [],
+				vectors: new Float32Array(0),
+				freshness: {
+					fetchedAt: "2026-06-20T06:00:00.000Z",
+					sourceUpdatedAt: "2026-06-19T00:00:00.000Z",
+					stale: true,
+					staleReason: reason,
+				},
+			});
+		};
+	}
+
+	test("carries the failed list forward and STILL refreshes the healthy ones", async () => {
+		const reasons: string[] = [];
+		const specs: readonly RealBundleSourceSpec[] = [
+			spec(fakeSource("OFAC_SDN", "OFAC SDN", "Ivan Fakovich"), "ofac"),
+			spec(throwingSource("EU_CONSOLIDATED", "EU Consolidated"), "eu"),
+		];
+		const { lists, carried } = await stagedListsFromSources(
+			specs,
+			createFakeEmbedder(),
+			VERSION,
+			undefined,
+			() => NOW,
+			carriedFrom(reasons),
+		);
+
+		// Both lists are present — coverage is not silently withdrawn.
+		expect(lists.map((l) => l.listId)).toEqual(["OFAC_SDN", "EU_CONSOLIDATED"]);
+
+		// OFAC refreshed today, on time, despite EU being down. THIS is the fix.
+		const ofac = lists.find((l) => l.listId === "OFAC_SDN");
+		expect(ofac?.version).toBe(VERSION);
+		expect(ofac?.freshness.stale).toBe(false);
+		expect(ofac?.freshness.fetchedAt).toBe(NOW.toISOString());
+
+		// EU kept its own, older identity and is marked stale with the real cause.
+		const eu = lists.find((l) => l.listId === "EU_CONSOLIDATED");
+		expect(eu?.version).toBe("2026-06-20");
+		expect(eu?.freshness.stale).toBe(true);
+		expect(eu?.freshness.fetchedAt).toBe("2026-06-20T06:00:00.000Z");
+		expect(eu?.freshness.staleReason).toMatch(/fetchRaw not wired/);
+
+		// The run reports what it could not refresh, so the deploy can say so.
+		expect(carried).toHaveLength(1);
+		expect(carried[0]?.listId).toBe("EU_CONSOLIDATED");
+		expect(carried[0]?.fetchedAt).toBe("2026-06-20T06:00:00.000Z");
+		expect(reasons[0]).toMatch(/required feed fetch failed/);
+	});
+
+	test("a run that refreshed everything reports nothing carried", async () => {
+		const { carried } = await stagedListsFromSources(
+			[spec(fakeSource("OFAC_SDN", "OFAC SDN", "Ivan Fakovich"), "ofac")],
+			createFakeEmbedder(),
+			VERSION,
+			undefined,
+			() => NOW,
+			carriedFrom([]),
+		);
+		expect(carried).toEqual([]);
+	});
+
+	// Fail-closed is preserved at the only point it still makes sense: we could
+	// neither refresh the list nor prove the copy already published.
+	test("aborts when the list can be neither refreshed nor re-served", async () => {
+		const specs: readonly RealBundleSourceSpec[] = [
+			spec(fakeSource("OFAC_SDN", "OFAC SDN", "Ivan Fakovich"), "ofac"),
+			spec(throwingSource("EU_CONSOLIDATED", "EU Consolidated"), "eu"),
+		];
+		await expect(
+			stagedListsFromSources(
+				specs,
+				createFakeEmbedder(),
+				VERSION,
+				undefined,
+				() => NOW,
+				() => Promise.reject(new Error("published pointer failed to verify")),
+			),
+		).rejects.toThrow(
+			/EU_CONSOLIDATED.*could not refresh.*could not re-serve/i,
+		);
+	});
+
+	// A health-band or freshness rejection is a REFUSAL of bad upstream data, not
+	// an outage. It must take the same carry-forward path — the alternative is
+	// republishing a feed we just judged implausible.
+	test("carries forward a source whose data failed its health band", async () => {
+		const source = fakeSource("EU_CONSOLIDATED", "EU Consolidated", "x");
+		source.parse = () => [];
+		const { lists } = await stagedListsFromSources(
+			[spec(source, "eu")],
+			createFakeEmbedder(),
+			VERSION,
+			undefined,
+			() => NOW,
+			carriedFrom([]),
+		);
+		expect(lists[0]?.freshness.stale).toBe(true);
+		expect(lists[0]?.freshness.staleReason).toMatch(/entity count 0/i);
 	});
 
 	test.each([

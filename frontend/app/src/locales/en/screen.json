@@ -7,6 +7,13 @@
 		"placeholder": "Search a name, e.g. Ivan Fakovich",
 		"ariaLabel": "Search the sanctions list"
 	},
+	"list": {
+		"fresh": "{{list}} · updated {{age}}",
+		"freshFromBundle": "{{list}} · in a bundle built {{age}}",
+		"stale": "{{list}} · Not updated for {{age}}",
+		"staleWithReason": "{{list}} · Not updated for {{age}} — {{reason}}",
+		"ageUnknown": "{{list}} · Age unknown — this list cannot say when it was last refreshed"
+	},
 	"dob": {
 		"label": "Date of birth (optional)"
 	},

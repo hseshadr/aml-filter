@@ -22,7 +22,8 @@
 		"build-demo-bundle-v2": "vite-node src/buildDemoBundleV2.ts",
 		"next-published-sequence": "vite-node src/nextPublishedSequenceMain.ts --",
 		"verify-published-origin": "vite-node src/verifyPublishedOriginMain.ts --",
-		"mirror-published-origin": "vite-node src/mirrorPublishedOriginMain.ts --"
+		"mirror-published-origin": "vite-node src/mirrorPublishedOriginMain.ts --",
+		"check-published-freshness": "vite-node src/checkPublishedFreshnessMain.ts --"
 	},
 	"dependencies": {
 		"@amlfilter/browser": "workspace:*",

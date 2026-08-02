@@ -214,6 +214,13 @@ jobs:
       # because it had already deleted the bundle it was about to replace.
       # Building aside means a failure destroys nothing, and `continue-on-error`
       # hands the decision to the promote step below instead of killing the job.
+      #
+      # PER-LIST INDEPENDENCE (`--live-base-url`/`--pubkey`). The builder now
+      # re-serves ONE list from the already-published bundle when that list's
+      # upstream is down, so a single flaky feed no longer costs every other list
+      # its refresh. The whole-bundle mirror below stays as the LAST resort, for
+      # when nothing could be built at all. The two layers are deliberate:
+      # per-list keeps the healthy lists current; the mirror keeps the site up.
       - name: Build + sign the real watchlist bundle (same-origin)
         id: build-bundle
         continue-on-error: true
@@ -223,10 +230,15 @@ jobs:
             --version "$VERSION" \
             --sequence "$SEQUENCE" \
             --key "$GITHUB_WORKSPACE/frontend/signing.key" \
-            --out "$CANDIDATE" | tee "$RUNNER_TEMP/build-bundle.out"
-          # The builder prints its alias-coverage verdict; carry it forward so
-          # the deploy can state what the bundle actually contains.
+            --out "$CANDIDATE" \
+            --live-base-url https://aml-filter.com/bundle/origin \
+            --pubkey "$GITHUB_WORKSPACE/frontend/app/public/public.key" \
+            | tee "$RUNNER_TEMP/build-bundle.out"
+          # The builder prints its alias-coverage verdict and any list it could
+          # not refresh; carry both forward so the deploy states what the bundle
+          # actually contains rather than what it hoped to.
           grep -E '^ALIAS_(MODE|ADDED)=' "$RUNNER_TEMP/build-bundle.out" >> "$GITHUB_ENV" || true
+          grep -E '^STALE_LISTS=' "$RUNNER_TEMP/build-bundle.out" >> "$GITHUB_ENV" || true
         env:
           CANDIDATE: ${{ runner.temp }}/bundle-candidate
           # OPTIONAL. The bulk Consolidated Screening List download needs no

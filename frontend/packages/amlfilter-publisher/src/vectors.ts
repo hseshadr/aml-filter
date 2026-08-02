@@ -53,3 +53,28 @@ export function vectorsToBytes(packed: Float32Array): Uint8Array {
 		),
 	);
 }
+
+/**
+ * The inverse of `vectorsToBytes`: read a `vectors.f32` payload back into a
+ * packed Float32Array. Used when a list is carried forward from the already-
+ * published bundle, so the SAME staging path re-emits it byte-identically.
+ *
+ * Copies into a fresh buffer because the input may be a view at an offset that
+ * is not 4-byte aligned (concatenated chunk output routinely is), which
+ * `new Float32Array(bytes.buffer, …)` rejects.
+ */
+export function bytesToVectors(bytes: Uint8Array): Float32Array {
+	if (endianness() !== "LE") {
+		throw new Error(
+			"publisher requires a little-endian host (vectors are read LE)",
+		);
+	}
+	if (bytes.byteLength % Float32Array.BYTES_PER_ELEMENT !== 0) {
+		throw new Error(
+			`vectors payload of ${bytes.byteLength} bytes is not a whole number of float32s`,
+		);
+	}
+	const copy = new Uint8Array(bytes.byteLength);
+	copy.set(bytes);
+	return new Float32Array(copy.buffer);
+}
