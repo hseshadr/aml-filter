@@ -53,16 +53,47 @@ const MAX_CONCURRENT_CHUNK_FETCHES = 8;
  * fanned out 8 at a time. With a single attempt each, ONE transient failure
  * anywhere in that fan aborts the entire sync and shows a first-time visitor a
  * Retry banner — at a 0.1% per-request failure rate that is a ~73% chance of a
- * failed first boot. Three attempts with exponential backoff turn a blip into a
+ * failed first boot. Retrying with exponential backoff turns a blip into a
  * pause instead of a dead end.
+ *
+ * WHY SIX AND NOT THREE. The budget that matters is SECONDS OF OUTAGE ABSORBED,
+ * not attempts taken. Three attempts absorb only 750–1250 ms, and a 3-second
+ * offline blip — a wifi/cell handover, a lift, a tunnel — was measured stranding
+ * the boot 0/5 against the live site on 2026-08-01: the ladder expired ~1.9 s
+ * before the network came back. Six attempts absorb 7.75–9.0 s
+ * ({@link MAX_CHUNK_RETRY_BUDGET_MS}), roughly 2.5× the blip actually observed.
+ *
+ * WHAT IT COSTS SOMEONE GENUINELY OFFLINE. A retry pause is silence, so the
+ * ceiling is bounded from above by the engine client's 30 s no-progress
+ * watchdog: overshoot it and a blip the ladder was about to absorb would instead
+ * tear the whole engine client down. 9 s worst case leaves 21 s of headroom.
+ * A visitor who is offline BEFORE the boot starts is unaffected — the `/latest`
+ * pointer fetch has no ladder and fails immediately. The cost lands only on a
+ * visitor who loses the network MID-download: they wait ~9 s instead of ~1 s for
+ * the Retry banner. That is the trade — 8 extra seconds of "please wait" for the
+ * offline user, in exchange for the mid-download blip no longer being terminal.
  *
  * This sits strictly BELOW every verification boundary: the pointer signature
  * was checked before any chunk was requested, and `putChunkCompressed` still
  * content-address-verifies each chunk before it lands. Only NetworkError is
  * retried (see {@link isRetriableFetchFailure}).
  */
-const CHUNK_FETCH_ATTEMPTS = 3;
+const CHUNK_FETCH_ATTEMPTS = 6;
 const CHUNK_RETRY_BASE_DELAY_MS = 250;
+
+/**
+ * Worst-case outage this ladder absorbs, in milliseconds — the number that
+ * actually decides whether a blip is a pause or a dead end.
+ *
+ * Gap i (1-based) waits `base * 2^(i-1)` plus up to `base` of jitter, over
+ * `attempts - 1` gaps: `base * (2^(attempts-1) - 1) + base * (attempts - 1)`.
+ * Exported because it is an INVARIANT, not a detail: it must stay under the
+ * engine client's no-progress watchdog (a retry pause is silence on the
+ * `sync-progress` channel) and above the outage a real visitor hits.
+ */
+export const MAX_CHUNK_RETRY_BUDGET_MS =
+	CHUNK_RETRY_BASE_DELAY_MS * (2 ** (CHUNK_FETCH_ATTEMPTS - 1) - 1) +
+	CHUNK_RETRY_BASE_DELAY_MS * (CHUNK_FETCH_ATTEMPTS - 1);
 
 const realSleep = (ms: number): Promise<void> =>
 	new Promise((resolve) => setTimeout(resolve, ms));
@@ -304,8 +335,25 @@ async function fetchMissing(
 		{ length: Math.min(MAX_CONCURRENT_CHUNK_FETCHES, missing.length) },
 		fetchNext,
 	);
-	const fetchedByWorker = await Promise.all(workers);
-	return fetchedByWorker.reduce((total, workerBytes) => total + workerBytes, 0);
+	// allSettled, not all: `Promise.all` would reject the instant the FIRST
+	// worker exhausts its retry ladder, leaving the other seven fetching and
+	// retrying against a network that is still down. Their eventual rejections
+	// would have nobody left to catch them — unhandled rejections in the
+	// visitor's console — and their requests would fire after the boot had
+	// already given up. Waiting for every worker costs nothing extra in the case
+	// that matters (during an outage they are all failing together, inside the
+	// same retry budget) and guarantees no fetch outlives the sync.
+	const settled = await Promise.allSettled(workers);
+	const failure = settled.find((outcome) => outcome.status === "rejected");
+	if (failure !== undefined) {
+		// Fail closed on the first worker's cause, exactly as Promise.all did.
+		throw failure.reason;
+	}
+	return settled.reduce(
+		(total, outcome) =>
+			total + (outcome.status === "fulfilled" ? outcome.value : 0),
+		0,
+	);
 }
 
 function concat(parts: ReadonlyArray<Uint8Array>): Uint8Array {

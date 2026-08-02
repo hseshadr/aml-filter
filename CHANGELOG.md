@@ -30,6 +30,41 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **A short network blip during the first download is a pause, not a dead end.** The
+  per-chunk retry ladder was budgeted in attempts rather than in seconds of outage:
+  three attempts at a 250 ms base absorb only 750–1250 ms, so a measured 3-second
+  offline blip mid-download stranded the cold boot **0/5** — the ladder expired about
+  1.9 s before the network came back and the visitor got a Retry banner for a blip they
+  never noticed. Six attempts now absorb 7.75–9.0 s, and the same harness survives the
+  same blip **5/5** with the clean cold-boot median unchanged (865 ms → 865 ms). The
+  budget is bounded from above too: it stays inside the engine client's 30 s
+  no-progress watchdog, because a retry pause is silence on the progress channel. The
+  cost is paid only by a visitor who loses the network *mid*-download — they wait ~9 s
+  instead of ~1 s for the Retry button. Someone offline before the boot starts is
+  unaffected: the signed-pointer fetch has no ladder and still fails immediately. The
+  tests assert seconds of outage survived rather than attempts taken; the previous
+  attempt-counting tests passed at any budget, however short.
+- **A failed sync no longer leaves seven chunk downloads running behind it.** The
+  eight-way fetch pool used `Promise.all`, which rejects the moment the first worker
+  exhausts its ladder — the other seven kept retrying against a network that was still
+  down, firing requests after the boot had already shown its Retry banner and producing
+  unhandled promise rejections in the console. It now waits for every worker and
+  re-throws the first failure; fail-closed behavior is unchanged.
+- **The overall boot ceiling no longer fires on healthy slow connections.** The ceiling
+  does bind — verified in a real browser against the production build, where a
+  slow-but-moving sync is terminated at exactly the configured deadline — but at 180 s
+  it sat *below* the ~535 s a completely healthy Fast-3G download of the ~47 MB bundle
+  takes. The first visitors it would ever have fired on were the ones it was never meant
+  to catch, handed "Screening list could not be loaded" two-thirds of the way through a
+  working download. It is now 900 s, and is documented as what it actually is: a
+  backstop, not the stall detector. Genuine stalls are still caught in seconds by the
+  bounds that key on silence rather than elapsed time — the 15 s per-fetch transport
+  ceiling and the 30 s no-progress watchdog — and a unit test now pins the ceiling above
+  the slowest healthy download so it cannot drift back under it.
+- **Retry is proven to recover, by clicking it.** Nothing had ever exercised the one
+  control a stranded visitor has. A new browser test fails a cold boot on a chunk
+  outage, lifts the outage, presses Retry, and requires the app to reach a screenable
+  state and actually match the committed sanctioned name.
 - **The quickstart works from a cold clone, and the docs no longer call the repository
   private.** A fresh `git clone` plus the documented steps ended at "Local screening
   engine unavailable — signature verification failed", because (a) `dev` was bare `vite`

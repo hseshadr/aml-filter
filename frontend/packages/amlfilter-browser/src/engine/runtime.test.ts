@@ -14,9 +14,12 @@ import {
 	parseTimeoutMs,
 	type RuntimeConfig,
 	type RuntimeDeps,
+	SLOWEST_HEALTHY_COLD_SYNC_MS,
 	throttleModelProgress,
 	withTimeout,
 } from "./runtime";
+import { DEFAULT_REQUEST_TIMEOUT_MS } from "./sync/client";
+import { FETCH_TIMEOUT_MS } from "./sync/fetchBytes";
 import { VectorIndex } from "./vectorIndex";
 import type {
 	LoadedWatchlist,
@@ -175,6 +178,36 @@ describe("bootTimeoutMs (overall boot deadline override, fail-closed)", () => {
 
 	it("is longer than the model-load ceiling so the model timeout stays the tighter bound", () => {
 		expect(BOOT_TIMEOUT_MS).toBeGreaterThan(MODEL_LOAD_TIMEOUT_MS);
+	});
+
+	/**
+	 * THE guard for the 2026-08-01 finding. The boot ceiling DOES fire — verified
+	 * in a real browser against the production build — but it was set BELOW the
+	 * time a healthy slow link needs, so the first visitor it would ever hit is
+	 * someone whose download is working perfectly, just slowly. A wall-clock cap
+	 * on a download whose duration scales with the visitor's bandwidth is a
+	 * false-failure generator, and this is the arithmetic that says so out loud.
+	 *
+	 * Proven able to fail: at the previous 180 s value this rejects, because
+	 * 180_000 is not greater than 535_000. That was the bug.
+	 */
+	it("cannot fire before a healthy slow-link cold download has finished", () => {
+		expect(BOOT_TIMEOUT_MS).toBeGreaterThan(SLOWEST_HEALTHY_COLD_SYNC_MS);
+	});
+
+	/**
+	 * The layering that makes a wide ceiling safe. A boot that is genuinely WEDGED
+	 * is caught in seconds by the tighter, better-shaped bounds — the per-fetch
+	 * transport ceiling and the Worker client's no-progress watchdog — neither of
+	 * which punishes mere slowness. BOOT_TIMEOUT_MS is only the backstop for the
+	 * residual case they cannot see: a boot that keeps making progress and still
+	 * never finishes. The moment it became the TIGHTEST bound it would go back to
+	 * terminating healthy downloads.
+	 */
+	it("is the loosest bound: the stall detectors stay tighter", () => {
+		expect(FETCH_TIMEOUT_MS).toBeLessThan(BOOT_TIMEOUT_MS);
+		expect(DEFAULT_REQUEST_TIMEOUT_MS).toBeLessThan(BOOT_TIMEOUT_MS);
+		expect(MODEL_LOAD_TIMEOUT_MS).toBeLessThan(BOOT_TIMEOUT_MS);
 	});
 });
 

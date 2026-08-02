@@ -1,12 +1,18 @@
 import { Zstd } from "@hpcc-js/wasm-zstd";
 import { describe, expect, it } from "vitest";
 import { sha256Hex, verifyEd25519 } from "../crypto";
+import { DEFAULT_REQUEST_TIMEOUT_MS } from "./client";
 import { NetworkError } from "./fetchBytes";
 import { latestBytes, originFetch, pubkeyRaw } from "./fixtures";
 import { IntegrityError } from "./integrity";
 import { MemoryCacheStore } from "./memoryStore";
 import { QuotaError } from "./storage";
-import { materializeFile, RollbackError, syncIndex } from "./sync";
+import {
+	MAX_CHUNK_RETRY_BUDGET_MS,
+	materializeFile,
+	RollbackError,
+	syncIndex,
+} from "./sync";
 import type {
 	CacheStore,
 	FetchBytes,
@@ -890,5 +896,230 @@ describe("syncIndex transient chunk-fetch resilience", () => {
 		).rejects.toBeInstanceOf(IntegrityError);
 		// Exactly one attempt on the poisoned chunk: integrity is never retried.
 		expect(attempts.get(poisoned ?? "")).toBe(1);
+	});
+});
+
+/**
+ * The retry ladder measured in SECONDS OF OUTAGE, not in attempts.
+ *
+ * The tests above inject a no-op `sleep`, so they prove "N attempts happened"
+ * while no time passes. That is a shape check: it stays green no matter how
+ * short the backoff budget is. It cannot see the defect measured against the
+ * live site on 2026-08-01 — a 3-second offline blip stranded the boot 0/5,
+ * because three attempts at a 250 ms base absorb only 750–1250 ms of outage and
+ * the ladder expired ~1.9 s before the network came back.
+ *
+ * So these tests drive the REAL backoff on a virtual clock injected through the
+ * `sleep` seam. `fetchBytes` fails while the virtual clock is inside the outage
+ * window and succeeds after it, and — the part a naive `now += ms` counter gets
+ * wrong — the eight pooled workers' sleeps OVERLAP in virtual time exactly as
+ * they do in wall time, because the clock jumps to the next due deadline rather
+ * than summing every sleep. The assertion is the property a user cares about:
+ * an outage of N seconds is survived.
+ */
+describe("syncIndex retry ladder absorbs a real outage window", () => {
+	/**
+	 * A virtual clock for concurrent sleepers. `sleep(ms)` parks a waiter at
+	 * `now + ms`; the driver repeatedly lets pending real microtasks settle, then
+	 * jumps `now` to the EARLIEST parked deadline and releases everything due. So
+	 * eight simultaneous 250 ms sleeps advance the clock by 250 ms once, not by
+	 * 2 s. Real timers are untouched, so WASM/WebCrypto work normally.
+	 */
+	function virtualClock(): {
+		now: () => number;
+		sleep: (ms: number) => Promise<void>;
+		run: <T>(work: Promise<T>) => Promise<T>;
+		drain: (rounds: number) => Promise<void>;
+	} {
+		let now = 0;
+		let waiters: Array<{ at: number; resolve: () => void }> = [];
+		const sleep = (ms: number): Promise<void> =>
+			new Promise<void>((resolve) => {
+				waiters.push({ at: now + ms, resolve });
+			});
+		/** One driver step: let real work settle, then release the earliest sleeps. */
+		async function step(): Promise<void> {
+			await new Promise((resolve) => setTimeout(resolve, 0));
+			if (waiters.length === 0) {
+				return;
+			}
+			now = Math.min(...waiters.map((waiter) => waiter.at));
+			const due = waiters.filter((waiter) => waiter.at <= now);
+			waiters = waiters.filter((waiter) => waiter.at > now);
+			for (const waiter of due) {
+				waiter.resolve();
+			}
+		}
+		async function run<T>(work: Promise<T>): Promise<T> {
+			// Observe the outcome SYNCHRONOUSLY. Returning `work` (or a `.finally`
+			// of it) would leave its rejection unhandled for the macrotask the
+			// driver loop is parked in, which the runtime reports as an unhandled
+			// rejection — a defect in this clock, not in the code under test.
+			type Outcome = { readonly error: unknown } | { readonly value: T };
+			let outcome: Outcome | null = null;
+			// Read through a call so control-flow analysis keeps the declared union:
+			// the assignments happen inside callbacks it cannot see, and narrowing
+			// `outcome` directly collapses it to `never` after the loop.
+			const settledOutcome = (): Outcome | null => outcome;
+			work.then(
+				(value) => {
+					outcome = { value };
+				},
+				(error: unknown) => {
+					outcome = { error };
+				},
+			);
+			while (settledOutcome() === null) {
+				await step();
+			}
+			const settled = settledOutcome();
+			if (settled === null) {
+				throw new Error("virtual clock: work never settled");
+			}
+			if ("error" in settled) {
+				throw settled.error;
+			}
+			return settled.value;
+		}
+		/** Keep virtual time moving AFTER the work settled, so anything the sync
+		 * left running is given every chance to reveal itself. */
+		async function drain(rounds: number): Promise<void> {
+			for (let i = 0; i < rounds; i += 1) {
+				await step();
+			}
+		}
+		return { now: () => now, sleep, run, drain };
+	}
+
+	/** Fail every chunk fetch until `outageMs` of VIRTUAL time has elapsed. */
+	function outageFor(
+		bundle: { readonly fetchBytes: FetchBytes },
+		outageMs: number,
+		now: () => number,
+	): FetchBytes {
+		let start: number | null = null;
+		return (url, options) => {
+			if (!url.includes("/chunk/")) {
+				return bundle.fetchBytes(url, options);
+			}
+			start ??= now();
+			if (now() - start < outageMs) {
+				return Promise.reject(new NetworkError(`offline: ${url}`));
+			}
+			return bundle.fetchBytes(url, options);
+		};
+	}
+
+	/**
+	 * THE regression guard for the measured defect. A 3-second blip — a wifi/cell
+	 * handover, a lift, a tunnel — must be a pause, not a dead end. Proven able to
+	 * fail: with CHUNK_FETCH_ATTEMPTS back at 3 this rejects with a NetworkError.
+	 */
+	it("survives a 3-second network outage mid-download", async () => {
+		const bundle = await syntheticBundle(20);
+		const store = new RecordingCacheStore();
+		const clock = virtualClock();
+
+		const result = await clock.run(
+			syncIndex({
+				baseUrl: "/o",
+				store,
+				fetchBytes: outageFor(bundle, 3_000, clock.now),
+				verify: passVerify,
+				sleep: clock.sleep,
+			}),
+		);
+
+		expect(result.version).toBeDefined();
+		// Recovery is not merely "no throw": every chunk still landed and verified.
+		expect(store.verifiedChunks.size).toBe(bundle.chunkHashes.length);
+	}, 30_000);
+
+	/**
+	 * The ceiling, asserted from the other side. A ladder that absorbed an
+	 * unbounded outage would leave a genuinely-offline visitor watching a spinner
+	 * forever instead of being handed the Retry button, so the budget must still
+	 * give up. 60 s is far past the chosen ceiling; the sync must have failed
+	 * closed with nothing promoted well before it.
+	 */
+	it("still gives up — and promotes nothing — on an outage past the ceiling", async () => {
+		const bundle = await syntheticBundle(20);
+		const store = new RecordingCacheStore();
+		const clock = virtualClock();
+
+		await expect(
+			clock.run(
+				syncIndex({
+					baseUrl: "/o",
+					store,
+					fetchBytes: outageFor(bundle, 60_000, clock.now),
+					verify: passVerify,
+					sleep: clock.sleep,
+				}),
+			),
+		).rejects.toBeInstanceOf(NetworkError);
+		// The give-up happened inside the budget, not after a 60 s wait.
+		expect(clock.now()).toBeLessThanOrEqual(MAX_CHUNK_RETRY_BUDGET_MS);
+		expect(await store.readActive()).toBeNull();
+	}, 30_000);
+
+	/**
+	 * A failed sync must not leave the other seven pooled workers running.
+	 *
+	 * `Promise.all` rejects the moment the FIRST worker gives up, but the other
+	 * seven keep fetching and retrying against a network that is still down, and
+	 * their eventual rejections have nobody left to catch them — unhandled
+	 * promise rejections in the visitor's console, plus a burst of pointless
+	 * requests fired after the boot already showed its Retry banner. Widening the
+	 * ladder to six attempts made that tail longer, which is what surfaced it.
+	 *
+	 * Proven able to fail: revert `fetchMissing` to `Promise.all` and chunk
+	 * fetches keep starting after the sync has already rejected.
+	 */
+	it("leaves no chunk fetch running once it has failed closed", async () => {
+		const bundle = await syntheticBundle(20);
+		const store = new RecordingCacheStore();
+		const clock = virtualClock();
+		const offline = outageFor(bundle, 60_000, clock.now);
+		let rejected = false;
+		let startedAfterReject = 0;
+		const fetchBytes: FetchBytes = (url, options) => {
+			if (rejected && url.includes("/chunk/")) {
+				startedAfterReject += 1;
+			}
+			return offline(url, options);
+		};
+
+		await expect(
+			clock.run(
+				syncIndex({
+					baseUrl: "/o",
+					store,
+					fetchBytes,
+					verify: passVerify,
+					sleep: clock.sleep,
+				}),
+			),
+		).rejects.toBeInstanceOf(NetworkError);
+		rejected = true;
+		// Keep virtual time running well past every surviving worker's backoff.
+		await clock.drain(40);
+
+		expect(startedAfterReject).toBe(0);
+	}, 30_000);
+
+	/**
+	 * The ladder must stay INSIDE the Worker client's no-progress watchdog
+	 * (DEFAULT_REQUEST_TIMEOUT_MS). A retry pause is silence on the
+	 * `sync-progress` channel: if the budget ever exceeded that watchdog, a blip
+	 * the ladder was about to absorb would instead surface as "engine request
+	 * timed out ... with no progress" and tear down the whole engine client — a
+	 * worse failure than the one the ladder exists to prevent.
+	 */
+	it("keeps its worst-case budget inside the no-progress watchdog", () => {
+		expect(MAX_CHUNK_RETRY_BUDGET_MS).toBeLessThan(DEFAULT_REQUEST_TIMEOUT_MS);
+		// And it is actually big enough to be worth having: it must cover the
+		// 3-second blip this ladder was widened for.
+		expect(MAX_CHUNK_RETRY_BUDGET_MS).toBeGreaterThan(3_000);
 	});
 });

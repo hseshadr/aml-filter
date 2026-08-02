@@ -58,18 +58,49 @@ const WARMUP_PROMPT = "warm up the model";
 export const MODEL_LOAD_TIMEOUT_MS = 120_000;
 
 /**
- * Hard ceiling on the WHOLE boot (download → verify → model load), a superset of
- * the model-load ceiling. Its job is the phase the model timeout doesn't cover:
- * a signed-bundle sync that stalls — many chunk fetches each under the per-fetch
- * ceiling but collectively hanging, or a wedged Worker — which would otherwise
- * leave the banner on "Downloading the signed sanctions list…" forever (the
- * exact iOS symptom). On expiry the boot rejects, the memo clears, and the UI's
- * error banner + Retry appears. Deliberately LONGER than
- * {@link MODEL_LOAD_TIMEOUT_MS} so the model-load timeout stays the tighter, more
- * specific bound; the cold-cache e2e overrides it via `VITE_BOOT_TIMEOUT_MS`.
- * Maps to the future canonical `bundle.timeout` error code.
+ * Last-resort ceiling on the WHOLE boot (download → verify → model load). On
+ * expiry the boot rejects, the memo clears, and the UI's error banner + Retry
+ * appears. Maps to the future canonical `bundle.timeout` error code; the
+ * cold-cache e2e overrides it via `VITE_BOOT_TIMEOUT_MS`.
+ *
+ * IT IS A BACKSTOP, NOT THE STALL DETECTOR — and it was 180 s until 2026-08-01,
+ * which made it the wrong thing entirely. A stalled boot is already caught in
+ * seconds by two tighter bounds that key on SILENCE rather than on elapsed time:
+ * `FETCH_TIMEOUT_MS` (15 s per transport fetch) and the engine client's
+ * `DEFAULT_REQUEST_TIMEOUT_MS` (30 s with no `sync-progress` tick, re-armed by
+ * every chunk). A wedged Worker, a dead origin, a hung fetch — all of those
+ * surface long before this ceiling is anywhere near.
+ *
+ * What is left for this ceiling is only the residual case those two cannot see:
+ * a boot that keeps reporting progress and still never finishes. Since it can
+ * see nothing but wall-clock time, it CANNOT distinguish that case from a
+ * visitor on a slow link — so its only safe setting is one that a healthy slow
+ * download can never reach. At 180 s it was below
+ * {@link SLOWEST_HEALTHY_COLD_SYNC_MS}: the boot ceiling fired correctly (proven
+ * in a real browser) on exactly the people it should have left alone, handing a
+ * Fast-3G visitor "Screening list could not be loaded" while their download was
+ * two-thirds done and perfectly healthy.
+ *
+ * 15 minutes clears that worst case by ~68%. The cost is the honest one: a boot
+ * that genuinely progresses-but-never-completes now shows its spinner for up to
+ * 15 minutes before offering Retry. That path requires an origin feeding real,
+ * verified chunks the entire time — every way of getting stuck WITHOUT that is
+ * still bounded in ≤30 s.
  */
-export const BOOT_TIMEOUT_MS = 180_000;
+export const BOOT_TIMEOUT_MS = 900_000;
+
+/**
+ * The slowest HEALTHY cold download the boot ceiling must never cut short.
+ *
+ * The production bundle is ~47 MB fetched as ~1,296 content-addressed chunks,
+ * eight at a time. On Chrome's "Fast 3G" profile that is ~1.6 Mbit/s of
+ * throughput plus ~560 ms of round trip on every one of those requests, and a
+ * complete, entirely healthy download of it was measured at ~535 s on
+ * 2026-08-01. Nothing is wrong on that connection — it is a phone on a bad
+ * train. {@link BOOT_TIMEOUT_MS} has to sit above this with room to spare, or
+ * the first visitors it ever fires on are the ones it was never meant to catch.
+ */
+export const SLOWEST_HEALTHY_COLD_SYNC_MS = 535_000;
 
 /** Parse a positive-millisecond override fail-closed: an absent, non-numeric,
  * non-finite, or non-positive value yields `fallback`, so a malformed env var can
