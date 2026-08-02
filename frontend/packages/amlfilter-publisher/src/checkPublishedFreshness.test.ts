@@ -235,7 +235,7 @@ const FRESH = catalogOf([
 	list(),
 	list({ id: "EU_CONSOLIDATED", slug: "eu" }),
 	list({ id: "UN_CONSOLIDATED", slug: "un" }),
-	list({ id: "UK_HMT", slug: "uk" }),
+	list({ id: "UK_OFSI", slug: "uk" }),
 ]);
 
 /** A catalog entry as published BEFORE per-list freshness existed: identity
@@ -255,7 +255,7 @@ const LEGACY_LISTS = [
 	legacyList("OFAC_SDN", "ofac"),
 	legacyList("UN_CONSOLIDATED", "un"),
 	legacyList("EU_CONSOLIDATED", "eu"),
-	legacyList("UK_HMT", "uk"),
+	legacyList("UK_OFSI", "uk"),
 ];
 
 describe("checkPublishedFreshness passes a genuinely fresh bundle", () => {
@@ -270,7 +270,7 @@ describe("checkPublishedFreshness passes a genuinely fresh bundle", () => {
 			"OFAC_SDN",
 			"EU_CONSOLIDATED",
 			"UN_CONSOLIDATED",
-			"UK_HMT",
+			"UK_OFSI",
 		]);
 		expect(report.lists.every((entry) => entry.ageHours === 5)).toBe(true);
 	});
@@ -279,7 +279,7 @@ describe("checkPublishedFreshness passes a genuinely fresh bundle", () => {
 		const report = await check(FRESH);
 
 		expect(report.table).toContain("OFAC_SDN");
-		expect(report.table).toContain("UK_HMT");
+		expect(report.table).toContain("UK_OFSI");
 		expect(report.table).toContain("5.0");
 	});
 
@@ -318,7 +318,7 @@ describe("checkPublishedFreshness goes RED on a stale bundle", () => {
 	// The fail-closed half is preserved, and split in two: absent WITH no
 	// generatedAt still fails, and a PRESENT-but-malformed value still fails.
 	it("falls back for an ABSENT fetchedAt but still fails with no anchor at all", async () => {
-		const absent = list({ id: "UK_HMT", fetchedAt: undefined });
+		const absent = list({ id: "UK_OFSI", fetchedAt: undefined });
 
 		// Fresh bundle stamp: the list is aged from it rather than accused.
 		await expect(
@@ -327,7 +327,7 @@ describe("checkPublishedFreshness goes RED on a stale bundle", () => {
 
 		// No bundle stamp either: nothing can age it, so it fails.
 		const message = await messageFrom({ schemaVersion: 1, lists: [absent] });
-		expect(message).toContain("UK_HMT");
+		expect(message).toContain("UK_OFSI");
 		expect(message).toMatch(/cannot be proven/i);
 	});
 
@@ -363,7 +363,7 @@ describe("checkPublishedFreshness goes RED on a stale bundle", () => {
 			// Present but malformed — gets no migration fallback, so it breaches.
 			list({ id: "UN_CONSOLIDATED", slug: "un", fetchedAt: "not-a-date" }),
 			list({
-				id: "UK_HMT",
+				id: "UK_OFSI",
 				slug: "uk",
 				stale: true,
 				staleReason: "HMT feed timed out",
@@ -374,7 +374,7 @@ describe("checkPublishedFreshness goes RED on a stale bundle", () => {
 
 		expect(message).toContain("EU_CONSOLIDATED");
 		expect(message).toContain("UN_CONSOLIDATED");
-		expect(message).toContain("UK_HMT");
+		expect(message).toContain("UK_OFSI");
 		expect(message).not.toContain("OFAC_SDN");
 	});
 
@@ -425,7 +425,7 @@ describe("checkPublishedFreshness ages a pre-per-list-freshness bundle", () => {
 			"OFAC_SDN",
 			"UN_CONSOLIDATED",
 			"EU_CONSOLIDATED",
-			"UK_HMT",
+			"UK_OFSI",
 		]) {
 			const line = breaches.find((entry) => entry.includes(id));
 			expect(line, `no breach line for ${id}`).toBeDefined();
