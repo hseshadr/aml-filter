@@ -22,6 +22,7 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { apiClient } from "../lib/api";
+import { listAge } from "../lib/listAge";
 import { workstation } from "../lib/workstation";
 import "../styles/common.css";
 
@@ -111,26 +112,74 @@ function SensitivityControl({
 	);
 }
 
+/** The age sentence for one list: how old it is, and — when the publisher could
+ * not refresh it — why. Returns the copy plus whether it is a warning.
+ *
+ * A list whose `fetchedAt` cannot be parsed reads "Age unknown", NEVER as fresh:
+ * silently defaulting an unknown age to "just updated" is the exact lie the
+ * engine's fail-closed bundle guard exists to prevent, and the UI must not
+ * reintroduce it one layer up. */
+function ageSentence(
+	list: CatalogListInfo,
+	t: TFunction,
+): { readonly text: string; readonly stale: boolean } {
+	const age = listAge(list.fetchedAt);
+	if (age === null) {
+		return { text: t("watchlists.ageUnknown"), stale: true };
+	}
+	if (!list.stale) {
+		return { text: t("watchlists.fresh", { age: age.phrase }), stale: false };
+	}
+	const text =
+		list.staleReason === null
+			? t("watchlists.stale", { age: age.duration })
+			: t("watchlists.staleWithReason", {
+					age: age.duration,
+					reason: list.staleReason,
+				});
+	return { text, stale: true };
+}
+
 function WatchlistToggle({
-	id,
-	title,
+	list,
 	enabled,
 	onToggle,
+	t,
 }: {
-	readonly id: string;
-	readonly title: string;
+	readonly list: CatalogListInfo;
 	readonly enabled: boolean;
 	readonly onToggle: (id: string, next: boolean) => void;
+	readonly t: TFunction;
 }) {
+	const age = ageSentence(list, t);
 	return (
-		<label className="form-label" htmlFor={`watchlist-${id}`}>
+		<label className="form-label" htmlFor={`watchlist-${list.id}`}>
 			<input
-				id={`watchlist-${id}`}
+				id={`watchlist-${list.id}`}
 				type="checkbox"
 				checked={enabled}
-				onChange={(e) => onToggle(id, e.target.checked)}
+				onChange={(e) => onToggle(list.id, e.target.checked)}
 			/>{" "}
-			{title}
+			{list.title}{" "}
+			{/* The age rides INSIDE the label, so it is part of the checkbox's
+			    accessible name — a screen reader announces "EU Consolidated, Not
+			    updated for 3 days …" when the user lands on the control. The ⚠ is
+			    decorative; the warning is carried by the text, never by colour. */}
+			<span
+				className={
+					age.stale ? "watchlist-age watchlist-age--stale" : "watchlist-age"
+				}
+			>
+				{age.stale && (
+					<span aria-hidden="true" className="watchlist-age__icon">
+						⚠
+					</span>
+				)}
+				{age.text}
+			</span>{" "}
+			<span className="watchlist-age watchlist-age--count">
+				{t("watchlists.entities", { count: list.entitiesCount })}
+			</span>
 		</label>
 	);
 }
@@ -445,10 +494,10 @@ export default function SettingsPage() {
 						{catalog.map((list) => (
 							<WatchlistToggle
 								key={list.id}
-								id={list.id}
-								title={list.title}
+								list={list}
 								enabled={enabled.has(list.id)}
 								onToggle={toggleWatchlist}
+								t={t}
 							/>
 						))}
 					</section>

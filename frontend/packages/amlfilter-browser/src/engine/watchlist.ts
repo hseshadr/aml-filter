@@ -65,8 +65,62 @@ export interface WatchlistManifest {
 	readonly entitiesCount: number;
 }
 
-/** One list entry in the signed catalog: id, title, version, count + dir path. */
-export interface WatchlistCatalogEntry {
+/**
+ * How fresh ONE list's data actually is, independent of when the bundle was
+ * built. Mirrors the publisher's `ListFreshness` (amlfilter-publisher's
+ * stageBundle.ts) — the wire contract both sides must agree on.
+ *
+ * WHY IT IS PER-LIST: one flaky upstream used to block every list from
+ * refreshing. The publisher now refreshes each list independently and re-serves
+ * the last good copy of any list it could not refresh, keeping that copy's
+ * ORIGINAL `fetchedAt` and version. `catalog.generatedAt` therefore says nothing
+ * about how old any individual list is, and a user screening against a
+ * three-day-old EU list has to be able to see that.
+ */
+export interface ListFreshness {
+	/** When THIS copy of the list was fetched from upstream (ISO-8601 UTC). */
+	readonly fetchedAt: string;
+	/** The upstream's own stated publication instant, when it publishes one. */
+	readonly sourceUpdatedAt: string | null;
+	/** True when the publish run could not refresh this list and re-served the
+	 * last good copy. */
+	readonly stale: boolean;
+	/** The upstream failure that made it stale, verbatim. null when fresh. */
+	readonly staleReason: string | null;
+}
+
+/** True when `value` is a string that parses as a real instant. */
+function isInstantString(value: unknown): value is string {
+	return typeof value === "string" && Number.isFinite(Date.parse(value));
+}
+
+/**
+ * Narrow the four per-list freshness fields fail-closed.
+ *
+ * Every field is REQUIRED. Nothing is defaulted and nothing is invented: a
+ * missing `fetchedAt` is NOT "fetched now", and a missing `stale` is NOT
+ * `false`. A list whose age we cannot prove is a list we cannot honestly serve,
+ * so it is rejected rather than silently rendered as fresh.
+ *
+ * Takes the CONTAINING object (catalog entry or meta.json), because the wire
+ * format spreads these four fields flat into both.
+ */
+export function hasListFreshness(value: unknown): value is ListFreshness {
+	if (typeof value !== "object" || value === null) {
+		return false;
+	}
+	const f = value as Record<string, unknown>;
+	return (
+		isInstantString(f.fetchedAt) &&
+		(f.sourceUpdatedAt === null || isInstantString(f.sourceUpdatedAt)) &&
+		typeof f.stale === "boolean" &&
+		(f.staleReason === null || typeof f.staleReason === "string")
+	);
+}
+
+/** One list entry in the signed catalog: id, title, version, count, dir path —
+ * plus the per-list freshness the settings UI ages the list with. */
+export interface WatchlistCatalogEntry extends ListFreshness {
 	readonly id: string;
 	readonly title: string;
 	readonly version: string;
@@ -272,7 +326,7 @@ export function buildLoadedWatchlist(watchlist: Watchlist): LoadedWatchlist {
  * publisher's BundleListMeta). Carries the version + dim + count the bundle path
  * needs; the version becomes the LoadedWatchlist version (catalog cross-check
  * happens in the runtime, against the bundle catalog entry). */
-export interface BundleListMeta {
+export interface BundleListMeta extends ListFreshness {
 	readonly listId: string;
 	readonly version: string;
 	readonly generatedAt: string;
@@ -281,22 +335,39 @@ export interface BundleListMeta {
 	readonly entitiesCount: number;
 }
 
-/** Narrow a materialized, JSON-parsed bundle meta fail-closed. */
+/** The identity + geometry half of a bundle meta, narrowed.
+ *
+ * `generatedAt` and `model` were DECLARED on BundleListMeta but never narrowed —
+ * a guard that typed two fields it never checked. Both are validated here. */
+function hasBundleMetaShape(m: Record<string, unknown>): boolean {
+	return (
+		typeof m.listId === "string" &&
+		typeof m.version === "string" &&
+		isInstantString(m.generatedAt) &&
+		typeof m.model === "string" &&
+		m.model.length > 0 &&
+		typeof m.dim === "number" &&
+		Number.isFinite(m.dim) &&
+		typeof m.entitiesCount === "number" &&
+		Number.isFinite(m.entitiesCount)
+	);
+}
+
+/** Narrow a materialized, JSON-parsed bundle meta fail-closed — including the
+ * per-list freshness, which is required, never defaulted (see hasListFreshness). */
 function assertBundleListMeta(value: unknown): asserts value is BundleListMeta {
 	if (typeof value !== "object" || value === null) {
 		throw new WatchlistFormatError("bundle meta.json is not an object");
 	}
 	const m = value as Record<string, unknown>;
-	if (
-		typeof m.listId !== "string" ||
-		typeof m.version !== "string" ||
-		typeof m.dim !== "number" ||
-		typeof m.entitiesCount !== "number" ||
-		!Number.isFinite(m.dim) ||
-		!Number.isFinite(m.entitiesCount)
-	) {
+	if (!hasBundleMetaShape(m)) {
 		throw new WatchlistFormatError(
 			`bundle meta.json is malformed: ${JSON.stringify(value)}`,
+		);
+	}
+	if (!hasListFreshness(m)) {
+		throw new WatchlistFormatError(
+			`bundle meta.json has no provable freshness (fetchedAt, sourceUpdatedAt, stale, staleReason are all required): ${JSON.stringify(value)}`,
 		);
 	}
 }

@@ -72,18 +72,25 @@ function fixtureEntitiesJsonl(
 	);
 }
 
+/** A complete, well-formed meta.json object — the shape the publisher stages. */
+function metaObject(entitiesCount: number, dim = DIM): Record<string, unknown> {
+	return {
+		listId: "OFAC_SDN",
+		version: "demo-1",
+		generatedAt: "2026-06-22T00:00:00Z",
+		model: "Xenova/all-MiniLM-L6-v2",
+		dim,
+		entitiesCount,
+		fetchedAt: "2026-06-21T09:30:00Z",
+		sourceUpdatedAt: "2026-06-20T00:00:00Z",
+		stale: false,
+		staleReason: null,
+	};
+}
+
 /** meta.json bytes for the fixture. */
 function fixtureMeta(entitiesCount: number, dim = DIM): Uint8Array {
-	return ENCODER.encode(
-		JSON.stringify({
-			listId: "OFAC_SDN",
-			version: "demo-1",
-			generatedAt: "2026-06-22T00:00:00Z",
-			model: "Xenova/all-MiniLM-L6-v2",
-			dim,
-			entitiesCount,
-		}),
-	);
+	return ENCODER.encode(JSON.stringify(metaObject(entitiesCount, dim)));
 }
 
 /** A complete, valid set of bundle files for the fixture. */
@@ -93,6 +100,18 @@ function fixtureBundleFiles(): BundleListFiles {
 		entitiesJsonl: fixtureEntitiesJsonl(entities),
 		vectorsF32: fixtureVectorBytes(),
 		meta: fixtureMeta(entities.length),
+	};
+}
+
+/** The fixture's bundle files with one meta.json field mutated or deleted. */
+function filesWithMetaMutation(
+	mutate: (meta: Record<string, unknown>) => void,
+): BundleListFiles {
+	const meta = metaObject(2);
+	mutate(meta);
+	return {
+		...fixtureBundleFiles(),
+		meta: ENCODER.encode(JSON.stringify(meta)),
 	};
 }
 
@@ -205,6 +224,133 @@ describe("buildLoadedFromBundleFiles — fail-closed validation", () => {
 			entitiesJsonl: ENCODER.encode('{"entity_id":"x"}\n'),
 			meta: fixtureMeta(1),
 		};
+		expect(() => buildLoadedFromBundleFiles(files)).toThrow(
+			WatchlistFormatError,
+		);
+	});
+});
+
+// THE GUARD THAT HAS TO BE ABLE TO FAIL.
+//
+// `meta.json` declares how old this list's data actually is. A screening tool
+// that cannot age a list cannot honestly serve it: showing a three-day-old EU
+// list with no warning is a coverage claim nothing backs. So every freshness
+// field is REQUIRED and validated — never defaulted, never invented. A missing
+// `fetchedAt` is NOT "fetched now"; a missing `stale` is NOT `false`.
+//
+// The pre-existing hole closed here: `generatedAt` and `model` were DECLARED on
+// BundleListMeta but never narrowed, so any garbage in those fields sailed
+// through typed as `string`.
+describe("assertBundleListMeta — per-list freshness, fail-closed", () => {
+	it("accepts a meta.json carrying complete, parseable freshness", () => {
+		const loaded = buildLoadedFromBundleFiles(fixtureBundleFiles());
+		expect(loaded.listId).toBe("OFAC_SDN");
+	});
+
+	it("accepts a stale meta.json with a null sourceUpdatedAt and a reason", () => {
+		const files = filesWithMetaMutation((m) => {
+			m.stale = true;
+			m.staleReason = "EU feed returned HTTP 500";
+			m.sourceUpdatedAt = null;
+		});
+		expect(() => buildLoadedFromBundleFiles(files)).not.toThrow();
+	});
+
+	it("REJECTS a meta.json with no fetchedAt — a list we cannot age", () => {
+		const files = filesWithMetaMutation((m) => {
+			delete m.fetchedAt;
+		});
+		expect(() => buildLoadedFromBundleFiles(files)).toThrow(
+			WatchlistFormatError,
+		);
+		expect(() => buildLoadedFromBundleFiles(files)).toThrow(/freshness/);
+	});
+
+	it("REJECTS an empty-string fetchedAt", () => {
+		const files = filesWithMetaMutation((m) => {
+			m.fetchedAt = "";
+		});
+		expect(() => buildLoadedFromBundleFiles(files)).toThrow(/freshness/);
+	});
+
+	it("REJECTS an unparseable fetchedAt", () => {
+		const files = filesWithMetaMutation((m) => {
+			m.fetchedAt = "last Tuesday";
+		});
+		expect(() => buildLoadedFromBundleFiles(files)).toThrow(/freshness/);
+	});
+
+	it("REJECTS a non-string fetchedAt (an epoch number is not the wire type)", () => {
+		const files = filesWithMetaMutation((m) => {
+			m.fetchedAt = 1_782_000_000_000;
+		});
+		expect(() => buildLoadedFromBundleFiles(files)).toThrow(/freshness/);
+	});
+
+	it("REJECTS a missing stale flag — absence is NOT 'fresh'", () => {
+		const files = filesWithMetaMutation((m) => {
+			delete m.stale;
+		});
+		expect(() => buildLoadedFromBundleFiles(files)).toThrow(/freshness/);
+	});
+
+	it('REJECTS a stringly-typed stale flag ("yes" is not a boolean)', () => {
+		const files = filesWithMetaMutation((m) => {
+			m.stale = "yes";
+		});
+		expect(() => buildLoadedFromBundleFiles(files)).toThrow(/freshness/);
+	});
+
+	it("REJECTS a missing sourceUpdatedAt — null must be stated, not implied", () => {
+		const files = filesWithMetaMutation((m) => {
+			delete m.sourceUpdatedAt;
+		});
+		expect(() => buildLoadedFromBundleFiles(files)).toThrow(/freshness/);
+	});
+
+	it("REJECTS an unparseable sourceUpdatedAt", () => {
+		const files = filesWithMetaMutation((m) => {
+			m.sourceUpdatedAt = "not-a-date";
+		});
+		expect(() => buildLoadedFromBundleFiles(files)).toThrow(/freshness/);
+	});
+
+	it("REJECTS a missing staleReason", () => {
+		const files = filesWithMetaMutation((m) => {
+			delete m.staleReason;
+		});
+		expect(() => buildLoadedFromBundleFiles(files)).toThrow(/freshness/);
+	});
+
+	it("REJECTS a non-string, non-null staleReason", () => {
+		const files = filesWithMetaMutation((m) => {
+			m.staleReason = 500;
+		});
+		expect(() => buildLoadedFromBundleFiles(files)).toThrow(/freshness/);
+	});
+
+	it("REJECTS an unparseable generatedAt (the pre-existing unnarrowed hole)", () => {
+		const files = filesWithMetaMutation((m) => {
+			m.generatedAt = "whenever";
+		});
+		expect(() => buildLoadedFromBundleFiles(files)).toThrow(
+			WatchlistFormatError,
+		);
+	});
+
+	it("REJECTS a non-string model (the pre-existing unnarrowed hole)", () => {
+		const files = filesWithMetaMutation((m) => {
+			m.model = 42;
+		});
+		expect(() => buildLoadedFromBundleFiles(files)).toThrow(
+			WatchlistFormatError,
+		);
+	});
+
+	it("REJECTS an empty model", () => {
+		const files = filesWithMetaMutation((m) => {
+			m.model = "";
+		});
 		expect(() => buildLoadedFromBundleFiles(files)).toThrow(
 			WatchlistFormatError,
 		);

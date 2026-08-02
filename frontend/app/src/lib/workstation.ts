@@ -52,7 +52,8 @@ export interface RuntimePort {
 	/** Re-fetch + re-verify the watchlist, swap it in over the warm embedder. An
 	 * optional selection re-bootstraps for a new enabled set / thresholds. */
 	reload(selection?: RuntimeSelection): Promise<EngineHandle>;
-	/** Every list `{id, title}` in the signed catalog — the selectable set. */
+	/** Every list in the signed catalog — the selectable set, each entry carrying
+	 * its own version, entity count and per-list freshness. */
 	catalogLists(config?: RuntimeConfig): Promise<ReadonlyArray<CatalogListInfo>>;
 	/** Just the ids of every catalog list. */
 	catalogListIds(config?: RuntimeConfig): Promise<ReadonlyArray<string>>;
@@ -83,8 +84,9 @@ export interface WorkstationHandle extends WorkstationServices {
 	/** Re-fetch + re-verify the signed watchlist and swap it into the running
 	 * engine (reuses the warm embedder — no second model download). */
 	readonly reloadWatchlist: () => Promise<void>;
-	/** Every list `{id, title}` in the signed catalog — the selectable set the
-	 * Watchlists settings section renders a toggle for. */
+	/** Every list in the signed catalog — the selectable set the Watchlists
+	 * settings section renders a toggle for. Each entry carries its own version,
+	 * entity count and freshness, so the toggle can state how old the list is. */
 	readonly catalogLists: () => Promise<ReadonlyArray<CatalogListInfo>>;
 	/** The currently enabled watchlist ids (stored selection ∩ live catalog;
 	 * constrained/mobile browsers default to OFAC only; desktop keeps all lists). */

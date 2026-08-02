@@ -137,6 +137,8 @@ export {
 	buildLoadedFromBundleFiles,
 	buildLoadedWatchlist,
 	buildLoadedWatchlistMetadataFromBundleFiles,
+	hasListFreshness,
+	type ListFreshness,
 	type LoadedWatchlist,
 	type LoadedWatchlistMetadata,
 	type Watchlist,

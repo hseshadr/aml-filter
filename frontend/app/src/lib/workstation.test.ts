@@ -8,6 +8,21 @@ import {
 } from "./workstation";
 
 /** The first recorded call of a mock; every caller has already exercised it. */
+/** A complete CatalogListInfo — the runtime projects the signed catalog entry's
+ * version, count and per-list freshness, so the mocks carry them all. */
+function catalogList(id: string, title: string) {
+	return {
+		id,
+		title,
+		version: "demo-1",
+		entitiesCount: 2,
+		fetchedAt: "2026-08-01T08:00:00Z",
+		sourceUpdatedAt: "2026-08-01T06:00:00Z",
+		stale: false,
+		staleReason: null,
+	};
+}
+
 function firstCall<Args extends readonly unknown[]>(
 	calls: ReadonlyArray<Args>,
 ): Args {
@@ -52,10 +67,12 @@ function makeDeps(store: WorkstationStore): WorkstationDeps {
 			reload: vi.fn().mockResolvedValue({
 				screen: vi.fn().mockResolvedValue(response),
 			}),
-			catalogLists: vi.fn().mockResolvedValue([
-				{ id: "OFAC_SDN", title: "OFAC SDN" },
-				{ id: "EU_CONSOLIDATED", title: "EU Consolidated" },
-			]),
+			catalogLists: vi
+				.fn()
+				.mockResolvedValue([
+					catalogList("OFAC_SDN", "OFAC SDN"),
+					catalogList("EU_CONSOLIDATED", "EU Consolidated"),
+				]),
 			catalogListIds: vi
 				.fn()
 				.mockResolvedValue(["OFAC_SDN", "EU_CONSOLIDATED"]),
@@ -225,13 +242,13 @@ describe("workstation boot", () => {
 		expect(deps.runtime.bootstrap).not.toHaveBeenCalled();
 	});
 
-	it("catalogLists delegates to the runtime (id + title)", async () => {
+	it("catalogLists delegates to the runtime, freshness intact", async () => {
 		const deps = makeDeps(makeStore());
 		const handle = await workstation(deps);
 		await handle.engineBoot();
 		expect(await handle.catalogLists()).toEqual([
-			{ id: "OFAC_SDN", title: "OFAC SDN" },
-			{ id: "EU_CONSOLIDATED", title: "EU Consolidated" },
+			catalogList("OFAC_SDN", "OFAC SDN"),
+			catalogList("EU_CONSOLIDATED", "EU Consolidated"),
 		]);
 	});
 
@@ -302,8 +319,7 @@ describe("workstation boot", () => {
 			() =>
 				new Promise((resolve) => {
 					events.push("catalog");
-					releaseCatalog = () =>
-						resolve([{ id: "OFAC_SDN", title: "OFAC SDN" }]);
+					releaseCatalog = () => resolve([catalogList("OFAC_SDN", "OFAC SDN")]);
 				}),
 		);
 		vi.mocked(deps.runtime.clearListCache).mockImplementation(async () => {

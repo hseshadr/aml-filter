@@ -23,6 +23,8 @@ import type { OnSyncProgress, SyncResult } from "./sync/types";
 import {
 	buildLoadedFromBundleFiles,
 	buildLoadedWatchlistMetadataFromBundleFiles,
+	hasListFreshness,
+	type ListFreshness,
 	type LoadedWatchlist,
 	type LoadedWatchlistMetadata,
 	type WatchlistCatalog,
@@ -32,8 +34,9 @@ import {
 
 const DECODER = new TextDecoder();
 
-/** One list entry in the bundle's materialized `catalog.json`. */
-interface BundleCatalogList {
+/** One list entry in the bundle's materialized `catalog.json`, including the
+ * per-list freshness the settings UI ages the list with. */
+interface BundleCatalogList extends ListFreshness {
 	readonly id: string;
 	readonly title: string;
 	readonly slug: string;
@@ -48,7 +51,10 @@ interface BundleCatalog {
 	readonly lists: ReadonlyArray<BundleCatalogList>;
 }
 
-/** Narrow a single materialized bundle catalog entry fail-closed. */
+/** Narrow a single materialized bundle catalog entry fail-closed — identity AND
+ * provable freshness. An entry that cannot state its own age is rejected, not
+ * defaulted to fresh: `catalog.json` is the only place the settings UI can learn
+ * a list's age before any list directory is downloaded. */
 function isBundleCatalogList(value: unknown): value is BundleCatalogList {
 	if (typeof value !== "object" || value === null) {
 		return false;
@@ -60,7 +66,8 @@ function isBundleCatalogList(value: unknown): value is BundleCatalogList {
 		typeof e.slug === "string" &&
 		typeof e.version === "string" &&
 		typeof e.entitiesCount === "number" &&
-		Number.isFinite(e.entitiesCount)
+		Number.isFinite(e.entitiesCount) &&
+		hasListFreshness(e)
 	);
 }
 
@@ -81,7 +88,7 @@ function assertBundleCatalog(value: unknown): asserts value is BundleCatalog {
 	for (const entry of c.lists) {
 		if (!isBundleCatalogList(entry)) {
 			throw new WatchlistFormatError(
-				`bundle catalog has a malformed list entry: ${JSON.stringify(entry)}`,
+				`bundle catalog has a malformed list entry (id, title, slug, version, entitiesCount and provable freshness are all required): ${JSON.stringify(entry)}`,
 			);
 		}
 	}
@@ -102,6 +109,12 @@ function toWatchlistCatalog(bundle: BundleCatalog): WatchlistCatalog {
 			// `slug/` mirrors the JSON catalog's `path` (e.g. "ofac/") so the slug is
 			// recoverable for materialization via `entry.path.replace(/\/$/, "")`.
 			path: `${l.slug}/`,
+			// Carried, not recomputed: this is the ONLY place a caller can learn how
+			// old the list actually is, so dropping it here would blind the UI.
+			fetchedAt: l.fetchedAt,
+			sourceUpdatedAt: l.sourceUpdatedAt,
+			stale: l.stale,
+			staleReason: l.staleReason,
 		})),
 	};
 }
