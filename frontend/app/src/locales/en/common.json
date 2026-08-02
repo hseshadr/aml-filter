@@ -34,7 +34,7 @@
 		"engine": {
 			"downloading": "downloading the sanctions list…",
 			"verified": "preparing the screening index…",
-			"loadingModel": "loading the name-matching model…{{pct}}"
+			"loadingModel": "loading the name-matching model…{{detail}}"
 		},
 		"engineStatus": "Screening engine: {{label}}",
 		"watchlistUpdated": "Watchlist updated: re-screened {{count}} customer(s) — {{newHits}} new hit(s), {{clearedHits}} cleared."

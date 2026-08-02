@@ -19,8 +19,8 @@ type BootStage =
 			readonly kind: "loading-model";
 			readonly progress?: {
 				readonly loaded: number;
-				readonly total: number;
-				readonly pct: number;
+				readonly total?: number;
+				readonly pct?: number;
 			};
 	  }
 	| { readonly kind: "ready" };
@@ -79,6 +79,18 @@ describe("ScreenPage boot banner — model-load progress", () => {
 		// The boot banner is the role="status" region.
 		await waitFor(() => expect(screen.getByRole("status")).toBeTruthy());
 		expect(screen.getByRole("status").textContent).toMatch(/42\s*%/);
+	});
+
+	it("shows megabytes, never a fabricated percent, when no total is known", async () => {
+		// A server that withholds content-length leaves no honest denominator.
+		// The banner must still move — bytes are always known — but it must not
+		// print a percentage derived from a made-up total.
+		setScript([{ kind: "loading-model", progress: { loaded: 5_242_880 } }]);
+		render(<ScreenPage />);
+		await waitFor(() => expect(screen.getByRole("status")).toBeTruthy());
+		const text = screen.getByRole("status").textContent ?? "";
+		expect(text).toMatch(/5\.2\s*MB/i);
+		expect(text).not.toMatch(/%/);
 	});
 
 	it("renders the plain loading line when there is no progress yet", async () => {

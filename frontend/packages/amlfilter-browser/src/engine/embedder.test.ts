@@ -4,92 +4,41 @@ import {
 	configureOrtWasmPaths,
 	createEmbedder,
 	createEmbedderWith,
+	createEmbedderWithPipeline,
 	EMBEDDING_DTYPE,
 	EMBEDDING_MODEL,
-	mapProgress,
+	type EmbedProgress,
 	type OrtWasmEnvLike,
+	transformersFetchScope,
 } from "./embedder";
+import { type FetchScope, MODEL_ASSET_PREFIX } from "./modelFetchProgress";
 
-// Unit-tests the pure progress-mapping seam: a transformers.js ProgressInfo with
-// status "progress" maps to {loaded,total,pct}; every other status emits nothing.
-// This is the narrowing that, if wrong, means the boot banner never shows a %.
+const MODEL_FILE = `${MODEL_ASSET_PREFIX}${EMBEDDING_MODEL}/onnx/model_quantized.onnx`;
 
-describe("mapProgress", () => {
-	it("maps a status:progress event to {loaded,total,pct}", () => {
-		const info: ProgressInfo = {
-			status: "progress",
-			name: "Xenova/all-MiniLM-L6-v2",
-			file: "onnx/model_quantized.onnx",
-			progress: 42,
-			loaded: 42,
-			total: 100,
-		};
-		expect(mapProgress(info)).toEqual({ loaded: 42, total: 100, pct: 42 });
-	});
-
-	it("computes pct from loaded/total rather than trusting the field blindly", () => {
-		const info: ProgressInfo = {
-			status: "progress",
-			name: "m",
-			file: "f",
-			progress: 0,
-			loaded: 5,
-			total: 20,
-		};
-		expect(mapProgress(info)?.pct).toBe(25);
-	});
-
-	it("yields undefined pct-divide safety when total is zero", () => {
-		const info: ProgressInfo = {
-			status: "progress",
-			name: "m",
-			file: "f",
-			progress: 0,
-			loaded: 0,
-			total: 0,
-		};
-		expect(mapProgress(info)).toEqual({ loaded: 0, total: 0, pct: 0 });
-	});
-
-	it("clamps pct to 100 when loaded exceeds total (compressed transfer)", () => {
-		// transformers.js can report loaded > total for gzip/br transfers, which
-		// would otherwise render as "108%".
-		const info: ProgressInfo = {
-			status: "progress",
-			name: "m",
-			file: "f",
-			progress: 108,
-			loaded: 108,
-			total: 100,
-		};
-		expect(mapProgress(info)?.pct).toBe(100);
-	});
-
-	it("clamps pct to 0 for a negative loaded value", () => {
-		const info: ProgressInfo = {
-			status: "progress",
-			name: "m",
-			file: "f",
-			progress: 0,
-			loaded: -10,
-			total: 100,
-		};
-		expect(mapProgress(info)?.pct).toBe(0);
-	});
-
-	it.each([
-		{ status: "initiate" as const, name: "m", file: "f" },
-		{ status: "done" as const, name: "m", file: "f" },
-		{ status: "ready" as const, task: "feature-extraction", model: "m" },
-	])("emits nothing for status:$status", (info) => {
-		expect(mapProgress(info as ProgressInfo)).toBeUndefined();
-	});
-});
+/** A fetch scope that answers the model URL with a two-chunk 100-byte body —
+ * the smallest stand-in for the ~23 MB weights the real load streams. */
+function fakeModelScope(): FetchScope {
+	return {
+		fetch: () =>
+			Promise.resolve(
+				new Response(
+					new ReadableStream<Uint8Array>({
+						start(controller) {
+							controller.enqueue(new Uint8Array(40));
+							controller.enqueue(new Uint8Array(60));
+							controller.close();
+						},
+					}),
+					{ status: 200, headers: { "content-length": "100" } },
+				),
+			),
+	};
+}
 
 describe("createEmbedder progress threading", () => {
-	it("omits the progress callback that makes transformers.js fetch the ONNX model three times", async () => {
-		const { createEmbedderWithPipeline } = await import("./embedder");
-		const onProgress = vi.fn();
+	it("still omits the progress callback that makes transformers.js re-fetch the ONNX model", async () => {
+		// The library callback stays off: in 4.2.0 its presence adds a metadata
+		// pass that, under allowLocalModels, is a SECOND full GET of the weights.
 		let receivedOptions: {
 			dtype?: string;
 			progress_callback?: (i: ProgressInfo) => void;
@@ -107,33 +56,79 @@ describe("createEmbedder progress threading", () => {
 				return async () => ({ data: new Float32Array(384) });
 			},
 		);
-		const embedder = createEmbedderWithPipeline(fakePipeline, onProgress);
+		const embedder = createEmbedderWithPipeline(fakePipeline, vi.fn());
 		await embedder.embed("warm up");
 
 		expect(receivedOptions.progress_callback).toBeUndefined();
-		expect(onProgress).not.toHaveBeenCalled();
 	});
 
-	it("does not emit for a non-progress status during load", async () => {
-		const { createEmbedderWithPipeline } = await import("./embedder");
-		const onProgress = vi.fn();
-		const fakePipeline = vi.fn(
-			async (
-				_task: string,
-				_model: string,
-				opts?: {
-					dtype?: string;
-					progress_callback?: (i: ProgressInfo) => void;
-				},
-			) => {
-				opts?.progress_callback?.({ status: "done", name: "m", file: "f" });
-				return async () => ({ data: new Float32Array(384) });
-			},
+	it("feeds the sink real download bytes metered off the fetch scope", async () => {
+		// The bug this fixes: the sink was wired end-to-end (worker → client →
+		// runtime → banner) and dropped on the floor here, so the ~23 MB model
+		// phase was the one part of the boot that showed no progress at all.
+		const seen: EmbedProgress[] = [];
+		const scope = fakeModelScope();
+		const fakePipeline = vi.fn(async () => {
+			await (await scope.fetch(MODEL_FILE)).arrayBuffer();
+			return async () => ({ data: new Float32Array(384) });
+		});
+
+		const embedder = createEmbedderWithPipeline(
+			fakePipeline,
+			(p) => seen.push(p),
+			() => scope,
 		);
-		const embedder = createEmbedderWithPipeline(fakePipeline, onProgress);
 		await embedder.embed("warm up");
 
-		expect(onProgress).not.toHaveBeenCalled();
+		expect(seen.map((p) => p.loaded)).toEqual([40, 100]);
+		expect(seen.at(-1)?.pct).toBe(100);
+	});
+
+	it("restores the scope's fetch once the load is done", async () => {
+		const scope = fakeModelScope();
+		const original = scope.fetch;
+		const fakePipeline = vi.fn(async () => {
+			await (await scope.fetch(MODEL_FILE)).arrayBuffer();
+			return async () => ({ data: new Float32Array(384) });
+		});
+
+		const embedder = createEmbedderWithPipeline(
+			fakePipeline,
+			vi.fn(),
+			() => scope,
+		);
+		await embedder.embed("warm up");
+
+		expect(scope.fetch).toBe(original);
+	});
+
+	it("does not touch the fetch scope when no sink is wired", async () => {
+		const scope = fakeModelScope();
+		const original = scope.fetch;
+		const fakePipeline = vi.fn(async () => {
+			expect(scope.fetch).toBe(original);
+			return async () => ({ data: new Float32Array(384) });
+		});
+
+		const embedder = createEmbedderWithPipeline(
+			fakePipeline,
+			undefined,
+			() => scope,
+		);
+		await embedder.embed("warm up");
+
+		expect(fakePipeline).toHaveBeenCalledOnce();
+	});
+});
+
+describe("transformersFetchScope", () => {
+	it("resolves the REAL transformers.js env.fetch knob", () => {
+		// Not a fake: if the library ever moves `env.fetch`, metering would
+		// silently stop and the banner would freeze again. That must fail here.
+		expect(typeof transformersFetchScope().fetch).toBe("function");
+		expect(transformersFetchScope().fetch).toBe(
+			(env as unknown as FetchScope).fetch,
+		);
 	});
 });
 
