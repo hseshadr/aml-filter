@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { createWorkerEmbedder, type WorkerLike } from "./embedderClient";
 import type { EmbedRequest, WorkerMessage } from "./embedderWorker";
+import { errorPayload } from "./sync/errorEnvelope";
+import { WatchlistFormatError } from "./watchlist";
 
 // A controllable Worker double: captures the message listener so a test can
 // push worker→client messages by hand, and records what the client posts.
@@ -91,9 +93,18 @@ describe("WorkerEmbedder message routing", () => {
 			throw new Error("expected the embed request to be posted");
 		}
 		const id = first.id;
-		emit({ type: "result", ok: false, id, error: "kaboom" });
+		emit({
+			type: "result",
+			ok: false,
+			id,
+			...errorPayload(new WatchlistFormatError("kaboom")),
+		});
 
 		await expect(pending).rejects.toThrow("kaboom");
+		// The type must cross the embedder boundary too, not just the message.
+		await expect(pending).rejects.toMatchObject({
+			name: "WatchlistFormatError",
+		});
 	});
 
 	it("tolerates a progress message when no onProgress sink is wired", () => {

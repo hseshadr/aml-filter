@@ -136,7 +136,7 @@ describe("embedderWorker", () => {
 		expect(progressMsg).toMatchObject({ type: "progress", id: 1 });
 	});
 
-	it("replies ok:false with the Error's message when the embed fails", async () => {
+	it("replies ok:false with the Error's message AND type when the embed fails", async () => {
 		const stub = installSelf();
 		const mod = (await import("./embedder")) as unknown as {
 			__failEmbed: (reason: unknown) => void;
@@ -148,11 +148,14 @@ describe("embedderWorker", () => {
 		await Promise.resolve();
 		await Promise.resolve();
 
+		// `errorName` is part of the envelope: without it a typed model failure
+		// reaches the main thread as an untyped Error (see sync/errorEnvelope.ts).
 		expect(stub.posted).toContainEqual({
 			type: "result",
 			ok: false,
 			id: 5,
 			error: "model load failed",
+			errorName: "Error",
 		});
 	});
 
@@ -173,6 +176,7 @@ describe("embedderWorker", () => {
 			ok: false,
 			id: 6,
 			error: "wasm out of memory",
+			errorName: "Error",
 		});
 	});
 });

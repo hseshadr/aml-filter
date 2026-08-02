@@ -15,6 +15,7 @@ import type {
 	ProgressMessage,
 	WorkerMessage,
 } from "./embedderWorker";
+import { rebuildError } from "./sync/errorEnvelope";
 
 /** A minimal Worker surface — what this client needs, so it is easy to fake. */
 export interface WorkerLike {
@@ -91,7 +92,7 @@ class WorkerEmbedder implements Embedder {
 		if (response.ok) {
 			entry.resolve(response.vector);
 		} else {
-			entry.reject(new Error(response.error));
+			entry.reject(rebuildError(response));
 		}
 	}
 

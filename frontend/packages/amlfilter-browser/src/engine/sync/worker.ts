@@ -5,6 +5,7 @@
 /// <reference lib="webworker" />
 
 import { verifyEd25519 } from "../crypto";
+import { toErrorResponse } from "./errorEnvelope";
 import { fetchBytes } from "./fetchBytes";
 import {
 	type WebLockManager,
@@ -127,12 +128,9 @@ self.addEventListener("message", (event: MessageEvent<EngineRequest>) => {
 			self.postMessage(response, transferables(response));
 		})
 		.catch((error: unknown) => {
-			const message = error instanceof Error ? error.message : String(error);
-			const response: EngineResponse = {
-				ok: false,
-				id: req.id,
-				error: message,
-			};
-			self.postMessage(response);
+			// Carry the error's TYPE, not just its text: postMessage structured-clones
+			// the payload and drops prototypes, so `.name` has to travel as data or
+			// every type-based branch on the main thread is dead. See errorEnvelope.ts.
+			self.postMessage(toErrorResponse(req.id, error));
 		});
 });

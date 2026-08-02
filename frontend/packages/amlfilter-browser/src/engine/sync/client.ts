@@ -2,6 +2,7 @@
 // OPFS sync access handles, so it only sends typed requests and awaits replies.
 // One in-flight map keyed by request id correlates responses to promises.
 
+import { fromErrorResponse } from "./errorEnvelope";
 import type { EngineOutbound, EngineRequest, EngineResponse } from "./protocol";
 import type { OnSyncProgress, SyncResult } from "./types";
 
@@ -102,7 +103,7 @@ export class EngineClient {
 			if (response.ok && response.kind === "sync") {
 				return response.result;
 			}
-			throw new Error(this.#errorOf(response));
+			throw this.#rejectionFor(response);
 		} finally {
 			this.#progress.delete(id);
 		}
@@ -118,14 +119,14 @@ export class EngineClient {
 		if (response.ok && response.kind === "readFile") {
 			return response.bytes;
 		}
-		throw new Error(this.#errorOf(response));
+		throw this.#rejectionFor(response);
 	}
 
 	/** Drop the durable store (every chunk + manifest + the active pointer). */
 	public async clear(): Promise<void> {
 		const response = await this.#send({ kind: "clear", id: this.#allocId() });
 		if (!(response.ok && response.kind === "clear")) {
-			throw new Error(this.#errorOf(response));
+			throw this.#rejectionFor(response);
 		}
 	}
 
@@ -138,8 +139,13 @@ export class EngineClient {
 		return this.#nextId;
 	}
 
-	#errorOf(response: EngineResponse): string {
-		return response.ok ? "unexpected response kind" : response.error;
+	/** The rejection for a non-success reply, with the Worker's error TYPE intact.
+	 * A plain `new Error(response.error)` here would discard `.name` and leave
+	 * every downstream type-based branch unreachable in production. */
+	#rejectionFor(response: EngineResponse): Error {
+		return response.ok
+			? new Error("unexpected response kind")
+			: fromErrorResponse(response);
 	}
 
 	#send(request: EngineRequest): Promise<EngineResponse> {

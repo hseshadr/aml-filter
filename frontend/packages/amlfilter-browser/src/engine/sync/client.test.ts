@@ -5,7 +5,9 @@
 // the full contract with no OPFS and no real module Worker.
 
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { SignatureError } from "../crypto";
 import { EngineClient } from "./client";
+import { toErrorResponse } from "./errorEnvelope";
 import type { EngineOutbound, EngineRequest } from "./protocol";
 import type { SyncProgress, SyncResult } from "./types";
 
@@ -171,23 +173,27 @@ describe("EngineClient request/response correlation", () => {
 		await expect(pending).resolves.toBeUndefined();
 	});
 
-	it("rejects with the worker's error message on an ok:false reply", async () => {
+	it("rejects with the worker's error message AND type on an ok:false reply", async () => {
 		const { client, worker } = clientOver();
 		const pending = client.sync("/bundle/origin", "/public.key");
-		worker.emit({
-			ok: false,
-			id: idAt(worker, 0),
-			error: "latest pointer failed signature verify",
-		});
+		// Built with the production serializer, not by hand: a test that hand-rolls
+		// the envelope proves nothing about what the Worker actually sends.
+		worker.emit(
+			toErrorResponse(
+				idAt(worker, 0),
+				new SignatureError("latest pointer failed signature verify"),
+			),
+		);
 		await expect(pending).rejects.toThrow(
 			"latest pointer failed signature verify",
 		);
+		await expect(pending).rejects.toMatchObject({ name: "SignatureError" });
 	});
 
 	it("clear rejects with the worker's error message on an ok:false reply", async () => {
 		const { client, worker } = clientOver();
 		const pending = client.clear();
-		worker.emit({ ok: false, id: idAt(worker, 0), error: "store is locked" });
+		worker.emit(toErrorResponse(idAt(worker, 0), new Error("store is locked")));
 		await expect(pending).rejects.toThrow("store is locked");
 	});
 

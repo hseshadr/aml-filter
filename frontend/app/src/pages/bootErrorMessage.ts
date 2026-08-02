@@ -35,6 +35,41 @@ const MEMORY_TEXT =
 	/out of memory|memory\.grow|wasm(?:assembly)?\s+memory|allocation failed/i;
 
 /**
+ * Every fail-closed verdict from the bundle-verification path, by `.name`.
+ *
+ * These are the failures that mean "these bytes could not be trusted", and they
+ * all deserve the same user-facing answer — "Screening list verification
+ * failed" — not the generic engine-unavailable fallback.
+ *
+ * `SignatureError` is the one this set was written for. It is the product's
+ * central security claim (a bundle whose ed25519 signature does not verify is
+ * refused), and it was NOT matched by any branch: a live signature failure fell
+ * all the way through to `internal.unknown` and told the visitor to "Close
+ * another AML-Filter tab". Two independent defects produced that — the Worker
+ * boundary dropped the error's type (see errorEnvelope.ts), and even with the
+ * type intact nothing here claimed it.
+ *
+ * Deliberately NOT in this set: `StoreLockTimeoutError` /
+ * `StoreLockUnsupportedError`, which really are "another tab holds the store" —
+ * the engine-unavailable fallback is the correct copy for those, and the
+ * boundary tests pin that it stays reachable.
+ */
+const VERIFICATION_FAILURES: ReadonlySet<string> = new Set([
+	// ed25519 detached-signature verify failed, or the signature was absent/malformed.
+	"SignatureError",
+	// A stored object failed its content-address (sha256(plaintext) == name) check.
+	"IntegrityError",
+	// A signature-valid pointer tried to move the active version BACKWARDS.
+	"RollbackError",
+	// Fail-closed decode bounds: a chunk declared or expanded past its envelope.
+	"DecompressionLimitError",
+	"UndeclaredSizeError",
+	// A response exceeded the authenticated bundle transport envelope. Unlike an
+	// unreachable origin this must never fall back to stale cached data.
+	"FetchLimitError",
+]);
+
+/**
  * AML-Filter's bundle-load error catalog, expressed in the shared
  * `@edgeproc/errors` vocabulary (the portfolio canonical-errors standard,
  * vendored at `packages/edgeproc-errors`). Each code is REUSED from the library's
@@ -66,7 +101,7 @@ const BUNDLE_ERROR_CATALOG = {
 	},
 	"bundle.integrity_failed": {
 		...starterPack["bundle.integrity_failed"],
-		match: (raw: unknown) => nameOf(raw) === "IntegrityError",
+		match: (raw: unknown) => VERIFICATION_FAILURES.has(nameOf(raw)),
 	},
 	"bundle.timeout": {
 		...starterPack["bundle.timeout"],

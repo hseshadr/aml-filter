@@ -47,10 +47,18 @@ interface ClearOk {
 	readonly kind: "clear";
 }
 
-interface EngineErr {
+/**
+ * A failed request. `errorName` carries the thrown value's `.name` as DATA —
+ * structured clone drops prototypes, so this is the only thing that survives the
+ * boundary to tell a fail-closed `SignatureError` apart from an unknown failure.
+ * Build it with `toErrorResponse` and consume it with `fromErrorResponse`
+ * (errorEnvelope.ts) rather than by hand.
+ */
+export interface EngineErr {
 	readonly ok: false;
 	readonly id: number;
 	readonly error: string;
+	readonly errorName: string;
 }
 
 export type EngineResponse = SyncOk | ReadFileOk | ClearOk | EngineErr;
