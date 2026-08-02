@@ -68,6 +68,14 @@ async function buildStagedList(list: DemoList): Promise<StagedList> {
 		dim: EMBEDDING_DIM,
 		entities,
 		vectors,
+		// Fixed like the version and generatedAt: this bundle's whole point is
+		// byte-stability, so its freshness is a constant, never a wall clock.
+		freshness: {
+			fetchedAt: DEMO_GENERATED_AT,
+			sourceUpdatedAt: null,
+			stale: false,
+			staleReason: null,
+		},
 	};
 }
 

@@ -3,9 +3,13 @@
 // stage them with stageBundle(), then shell out to `edgeproc publish` to chunk +
 // Ed25519-sign the staging tree into the content-addressed
 // `origin/{latest, manifest/<hash>, chunk/<hash>}` layout the in-tab sync tier
-// consumes. This production path is fail-closed: OFAC, UN, EU, and UK must all
-// fetch, parse to plausible non-zero counts, and prove freshness before a new
-// signed bundle can be emitted.
+// consumes. Every list must fetch, parse to a plausible non-zero count, and
+// prove freshness — but each list is now refreshed, and therefore fails, on its
+// OWN. A list whose upstream is unreachable is re-served from the bundle already
+// published (verified end-to-end, marked stale, keeping its real age) so one
+// flaky third party cannot age the lists that are healthy. It is still
+// fail-closed where it counts: a list that can be neither refreshed nor proven
+// from the published bundle aborts the publish rather than quietly vanish.
 //
 // Run from frontend/ (the publish CI does this) via the thin
 // `buildRealBundleMain.ts` entry — this module is the importable library it
@@ -20,6 +24,7 @@
 // WATCHLIST_SIGNING_KEY secret); the produced /latest signature verifies in-tab
 // against the committed public.key.
 
+import { readFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -29,6 +34,7 @@ import {
 	EMBEDDING_MODEL,
 	type Embedder,
 } from "@amlfilter/browser";
+import { carryForwardList } from "./carryForwardList.ts";
 import { createNodeEmbedder } from "./nodeEmbedder.ts";
 import { publishBundle } from "./publishBundle.ts";
 import { toWatchlistEntity } from "./sourceEntity.ts";
@@ -45,6 +51,7 @@ import { unSource } from "./sources/unSource.ts";
 import { type StagedList, stageBundle } from "./stageBundle.ts";
 import type { WatchlistEntity } from "./types.ts";
 import { packVectors } from "./vectors.ts";
+import { httpFetchBytes } from "./verifyPublishedOrigin.ts";
 
 /** One source to attempt: the adapter + the bundle path slug (e.g. "ofac"). */
 export interface RealBundleSourceSpec {
@@ -66,6 +73,28 @@ export interface RealBundleSourceSpec {
 export interface RealBundleDependencies {
 	readonly sources?: readonly RealBundleSourceSpec[];
 	readonly now?: () => Date;
+	readonly carryForward?: CarryForward;
+}
+
+/**
+ * Re-serve one list from the ALREADY-PUBLISHED bundle, because this run could
+ * not refresh it. Injected rather than imported so the staging glue stays
+ * testable without a network — and so a publisher with no live origin to fall
+ * back on (a first publish) simply fails closed, exactly as it always did.
+ *
+ * The returned list must carry its OWN age and `stale: true`; see
+ * carryForwardList, which verifies the whole trust chain before handing bytes back.
+ */
+export type CarryForward = (
+	failed: RealBundleSourceSpec,
+	reason: string,
+) => Promise<StagedList>;
+
+/** One list this run could not refresh, and the age it is being served with. */
+export interface CarriedListReport {
+	readonly listId: string;
+	readonly fetchedAt: string;
+	readonly reason: string;
 }
 
 /** Which alias coverage the produced bundle actually has. `records-only` means
@@ -82,6 +111,9 @@ export interface AliasEnrichmentReport {
 export interface StagedLists {
 	readonly lists: readonly StagedList[];
 	readonly aliases: AliasEnrichmentReport;
+	/** Lists re-served from the published bundle because their feed was down.
+	 * Empty on a fully refreshed run. */
+	readonly carried: readonly CarriedListReport[];
 }
 
 /** The bundle id stamped into the signed pointer (matches the demo bundle). */
@@ -159,11 +191,13 @@ function requirePlausibleCount(
 	}
 }
 
+/** Validate the upstream's own publication instant and RETURN it, so the staged
+ * list can publish the age it actually has instead of discarding the evidence. */
 function requireFreshSource(
 	spec: RealBundleSourceSpec,
 	raw: Awaited<ReturnType<WatchlistSource["fetchRaw"]>>,
 	now: Date,
-): void {
+): string {
 	const updatedAt = spec.source.sourceUpdatedAt?.(raw)?.trim();
 	if (updatedAt === undefined || updatedAt === "") {
 		throw new Error(`${spec.source.id}: freshness timestamp is missing`);
@@ -182,6 +216,7 @@ function requireFreshSource(
 			`${spec.source.id}: freshness age exceeds ${maximumDays} days`,
 		);
 	}
+	return updatedAt;
 }
 
 /** Run a source's optional alias enrichment. A failure DEGRADES, never throws:
@@ -232,7 +267,7 @@ async function stageOneSource(
 			{ cause: error },
 		);
 	}
-	requireFreshSource(spec, raw, now);
+	const sourceUpdatedAt = requireFreshSource(spec, raw, now);
 	const parsed = spec.source.parse(raw, version);
 	// Count the RECORDS the feed published, before any alias enrichment — the
 	// health band is about population, and enrichment cannot change it.
@@ -254,27 +289,81 @@ async function stageOneSource(
 		dim: EMBEDDING_DIM,
 		entities,
 		vectors,
+		freshness: {
+			fetchedAt: now.toISOString(),
+			sourceUpdatedAt,
+			stale: false,
+			staleReason: null,
+		},
 	};
 }
 
-/** Validate and stage every required source, preserving configured order. */
+/**
+ * Stage every required source, preserving configured order.
+ *
+ * PER-LIST INDEPENDENCE. Each list is refreshed — and therefore fails — on its
+ * own. When one cannot be refreshed, `carryForward` re-serves the copy already
+ * published (verified end-to-end, marked stale, keeping its own age) and the
+ * remaining lists still refresh normally. Before this, one 500 from the EU
+ * webgate aged OFAC too, which is the list every visitor screens against.
+ *
+ * Still fail-closed, at the point where it matters: with no `carryForward`
+ * configured, or when the published copy cannot be proven either, the whole
+ * publish aborts rather than emit a bundle missing a list it claims to carry.
+ */
 export async function stagedListsFromSources(
 	specs: readonly RealBundleSourceSpec[],
 	embedder: Embedder,
 	version: string,
 	_log?: (message: string) => void,
 	now: () => Date = () => new Date(),
+	carryForward?: CarryForward,
 ): Promise<StagedLists> {
 	const staged: StagedList[] = [];
 	const reports: AliasEnrichmentReport[] = [];
+	const carried: CarriedListReport[] = [];
 	for (const spec of specs) {
-		staged.push(
-			await stageOneSource(spec, embedder, version, now(), (r) =>
-				reports.push(r),
-			),
+		const collect = (r: AliasEnrichmentReport) => reports.push(r);
+		try {
+			staged.push(
+				await stageOneSource(spec, embedder, version, now(), collect),
+			);
+		} catch (error) {
+			if (carryForward === undefined) {
+				throw error;
+			}
+			const list = await carryOrAbort(spec, error, carryForward);
+			staged.push(list);
+			carried.push({
+				listId: list.listId,
+				fetchedAt: list.freshness.fetchedAt,
+				reason: list.freshness.staleReason ?? messageOf(error),
+			});
+		}
+	}
+	return { lists: staged, aliases: mergeAliasReports(reports), carried };
+}
+
+/** Re-serve the published copy, or abort: a list we can neither refresh nor
+ * prove is a coverage claim with nothing behind it. */
+async function carryOrAbort(
+	spec: RealBundleSourceSpec,
+	failure: unknown,
+	carryForward: CarryForward,
+): Promise<StagedList> {
+	const reason = messageOf(failure);
+	try {
+		return await carryForward(spec, reason);
+	} catch (cause) {
+		throw new Error(
+			`${spec.source.id}: could not refresh (${reason}) and could not re-serve the published copy (${messageOf(cause)})`,
+			{ cause },
 		);
 	}
-	return { lists: staged, aliases: mergeAliasReports(reports) };
+}
+
+function messageOf(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
 }
 
 /** One bundle-wide verdict: any degraded source degrades the whole bundle, so a
@@ -306,6 +395,11 @@ interface RealBundleArgs {
 	readonly keyPath: string;
 	readonly outDir: string;
 	readonly models: string;
+	/** The live origin to re-serve an unrefreshable list from. Optional: without
+	 * it (a first publish, or a local build) the run fails closed as before. */
+	readonly liveBaseUrl?: string;
+	/** The pinned public key the live origin's pointer must verify against. */
+	readonly pubkeyPath?: string;
 }
 
 export function parseRealBundleArgs(argv: readonly string[]): RealBundleArgs {
@@ -327,13 +421,46 @@ export function parseRealBundleArgs(argv: readonly string[]): RealBundleArgs {
 	if (!Number.isSafeInteger(sequence) || sequence < 0) {
 		throw new Error("--sequence must be a non-negative safe integer");
 	}
+	const liveBaseUrl = map.get("live-base-url");
+	const pubkeyPath = map.get("pubkey");
+	// Both or neither: a base URL with no key to verify it against would invite
+	// re-serving bytes nobody signed.
+	if ((liveBaseUrl === undefined) !== (pubkeyPath === undefined)) {
+		throw new Error("--live-base-url and --pubkey must be given together");
+	}
 	return {
 		version: map.get("version") as string,
 		sequence,
 		keyPath: resolve(map.get("key") as string),
 		outDir: resolve(map.get("out") as string),
 		models: map.get("models") ?? DEFAULT_MODELS,
+		...(liveBaseUrl === undefined
+			? {}
+			: {
+					liveBaseUrl: liveBaseUrl.replace(/\/$/, ""),
+					pubkeyPath: resolve(pubkeyPath as string),
+				}),
 	};
+}
+
+/** Build the production carry-forward: re-serve a list from the live origin,
+ * with the full trust chain re-proven against the pinned public key. */
+function liveOriginCarryForward(
+	args: RealBundleArgs,
+): CarryForward | undefined {
+	if (args.liveBaseUrl === undefined || args.pubkeyPath === undefined) {
+		return undefined;
+	}
+	const baseUrl = args.liveBaseUrl;
+	const pubkey = new Uint8Array(readFileSync(args.pubkeyPath));
+	return (spec, reason) =>
+		carryForwardList({
+			baseUrl,
+			fetchBytes: httpFetchBytes,
+			pubkey,
+			slug: spec.slug,
+			reason,
+		});
 }
 
 /** Stage the real lists then publish the signed bundle to outDir. Drives the
@@ -343,12 +470,17 @@ export async function runRealBundle(
 	dependencies: RealBundleDependencies = {},
 ): Promise<void> {
 	const args = parseRealBundleArgs(argv);
-	const { lists: staged, aliases } = await stagedListsFromSources(
+	const {
+		lists: staged,
+		aliases,
+		carried,
+	} = await stagedListsFromSources(
 		dependencies.sources ?? BUNDLE_SOURCES,
 		createNodeEmbedder(args.models),
 		args.version,
 		undefined,
 		dependencies.now,
+		dependencies.carryForward ?? liveOriginCarryForward(args),
 	);
 	const staging = await mkdtemp(join(tmpdir(), "aml-real-bundle-"));
 	try {
@@ -381,6 +513,17 @@ export async function runRealBundle(
 	// is stated, not assumed. A degraded run must be visible, not inferred.
 	process.stdout.write(`ALIAS_MODE=${aliases.mode}\n`);
 	process.stdout.write(`ALIAS_ADDED=${aliases.aliasesAdded}\n`);
+	// Same rule for staleness: a run that could not refresh a list says so on
+	// stdout (for the workflow summary) and on stderr (for the log), because
+	// "the bundle published" and "the bundle is current" are different claims.
+	process.stdout.write(
+		`STALE_LISTS=${carried.map((c) => c.listId).join(",")}\n`,
+	);
+	for (const entry of carried) {
+		process.stderr.write(
+			`${entry.listId} was NOT refreshed — re-serving the copy fetched at ${entry.fetchedAt}, marked stale in the bundle. Reason: ${entry.reason}\n`,
+		);
+	}
 	if (aliases.mode === "records-only") {
 		process.stderr.write(
 			`alias enrichment UNAVAILABLE — publishing record-feed names only (Latin script). Non-Latin queries will not match. Reason: ${aliases.reason ?? "unknown"}\n`,

@@ -7,15 +7,45 @@
 //
 // Layout written under `outDir` (mirrored, after publish, into the bundle the
 // in-tab sync tier materializes):
-//   catalog.json                 { schemaVersion, generatedAt, lists:[{id,title,slug,version,entitiesCount}] }
+//   catalog.json                 { schemaVersion, generatedAt, lists:[{id,title,slug,version,entitiesCount,...freshness}] }
 //   <slug>/entities.jsonl        one WatchlistEntity JSON per line (stable key order)
 //   <slug>/vectors.f32           raw LE Float32, row-major (entities*dim)
-//   <slug>/meta.json             { listId, version, generatedAt, model, dim, entitiesCount }
+//   <slug>/meta.json             { listId, version, generatedAt, model, dim, entitiesCount, ...freshness }
+//
+// PER-LIST FRESHNESS. `generatedAt` says when the BUNDLE was assembled, which is
+// not the same as when each list was last refreshed from its upstream. When one
+// feed is down the publisher re-serves that list's last good data (see
+// buildRealBundle) — so every list carries its OWN `fetchedAt`/`stale` pair and
+// keeps its OWN `version`. A screening tool that showed a three-day-old EU list
+// under today's build date would be claiming coverage it does not have.
+//
+// These fields ride INSIDE the staged tree, so they inherit the existing trust
+// chain for free: chunk hash -> file_sha256 -> manifest hash -> signed pointer.
+// Nothing is added to /latest, so the pointer's canonical signing preimage, its
+// signature and its monotonic anti-rollback `sequence` are untouched.
 
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { WatchlistEntity } from "./types.ts";
 import { vectorsToBytes } from "./vectors.ts";
+
+/** How fresh one list's data actually is, independent of the bundle build.
+ *
+ * Every staged list must carry this: a list published without a provable age is
+ * a coverage claim nothing backs. */
+export interface ListFreshness {
+	/** When THIS copy of the list was fetched from upstream (ISO-8601 UTC). A
+	 * carried-forward list keeps the instant it was ORIGINALLY fetched, so its
+	 * age is its real age. */
+	readonly fetchedAt: string;
+	/** The upstream's own stated publication instant, when it publishes one. */
+	readonly sourceUpdatedAt: string | null;
+	/** True when this run could not refresh the list and re-served the last good
+	 * copy. Never true for data fetched by this run. */
+	readonly stale: boolean;
+	/** The upstream failure that made it stale, verbatim. null when fresh. */
+	readonly staleReason: string | null;
+}
 
 /** One list to stage: its catalog identity, entities, and packed name vectors. */
 export interface StagedList {
@@ -28,10 +58,12 @@ export interface StagedList {
 	readonly entities: readonly WatchlistEntity[];
 	/** Row-major packed name vectors; length MUST equal entities.length * dim. */
 	readonly vectors: Float32Array;
+	/** Required: the age this list is actually being published with. */
+	readonly freshness: ListFreshness;
 }
 
 /** Top-level catalog registry entry for a staged list. */
-interface BundleCatalogList {
+interface BundleCatalogList extends ListFreshness {
 	readonly id: string;
 	readonly title: string;
 	readonly slug: string;
@@ -47,7 +79,7 @@ interface BundleCatalog {
 }
 
 /** The staged per-list `meta.json`. */
-interface BundleListMeta {
+interface BundleListMeta extends ListFreshness {
 	readonly listId: string;
 	readonly version: string;
 	readonly generatedAt: string;
@@ -91,6 +123,7 @@ function listMeta(list: StagedList, generatedAt: string): BundleListMeta {
 		model: list.model,
 		dim: list.dim,
 		entitiesCount: list.entities.length,
+		...list.freshness,
 	};
 }
 
@@ -101,6 +134,7 @@ function catalogEntry(list: StagedList): BundleCatalogList {
 		slug: list.slug,
 		version: list.version,
 		entitiesCount: list.entities.length,
+		...list.freshness,
 	};
 }
 

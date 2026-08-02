@@ -120,6 +120,14 @@ async function buildStagedList(list: DemoList): Promise<StagedList> {
 		dim: EMBEDDING_DIM,
 		entities,
 		vectors,
+		// Fixed, and identical to v1's, so the three unchanged lists still stage
+		// to byte-identical bytes and their chunks dedupe against the v1 publish.
+		freshness: {
+			fetchedAt: DEMO_GENERATED_AT,
+			sourceUpdatedAt: null,
+			stale: false,
+			staleReason: null,
+		},
 	};
 }
 

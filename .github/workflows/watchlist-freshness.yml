@@ -1,0 +1,190 @@
+# watchlist-freshness — make a stale sanctions bundle LOUD.
+#
+# WHY THIS EXISTS. aml-filter.com tells visitors the bundle is rebuilt daily and
+# is at most ~24h stale. Nothing enforced that. `publish-watchlist` died on a
+# missing WATCHLIST_SIGNING_KEY for 22 CONSECUTIVE DAYS (2026-06-21 → 2026-07-12)
+# and the site kept serving an ever-older list the whole time. The failures were
+# all there, in red, on the Actions tab — and nobody read them, because a red dot
+# on a scheduled run notifies no one. So "the daily job went red" is exactly the
+# signal that cannot be trusted to carry an alert.
+#
+# This workflow therefore does NOT rely on being noticed. It interrogates the
+# LIVE origin the way a visitor's browser does, and on a breach it OPENS A GITHUB
+# ISSUE — a thing with a notification attached — as well as going red.
+#
+# WHY THE STEP ORDER IS LOAD-BEARING. The check step swallows its own exit code
+# (`if ... then ... else`) so the alert step still runs; the run is failed by a
+# LAST step instead. If the check failed the job directly, the alert would never
+# be raised — the job would stop at the red step and reproduce the exact silence
+# this workflow exists to break. Alert first, fail second.
+#
+# WHY THE CHECK FAILS CLOSED ON ITS OWN ERRORS. The `else` branch catches every
+# non-zero exit, not just a freshness breach: a network error, a pointer that
+# does not verify, a missing catalog. "Could not tell" is reported as "not
+# fresh", because a screening tool that cannot prove its list is current is in
+# the same position as one whose list is stale.
+#
+# WHY ONE ISSUE, NOT ONE PER RUN. Four checks a day over a 22-day outage would be
+# 88 issues, which is its own kind of silence. The alert step reuses the single
+# open issue carrying the `watchlist-freshness` label — commenting on it while
+# the breach persists, and commenting + CLOSING it the moment freshness returns.
+#
+# WHY THESE HOURS. `publish-watchlist` runs at 06:00 UTC. Checking at 03/09/15/21
+# keeps every check at least three hours clear of that publish window, and puts a
+# check three hours AFTER it — so a missed nightly rebuild is caught at 09:00 the
+# same morning (the bundle is then 27h old, past the 26h ceiling), not a day later.
+#
+# NOTE ON THE FIRST RUNS. Per-list `fetchedAt` was added to the published catalog
+# on 2026-08-02. A bundle published before that carries no per-list freshness, so
+# this check will (correctly, fail-closed) report that those lists' ages cannot be
+# proven until the next successful publish re-stamps the catalog.
+
+name: watchlist-freshness
+
+on:
+  schedule:
+    - cron: "0 3,9,15,21 * * *" # four times daily, clear of the 06:00 publish
+  workflow_dispatch:
+
+# Least privilege: this workflow reads the repo and writes issues. Nothing else.
+# It never touches the bundle, the signing key, or the Pages deploy.
+permissions:
+  contents: read
+  issues: write
+
+# Queue, don't cancel: a cancelled check reports nothing, which is the failure
+# mode this workflow exists to remove.
+concurrency:
+  group: watchlist-freshness
+  cancel-in-progress: false
+
+env:
+  BUNDLE_BASE_URL: https://aml-filter.com/bundle/origin
+
+jobs:
+  freshness:
+    name: Is the live sanctions bundle as fresh as the site claims?
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+        with:
+          package_json_file: frontend/package.json
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: frontend/.nvmrc
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install workspace deps
+        run: pnpm install --frozen-lockfile
+
+      # Verifies the LIVE /latest pointer against the committed public key, then
+      # reads catalog.json back through the CLIENT'S decode path (manifest
+      # content-address -> chunk zstd-decompress -> sha256) before grading ages.
+      # An unverified pointer is never graded — it is a failure.
+      - name: Check the live bundle against the freshness the site claims
+        id: freshness
+        run: |
+          set -o pipefail
+          if pnpm --silent --filter @amlfilter/publisher run check-published-freshness -- \
+              --base-url "$BUNDLE_BASE_URL" \
+              --pubkey "$GITHUB_WORKSPACE/frontend/app/public/public.key" \
+              > freshness.txt 2>&1; then
+            echo "breached=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "breached=true" >> "$GITHUB_OUTPUT"
+          fi
+          cat freshness.txt
+
+      # `if: always()` so the alert is raised even if an earlier step (install,
+      # checkout) blew up — that too means nobody proved the bundle is fresh.
+      # The report reaches the script through a FILE, never through `${{ }}`
+      # interpolation, so origin-controlled text cannot become script.
+      - name: Raise or clear the freshness alert
+        if: always()
+        uses: actions/github-script@d746ffe35508b1917358783b479e04febd2b8f71 # v9.0.0
+        env:
+          BREACHED: ${{ steps.freshness.outputs.breached }}
+          BUNDLE_BASE_URL: ${{ env.BUNDLE_BASE_URL }}
+        with:
+          script: |
+            const fs = require('node:fs');
+            const LABEL = 'watchlist-freshness';
+            const TITLE = 'Sanctions bundle is stale — the published list is older than aml-filter.com claims';
+
+            // Anything other than an explicit "false" is treated as a breach, so
+            // a step that never ran cannot read as a clean bill of health.
+            const breached = process.env.BREACHED !== 'false';
+            const report = fs.existsSync('frontend/freshness.txt')
+              ? fs.readFileSync('frontend/freshness.txt', 'utf8').trim().slice(0, 50000)
+              : 'the freshness check produced no output — it did not get far enough to grade the bundle';
+            const runUrl = `${process.env.GITHUB_SERVER_URL}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+
+            const { data: open } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: LABEL,
+              per_page: 1,
+            });
+            const existing = open[0];
+
+            const body = [
+              breached
+                ? '**The live sanctions bundle is stale, or its freshness could not be proven.**'
+                : '**Freshness recovered** — the live bundle is inside its ceiling again.',
+              '',
+              '```',
+              report,
+              '```',
+              '',
+              `Checked \`${process.env.BUNDLE_BASE_URL}\` — [run log](${runUrl}).`,
+            ].join('\n');
+
+            if (breached && existing === undefined) {
+              const { data: created } = await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: TITLE,
+                labels: [LABEL],
+                body,
+              });
+              core.notice(`opened freshness issue #${created.number}`);
+              return;
+            }
+            if (existing === undefined) {
+              core.info('bundle is fresh and no alert is open — nothing to do');
+              return;
+            }
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: existing.number,
+              body,
+            });
+            if (breached) {
+              core.notice(`freshness issue #${existing.number} is still breaching`);
+              return;
+            }
+            await github.rest.issues.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: existing.number,
+              state: 'closed',
+              state_reason: 'completed',
+            });
+            core.notice(`closed freshness issue #${existing.number} — freshness recovered`);
+
+      # Last, so the alert above is already filed when the run turns red.
+      - name: Fail the run when the bundle is stale
+        if: steps.freshness.outputs.breached != 'false'
+        run: |
+          echo "::error::the live sanctions bundle breached its freshness ceiling — see the open watchlist-freshness issue"
+          exit 1

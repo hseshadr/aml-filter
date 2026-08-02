@@ -191,6 +191,21 @@ jobs:
       # Build + sign the REAL bundle straight into the SPA's public tree so the
       # Vite build serves it same-origin at /bundle/origin. Clean the prior
       # contents first so the deployed tree is EXACTLY the freshly-signed bundle.
+      #
+      # PER-LIST INDEPENDENCE. `--live-base-url`/`--pubkey` let the builder
+      # re-serve ONE list from the bundle already published when that list's
+      # upstream is unreachable, instead of failing the whole run. Why it
+      # matters: the four feeds are third parties with independent outages, and
+      # until now any ONE of them failing blocked ALL four from refreshing. On
+      # 2026-08-02 the EU webgate 500'd for hours and took the OFAC refresh down
+      # with it — OFAC being the list every visitor screens against by default.
+      #
+      # This is NOT "feeds are optional". A re-served list is fetched back
+      # through the full trust chain (signed pointer against this same pinned
+      # key -> manifest content-address -> every chunk through the client's
+      # decode path), keeps its OWN older version, and is stamped `stale` with
+      # its real age so the UI shows it. A list that can be neither refreshed
+      # nor proven still fails this run closed.
       - name: Build + sign the real watchlist bundle (same-origin)
         run: |
           ORIGIN="$GITHUB_WORKSPACE/frontend/app/public/bundle/origin"
@@ -199,12 +214,33 @@ jobs:
             --version "$VERSION" \
             --sequence "$SEQUENCE" \
             --key "$GITHUB_WORKSPACE/frontend/signing.key" \
-            --out "$ORIGIN"
+            --out "$ORIGIN" \
+            --live-base-url https://aml-filter.com/bundle/origin \
+            --pubkey "$GITHUB_WORKSPACE/frontend/app/public/public.key" \
+            | tee "$RUNNER_TEMP/build-bundle.out"
+          # Carry forward what could NOT be refreshed. "The bundle published" and
+          # "the bundle is current" are different claims; the summary must not
+          # blur them.
+          grep -E '^STALE_LISTS=' "$RUNNER_TEMP/build-bundle.out" >> "$GITHUB_ENV" || true
         env:
           # Optional; see the note in deploy.yml. This nightly job's WHOLE
           # purpose is refreshing the list, so unlike the site deploy it is
           # correct for it to fail loudly when a feed cannot be read.
           TRADE_GOV_API_KEY: ${{ secrets.TRADE_GOV_API_KEY }}
+
+      # A run that published is not the same as a run that refreshed. Say which.
+      # The watchlist-freshness workflow alerts independently of this job, so a
+      # green publish here can never be mistaken for "the data is current".
+      - name: Say plainly which lists this run did NOT refresh
+        run: |
+          if [ -n "${STALE_LISTS:-}" ]; then
+            echo "::warning::Not refreshed this run (re-served from the last good signed bundle, marked stale): ${STALE_LISTS}"
+            { echo "### Some lists were NOT refreshed";
+              echo "\`${STALE_LISTS}\` kept their previously published data, marked stale with their real age.";
+              echo "Every other list refreshed normally."; } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "All watchlists refreshed from their live feeds." >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Scrub the key
         if: always()
