@@ -95,8 +95,11 @@ for real-domain measurement.
 
 ## Recovery contract
 
-- **Offline after a verified boot:** use the verified OPFS active bundle and browser-cached
-  model; the bundle lane proves reload and screening with the network unavailable.
+- **Bundle origin unreachable after a verified boot:** use the verified OPFS active bundle
+  and browser-cached model. The bundle lane proves reload and screening with every
+  `/bundle/origin/**` request aborted. It does NOT prove offline operation: the lane still
+  serves the document, the JS, and the model over the network. There is no service worker,
+  so a genuinely offline reload fails to load the page at all.
 - **Corrupt/partial chunk:** fail the current read, evict it, then refetch on Retry. Never
   present an empty list as a clear result.
 - **Bad signature/hash/rollback:** stop. Do not use the incoming bundle and do not replace

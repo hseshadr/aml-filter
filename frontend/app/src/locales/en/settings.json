@@ -42,7 +42,7 @@
 	},
 	"cache": {
 		"title": "Cached lists",
-		"description": "Verified watchlists are cached on this device for fast cold starts and offline use. Clearing the cache frees space; the next load re-fetches and re-verifies every list.",
+		"description": "Verified watchlists are cached on this device, so a later visit starts fast instead of re-downloading them. Clearing the cache frees space; the next load re-fetches and re-verifies every list.",
 		"button": "Clear cached lists",
 		"cleared": "Cached lists cleared — the next load re-fetches and re-verifies."
 	},

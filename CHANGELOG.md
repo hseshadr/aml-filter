@@ -6,6 +6,33 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Removed
+
+- **The "works offline" claim is withdrawn — it was false.** The app has no service
+  worker (`grep -rniE "serviceWorker|workbox|vite-plugin-pwa|manifest.webmanifest"`
+  returns two incidental console-filter mentions and nothing else), so a reload with the
+  network off cannot fetch the document or the JS bundle: the live site returns
+  `net::ERR_INTERNET_DISCONNECTED` and a blank page. The claim is withdrawn in the landing
+  copy, the boot banner, the settings cache note, the README, `docs/ARCHITECTURE.md`,
+  `docs/QUICKSTART.md`, and `docs/OPERATIONS.md`, rather than implemented — a service
+  worker plus a precache manifest and an update/rollback story is a feature with its own
+  failure modes, not a doc fix. What is true and stays: screening runs in the tab and
+  nothing you type is uploaded, and the verified bundle really is cached in OPFS so a
+  repeat visit does not re-download the list. Two unit tests asserted the false claim by
+  matching the word "offline" in the copy; they are inverted to pin what is now true, not
+  deleted. The `e2e-bundle` "offline reload" lane is unchanged and still passes — it
+  aborts `**/bundle/origin/**` only, so it proves OPFS reuse when the bundle origin is
+  unreachable, never a true offline load.
+- **Two unsourced numbers are gone from the README.** "31,566 sanctioned entities" and
+  "34.3 MB of OFAC SDN data" appeared nowhere else in the repository — no code, fixture,
+  or generated file produced either. The OFAC SDN count of 19,181 stays, because
+  `buildRealBundle.ts` cross-validates it against Treasury's own `SDN_ADVANCED.XML`; the
+  live per-list counts are rendered from real data in Settings.
+- **The hand-written README status block is gone.** It pinned `c0f2370` as "current
+  `main`" while `main` was 37 commits and 11 days ahead, and it asserted test counts
+  nothing verified. Replaced by the CI badge, the Actions tab,
+  `aml-filter.com/build.json`, and `pnpm gate` — sources that cannot go stale.
+
 ### Added
 
 - **Retrieval recall is measured, published, and gated — it never was before.** The
@@ -29,6 +56,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `@amlfilter/browser` tests green (exit 0) and drives alias recall@10 to 0.3885 — the
   recall gate exits 1 on four breached floors, and goes green again on restore. See
   [docs/RECALL.md](docs/RECALL.md).
+- **A capped result list now says it is capped.** `/screen` asks the engine for 25
+  results and rendered them as 25 visually identical cards, so a broad query like
+  "mohammed" gave a reader no way to tell whether that was every match or merely the
+  first 25. A note under the list now says so when — and only when — the engine returned
+  a full quota. It states the cut-off and nothing more: the engine reports no total, so
+  there is no honest "25 of 431" to show.
+
 - **The Ed25519 signature check is now actually tested.** The score-receipt suite had
   two "tamper" tests and neither one ever reached the signature: the mutated-score case
   leaves a stale `payload_hash` and dies at the content-hash compare, and the wrong-key

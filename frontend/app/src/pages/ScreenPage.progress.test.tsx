@@ -160,7 +160,14 @@ describe("ScreenPage boot banner — model-load progress", () => {
  * downloaded, how far along it is, or why it is worth waiting. These assert the
  * three things the banner owes them: how far (a percentage), how much (real
  * megabytes, not an extrapolated guess), and what they get for it (it is a
- * one-time download and afterwards the app works offline).
+ * one-time download and screening then happens in the tab, with nothing typed
+ * leaving the device).
+ *
+ * The payoff note USED to promise offline use, and these tests asserted the word
+ * "offline" as its marker. The app has no service worker, so that promise was
+ * false. The marker is now "leaves the device" — the part of the note that is
+ * actually true — because the withdrawal copy elsewhere contains the word
+ * "offline" and matching on it would keep passing while proving nothing.
  */
 describe("ScreenPage boot banner — a first-time visitor can tell what is happening", () => {
 	it("reports how far along the download is as a percentage", async () => {
@@ -219,7 +226,7 @@ describe("ScreenPage boot banner — a first-time visitor can tell what is happe
 		expect(screen.getByRole("status").textContent ?? "").toMatch(/1\.4\s*MB/i);
 	});
 
-	it("tells the visitor the download is one-time and enables offline use", async () => {
+	it("tells the visitor the download is one-time and that screening stays in the tab", async () => {
 		setScript([
 			{
 				kind: "downloading",
@@ -230,14 +237,18 @@ describe("ScreenPage boot banner — a first-time visitor can tell what is happe
 		await waitFor(() => expect(screen.getByRole("status")).toBeTruthy());
 		const text = screen.getByRole("status").textContent ?? "";
 		expect(text).toMatch(/once|one-time|first/i);
-		expect(text).toMatch(/offline/i);
+		expect(text).toMatch(/leaves the device/i);
+		// The note must NOT resurrect the withdrawn promise.
+		expect(text).not.toMatch(/runs offline|works offline|offline use/i);
 	});
 
 	it("keeps the payoff note up during the model phase too", async () => {
 		setScript([{ kind: "loading-model" }]);
 		render(<ScreenPage />);
 		await waitFor(() => expect(screen.getByRole("status")).toBeTruthy());
-		expect(screen.getByRole("status").textContent ?? "").toMatch(/offline/i);
+		expect(screen.getByRole("status").textContent ?? "").toMatch(
+			/leaves the device/i,
+		);
 	});
 
 	it("does NOT claim a one-time download before any bytes have moved", async () => {
@@ -247,7 +258,7 @@ describe("ScreenPage boot banner — a first-time visitor can tell what is happe
 		render(<ScreenPage />);
 		await waitFor(() => expect(screen.getByRole("status")).toBeTruthy());
 		expect(screen.getByRole("status").textContent ?? "").not.toMatch(
-			/offline/i,
+			/leaves the device/i,
 		);
 	});
 });

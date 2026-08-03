@@ -58,9 +58,10 @@ product runs in the tab. The flow:
    changes. Dispositions are written to an append-only `match_events` audit trail.
 5. **Bidirectional sync**: a list change re-screens all customers; a customer change
    re-screens just that customer.
-6. **Durable, offline cache**: verified bundle bytes are cached in the OPFS bundle store
+6. **Durable list cache**: verified bundle bytes are cached in the OPFS bundle store
    (separate from the customer DB) and **re-verified fail-closed on every load**; "Clear
-   cached lists" is in `/settings`.
+   cached lists" is in `/settings`. This is list caching, NOT offline support — there is
+   no service worker, so never describe the app as working with no network.
 
 **Tech Stack**: React + TypeScript (Vite) SPA, a pnpm workspace, Biome, transformers.js
 MiniLM (`Xenova/all-MiniLM-L6-v2`, 384-dim) running both in-tab and in-Node, SQLite-WASM
@@ -198,8 +199,9 @@ cosine** retrieval per list → explainable weighted scorer (`computeScore` / `P
 holds one index per list over a shared embedder, applies the per-list threshold
 (`perList[id] ?? query.threshold ?? default`), and merges. Verified bundle bytes are cached
 durably in the **OPFS bundle store** (`engine/sync/opfsStore.ts`, owned by the sync Web
-Worker, separate from the customer DB), re-verified fail-closed on every load → offline
-support; a zero-byte or integrity-failing chunk is evicted and re-fetched (self-healing).
+Worker, separate from the customer DB), re-verified fail-closed on every load → a repeat
+visit does not re-download the list (NOT offline support: there is no service worker);
+a zero-byte or integrity-failing chunk is evicted and re-fetched (self-healing).
 Entry points: `EngineRuntime.bootstrap()` → `ScreeningEngine.screen({ name })`. (The
 standalone `catalog.json` / per-list `watchlist.json` JSON fetch path and its IndexedDB list
 cache were **retired** — the signed content-addressed bundle over OPFS is now the only

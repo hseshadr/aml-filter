@@ -25,7 +25,9 @@ needed to clone it and run everything below.
 - **Internet access on the first run** — the first `dev` or `build` downloads the
   MiniLM embedding weights (~23 MB, SHA-256-pinned) into `frontend/app/public/models/`
   so the browser never fetches a model from a CDN at runtime. Every later run reuses
-  them; the app itself is fully offline-capable once they are on disk.
+  them, and the dev server then serves everything from your machine. The app is not an
+  offline app, though: it has no service worker, so a browser tab still has to reach the
+  server to load the page.
 - **A supported desktop browser** — current or previous Chrome, Edge, Firefox, or
   Safari 17+, with module Workers, OPFS, WebCrypto, and Web Locks enabled
 
@@ -82,7 +84,7 @@ Beside each match score you'll also see a small **Verified** chip — the engine
 every score it produces with a signed **score receipt**. Expand **Score receipt** on the
 match card to see the full signed envelope: algorithm, signer key, payload hash,
 signature, and the sealed score, tier, engine version, watchlist version, and inputs
-hash. Prove it to yourself: the verdict is computed in your browser, offline, against
+hash. Prove it to yourself: the verdict is computed in your browser, with no server asked, against
 this install's own key — if the sealed data were altered in any way, the chip would read
 **Not verified — tampered**.
 

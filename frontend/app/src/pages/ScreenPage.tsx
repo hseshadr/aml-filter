@@ -206,6 +206,13 @@ type SearchOutcome =
 			readonly kind: "matches";
 			readonly matches: ReadonlyArray<Match>;
 			readonly ms: number;
+			/**
+			 * The engine returned a FULL quota of `SEARCH_K` candidates, so the
+			 * ranked list was cut off and more may sit below the last card. Read
+			 * from the engine's raw return, BEFORE the strictness gate — the cut-off
+			 * happens in the engine, so filtering afterwards cannot reveal or hide it.
+			 */
+			readonly capped: boolean;
 	  }
 	| { readonly kind: "error"; readonly message: string };
 
@@ -382,7 +389,12 @@ export function ScreenPage() {
 					const matches = result.matches.filter((m) =>
 						passesStrictness(m, text, level),
 					);
-					setSearch({ kind: "matches", matches, ms: result.execution_time_ms });
+					setSearch({
+						kind: "matches",
+						matches,
+						ms: result.execution_time_ms,
+						capped: result.matches.length === SEARCH_K,
+					});
 				}
 			} catch (error) {
 				// Fail LOUD, never silent: a dropped screen rejection would let the
@@ -615,7 +627,7 @@ function BootBanner({
 /**
  * True for the two stages that actually move bytes on a cold boot. A first-time
  * visitor waits ~11s on broadband and much longer on a phone, so those two
- * stages carry the payoff note ("downloaded once, then it works offline"). The
+ * stages carry the payoff note ("downloaded once, then screening stays in the tab"). The
  * instant stages don't: promising a one-time download next to a verify step
  * that transfers nothing is noise, especially on a warm reload.
  */
@@ -771,6 +783,17 @@ function Results({
 						))}
 					</ul>
 				</details>
+			)}
+			{/*
+			 * A capped list looks exactly like a complete one: 25 near-identical
+			 * cards with nothing to say whether that is all of them. The engine
+			 * reports no total, so this states the cut-off and nothing more — never
+			 * "25 of N", which would be a number nobody measured.
+			 */}
+			{search.capped && (
+				<p className="screen-results__capped">
+					{t("results.capped", { n: SEARCH_K })}
+				</p>
 			)}
 		</section>
 	);

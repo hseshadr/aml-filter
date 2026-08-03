@@ -202,6 +202,14 @@ code {
 .screen-results__low[open] > .screen-results__low-summary {
 	margin-bottom: 0.75rem;
 }
+/* The cut-off note under a full-quota result list. Muted and centred: it is a
+   caveat about the list above, not another result. */
+.screen-results__capped {
+	margin-top: 1rem;
+	text-align: center;
+	color: #64748b;
+	font-size: 0.85rem;
+}
 .screen-directory__pagination {
 	display: flex;
 	align-items: center;

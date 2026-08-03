@@ -1,6 +1,6 @@
 # AML-Filter
 
-Screens a name against 31,566 sanctioned entities — OFAC SDN, EU, UN and UK OFSI — entirely inside your browser tab. No server, no signup, and nothing you type is uploaded.
+Screens a name against the OFAC SDN, EU, UN and UK OFSI sanctions lists — entirely inside your browser tab. No server, no signup, and nothing you type is uploaded.
 
 ![AML-Filter screening a misspelled name: six scored matches appear, each with the similarity evidence behind it and a signed score receipt](docs/assets/aml-filter-screening-demo.gif)
 
@@ -10,7 +10,7 @@ Screens a name against 31,566 sanctioned entities — OFAC SDN, EU, UN and UK OF
 git clone https://github.com/hseshadr/aml-filter && cd aml-filter/frontend && corepack enable && pnpm install && pnpm --filter aml-filter-app dev
 ```
 
-The recording starts from a warm tab. A first visit has to fetch the list before it can screen anything: 34.3 MB of OFAC SDN data (zstd-compressed in transit) plus a 23 MB embedding model. After that it is cached and keeps working with the network off. The live demo loads OFAC SDN — 19,181 entities — on a cold visit; the EU, UN and UK OFSI lists are opt-in under Settings. Screening time is measured in your own browser and printed with every result, which is the only honest place for that number.
+The recording starts from a warm tab. A first visit downloads the sanctions list (zstd-compressed in transit) and a 23 MB embedding model before it can screen anything; the boot banner reports the real byte count as it goes. Both are then cached, so a repeat visit starts fast. **You still need a network connection to open the page** — there is no service worker, so this is not an offline app. The live demo loads OFAC SDN on a cold visit — 19,181 entities, the population [`buildRealBundle.ts`](frontend/packages/amlfilter-publisher/src/buildRealBundle.ts) cross-validates against Treasury's own `SDN_ADVANCED.XML`. The EU, UN and UK OFSI lists are opt-in under Settings, which shows each list's real entity count. Screening time is measured in your own browser and printed with every result, which is the only honest place for that number.
 
 ---
 
@@ -24,42 +24,36 @@ The recording starts from a warm tab. A first visit has to fetch the list before
 
 > **Live at [`aml-filter.com`](https://aml-filter.com)** — hosted on Cloudflare Pages, screening entirely in your browser (the signed watchlist bundle is served same-origin). The source is public and MIT-licensed: clone it and the whole thing runs locally with no backend, no key, and no account. [`docs/DEPLOY.md`](docs/DEPLOY.md) covers self-hosting.
 
-## Status (verified 2026-07-23)
+## Status
 
-**The production path treats mobile memory as a first-class constraint.** This status
-was verified at commit `c0f237078f785dd65027a8530381801ec11c18ac` (current `main`); the
-CI badge above always reflects the latest run on `main`, and per-commit CI + deploy runs
-are in the repository's
-[Actions tab](https://github.com/hseshadr/aml-filter/actions). The exact SHA the live
-site is serving is always at [`aml-filter.com/build.json`](https://aml-filter.com/build.json).
-The full `pnpm gate` is green on Node 22.13.0: **1,215 Vitest unit tests across 127 files
-(the five workspace packages), plus all five real-Chromium Playwright e2e lanes**. On
-mobile, the
-  workstation serializes engine boot, keeps one list resident at a time, and
-immediately cancels and disposes in-flight workers/models on route exit, retry, and
-cache clear; high-memory desktops may opt into the faster eager path. Reloads reuse the warm embedder
-and replace indexes in an explicit build → swap → dispose order. The retry UI reports
-an explicit out-of-memory failure instead of leaving a half-live screening engine
-behind. The canonical `www.aml-filter.com` host returns a 308 to the apex while
-preserving path and query; the Pages worker normalizes hostname case and a trailing
-DNS dot before making that redirect comparison.
+Three things answer "is it working?", and none of them can go stale:
 
-Proof that stays close to the code:
+- **The CI badge above** is the latest run on `main`. Every per-commit CI and deploy run
+  is in the [Actions tab](https://github.com/hseshadr/aml-filter/actions).
+- **[`aml-filter.com/build.json`](https://aml-filter.com/build.json)** is the exact commit
+  the live site is serving right now.
+- **`pnpm gate`** reproduces the whole thing locally on [Node 22.13](frontend/.nvmrc) —
+  typecheck, lint, unit tests, build, i18n, KYC, and the real-Chromium Playwright lanes:
 
 ```bash
-cd frontend
-pnpm gate
+cd frontend && pnpm gate
 curl -fsSL https://aml-filter.com/build.json
 ```
 
-The repository gate covers 395 browser-package tests and 385 application tests, plus
-typecheck, lint, build, i18n, KYC, bundle, and Android Chromium + desktop mobile
-smoke checks. Playwright WebKit is kept as a local/macOS profile but explicitly skips
-when its emulator lacks OPFS/SQLite; a physical iPhone fresh-tab check remains the
-owner-gated acceptance step. A production iPhone-sized browser smoke previously
-reached `/settings` with a roughly 26 MB JS heap and no console errors.
-The app is still a reference implementation, not legal or regulatory advice, and
-embedded WebViews remain outside the release contract.
+This section used to be a hand-written snapshot: a pinned SHA labelled "current `main`",
+exact test counts, and a paragraph of verified behaviours. On the day it was removed that
+SHA was 37 commits and 11 days behind `main`, and the boot behaviour it described had
+since been changed by [#92](https://github.com/hseshadr/aml-filter/pull/92) and
+[#94](https://github.com/hseshadr/aml-filter/pull/94). A status block maintained by hand
+rots by construction, so it is gone rather than refreshed — the badge, `build.json`, and
+`pnpm gate` answer the same questions from sources that update themselves.
+
+For the mobile-memory design (serialized boot, one resident list, explicit
+build → swap → dispose) see [`docs/MEMORY-ARCHITECTURE.md`](docs/MEMORY-ARCHITECTURE.md).
+Playwright WebKit is a local/macOS profile that skips when its emulator lacks
+OPFS/SQLite; a physical iPhone fresh-tab check is an owner-gated acceptance step, not
+part of CI. The app is a reference implementation, not legal or regulatory advice, and
+embedded WebViews are outside the release contract.
 
 ## Browser support
 
@@ -128,8 +122,8 @@ the app and it:
    editing a customer re-screens that one customer.
 
 Lean and mean: the whole thing is TypeScript that runs client-side. The lists are just
-signed static files served from any host or CDN, cached durably in your browser
-so the app works **offline** — and re-verified fail-closed on every load.
+signed static files served from any host or CDN, cached durably in your browser so a
+repeat visit does not re-download them — and re-verified fail-closed on every load.
 
 > _aml-filter is an engineering-portfolio demo, **not** a compliance product. Do not
 > use it to meet any legal or regulatory obligation. See the
@@ -319,8 +313,10 @@ inputs hash (`engine/matchReceipts.ts`, `engine/installKey.ts`,
 [Trust model](#trust-model).
 
 Verified bundle bytes are cached durably in the **OPFS bundle store** (owned by the sync
-Web Worker, separate from the customer DB), re-verified fail-closed on every load, so the
-app works **offline** on a cold network.
+Web Worker, separate from the customer DB) and re-verified fail-closed on every load, so a
+repeat visit screens without re-fetching the list. If the pointer fetch fails, the sync
+falls back to the cached active version — but the page itself still has to load over the
+network first, so this is list caching, not an offline mode.
 
 Entry point: `EngineRuntime.bootstrap()` → `ScreeningEngine.screen({ name })`.
 
@@ -389,8 +385,8 @@ match score — **Verified** (✓) in the normal case, **Not verified** when a c
 unavailable states while the trust key loads or when browser storage is blocked. A
 receipt-bearing match never renders without a chip, and expanding **Score receipt** on a
 match card shows the full signed envelope (algorithm, signer key, payload hash,
-signature, and the sealed subject). The verdict is computed offline, in your browser,
-against this install's own key — alter the sealed data in any way and the chip flips to
+signature, and the sealed subject). The verdict is computed in your browser against this
+install's own key, with no server asked — alter the sealed data in any way and the chip flips to
 "Not verified — tampered" (the e2e suite proves exactly that: tampering one byte flips
 the verdict).
 

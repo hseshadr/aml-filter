@@ -1,10 +1,11 @@
 /**
- * i18next initialization — OFFLINE, bundled catalogs (no runtime fetch).
+ * i18next initialization — bundled catalogs, no runtime fetch.
  *
  * Every translation JSON is imported STATICALLY below, so Vite bundles + hashes
- * them into the app chunk. The app never reaches the network for strings: it
- * works fully offline, exactly like the rest of AML-Filter (OFAC screening, the
- * KYC workstation, and delta-sync all run in the tab, zero backend calls).
+ * them into the app chunk. The app never reaches the network for strings, exactly
+ * like the rest of AML-Filter (OFAC screening, the KYC workstation, and delta-sync
+ * all run in the tab, zero backend calls). That is "no backend", not "offline":
+ * there is no service worker, so loading the page still needs the network.
  *
  * English is the authoritative baseline. Adding a locale is copy-paste: duplicate
  * `locales/en/` to `locales/<lang>/`, translate the values, and register it in
