@@ -82,7 +82,13 @@ const STAGE_KEY: Readonly<Record<BootStage["kind"], string>> = {
 	ready: "boot.ready",
 };
 
-const SEARCH_K = 25;
+/**
+ * How many matches one search asks the engine for. Exported because the recall
+ * harness measures with this exact value — see
+ * frontend/packages/amlfilter-publisher/src/recall/screenParams.ts, and the pin
+ * in ./recallParity.test.ts that fails when the two drift apart.
+ */
+export const SEARCH_K = 25;
 const DEBOUNCE_MS = 180;
 
 /**

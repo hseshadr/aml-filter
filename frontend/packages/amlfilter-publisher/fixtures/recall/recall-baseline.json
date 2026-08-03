@@ -1,0 +1,90 @@
+{
+	"schemaVersion": 1,
+	"tolerance": 0.02,
+	"report": {
+		"schemaVersion": 1,
+		"measuredAt": "2026-08-03T18:48:03.681Z",
+		"corpus": {
+			"listId": "OFAC_SDN",
+			"entities": 19181,
+			"fixture": "ofac-sdn-corpus.jsonl.gz",
+			"fixtureSha256": "0d42fafa54eb37494722c4dff21d1abe57e24a5568683910145b260ae2a90331"
+		},
+		"screen": {
+			"threshold": 0.3,
+			"k": 25
+		},
+		"sample": {
+			"seed": 20260803,
+			"perSegment": 2000,
+			"availableAlias": 24026,
+			"availableCanonical": 19154
+		},
+		"segments": [
+			{
+				"kind": "alias",
+				"queries": 2000,
+				"at": [
+					{
+						"k": 1,
+						"hits": 1186,
+						"recall": 0.593
+					},
+					{
+						"k": 10,
+						"hits": 1237,
+						"recall": 0.6185
+					},
+					{
+						"k": 25,
+						"hits": 1239,
+						"recall": 0.6195
+					}
+				],
+				"absent": 761,
+				"absentRate": 0.3805
+			},
+			{
+				"kind": "canonical",
+				"queries": 2000,
+				"at": [
+					{
+						"k": 1,
+						"hits": 1999,
+						"recall": 0.9995
+					},
+					{
+						"k": 10,
+						"hits": 1999,
+						"recall": 0.9995
+					},
+					{
+						"k": 25,
+						"hits": 1999,
+						"recall": 0.9995
+					}
+				],
+				"absent": 1,
+				"absentRate": 0.0005
+			}
+		]
+	},
+	"floors": {
+		"segments": [
+			{
+				"kind": "alias",
+				"minRecallAt1": 0.573,
+				"minRecallAt10": 0.5985,
+				"minRecallAt25": 0.5995,
+				"maxAbsentRate": 0.4005
+			},
+			{
+				"kind": "canonical",
+				"minRecallAt1": 0.9795,
+				"minRecallAt10": 0.9795,
+				"minRecallAt25": 0.9795,
+				"maxAbsentRate": 0.0205
+			}
+		]
+	}
+}

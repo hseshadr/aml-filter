@@ -1,0 +1,7 @@
+{
+	"listId": "OFAC_SDN",
+	"sourceUrl": "https://data.trade.gov/downloadable_consolidated_screening_list/v1/consolidated.csv",
+	"fetchedAt": "2026-08-03T18:30:37.000Z",
+	"sourceSha256": "fe30070e0b4a55356355a9d922c4a53fcec44634ff578837bff647e2a4196a19",
+	"entities": 19181
+}

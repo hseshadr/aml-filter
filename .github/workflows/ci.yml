@@ -104,9 +104,20 @@ jobs:
 
       # The canonical gate (frontend/package.json "gate"): Biome lint → tsc
       # typecheck → Vitest units (incl. the i18n locale-parity spec) → production
-      # build across the workspace, then the i18n live-drive and the four
-      # Playwright lanes, each building + previewing the minified SPA in real
-      # Chromium against the REAL committed artifacts — not synthetic stand-ins:
+      # build across the workspace, then the retrieval-recall gate, the i18n
+      # live-drive and the four Playwright lanes, each building + previewing the
+      # minified SPA in real Chromium against the REAL committed artifacts — not
+      # synthetic stand-ins:
+      #   • Retrieval recall (amlfilter-publisher src/recall) — rebuilds the
+      #     screening engine over a frozen 19,181-entity OFAC SDN snapshot with
+      #     the real MiniLM embedder, screens a seeded sample of queries whose
+      #     answers come from the feed's OWN published aliases, and fails when
+      #     recall@1/@10/@25 drops below the committed measured floors. It runs
+      #     AFTER the model-weights step above because it needs those weights.
+      #     Unit tests cannot replace it: narrowing retrieval from the top 40
+      #     candidates to the top 1 leaves all 510 browser-package tests green
+      #     and takes alias recall@10 from 0.62 to 0.39, which only this gate
+      #     sees.
       #   • i18n live-drive (scripts/verify-i18n.mjs) — headless Chromium boots
       #     the built Landing and asserts the mounted <I18nextProvider> renders
       #     translated copy (nav/footer/landing), NOT raw keys, with a clean
