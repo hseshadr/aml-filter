@@ -32,7 +32,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
-    uses: hseshadr/ci/.github/workflows/secret-scan.yml@2a575cd193e2e1fc093ccd26821020538e2547b7 # ci-v3.0.0
+    uses: hseshadr/ci/.github/workflows/secret-scan.yml@7226072bd02e7aecc5b065b3eaf0bfbf4b3e1790 # ci-v3.2.0
 
   # ---------------------------------------------------------------------------
   # frontend — the entire CI for the zero-server, pure-TypeScript, in-browser
