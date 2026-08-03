@@ -8,15 +8,26 @@ that stops those numbers from getting worse.
 The current measurement, against the frozen 19,181-entity OFAC SDN snapshot, at
 the parameters the live `/screen` page actually sends:
 
+Every labelled query, no sampling:
+
 | Segment | Queries | recall@1 | recall@10 | recall@25 | Found nothing |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| **alias** — a published alias, looking for its parent | 2,000 | 0.5930 | 0.6185 | 0.6195 | **38.05%** |
-| **canonical** — an entity's own name, looking for itself | 2,000 | 0.9995 | 0.9995 | 0.9995 | 0.05% |
+| **alias** — a published alias, looking for its parent | 24,026 | 0.5739 | 0.6076 | 0.6083 | **39.17%** (9,411) |
+| **canonical** — an entity's own name, looking for itself | 19,154 | 0.9997 | 0.9999 | 0.9999 | 0.01% (2) |
 
 Read that as: looking an entity up by its own indexed name works. Looking it up
 by a name OFAC itself publishes for that same entity fails **about two times in
-five**. The two segments are never averaged — averaging them would hide the only
-number that describes the product's actual promise.
+five** — 9,411 of 24,026 published aliases return a screen with no trace of the
+sanctioned entity in it. The two segments are never averaged; a single blended
+number would read about 0.81 and hide the only half that describes the promise.
+
+The gate screens a 2,000-query sample of each segment rather than the whole
+population, and tracks it closely:
+
+| Segment | Gate sample (2,000) @10 | Full population @10 | Difference |
+| --- | ---: | ---: | ---: |
+| alias | 0.6185 | 0.6076 | 0.011 |
+| canonical | 0.9995 | 0.9999 | 0.0004 |
 
 ## Run it
 
@@ -137,3 +148,17 @@ arithmetic differs between an arm64 laptop and an x86_64 CI runner, and two
 entities scoring within 1e-4 can swap rank across them. The tolerance is the width
 of that platform noise. It is subtracted once, when the floor is written; the
 comparison in CI is exact.
+
+The width was then checked rather than assumed. The same gate, same seed, same
+fixture, on the two architectures:
+
+| Metric | macOS arm64 | Linux x86_64 (CI) | Drift |
+| --- | ---: | ---: | ---: |
+| alias recall@1 | 0.5930 | 0.5920 | 0.0010 |
+| alias recall@10 | 0.6185 | 0.6180 | 0.0005 |
+| alias recall@25 | 0.6195 | 0.6190 | 0.0005 |
+| alias found-nothing | 0.3805 | 0.3810 | 0.0005 |
+| canonical (all three) | 0.9995 | 0.9995 | 0 |
+
+Real drift, and about twenty times smaller than the tolerance — so 0.02 is
+conservative, and a 2-point recall regression cannot hide inside it.
