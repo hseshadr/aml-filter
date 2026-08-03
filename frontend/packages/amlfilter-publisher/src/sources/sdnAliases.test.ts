@@ -155,7 +155,7 @@ describe("a Cyrillic query returns the right entity", () => {
 		country: null,
 		entityType: null,
 		vectorSimilarity: 0,
-		trigramSimilarity: 0,
+		lexicalSimilarity: 0,
 	};
 
 	async function entityFor(enriched: boolean): Promise<Entity> {

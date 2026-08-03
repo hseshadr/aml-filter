@@ -6,6 +6,7 @@ import {
 	baselineFromReport,
 	PLATFORM_TOLERANCE,
 	readBaseline,
+	readBaselineIfPresent,
 	writeBaseline,
 } from "./baseline.ts";
 import { checkRecall } from "./gate.ts";
@@ -13,7 +14,8 @@ import { CORPUS_FIXTURE, RECALL_BASELINE } from "./paths.ts";
 import type { RecallReport } from "./report.ts";
 
 const REPORT: RecallReport = {
-	schemaVersion: 1,
+	schemaVersion: 2,
+	audit: [{ query: "Aiman al-Zawahri", expected: "OFAC_SDN:2676", rank: 1 }],
 	measuredAt: "2026-08-03T00:00:00.000Z",
 	corpus: {
 		listId: "OFAC_SDN",
@@ -71,6 +73,28 @@ describe("baseline round-trip", () => {
 	it("records the tolerance it used", () => {
 		expect(baselineFromReport(REPORT, 0.05).tolerance).toBe(0.05);
 	});
+
+	// --write is how the baseline is refreshed after a change moves recall. If it
+	// simply overwrote the floors, a run that lost a little would write the loss
+	// in as the new permission.
+	it("KEEPS a stricter committed floor rather than writing a lower one", () => {
+		const strict = baselineFromReport(REPORT, 0);
+		const relaxed = baselineFromReport(REPORT, PLATFORM_TOLERANCE, strict);
+		expect(relaxed.floors.segments[0]?.minRecallAt1).toBe(
+			strict.floors.segments[0]?.minRecallAt1,
+		);
+	});
+
+	it("readBaselineIfPresent returns null for a path with no baseline yet", () => {
+		expect(readBaselineIfPresent(tempPath())).toBeNull();
+	});
+
+	it("readBaselineIfPresent reads a baseline that IS there", () => {
+		const path = tempPath();
+		const baseline = baselineFromReport(REPORT, PLATFORM_TOLERANCE);
+		writeBaseline(path, baseline);
+		expect(readBaselineIfPresent(path)).toEqual(baseline);
+	});
 });
 
 describe("readBaseline fails closed", () => {
@@ -88,19 +112,35 @@ describe("readBaseline fails closed", () => {
 
 	it("REJECTS a future schemaVersion", () => {
 		expect(() =>
-			readBaseline(badBaseline({ schemaVersion: 2, report: {}, floors: {} })),
+			readBaseline(badBaseline({ schemaVersion: 3, report: {}, floors: {} })),
+		).toThrow(/schemaVersion/);
+	});
+
+	// A schema-1 baseline predates the audit probes. Reading it would grade a
+	// probe-carrying measurement against floors derived without them, so it is
+	// refused rather than upgraded in place.
+	it("REJECTS the superseded schema 1", () => {
+		expect(() =>
+			readBaseline(
+				badBaseline({
+					schemaVersion: 1,
+					report: {},
+					floors: {},
+					tolerance: 0.02,
+				}),
+			),
 		).toThrow(/schemaVersion/);
 	});
 
 	it("REJECTS a document missing its floors", () => {
 		expect(() =>
-			readBaseline(badBaseline({ schemaVersion: 1, report: {}, tolerance: 0 })),
+			readBaseline(badBaseline({ schemaVersion: 2, report: {}, tolerance: 0 })),
 		).toThrow(/missing report or floors/);
 	});
 
 	it("REJECTS a document missing its tolerance", () => {
 		expect(() =>
-			readBaseline(badBaseline({ schemaVersion: 1, report: {}, floors: {} })),
+			readBaseline(badBaseline({ schemaVersion: 2, report: {}, floors: {} })),
 		).toThrow(/missing tolerance/);
 	});
 });

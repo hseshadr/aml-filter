@@ -114,6 +114,12 @@ importers:
       '@noble/ed25519':
         specifier: ^3.1.0
         version: 3.1.0
+      double-metaphone:
+        specifier: ^2.0.1
+        version: 2.0.1
+      fuzzball:
+        specifier: ^2.2.6
+        version: 2.2.6
     devDependencies:
       '@biomejs/biome':
         specifier: ^2.5.5
@@ -1154,6 +1160,10 @@ packages:
   dom-accessibility-api@0.6.3:
     resolution: {integrity: sha512-7ZgogeTnjuHbo+ct10G9Ffp0mif17idi0IyWNVA/wcwcm7NPOD/WEHVP3n7n3MhXqxoIYm8d6MuZohYWIZ4T3w==}
 
+  double-metaphone@2.0.1:
+    resolution: {integrity: sha512-oHqGfNo2bG/VTZSGFz98TWpyv3WD+d9TDOxwAY8L+zqwm4sGawNvEynegjPU+4HowE4HnIXSYAq0lst2YJgfzA==}
+    hasBin: true
+
   entities@8.0.0:
     resolution: {integrity: sha512-zwfzJecQ/Uej6tusMqwAqU/6KL2XaB2VZ2Jg54Je6ahNBGNH6Ek6g3jjNCF0fG9EWQKGZNddNjU5F1ZQn/sBnA==}
     engines: {node: '>=20.19.0'}
@@ -1209,6 +1219,9 @@ packages:
     engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
     os: [darwin]
 
+  fuzzball@2.2.6:
+    resolution: {integrity: sha512-RFYKY0GGDOmocz6rYmvOk9qOnV2UCsLHbVPl5zfZVvcdBlilDg/84WSgAvOCGDq+UEnpnqjZMHk6a/hamC5VuQ==}
+
   global-agent@3.0.0:
     resolution: {integrity: sha512-PT6XReJ+D07JvGoxQMkT6qji/jVNfX/h364XHZOWeRzy64sSFr+xJ5OX7LI3b4MPQzdL4H8Y8M0xzPpsVMwA8Q==}
     engines: {node: '>=10.0'}
@@ -1230,6 +1243,9 @@ packages:
 
   has-property-descriptors@1.0.2:
     resolution: {integrity: sha512-55JNKuIW+vq4Ke1BjOTjM2YctQIvCT7GFzHwmfZPGo5wnrgkid0YQtnAleFSqumZm4az3n2BS+erby5ipJdgrg==}
+
+  heap@0.2.7:
+    resolution: {integrity: sha512-2bsegYkkHO+h/9MGbn6KWcE45cHZgPANo5LXF7EvWdT0yT2EguSVO1nDgU5c8+ZOPwp2vMNa7YFsJhVcDR9Sdg==}
 
   html-encoding-sniffer@6.0.0:
     resolution: {integrity: sha512-CV9TW3Y3f8/wT0BRFc1/KAVQ3TUHiXmaAb6VW9vtiMFf7SLoMd1PdAc4W3KFOFETBJUb90KatHqlsZMWV+R9Gg==}
@@ -1434,6 +1450,9 @@ packages:
     resolution: {integrity: sha512-WkUDrojuJs0xkgGf2udWxa3yGBRxPtxUkB79i6aCZLRgc7PM8fZe9TosfPDcvEpQZbuFASnHYmRLBLUbmLOIIA==}
     engines: {node: '>= 12.0.0'}
 
+  lodash@4.18.1:
+    resolution: {integrity: sha512-dMInicTPVE8d1e5otfwmmjlxkZoUpiVLwyeTdUsi/Caj/gfzzblBcCE5sRHV/AsjuCmxWrte2TNGSYuCeCq+0Q==}
+
   long@5.3.2:
     resolution: {integrity: sha512-mNAgZ1GmyNhD7AuqnTG3/VQ26o760+ZYBPKjPvugO8+nLbYfX6TVpJPseBvopbdY+qpZ/lKUnmEc1LeZYS3QAA==}
 
@@ -1621,6 +1640,9 @@ packages:
   serialize-error@7.0.1:
     resolution: {integrity: sha512-8I8TjW5KMOKsZQTvoxjuSIa7foAwPWGOts+6o7sgjz41/qMD9VQHEDxi6PBvK2l0MXUmqZyNpUK+T2tQaaElvw==}
     engines: {node: '>=10'}
+
+  setimmediate@1.0.5:
+    resolution: {integrity: sha512-MATJdZp8sLqDl/68LfQmbP8zKPLQNV6BIZoIgrscFDQ+RsvK/BxeDQOgyxKKoh0y/8h3BqVFnCqQ/gd+reiIXA==}
 
   sharp@0.35.3:
     resolution: {integrity: sha512-ej0zVHuZGHCiABXcNxeYhpRnPNPAcvbG8RMdBAhDAxLKkCRVSpK3Iyu7qbqw3JMzoj0REeM6f3tJLtVwl0023Q==}
@@ -2565,6 +2587,8 @@ snapshots:
 
   dom-accessibility-api@0.6.3: {}
 
+  double-metaphone@2.0.1: {}
+
   entities@8.0.0: {}
 
   es-define-property@1.0.1: {}
@@ -2597,6 +2621,12 @@ snapshots:
   fsevents@2.3.3:
     optional: true
 
+  fuzzball@2.2.6:
+    dependencies:
+      heap: 0.2.7
+      lodash: 4.18.1
+      setimmediate: 1.0.5
+
   global-agent@3.0.0:
     dependencies:
       boolean: 3.2.0
@@ -2620,6 +2650,8 @@ snapshots:
   has-property-descriptors@1.0.2:
     dependencies:
       es-define-property: 1.0.1
+
+  heap@0.2.7: {}
 
   html-encoding-sniffer@6.0.0:
     dependencies:
@@ -2781,6 +2813,8 @@ snapshots:
       lightningcss-linux-x64-musl: 1.33.0
       lightningcss-win32-arm64-msvc: 1.33.0
       lightningcss-win32-x64-msvc: 1.33.0
+
+  lodash@4.18.1: {}
 
   long@5.3.2: {}
 
@@ -2985,6 +3019,8 @@ snapshots:
   serialize-error@7.0.1:
     dependencies:
       type-fest: 0.13.1
+
+  setimmediate@1.0.5: {}
 
   sharp@0.35.3(@types/node@26.1.2):
     dependencies:

@@ -88,12 +88,24 @@ function nameTokens(name: string): ReadonlySet<string> {
 	return new Set(canonical.length === 0 ? [] : canonical.split(" "));
 }
 
-/** True when any canonical query token exactly equals a canonical entity-name token. */
+/**
+ * True when any canonical query token exactly equals a token of ANY name the
+ * entity is published under — its primary name or one of its aliases.
+ *
+ * It used to read `primary_name` alone, and that made the gate contradict
+ * retrieval: the engine now reaches entities through their published aliases
+ * (see the engine's lexicalIndex), so an entity found because the user typed a
+ * name OFAC prints for it could be dropped here for not resembling a different
+ * name it also goes by. Nothing is dropped that was kept before — this only ever
+ * adds tokens to compare against.
+ */
 function hasTokenContainment(match: Match, query: string): boolean {
-	const entityTokens = nameTokens(match.primary_name);
-	for (const token of nameTokens(query)) {
-		if (entityTokens.has(token)) {
-			return true;
+	const queryTokens = nameTokens(query);
+	for (const name of [match.primary_name, ...match.aliases]) {
+		for (const token of nameTokens(name)) {
+			if (queryTokens.has(token)) {
+				return true;
+			}
 		}
 	}
 	return false;

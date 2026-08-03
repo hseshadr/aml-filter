@@ -142,6 +142,118 @@ describe("ScreeningEngine — in-browser OFAC screen", () => {
 	});
 });
 
+// Union retrieval. The stub embedder below is deliberately BLIND: it returns the
+// same orthogonal vector for every query except the one exact string it knows,
+// so an entity can only be reached lexically. That is the point — before the
+// union, retrieval was vector-only and an alias-reachable entity was invisible
+// no matter what it would have scored.
+describe("ScreeningEngine — retrieval unions vector and lexical candidates", () => {
+	/** 30 decoys plus one target, so the target is far outside any vector top-k. */
+	function crowdedWatchlist(): Watchlist {
+		const count = 31;
+		const matrix = new Float32Array(count * DIM);
+		for (let i = 0; i < count; i += 1) {
+			matrix[i * DIM + (i % 300)] = 1;
+		}
+		const entities = Array.from({ length: count - 1 }, (_, i) => ({
+			entity_id: `e_decoy_${i}`,
+			name_canonical: `decoy person ${i}`,
+			aliases: [] as string[],
+			dob: null,
+			countries: [],
+			risk_category: "SANCTION",
+			source_list: "OFAC_SDN",
+			list_version: "2026-05-30",
+		}));
+		return {
+			listId: "OFAC_SDN",
+			version: "2026-05-30",
+			generatedAt: "2026-05-30T00:00:00Z",
+			model: "Xenova/all-MiniLM-L6-v2",
+			dim: DIM,
+			entities: [
+				...entities,
+				{
+					entity_id: "e_zawahiri",
+					name_canonical: "al zawahiri ayman",
+					aliases: ["SALIM, Ahmad Fuad"],
+					dob: null,
+					countries: [],
+					risk_category: "SANCTION",
+					source_list: "OFAC_SDN",
+					list_version: "2026-05-30",
+				},
+			],
+			vectors: Buffer.from(matrix.buffer).toString("base64"),
+		} as Watchlist;
+	}
+
+	/** Every query maps to the same vector, orthogonal to every stored row. */
+	function blindEmbedder(): Embedder {
+		return {
+			embed(): Promise<Float32Array> {
+				const v = new Float32Array(DIM);
+				v[383] = 1;
+				return Promise.resolve(v);
+			},
+		};
+	}
+
+	function crowdedEngine(): ScreeningEngine {
+		return createScreeningEngine(
+			buildLoadedWatchlist(crowdedWatchlist()),
+			blindEmbedder(),
+		);
+	}
+
+	it("retrieves an entity reachable ONLY through a published alias", async () => {
+		// "salim"/"ahmad"/"fuad" appear in no primary name and in no vector. The
+		// only path to this entity is the alias-aware lexical index.
+		const res = await crowdedEngine().screen({
+			name: "SALIM, Ahmad Fuad",
+			threshold: 0.3,
+			k: 25,
+		});
+		expect(res.matches.map((m) => m.entity_id)).toContain("e_zawahiri");
+	});
+
+	it("retrieves an entity through a shared pronunciation the vectors miss", async () => {
+		// "aiman" is not a token of any indexed name; only the Double-Metaphone
+		// key it shares with "ayman" reaches it. Threshold 0 on purpose: this
+		// asserts RETRIEVAL, and with a blind embedder there is no vector signal
+		// left to score with. Whether it then clears a real floor is the scorer's
+		// job, measured against the real corpus by the recall harness.
+		const res = await crowdedEngine().screen({
+			name: "Aiman al-Zawahiri",
+			threshold: 0,
+			k: 25,
+		});
+		expect(res.matches.map((m) => m.entity_id)).toContain("e_zawahiri");
+	});
+
+	it("gives a lexical-only candidate its REAL cosine, not a placeholder", async () => {
+		const res = await crowdedEngine().screen({
+			name: "SALIM, Ahmad Fuad",
+			threshold: 0,
+			k: 25,
+		});
+		const hit = res.matches.find((m) => m.entity_id === "e_zawahiri");
+		const vector = hit?.reasons.find((r) => r.signal === "name_vector");
+		// The embedder is orthogonal to every stored row, so the honest cosine is
+		// ~0. A fabricated stand-in would show up here as anything else.
+		expect(vector?.value).toBeCloseTo(0, 5);
+	});
+
+	it("still returns nothing for a name sharing neither token nor sound", async () => {
+		const res = await crowdedEngine().screen({
+			name: "Zzyzx Nobody",
+			threshold: 0.3,
+			k: 25,
+		});
+		expect(res.matches).toHaveLength(0);
+	});
+});
+
 // A rich entity carrying the dossier fields the search UI surfaces. Built with a
 // tiny real VectorIndex so the projection is exercised end-to-end.
 function richEntity(): Entity {

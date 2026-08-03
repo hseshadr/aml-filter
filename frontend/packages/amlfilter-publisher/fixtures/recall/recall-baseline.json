@@ -1,9 +1,9 @@
 {
-	"schemaVersion": 1,
+	"schemaVersion": 2,
 	"tolerance": 0.02,
 	"report": {
-		"schemaVersion": 1,
-		"measuredAt": "2026-08-03T18:48:03.681Z",
+		"schemaVersion": 2,
+		"measuredAt": "2026-08-03T19:49:00.606Z",
 		"corpus": {
 			"listId": "OFAC_SDN",
 			"entities": 19181,
@@ -27,22 +27,22 @@
 				"at": [
 					{
 						"k": 1,
-						"hits": 1186,
-						"recall": 0.593
+						"hits": 1981,
+						"recall": 0.9905
 					},
 					{
 						"k": 10,
-						"hits": 1237,
-						"recall": 0.6185
+						"hits": 1999,
+						"recall": 0.9995
 					},
 					{
 						"k": 25,
-						"hits": 1239,
-						"recall": 0.6195
+						"hits": 2000,
+						"recall": 1
 					}
 				],
-				"absent": 761,
-				"absentRate": 0.3805
+				"absent": 0,
+				"absentRate": 0
 			},
 			{
 				"kind": "canonical",
@@ -50,22 +50,44 @@
 				"at": [
 					{
 						"k": 1,
-						"hits": 1999,
-						"recall": 0.9995
+						"hits": 1984,
+						"recall": 0.992
 					},
 					{
 						"k": 10,
-						"hits": 1999,
-						"recall": 0.9995
+						"hits": 2000,
+						"recall": 1
 					},
 					{
 						"k": 25,
-						"hits": 1999,
-						"recall": 0.9995
+						"hits": 2000,
+						"recall": 1
 					}
 				],
-				"absent": 1,
-				"absentRate": 0.0005
+				"absent": 0,
+				"absentRate": 0
+			}
+		],
+		"audit": [
+			{
+				"query": "Aiman al-Zawahri",
+				"expected": "OFAC_SDN:2676",
+				"rank": 2
+			},
+			{
+				"query": "Musa Muhammad Abu Marzuk",
+				"expected": "OFAC_SDN:3754",
+				"rank": 3
+			},
+			{
+				"query": "Hassan Nasralla",
+				"expected": "OFAC_SDN:2686",
+				"rank": 12
+			},
+			{
+				"query": "Ahmad Fuad Salim",
+				"expected": "OFAC_SDN:2676",
+				"rank": 1
 			}
 		]
 	},
@@ -73,17 +95,17 @@
 		"segments": [
 			{
 				"kind": "alias",
-				"minRecallAt1": 0.573,
-				"minRecallAt10": 0.5985,
-				"minRecallAt25": 0.5995,
-				"maxAbsentRate": 0.4005
+				"minRecallAt1": 0.9705,
+				"minRecallAt10": 0.9795,
+				"minRecallAt25": 0.98,
+				"maxAbsentRate": 0.02
 			},
 			{
 				"kind": "canonical",
 				"minRecallAt1": 0.9795,
-				"minRecallAt10": 0.9795,
-				"minRecallAt25": 0.9795,
-				"maxAbsentRate": 0.0205
+				"minRecallAt10": 0.98,
+				"minRecallAt25": 0.98,
+				"maxAbsentRate": 0.02
 			}
 		]
 	}

@@ -9,8 +9,8 @@ import {
 } from "./strictness";
 
 // A Match double carrying only what the strictness layer reads: the combined
-// score (partition), the name_trigram reason (lexical gate), and the primary
-// name (token containment).
+// score (partition), the name_trigram reason (lexical gate), and the entity's
+// published names — primary plus aliases — for token containment.
 function matchDouble(
 	score: number,
 	trigram: number,
@@ -41,6 +41,11 @@ function matchDouble(
 		],
 		explanation: "",
 	};
+}
+
+/** The same double, published under extra alias names. */
+function withAliases(match: Match, aliases: readonly string[]): Match {
+	return { ...match, aliases };
 }
 
 describe("strictness levels — the declared threshold contract", () => {
@@ -127,5 +132,28 @@ describe("passesStrictness — the lexical gate (moved intact from ScreenPage)",
 	it("keeps a low-trigram match when a query token exactly matches a name token", () => {
 		const org = matchDouble(0.301, 0.267, "Madeupistan Imaginary Bank");
 		expect(passesStrictness(org, "bank", LEVEL.balanced)).toBe(true);
+	});
+
+	// The engine now retrieves entities through their PUBLISHED ALIASES. If the
+	// escape hatch still read only the primary name, this gate would throw away
+	// the very matches retrieval was widened to find: the user typed a name OFAC
+	// prints for this entity, and the entity was dropped for not resembling a
+	// different name it also goes by.
+	it("keeps a low-trigram match whose ALIAS carries the query token", () => {
+		const aliased = withAliases(matchDouble(0.301, 0.2, "Al Zawahiri Ayman"), [
+			"SALIM, Ahmad Fuad",
+		]);
+		expect(passesStrictness(aliased, "Ahmad Fuad Salim", LEVEL.balanced)).toBe(
+			true,
+		);
+	});
+
+	// The red run: with the alias removed, the same match is dropped. Without
+	// this, the assertion above would pass for any reason at all.
+	it("DROPS that same match once the alias no longer carries the token", () => {
+		const bare = matchDouble(0.301, 0.2, "Al Zawahiri Ayman");
+		expect(passesStrictness(bare, "Ahmad Fuad Salim", LEVEL.balanced)).toBe(
+			false,
+		);
 	});
 });

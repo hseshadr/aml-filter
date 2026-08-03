@@ -5,6 +5,7 @@
 // moving, with the corpus and sampling provenance that produced it sitting
 // beside it.
 
+import { type AuditProbeResult, formatAuditProbes } from "./auditQueries.ts";
 import type { QueryKind } from "./labels.ts";
 
 /** Hit count and recall at one cut-off. */
@@ -50,14 +51,22 @@ export interface SampleProvenance {
 	readonly availableCanonical: number;
 }
 
-/** A full measurement run. */
+/**
+ * A full measurement run.
+ *
+ * Schema 2 added `audit`: the four named spelling-variant probes, reported
+ * beside the sampled segments because an aggregate cannot say whether one
+ * specific fixed case is still fixed.
+ */
 export interface RecallReport {
-	readonly schemaVersion: 1;
+	readonly schemaVersion: 2;
 	readonly measuredAt: string;
 	readonly corpus: CorpusProvenance;
 	readonly screen: { readonly threshold: number; readonly k: number };
 	readonly sample: SampleProvenance;
 	readonly segments: readonly SegmentReport[];
+	/** The pinned probes and where each one's expected entity ranked. */
+	readonly audit: readonly AuditProbeResult[];
 }
 
 /** Look up one segment, or throw — a missing segment is a broken report. */
@@ -96,5 +105,10 @@ export function formatReport(report: RecallReport): string {
 		`screen: threshold=${report.screen.threshold} k=${report.screen.k}`,
 		`sample: seed=${report.sample.seed} perSegment=${report.sample.perSegment ?? "all"}`,
 	];
-	return [...head, ...report.segments.map(formatSegment)].join("\n");
+	return [
+		...head,
+		...report.segments.map(formatSegment),
+		"audit probes (named spelling variants, each must be retrieved):",
+		formatAuditProbes(report.audit),
+	].join("\n");
 }

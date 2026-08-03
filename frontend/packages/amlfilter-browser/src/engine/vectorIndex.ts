@@ -36,6 +36,8 @@ export class VectorIndex {
 	readonly #dim: number;
 	#ntotal: number;
 	#disposed = false;
+	/** id -> row, built once on the first similarityOf call. */
+	#rowOf: Map<string, number> | null = null;
 
 	public constructor(
 		matrix: Float32Array,
@@ -66,6 +68,7 @@ export class VectorIndex {
 		this.#matrix = new Float32Array(0);
 		this.#ids = [];
 		this.#ntotal = 0;
+		this.#rowOf = null;
 		this.#disposed = true;
 	}
 
@@ -75,6 +78,52 @@ export class VectorIndex {
 			throw new RangeError(`row ${row} out of range`);
 		}
 		return id;
+	}
+
+	/**
+	 * Cosine of ONE known entity against the query — the same number `search`
+	 * would have reported for that row, without asking for a ranking.
+	 *
+	 * Retrieval is a union: candidates also arrive from the lexical/phonetic
+	 * index, and those still need a real `name_vector` signal to be scored beside
+	 * the vector hits. Fabricating a placeholder similarity for them would put a
+	 * made-up number into an explainable score and into the signed receipt, so
+	 * the index computes the honest one instead.
+	 *
+	 * Throws for an unknown id: a caller asking about an entity this index has
+	 * never seen has a bug, and returning 0 would hide it as a weak match.
+	 */
+	public similarityOf(id: string, queryVec: Float32Array): number {
+		const row = this.#row(id);
+		if (queryVec.length !== this.#dim) {
+			throw new Error(
+				`query vector has ${queryVec.length} dims; index is ${this.#dim}`,
+			);
+		}
+		const base = row * this.#dim;
+		let dot = 0;
+		let querySumSq = 0;
+		for (let i = 0; i < this.#dim; i += 1) {
+			const q = queryVec[i] ?? 0;
+			dot += (this.#matrix[base + i] ?? 0) * q;
+			querySumSq += q * q;
+		}
+		// Stored rows are unit-length, so dividing by |query| alone yields cosine.
+		return querySumSq === 0 ? 0 : dot / Math.sqrt(querySumSq);
+	}
+
+	#row(id: string): number {
+		if (this.#disposed) {
+			throw new Error("vector index has been disposed");
+		}
+		if (this.#rowOf === null) {
+			this.#rowOf = new Map(this.#ids.map((value, row) => [value, row]));
+		}
+		const row = this.#rowOf.get(id);
+		if (row === undefined) {
+			throw new RangeError(`entity id "${id}" is not in this index`);
+		}
+		return row;
 	}
 
 	/**

@@ -10,6 +10,7 @@ import { canonicalize, type Embedder } from "@amlfilter/browser";
 import { describe, expect, it } from "vitest";
 import { createFakeEmbedder } from "../fakeEmbedder.ts";
 import type { SourceLine } from "../sources/source.ts";
+import { AUDIT_QUERIES } from "./auditQueries.ts";
 import { encodeFixture } from "./fixture.ts";
 import { recallAt, segmentOf } from "./report.ts";
 import { runRecall } from "./runRecall.ts";
@@ -157,6 +158,22 @@ describe("runRecall", () => {
 		});
 		expect(first.corpus.fixtureSha256).toMatch(/^[0-9a-f]{64}$/);
 		expect(other.corpus.fixtureSha256).not.toBe(first.corpus.fixtureSha256);
+	});
+
+	// The probes are screened against whatever corpus is loaded. On this 4-entity
+	// stand-in none of the real OFAC ids exist, so every probe is absent — the
+	// point asserted here is that the run REPORTS them, not that they hit.
+	it("screens the pinned audit probes and reports one row per probe", async () => {
+		const report = await runRecall({
+			fixturePath: writeFixture(),
+			perSegment: null,
+			seed: 1,
+			embedder: createCanonicalFakeEmbedder(),
+		});
+		expect(report.audit.map((a) => a.query)).toEqual(
+			AUDIT_QUERIES.map((q) => q.query),
+		);
+		expect(report.audit.every((a) => a.rank === null)).toBe(true);
 	});
 
 	it("forwards progress to the caller", async () => {

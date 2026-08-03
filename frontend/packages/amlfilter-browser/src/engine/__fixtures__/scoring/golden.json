@@ -22,7 +22,7 @@
       "country": "RU",
       "entityType": null,
       "vectorSimilarity": 1.0,
-      "trigramSimilarity": 1.0
+      "lexicalSimilarity": 1.0
     },
     "expected": {
       "score": 0.8,
@@ -83,7 +83,7 @@
       "country": "CA",
       "entityType": null,
       "vectorSimilarity": 1.0,
-      "trigramSimilarity": 1.0
+      "lexicalSimilarity": 1.0
     },
     "expected": {
       "score": 0.775,
@@ -144,7 +144,7 @@
       "country": "JP",
       "entityType": null,
       "vectorSimilarity": 1.0,
-      "trigramSimilarity": 1.0
+      "lexicalSimilarity": 1.0
     },
     "expected": {
       "score": 0.75,
@@ -208,10 +208,10 @@
       "country": null,
       "entityType": null,
       "vectorSimilarity": 0.7,
-      "trigramSimilarity": 0.5
+      "lexicalSimilarity": 0.5
     },
     "expected": {
-      "score": 0.585,
+      "score": 0.835,
       "summary": "Match due to: alias match",
       "reasons": [
         {
@@ -231,8 +231,8 @@
         {
           "signal": "alias_match",
           "value": "V. Ivanov",
-          "weight": 0.1,
-          "contribution": 0.1,
+          "weight": 0.35,
+          "contribution": 0.35,
           "description": "Alias match: V. Ivanov"
         },
         {
@@ -268,7 +268,7 @@
       "country": null,
       "entityType": null,
       "vectorSimilarity": 1.0,
-      "trigramSimilarity": 1.0
+      "lexicalSimilarity": 1.0
     },
     "expected": {
       "score": 0.8,
@@ -330,7 +330,7 @@
       "country": "RU",
       "entityType": "PERSON",
       "vectorSimilarity": 1.0,
-      "trigramSimilarity": 1.0
+      "lexicalSimilarity": 1.0
     },
     "expected": {
       "score": 0.85,
@@ -395,7 +395,7 @@
       "country": null,
       "entityType": null,
       "vectorSimilarity": 0.1,
-      "trigramSimilarity": 0.1
+      "lexicalSimilarity": 0.1
     },
     "expected": {
       "score": 0.07500000000000001,
@@ -446,7 +446,7 @@
       "country": null,
       "entityType": "ORGANIZATION",
       "vectorSimilarity": 1.0,
-      "trigramSimilarity": 1.0
+      "lexicalSimilarity": 1.0
     },
     "expected": {
       "score": 0.75,
@@ -503,10 +503,10 @@
       "country": null,
       "entityType": null,
       "vectorSimilarity": 0.7,
-      "trigramSimilarity": 0.6
+      "lexicalSimilarity": 0.6
     },
     "expected": {
-      "score": 0.555,
+      "score": 0.68,
       "summary": "Match due to: alias match",
       "reasons": [
         {
@@ -526,8 +526,8 @@
         {
           "signal": "alias_match",
           "value": "Vladimir Ivanov II",
-          "weight": 0.1,
-          "contribution": 0.05,
+          "weight": 0.35,
+          "contribution": 0.175,
           "description": "Alias match: Vladimir Ivanov II"
         },
         {
@@ -563,7 +563,7 @@
       "country": null,
       "entityType": null,
       "vectorSimilarity": 1.0,
-      "trigramSimilarity": 1.0
+      "lexicalSimilarity": 1.0
     },
     "expected": {
       "score": 0.75,
