@@ -56,3 +56,60 @@ describe("VectorIndex over the decoded watchlist vectors", () => {
 		expect(() => fixtureIndex().idAt(999)).toThrow(/out of range/);
 	});
 });
+
+// similarityOf backs union retrieval: a candidate that arrived from the lexical
+// index still needs a REAL name_vector signal, not an invented one.
+describe("VectorIndex.similarityOf — cosine for one known entity", () => {
+	it("reports the same number search would have reported for that row", () => {
+		const index = fixtureIndex();
+		const hit = index.search(exactHitVector(), 1)[0];
+		expect(index.similarityOf("e_ivanov", exactHitVector())).toBeCloseTo(
+			hit?.score ?? Number.NaN,
+			10,
+		);
+	});
+
+	it("scores an entity the vector search never returned", () => {
+		// e_acme is orthogonal to the query, so a top-1 search misses it entirely;
+		// its honest cosine is still ~0 and must be computable.
+		expect(fixtureIndex().similarityOf("e_acme", exactHitVector())).toBeCloseTo(
+			0,
+			5,
+		);
+	});
+
+	it("normalizes a non-unit query, exactly as search does", () => {
+		const v = new Float32Array(DIM);
+		v[0] = 5;
+		expect(fixtureIndex().similarityOf("e_ivanov", v)).toBeCloseTo(1.0, 5);
+	});
+
+	it("returns 0 for an all-zero query rather than dividing by zero", () => {
+		expect(fixtureIndex().similarityOf("e_ivanov", new Float32Array(DIM))).toBe(
+			0,
+		);
+	});
+
+	it("THROWS for an entity id the index has never seen (no silent 0)", () => {
+		expect(() =>
+			fixtureIndex().similarityOf("e_nobody", exactHitVector()),
+		).toThrow(RangeError);
+		expect(() =>
+			fixtureIndex().similarityOf("e_nobody", exactHitVector()),
+		).toThrow(/not in this index/);
+	});
+
+	it("THROWS for a query of the wrong dimension", () => {
+		expect(() =>
+			fixtureIndex().similarityOf("e_ivanov", new Float32Array(8)),
+		).toThrow(/dims/);
+	});
+
+	it("THROWS after dispose rather than reading a released matrix", () => {
+		const index = fixtureIndex();
+		index.dispose();
+		expect(() => index.similarityOf("e_ivanov", exactHitVector())).toThrow(
+			/disposed/,
+		);
+	});
+});

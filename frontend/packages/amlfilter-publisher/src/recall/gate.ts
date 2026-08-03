@@ -13,8 +13,12 @@
 // width of that platform noise and nothing else; it is subtracted ONCE, when the
 // floor is written, and the comparison here is exact.
 
+import { absentProbes } from "./auditQueries.ts";
 import type { QueryKind } from "./labels.ts";
 import { type RecallReport, recallAt, segmentOf } from "./report.ts";
+
+/** The segment label used for probe failures — they belong to no sampled segment. */
+const AUDIT_SEGMENT = "audit";
 
 /** The minimum a segment must clear. Written from a measured run, never guessed. */
 export interface SegmentFloor {
@@ -30,9 +34,9 @@ export interface RecallFloors {
 	readonly segments: readonly SegmentFloor[];
 }
 
-/** One breached floor. */
+/** One breached floor, or one audit probe that returned nothing. */
 export interface GateFailure {
-	readonly segment: QueryKind;
+	readonly segment: QueryKind | typeof AUDIT_SEGMENT;
 	readonly metric: string;
 	readonly measured: number;
 	readonly floor: number;
@@ -98,23 +102,40 @@ function checkSegment(
 	return checks.filter((c): c is GateFailure => c !== null);
 }
 
-/** Grade a measurement against the committed floors. */
+/**
+ * The audit probes are pass/fail, not a floor: a named case either came back or
+ * it did not. There is no tolerance to subtract because rank churn cannot turn
+ * "present somewhere in 25" into "absent" — a probe that flips has genuinely
+ * stopped being retrieved.
+ */
+function checkAuditProbes(report: RecallReport): readonly GateFailure[] {
+	return absentProbes(report.audit).map((probe) => ({
+		segment: AUDIT_SEGMENT,
+		metric: `${probe.query} -> ${probe.expected}`,
+		measured: 0,
+		floor: 1,
+	}));
+}
+
+/** Grade a measurement against the committed floors and the audit probes. */
 export function checkRecall(
 	report: RecallReport,
 	floors: RecallFloors,
 ): GateVerdict {
-	const failures = floors.segments.flatMap((floor) =>
-		checkSegment(report, floor),
-	);
+	const failures = [
+		...floors.segments.flatMap((floor) => checkSegment(report, floor)),
+		...checkAuditProbes(report),
+	];
 	return { ok: failures.length === 0, failures };
 }
 
 /** Render the failures for a CI log, one breach per line. */
 export function formatFailures(failures: readonly GateFailure[]): string {
 	return failures
-		.map(
-			(f) =>
-				`  ${f.segment} ${f.metric}: measured ${f.measured.toFixed(4)}, floor ${f.floor.toFixed(4)}`,
+		.map((f) =>
+			f.segment === AUDIT_SEGMENT
+				? `  audit probe never retrieved its entity: ${f.metric}`
+				: `  ${f.segment} ${f.metric}: measured ${f.measured.toFixed(4)}, floor ${f.floor.toFixed(4)}`,
 		)
 		.join("\n");
 }
@@ -139,5 +160,49 @@ export function floorsFromReport(
 			minRecallAt25: down(recallAt(segment, 25)),
 			maxAbsentRate: up(segment.absentRate),
 		})),
+	};
+}
+
+function ratchetSegment(
+	next: SegmentFloor,
+	previous: SegmentFloor | undefined,
+): SegmentFloor {
+	if (previous === undefined) {
+		return next;
+	}
+	return {
+		kind: next.kind,
+		minRecallAt1: Math.max(next.minRecallAt1, previous.minRecallAt1),
+		minRecallAt10: Math.max(next.minRecallAt10, previous.minRecallAt10),
+		minRecallAt25: Math.max(next.minRecallAt25, previous.minRecallAt25),
+		maxAbsentRate: Math.min(next.maxAbsentRate, previous.maxAbsentRate),
+	};
+}
+
+/**
+ * The ratchet, enforced rather than remembered.
+ *
+ * `--write` is how a baseline is refreshed after a change moves recall, and the
+ * rule has always been that floors only go UP. Nothing checked it: a run that
+ * improved one number and quietly lost a tenth of a point on another wrote both
+ * new values, and the lost tenth became the new permission. This keeps whichever
+ * bound is stricter, so a floor can never be lowered by re-running the tool. If
+ * a floor genuinely has to come down, it takes a hand edit to the committed
+ * baseline — which is a visible, arguable diff, exactly as it should be.
+ */
+export function ratchetFloors(
+	next: RecallFloors,
+	previous: RecallFloors | null,
+): RecallFloors {
+	if (previous === null) {
+		return next;
+	}
+	return {
+		segments: next.segments.map((segment) =>
+			ratchetSegment(
+				segment,
+				previous.segments.find((p) => p.kind === segment.kind),
+			),
+		),
 	};
 }

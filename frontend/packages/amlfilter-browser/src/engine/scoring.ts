@@ -4,6 +4,7 @@
 // clamped total score, and a plain-language summary. Pure + deterministic.
 
 import type { Alias, Entity, MatchReason } from "./domain";
+import { tokenSetSimilarity, tokenSortSimilarity } from "./fuzzyText";
 
 /** The named weights for the five scoring signals (mirrors ScoringWeights). */
 export interface ScoringWeights {
@@ -23,13 +24,47 @@ export interface PresetConfig {
 /** The preset name (mirrors the backend's Literal). */
 export type Preset = "strict" | "balanced" | "lenient";
 
-/** Preset weights/threshold, byte-for-byte from aml_filter.scoring.config. */
+/**
+ * Preset weights/threshold.
+ *
+ * DIVERGENCE FROM THE PYTHON BACKEND, DELIBERATE. These used to be byte-for-byte
+ * `aml_filter.scoring.config`. `alias_match` has been raised in all three
+ * presets; nothing else moved. The Python source of truth is not in this
+ * repository and has not been updated, so the two now differ until it is brought
+ * across. Everything else about the port — signal order, tiers, descriptions,
+ * the clamp — is unchanged.
+ *
+ * WHY. The live /screen page sends a combined-score floor of 0.30 (Balanced).
+ * With `alias_match` at 0.10 an exact hit on a name OFAC itself publishes for
+ * that entity contributed 0.10 — by arithmetic, below the floor. The signal
+ * could never lift an entity on its own; it was decorative. An entity findable
+ * ONLY through a published alias — the product's whole promise — scored as if
+ * the alias did not exist. Balanced's 0.35 is set so one exact alias hit clears
+ * 0.30 with margin and nothing else has to be true.
+ *
+ * WHY THE OTHER FOUR WEIGHTS DID NOT MOVE. Paying for the alias raise out of
+ * `name_vector` would have LOWERED every score that has no alias hit, and the
+ * preset thresholds (0.75 / 0.65 / 0.55) are calibrated against the old sums —
+ * a perfect primary-name match would have stopped clearing its own preset. This
+ * change is therefore purely additive: no (entity, query) pair scores lower than
+ * it did, and only pairs with a real alias hit score higher.
+ *
+ * The consequence, stated plainly: the weights no longer sum to 1.0 (Balanced
+ * sums to 1.25), so the score is a clamped weighted sum rather than a weighted
+ * average, and a match strong on every signal at once saturates at 1.0 sooner
+ * than it used to. That is the intended reading — five independent signals all
+ * agreeing IS a 1.0.
+ *
+ * Across presets the ordering carries the levels' meaning: Strict trusts an
+ * alias least (an alias is a weaker identity claim than a designation's own
+ * name) and Lenient trusts it most.
+ */
 export const PRESETS: Readonly<Record<Preset, PresetConfig>> = {
 	strict: {
 		weights: {
 			name_vector: 0.6,
 			name_trigram: 0.25,
-			alias_match: 0.05,
+			alias_match: 0.2,
 			dob_match: 0.05,
 			country_match: 0.05,
 		},
@@ -39,7 +74,7 @@ export const PRESETS: Readonly<Record<Preset, PresetConfig>> = {
 		weights: {
 			name_vector: 0.55,
 			name_trigram: 0.2,
-			alias_match: 0.1,
+			alias_match: 0.35,
 			dob_match: 0.1,
 			country_match: 0.05,
 		},
@@ -49,7 +84,7 @@ export const PRESETS: Readonly<Record<Preset, PresetConfig>> = {
 		weights: {
 			name_vector: 0.5,
 			name_trigram: 0.15,
-			alias_match: 0.15,
+			alias_match: 0.4,
 			dob_match: 0.1,
 			country_match: 0.1,
 		},
@@ -59,6 +94,56 @@ export const PRESETS: Readonly<Record<Preset, PresetConfig>> = {
 
 const STRONG_SIMILARITY_THRESHOLD = 0.8;
 const DOB_HALF_MATCH_THRESHOLD = 0.5;
+
+/**
+ * The alias tiers.
+ *
+ * FULL and PARTIAL are the two that already existed (exact string, substring
+ * containment) and neither has moved — an alias that scored 1.0 or 0.5 before
+ * still does. FUZZY is new and deliberately worth half of PARTIAL: containment
+ * is a fact about the strings, while a token-set ratio is a judgement about
+ * them, and it is the tier that fires on strangers.
+ *
+ * That difference was measured, not assumed. Scoring FUZZY at PARTIAL's 0.5
+ * dropped canonical recall@1 from 0.9965 to 0.9330 against the frozen corpus:
+ * searching an entity's own exact name stopped putting that entity first,
+ * because some other designation with a loosely similar alias picked up the same
+ * 0.175 nudge. At 0.25 the nudge is small enough to reorder near-ties without
+ * overturning an exact name match, and canonical recall@1 comes back.
+ */
+const ALIAS_FULL = 1.0;
+const ALIAS_PARTIAL = 0.5;
+const ALIAS_FUZZY = 0.25;
+
+/**
+ * Word-order-tolerant agreement above which an alias counts as a FULL match.
+ *
+ * Range 0.90–1.0. Sanctions feeds publish surname-first ("SALIM, Ahmad Fuad")
+ * and users type given-name-first; canonicalization already deletes the comma
+ * that carried that convention, so string equality was scoring one writing of a
+ * name as a perfect hit and the other as no hit at all. token_sort_ratio makes
+ * the two agree while still counting every word, so a genuinely different
+ * person is not swept in: "vladimir ivanov" against the alias "vladimir ivanov
+ * ii" scores 0.909 and stays at the partial tier, which is why this line sits
+ * at 0.95 and not at 0.90. Lower it and Jr/II/Sr distinctions start reading as
+ * the same person.
+ */
+const ALIAS_FULL_SORT_RATIO = 0.95;
+
+/**
+ * Agreement above which an alias counts as a PARTIAL match.
+ *
+ * Range 0.5–0.8. Measured on this repository's data — 8,651 real OFAC alias
+ * pairs against 9,000 cross-person pairs — fuzzball token_set_ratio at 0.60
+ * scores 82.8% recall at a 0.37% false-positive rate, the best recall available
+ * at that error rate. (For comparison, a shared Double Metaphone key used as the
+ * decision manages 88.9% recall at 2.22% — an order of magnitude worse and
+ * unusable, which is why phonetics widen retrieval here and never score.)
+ * token_SET is the right tool for this tier specifically because it forgives
+ * extra words: "Musa Muhammad Abu Marzuk" should still reach the alias "MARZUK,
+ * Musa Abu".
+ */
+const ALIAS_FUZZY_SET_RATIO = 0.6;
 
 /** The result of scoring one (entity, query) pair. */
 export interface ScoreResult {
@@ -74,7 +159,7 @@ export interface ScoringQuery {
 	readonly country: string | null;
 	readonly entityType: string | null;
 	readonly vectorSimilarity: number;
-	readonly trigramSimilarity: number;
+	readonly lexicalSimilarity: number;
 }
 
 interface Accumulator {
@@ -105,32 +190,52 @@ function addWeighted(
 	acc.total += contribution;
 }
 
+/**
+ * How well ONE alias answers the query, on three tiers.
+ *
+ * The tiers used to be string equality (1.0) and substring (0.5) and nothing
+ * else, which made the signal blind to the two ways real feeds differ from real
+ * typing: word order and spelling. Both new tiers only ever RAISE an alias's
+ * score — an alias that scored 1.0 or 0.5 before still does.
+ */
+function aliasTier(alias: Alias, query: string): number {
+	const canonical = alias.name_canonical.toLowerCase();
+	if (query === canonical) {
+		return ALIAS_FULL;
+	}
+	if (tokenSortSimilarity(query, canonical) >= ALIAS_FULL_SORT_RATIO) {
+		return ALIAS_FULL;
+	}
+	if (canonical.includes(query) || query.includes(canonical)) {
+		return ALIAS_PARTIAL;
+	}
+	return tokenSetSimilarity(query, canonical) >= ALIAS_FUZZY_SET_RATIO
+		? ALIAS_FUZZY
+		: 0.0;
+}
+
 function aliasMatch(
 	aliases: ReadonlyArray<Alias>,
 	queryCanonical: string,
 ): { readonly score: number; readonly name: string | null } {
 	const query = queryCanonical.toLowerCase();
-	// Score EVERY alias, not just the first that partially hits. An exact alias
-	// anywhere is a full (1.0) match and must never be shadowed by an earlier
-	// SUBSTRING alias (which only earns 0.5) — that shadowing silently dropped an
-	// exact-alias-only entity to a half score and, near the threshold, out of the
-	// results entirely (a false clear). The first partial's name is retained so a
-	// partial-only entity scores exactly as before; an exact hit returns
-	// immediately, since nothing can beat 1.0.
+	// Score EVERY alias, not just the first that partially hits. A full alias
+	// match anywhere must never be shadowed by an earlier PARTIAL one — that
+	// shadowing silently dropped an exact-alias-only entity to a half score and,
+	// near the threshold, out of the results entirely (a false clear). The first
+	// partial's name is retained so a partial-only entity scores exactly as
+	// before; a full hit returns immediately, since nothing can beat it.
 	let best: { readonly score: number; readonly name: string | null } = {
 		score: 0.0,
 		name: null,
 	};
 	for (const alias of aliases) {
-		const aliasLower = alias.name_canonical.toLowerCase();
-		if (query === aliasLower) {
-			return { score: 1.0, name: alias.name };
+		const tier = aliasTier(alias, query);
+		if (tier === ALIAS_FULL) {
+			return { score: ALIAS_FULL, name: alias.name };
 		}
-		if (
-			best.score < 0.5 &&
-			(aliasLower.includes(query) || query.includes(aliasLower))
-		) {
-			best = { score: 0.5, name: alias.name };
+		if (tier > best.score) {
+			best = { score: tier, name: alias.name };
 		}
 	}
 	return best;
@@ -192,7 +297,7 @@ function formatCountrySet(countries: ReadonlySet<string>): string {
 function summarize(
 	finalScore: number,
 	vectorSimilarity: number,
-	trigramSimilarity: number,
+	lexicalSimilarity: number,
 	aliasScore: number,
 	dobScore: number,
 	countryScore: number,
@@ -201,7 +306,7 @@ function summarize(
 	if (isStrong(vectorSimilarity)) {
 		parts.push("strong vector similarity");
 	}
-	if (isStrong(trigramSimilarity)) {
+	if (isStrong(lexicalSimilarity)) {
 		parts.push("strong name match");
 	}
 	if (aliasScore > 0) {
@@ -219,6 +324,20 @@ function summarize(
 	return `Low confidence match (score: ${finalScore.toFixed(3)})`;
 }
 
+/**
+ * THE `name_trigram` SIGNAL NAME IS WRONG AND IS KNOWINGLY LEFT WRONG HERE.
+ *
+ * Nothing computes trigrams. The value is a Ratcliff/Obershelp sequence ratio
+ * (a port of Python `difflib.SequenceMatcher.ratio`, see ./sequenceMatcher) over
+ * the closest name an entity is published under. Everything INTERNAL has been
+ * renamed to say so — `ScoringQuery.lexicalSimilarity`, `bestNameSimilarity` in
+ * ./screeningEngine — but the two strings below are wire, not internals:
+ * `MatchReason.signal` is read by the app's lexical gate, frozen into the
+ * committed scoring golden, and named in README.md and docs/ARCHITECTURE.md,
+ * which another pull request owns right now. Renaming the wire string without
+ * those docs would leave the repository describing a signal that no longer
+ * exists. It is deferred, not forgotten.
+ */
 function addNameSignals(
 	acc: Accumulator,
 	weights: ScoringWeights,
@@ -234,9 +353,9 @@ function addNameSignals(
 	addWeighted(
 		acc,
 		"name_trigram",
-		q.trigramSimilarity,
+		q.lexicalSimilarity,
 		weights.name_trigram,
-		`Trigram similarity: ${q.trigramSimilarity.toFixed(3)}`,
+		`Trigram similarity: ${q.lexicalSimilarity.toFixed(3)}`,
 	);
 }
 
@@ -310,7 +429,7 @@ export function computeScore(
 		summary: summarize(
 			finalScore,
 			query.vectorSimilarity,
-			query.trigramSimilarity,
+			query.lexicalSimilarity,
 			alias.score,
 			dob.score,
 			country.score,

@@ -18,6 +18,7 @@ import {
 	baselineFromReport,
 	PLATFORM_TOLERANCE,
 	readBaseline,
+	readBaselineIfPresent,
 	writeBaseline,
 } from "./baseline.ts";
 import { checkRecall, formatFailures } from "./gate.ts";
@@ -125,7 +126,13 @@ async function main(): Promise<number> {
 	console.log(formatReport(report));
 
 	if (options.write) {
-		const baseline = baselineFromReport(report, PLATFORM_TOLERANCE);
+		// Floors ratchet: whatever is already committed is kept wherever it is
+		// stricter than this run, so re-running the tool can never lower a bar.
+		const baseline = baselineFromReport(
+			report,
+			PLATFORM_TOLERANCE,
+			readBaselineIfPresent(options.baselinePath),
+		);
 		writeBaseline(options.baselinePath, baseline);
 		console.log(`\nwrote baseline: ${options.baselinePath}`);
 		return 0;

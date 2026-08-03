@@ -4,6 +4,7 @@
 
 import { readFileSync } from "node:fs";
 import type { Embedder, ScreeningEngine } from "@amlfilter/browser";
+import { runAuditQueries } from "./auditQueries.ts";
 import { buildRecallCorpus } from "./corpus.ts";
 import { decodeFixture, sha256Hex } from "./fixture.ts";
 import { buildLabelledQueries, type LabelledQuery } from "./labels.ts";
@@ -80,7 +81,7 @@ export async function runRecall(
 		);
 	}
 	return {
-		schemaVersion: 1,
+		schemaVersion: 2,
 		measuredAt: (options.now?.() ?? new Date()).toISOString(),
 		corpus: {
 			listId: corpus.listId,
@@ -96,5 +97,6 @@ export async function runRecall(
 			availableCanonical: labelled.canonical.length,
 		},
 		segments,
+		audit: await runAuditQueries(screen),
 	};
 }

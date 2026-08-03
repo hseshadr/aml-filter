@@ -4,12 +4,21 @@
 //   1. embed the query name with transformers.js MiniLM (same model as the
 //      publisher), giving the `name_vector` signal via cosine over the
 //      watchlist's stored, L2-normalized embeddings;
-//   2. over-fetch k*2 vector candidates from the flat index;
-//   3. for each candidate, derive `name_trigram` from a SequenceMatcher ratio
-//      over canonical names, then run the ported scoring policy (alias/dob/
-//      country signals + preset weights);
+//   2. build the candidate set as a UNION — the vector index's top k*2, plus
+//      every entity the lexical/phonetic index reaches (see below);
+//   3. for each candidate, derive the lexical signal from a SequenceMatcher
+//      ratio over canonical names, then run the ported scoring policy
+//      (alias/dob/country signals + preset weights);
 //   4. keep candidates at or above the threshold, sort by score, take top-k;
 //   5. project to the backend's Match / SearchResponse shape.
+//
+// WHY THE UNION. Step 2 used to be vector top-k ONLY, with no similarity floor.
+// Every scoring signal therefore only ever saw ~40 of 19,181 entities, and the
+// vectors are built from primary names alone — so an entity reachable only
+// through a published alias could not be retrieved at all, whatever it would
+// have scored. Measured against the frozen OFAC SDN corpus, 39% of alias
+// queries returned the right entity NOWHERE. See ./lexicalIndex for the two
+// bounds that keep the union small.
 //
 // No FastAPI on this path — everything runs in the tab over the signed,
 // verified watchlist (see ./watchlist).
@@ -24,6 +33,7 @@ import {
 } from "./domain";
 import type { Embedder } from "./embedder";
 import { EMBEDDING_MODEL } from "./embedder";
+import { LexicalIndex } from "./lexicalIndex";
 import { canonicalize, normalizeDob } from "./normalize";
 import {
 	computeScore,
@@ -39,6 +49,30 @@ import type { LoadedWatchlist } from "./watchlist";
 export interface ScreenOptions {
 	/** Preset whose weights/threshold to score with (default "balanced"). */
 	readonly preset?: Preset;
+}
+
+/**
+ * The lexical similarity signal: how close the query is to the CLOSEST name this
+ * entity is published under, primary or alias.
+ *
+ * It used to compare against `name_canonical` alone. That made the signal blind
+ * to exactly the thing the product promises: OFAC publishes "SALIM, Ahmad Fuad"
+ * for Ayman al-Zawahiri, so a user typing that name was scored against
+ * "al zawahiri ayman" — a string they did not type and would not recognise — and
+ * came out under the floor. Taking the best over every published name only ever
+ * RAISES the signal, so no (entity, query) pair scores lower than it did.
+ *
+ * The comparison itself is unchanged (see ./sequenceMatcher).
+ */
+function bestNameSimilarity(queryCanonical: string, entity: Entity): number {
+	let best = sequenceRatio(queryCanonical, entity.name_canonical);
+	for (const alias of entity.aliases) {
+		if (best >= 1) {
+			return best;
+		}
+		best = Math.max(best, sequenceRatio(queryCanonical, alias.name_canonical));
+	}
+	return best;
 }
 
 /** Synthesize the engine's OfacBundleMeta from a loaded watchlist. */
@@ -58,12 +92,25 @@ interface Scored {
 	readonly match: Match;
 }
 
+/** One retrieval candidate: an entity id and its honest cosine to the query. */
+interface Candidate {
+	readonly id: string;
+	readonly score: number;
+}
+
+/**
+ * How many vector hits to over-fetch per requested result. Unchanged from the
+ * vector-only engine — the union adds reach, it does not narrow this.
+ */
+const VECTOR_OVERFETCH = 2;
+
 /** A loaded, query-ready OFAC screen over one synced bundle. */
 export class ScreeningEngine {
 	readonly #index: VectorIndex;
 	readonly #entities: ReadonlyMap<string, Entity>;
 	readonly #meta: OfacBundleMeta;
 	readonly #embedder: Embedder;
+	readonly #lexical: LexicalIndex;
 
 	public constructor(
 		index: VectorIndex,
@@ -75,6 +122,7 @@ export class ScreeningEngine {
 		this.#entities = entities;
 		this.#meta = meta;
 		this.#embedder = embedder;
+		this.#lexical = LexicalIndex.build(entities);
 	}
 
 	public get meta(): OfacBundleMeta {
@@ -116,7 +164,7 @@ export class ScreeningEngine {
 		const k = query.k ?? 20;
 		const queryCanonical = canonicalize(query.name);
 
-		const candidates = this.#index.search(queryVec, k * 2);
+		const candidates = this.#retrieve(queryVec, queryCanonical, k);
 		const scored = this.#scoreCandidates(
 			candidates,
 			query,
@@ -135,8 +183,33 @@ export class ScreeningEngine {
 		};
 	}
 
+	/**
+	 * The candidate union: vector top-k first (they already carry their cosine),
+	 * then every lexical/phonetic candidate the vector scan did not reach, each
+	 * given its REAL cosine from the same index. Nothing is invented, and nothing
+	 * that reached the old engine is dropped — this only ever adds.
+	 */
+	#retrieve(
+		queryVec: Float32Array,
+		queryCanonical: string,
+		k: number,
+	): readonly Candidate[] {
+		const candidates: Candidate[] = [
+			...this.#index.search(queryVec, k * VECTOR_OVERFETCH),
+		];
+		const seen = new Set(candidates.map((c) => c.id));
+		for (const id of this.#lexical.candidates(queryCanonical)) {
+			if (seen.has(id)) {
+				continue;
+			}
+			seen.add(id);
+			candidates.push({ id, score: this.#index.similarityOf(id, queryVec) });
+		}
+		return candidates;
+	}
+
 	#scoreCandidates(
-		candidates: ReadonlyArray<{ readonly id: string; readonly score: number }>,
+		candidates: readonly Candidate[],
 		query: ScreenQuery,
 		queryCanonical: string,
 		weights: ScoringWeights,
@@ -184,7 +257,7 @@ export class ScreeningEngine {
 				country: query.country ?? null,
 				entityType: query.entityType ?? null,
 				vectorSimilarity,
-				trigramSimilarity: sequenceRatio(queryCanonical, entity.name_canonical),
+				lexicalSimilarity: bestNameSimilarity(queryCanonical, entity),
 			},
 			weights,
 		);

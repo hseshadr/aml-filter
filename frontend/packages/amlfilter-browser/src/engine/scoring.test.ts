@@ -25,7 +25,7 @@ function query(overrides: Partial<ScoringQuery> = {}): ScoringQuery {
 		country: null,
 		entityType: null,
 		vectorSimilarity: 1.0,
-		trigramSimilarity: 1.0,
+		lexicalSimilarity: 1.0,
 		...overrides,
 	};
 }
@@ -62,7 +62,7 @@ describe("computeScore — explainable weighted signals", () => {
 					{ name: "V. Ivanov", name_canonical: "v ivanov", source: "OFAC" },
 				],
 			}),
-			query({ nameCanonical: "v ivanov", trigramSimilarity: 0.5 }),
+			query({ nameCanonical: "v ivanov", lexicalSimilarity: 0.5 }),
 			PRESETS.balanced.weights,
 		);
 		const alias = result.reasons.find((r) => r.signal === "alias_match");
@@ -81,14 +81,39 @@ describe("computeScore — explainable weighted signals", () => {
 					{ name: "V. Ivanov", name_canonical: "v ivanov", source: "OFAC" },
 				],
 			}),
-			query({ nameCanonical: "v ivanov", trigramSimilarity: 0.5 }),
+			query({ nameCanonical: "v ivanov", lexicalSimilarity: 0.5 }),
 			PRESETS.balanced.weights,
 		);
 		const alias = result.reasons.find((r) => r.signal === "alias_match");
 		// The EXACT alias wins, not the earlier substring alias.
 		expect(alias?.value).toBe("V. Ivanov");
-		// Full-weight exact contribution (0.1 * 1.0), not the 0.05 partial.
-		expect(alias?.contribution).toBeCloseTo(0.1, 10);
+		// Full-weight exact contribution (0.35 * 1.0), not the 0.175 partial.
+		expect(alias?.contribution).toBeCloseTo(0.35, 10);
+	});
+
+	// The point of raising alias_match. /screen sends a Balanced combined-score
+	// floor of 0.30 (frontend/app/src/pages/strictness.ts, LEVEL.balanced.floor);
+	// at the old 0.10 weight an exact hit on a name OFAC itself publishes could
+	// not reach it whatever else was true, so the signal was decorative. The
+	// literal 0.30 is pinned here on purpose — asserting against the weight
+	// itself would pass at any weight.
+	it("lets ONE exact alias hit clear the live Balanced search floor on its own", () => {
+		const result = computeScore(
+			entity({
+				aliases: [
+					{ name: "V. Ivanov", name_canonical: "v ivanov", source: "OFAC" },
+				],
+			}),
+			// Nothing else helps: no vector signal, no lexical signal, no DOB,
+			// no country. The alias is carrying the match by itself.
+			query({
+				nameCanonical: "v ivanov",
+				vectorSimilarity: 0,
+				lexicalSimilarity: 0,
+			}),
+			PRESETS.balanced.weights,
+		);
+		expect(result.score).toBeGreaterThan(0.3);
 	});
 
 	it("keeps the first substring alias when several partially hit and none is exact", () => {
@@ -109,13 +134,97 @@ describe("computeScore — explainable weighted signals", () => {
 					},
 				],
 			}),
-			query({ nameCanonical: "vladimir ivanov", trigramSimilarity: 0.5 }),
+			query({ nameCanonical: "vladimir ivanov", lexicalSimilarity: 0.5 }),
 			PRESETS.balanced.weights,
 		);
 		const alias = result.reasons.find((r) => r.signal === "alias_match");
 		expect(alias?.value).toBe("Vladimir Ivanov II");
-		// Half-weight substring contribution (0.1 * 0.5).
-		expect(alias?.contribution).toBeCloseTo(0.05, 10);
+		// Half-weight substring contribution (0.35 * 0.5).
+		expect(alias?.contribution).toBeCloseTo(0.175, 10);
+	});
+
+	// Sanctions feeds publish surname-first; users type given-name-first.
+	// Canonicalization already deletes the comma that carried the convention, so
+	// scoring one writing as a perfect hit and the other as nothing was an
+	// artifact of string equality, not a judgement about the name.
+	it("treats a REORDERED alias as a full match, not a miss", () => {
+		const result = computeScore(
+			entity({
+				aliases: [
+					{
+						name: "SALIM, Ahmad Fuad",
+						name_canonical: "salim ahmad fuad",
+						source: "OFAC",
+					},
+				],
+			}),
+			query({ nameCanonical: "ahmad fuad salim" }),
+			PRESETS.balanced.weights,
+		);
+		const alias = result.reasons.find((r) => r.signal === "alias_match");
+		expect(alias?.contribution).toBeCloseTo(0.35, 10);
+	});
+
+	// The red run for the full tier. Jr / II / Sr are different people, and the
+	// tier must refuse them. If this ever starts scoring 0.35, the 0.95 line in
+	// scoring.ts has been loosened past the point where it discriminates.
+	it("REFUSES the full tier for a name with an extra generational token", () => {
+		const result = computeScore(
+			entity({
+				aliases: [
+					{
+						name: "Vladimir Ivanov II",
+						name_canonical: "vladimir ivanov ii",
+						source: "OFAC",
+					},
+				],
+			}),
+			query({ nameCanonical: "vladimir ivanov" }),
+			PRESETS.balanced.weights,
+		);
+		const alias = result.reasons.find((r) => r.signal === "alias_match");
+		expect(alias?.contribution).toBeLessThan(0.35);
+	});
+
+	it("scores a loosely-similar alias at the FUZZY tier, a quarter weight", () => {
+		const result = computeScore(
+			entity({
+				aliases: [
+					{
+						name: "NASRALLAH, Hasan Abd-al-Karim",
+						name_canonical: "nasrallah hasan abd-al-karim",
+						source: "OFAC",
+					},
+				],
+			}),
+			query({ nameCanonical: "hassan nasralla" }),
+			PRESETS.balanced.weights,
+		);
+		const alias = result.reasons.find((r) => r.signal === "alias_match");
+		// 0.35 * 0.25 — deliberately half of what containment earns, because a
+		// token-set ratio is a judgement about the strings, not a fact about them.
+		expect(alias?.contribution).toBeCloseTo(0.0875, 10);
+	});
+
+	// The red run for the fuzzy tier. Two unrelated names must earn NO alias
+	// signal at all — a tier that fires on strangers is not a signal.
+	it("emits NO alias signal for an unrelated name", () => {
+		const result = computeScore(
+			entity({
+				aliases: [
+					{
+						name: "NASRALLAH, Hasan",
+						name_canonical: "nasrallah hasan",
+						source: "OFAC",
+					},
+				],
+			}),
+			query({ nameCanonical: "zzyzx nobody" }),
+			PRESETS.balanced.weights,
+		);
+		expect(
+			result.reasons.find((r) => r.signal === "alias_match"),
+		).toBeUndefined();
 	});
 
 	it("scores a year-only DOB match at half", () => {
@@ -132,7 +241,7 @@ describe("computeScore — explainable weighted signals", () => {
 	it("a low-similarity miss yields a low-confidence summary", () => {
 		const result = computeScore(
 			entity(),
-			query({ vectorSimilarity: 0.1, trigramSimilarity: 0.1 }),
+			query({ vectorSimilarity: 0.1, lexicalSimilarity: 0.1 }),
 			PRESETS.balanced.weights,
 		);
 		expect(result.summary).toContain("Low confidence match");
