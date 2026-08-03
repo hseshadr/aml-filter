@@ -8,26 +8,46 @@ that stops those numbers from getting worse.
 The current measurement, against the frozen 19,181-entity OFAC SDN snapshot, at
 the parameters the live `/screen` page actually sends:
 
-Every labelled query, no sampling:
+Every labelled query, no sampling. "Before" is vector-only retrieval, which is
+what the first measurement found; "now" is the lexical/phonetic union:
 
 | Segment | Queries | recall@1 | recall@10 | recall@25 | Found nothing |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| **alias** — a published alias, looking for its parent | 24,026 | 0.5739 | 0.6076 | 0.6083 | **39.17%** (9,411) |
-| **canonical** — an entity's own name, looking for itself | 19,154 | 0.9997 | 0.9999 | 0.9999 | 0.01% (2) |
+| **alias** — a published alias, looking for its parent | 24,026 | 0.5739 → **0.9891** | 0.6076 → **0.9988** | 0.6083 → **0.9992** | 39.17% → **0.08%** |
+| **canonical** — an entity's own name, looking for itself | 19,154 | 0.9997 → 0.9921 | 0.9999 → **1.0000** | 0.9999 → **1.0000** | 0.01% → **0.00%** |
 
-Read that as: looking an entity up by its own indexed name works. Looking it up
-by a name OFAC itself publishes for that same entity fails **about two times in
-five** — 9,411 of 24,026 published aliases return a screen with no trace of the
-sanctioned entity in it. The two segments are never averaged; a single blended
-number would read about 0.81 and hide the only half that describes the promise.
+Read the alias row plainly: looking a sanctioned entity up by a name OFAC itself
+publishes for it used to fail about two times in five. It now fails eight times
+in ten thousand.
+
+Canonical recall@1 went the other way — 0.9997 to 0.9921, roughly 150 of 19,154
+queries where an entity's own exact name no longer puts that entity first. All of
+them still return inside the top 10, and canonical @10 and @25 both rose to
+1.0000. The cause is the fuzzy alias tier reordering near-ties. Its floor was not
+lowered to accommodate it.
+
+The two segments are never averaged. Blended, the "before" number would have read
+about 0.81 and hidden the only half that describes the promise.
 
 The gate screens a 2,000-query sample of each segment rather than the whole
 population, and tracks it closely:
 
 | Segment | Gate sample (2,000) @10 | Full population @10 | Difference |
 | --- | ---: | ---: | ---: |
-| alias | 0.6185 | 0.6076 | 0.011 |
-| canonical | 0.9995 | 0.9999 | 0.0004 |
+| alias | 0.9995 | 0.9988 | 0.0007 |
+| canonical | 1.0000 | 1.0000 | 0 |
+
+### What this number can and cannot tell you
+
+The alias segment is now close to saturated, and part of that is by
+construction: the labels are OFAC's published alias strings, and retrieval now
+indexes those strings directly. So a high score here confirms published aliases
+are reachable — which is exactly what was broken — but it is **not** independent
+evidence that an unpublished misspelling, the kind a user actually types, will
+be found. With so little headroom the segment can no longer detect a regression
+of that sort. A held-out segment of deterministically perturbed queries
+(transpositions, vowel swaps, dropped letters), never added to the index, is the
+missing measurement.
 
 ## Run it
 
@@ -107,33 +127,32 @@ recall and report a number nobody experiences.
 
 ## The gate can fail — here is it failing
 
-A gate nobody has watched fail is not evidence. The defect this gate exists to
-close is that retrieval takes the top `k*2` candidates by raw cosine and nothing
-notices if that window collapses. Narrowing it to a single candidate —
+A gate nobody has watched fail is not evidence. Each retrieval path was disabled
+in turn, against the full corpus, to find out which one the number actually rests
+on:
 
-```diff
--const candidates = this.#index.search(queryVec, k * 2);
-+const candidates = this.#index.search(queryVec, 1);
-```
+| Build | alias @1 | alias @10 | alias @25 | Found nothing | Gate | Exit |
+| --- | ---: | ---: | ---: | ---: | --- | ---: |
+| Unmodified | 0.9905 | 0.9995 | 1.0000 | 0.0000 | PASSED | 0 |
+| Lexical/phonetic candidates removed | 0.6195 | 0.6195 | 0.6195 | 0.3805 | **FAILED**, 6 floors | **1** |
+| Vector search narrowed to `search(queryVec, 1)` | 0.9930 | 0.9995 | 1.0000 | 0.0000 | PASSED | 0 |
 
-— leaves **all 510 tests in `@amlfilter/browser` green** (verified, exit code 0).
-The recall gate, on the same tree:
+Delete the lexical path and alias recall lands back on 0.6195 with 38.05% of
+queries returning nothing — the exact pre-union number — and the gate exits 1
+naming six breached floors. That is the guard working.
 
-```
-  alias     n=  2000  @1=0.3885  @10=0.3885  @25=0.3885  absent=1223 (0.6115)
-  canonical n=  2000  @1=0.9975  @10=0.9975  @25=0.9975  absent=5 (0.0025)
+The third row is the uncomfortable one, and it is recorded here rather than left
+for someone to discover. **Narrowing the vector scan 40× costs no measurable
+recall at all.** Before the union, that same mutation drove alias recall@10 from
+0.6185 to 0.3885 and was the entire reason this gate exists; now the lexical path
+covers it completely and the gate stays green.
 
-recall gate FAILED — 4 floor(s) breached:
-  alias recall@1: measured 0.3885, floor 0.5730
-  alias recall@10: measured 0.3885, floor 0.5985
-  alias recall@25: measured 0.3885, floor 0.5995
-  alias absentRate: measured 0.6115, floor 0.4005
-```
-
-Exit code 1. Note the canonical segment barely moves (0.9995 → 0.9975): an
-entity's own name is already the top vector hit, so narrowing retrieval costs it
-nothing. One averaged number would have absorbed the alias collapse almost
-entirely. That is why the segments are reported apart.
+That is defence in depth doing its job, not a bug — the vector path still carries
+the canonical segment, which holds at 0.9920/0.9995 with lexical retrieval
+switched off. But it does mean the ~23 MB model download and the ~29 MB of
+shipped vectors are currently **unguarded for the alias case**: if embedding
+quality degraded, no test in this repository would notice. Anyone touching the
+embedder should know that the recall gate will not catch them.
 
 ## The floors ratchet
 
@@ -150,7 +169,9 @@ of that platform noise. It is subtracted once, when the floor is written; the
 comparison in CI is exact.
 
 The width was then checked rather than assumed. The same gate, same seed, same
-fixture, on the two architectures:
+fixture, on the two architectures — **measured on the pre-union retrieval, whose
+alias recall was 0.6185, because that is where the ranks were close enough
+together for platform noise to reorder them:**
 
 | Metric | macOS arm64 | Linux x86_64 (CI) | Drift |
 | --- | ---: | ---: | ---: |
@@ -161,4 +182,6 @@ fixture, on the two architectures:
 | canonical (all three) | 0.9995 | 0.9995 | 0 |
 
 Real drift, and about twenty times smaller than the tolerance — so 0.02 is
-conservative, and a 2-point recall regression cannot hide inside it.
+conservative, and a 2-point recall regression cannot hide inside it. The union
+retrieval that landed since then makes the alias segment less sensitive to this
+effect, not more: an exact lexical hit does not depend on a cosine tie-break.
