@@ -8,6 +8,27 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Retrieval recall is measured, published, and gated — it never was before.** The
+  product exists to find a sanctioned entity whose name is spelled differently, and
+  nothing in the repository measured whether it does: no labelled set, no recall@k, no
+  query→expected-entity fixture anywhere. The scoring golden froze
+  `computeScore(entity, query)` on pre-selected pairs and never touched retrieval, so it
+  passed at any recall. A new harness (`amlfilter-publisher/src/recall`) rebuilds the
+  screening engine over a frozen 19,181-entity OFAC SDN snapshot with the real MiniLM
+  embedder and screens labelled queries derived from the feed's own published aliases —
+  every alias is a known-true variant of a known parent, which yields **24,026 labelled
+  pairs with no human labelling and no involvement from the ranker being measured**. The
+  first number, at the parameters `/screen` actually sends (threshold 0.30, k 25):
+  alias-derived queries **recall@1 0.5930, @10 0.6185, @25 0.6195, and 38.05% where the
+  true entity appears nowhere in the results**; canonical-name queries 0.9995 across the
+  board. Reported as two segments and never averaged — looking an entity up by its own
+  indexed name works, looking it up by a name OFAC publishes for that same entity fails
+  about two times in five. `pnpm gate` now fails when any of those drops below the
+  committed measured floors. **The gate was watched failing:** re-narrowing retrieval
+  from `search(queryVec, k * 2)` to `search(queryVec, 1)` leaves all 510
+  `@amlfilter/browser` tests green (exit 0) and drives alias recall@10 to 0.3885 — the
+  recall gate exits 1 on four breached floors, and goes green again on restore. See
+  [docs/RECALL.md](docs/RECALL.md).
 - **The Ed25519 signature check is now actually tested.** The score-receipt suite had
   two "tamper" tests and neither one ever reached the signature: the mutated-score case
   leaves a stale `payload_hash` and dies at the content-hash compare, and the wrong-key
