@@ -34,7 +34,7 @@
 	"dependencies": {
 		"@amlfilter/browser": "workspace:*",
 		"@amlfilter/workstation": "workspace:*",
-		"@edgeproc/errors": "workspace:*",
+		"@edgeproc/errors": "^0.1.0",
 		"@edgeproc/receipt-ui": "0.2.0",
 		"@hpcc-js/wasm-zstd": "^1.15.0",
 		"@huggingface/transformers": "^4.2.0",

@@ -72,7 +72,7 @@ const VERIFICATION_FAILURES: ReadonlySet<string> = new Set([
 /**
  * AML-Filter's bundle-load error catalog, expressed in the shared
  * `@edgeproc/errors` vocabulary (the portfolio canonical-errors standard,
- * vendored at `packages/edgeproc-errors`). Each code is REUSED from the library's
+ * installed from npm). Each code is REUSED from the library's
  * `starterPack`; on top of the starter data we attach the exact detection the
  * app already uses — its typed boot errors (`DeviceUnsupportedError`,
  * `QuotaError`, `IntegrityError`, the transport `NetworkError`) — so

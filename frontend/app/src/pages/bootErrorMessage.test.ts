@@ -90,15 +90,15 @@ describe("deviceUnsupportedMessage", () => {
 
 describe("@edgeproc/errors adoption (canonical-errors standard)", () => {
 	// The bundle-load error path now classifies raw boot failures through the
-	// VENDORED @edgeproc/errors registry (packages/edgeproc-errors) instead of an
-	// ad-hoc if-chain. These tests prove two things: (1) the vendored library is
+	// PUBLISHED @edgeproc/errors registry (the npm package) instead of an
+	// ad-hoc if-chain. These tests prove two things: (1) the published library is
 	// really what does the work — `bundleErrorRegistry` is a genuine
 	// @edgeproc/errors Registry built from its `starterPack` codes; and (2) the
 	// coded classification is BEHAVIOR-IDENTICAL — each failure still renders the
 	// exact same existing `errors:*` string, so no user-visible copy or i18n key
 	// moved.
 
-	it("exposes a genuine @edgeproc/errors Registry built from the vendored starterPack", () => {
+	it("exposes a genuine @edgeproc/errors Registry built from the published starterPack", () => {
 		for (const method of [
 			"has",
 			"get",

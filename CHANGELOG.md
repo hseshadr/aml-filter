@@ -33,6 +33,23 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   nothing verified. Replaced by the CI badge, the Actions tab,
   `aml-filter.com/build.json`, and `pnpm gate` — sources that cannot go stale.
 
+### Changed
+
+- **`@edgeproc/errors` now comes from npm, not a vendored copy.** The canonical-errors
+  library was vendored at `frontend/packages/edgeproc-errors` as a 509-line snapshot;
+  it is now a real dependency (`@edgeproc/errors@^0.1.0`, 853 source lines, resolving
+  to 0.1.1) and the copy is deleted. The equivalence below was measured against the
+  0.1.0 tarball and holds unchanged for 0.1.1: unpacking both and diffing shows the
+  only difference between them is the `version` field in `package.json` — every
+  `dist/` byte is identical. The published library is a strict superset — all 18 starter-pack
+  codes are present, in the same registration order (which is `classify` precedence),
+  with identical `category`, `httpStatus`, `params`, `en`, `i18nKey` and `problemType`
+  on every code, and identical `match` behaviour on the three codes that carry one.
+  It adds `corePack` / `aiPack` / `bundlePack` subsets and a configurable-fallback
+  registry (`defineErrorsWith`) that this app does not yet use. No error code, HTTP
+  status, i18n key or rendered string changed, and the library's name is still
+  imported in exactly one production module — the `bootErrorMessage.ts` seam.
+
 ### Added
 
 - **Retrieval recall is measured, published, and gated — it never was before.** The
@@ -201,9 +218,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   peak memory make the cold boot legible and keep locked-down iOS Safari / WebViews from
   hanging silently; a device that cannot run the local engine dead-ends gracefully (no
   futile Retry) instead of spinning.
-- **Vendored `@edgeproc/errors` for the bundle-load error path (#63)** — the portfolio's
-  canonical-errors library is vendored (`frontend/packages/edgeproc-errors`, source consumed
-  directly) and classifies raw boot/screen failures through a registered taxonomy expressed
+- **Adopted `@edgeproc/errors` for the bundle-load error path (#63)** — the portfolio's
+  canonical-errors library (vendored when #63 landed, taken from npm since — see
+  "Changed" above) classifies raw boot/screen failures through a registered taxonomy expressed
   in the shared error vocabulary. Behavior-identical: every failure still renders the exact
   same existing `errors:*` string — no user-visible copy or i18n key moved.
 - **Self-hosted ORT wasm loader** — onnxruntime-web dynamically imports its wasm
