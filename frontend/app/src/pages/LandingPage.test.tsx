@@ -68,8 +68,23 @@ describe("LandingPage", () => {
 		renderPage();
 		const why = screen.getByRole("region", { name: /why/i });
 		expect(within(why).getByText(/private/i)).toBeInTheDocument();
-		expect(within(why).getByText(/offline/i)).toBeInTheDocument();
+		// Was /offline/i, matching a card titled "Local / Offline". The app has no
+		// service worker, so a reload with the network off fails outright — the
+		// card was named for a capability that does not exist. The title is now
+		// "Local"; matching on /offline/i here would pass on the withdrawal text
+		// ("there is no offline mode") and prove nothing, so it pins the title.
+		expect(within(why).getByText("Local")).toBeInTheDocument();
 		expect(within(why).getByText(/verifiable/i)).toBeInTheDocument();
+	});
+
+	it("does not promise the app keeps working with no network", () => {
+		// The claim this guards: AML-Filter screens IN THE TAB (true) but is not
+		// an offline app (false until a service worker exists). The 'why' card
+		// must say so rather than implying a cached bundle means offline use.
+		renderPage();
+		const why = screen.getByRole("region", { name: /why/i });
+		expect(within(why).queryByText(/with no network at all/i)).toBeNull();
+		expect(within(why).getByText(/no offline mode/i)).toBeInTheDocument();
 	});
 
 	it("renders the how-it-works steps including the fail-closed verification", () => {

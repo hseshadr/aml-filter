@@ -12,6 +12,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 // the first query's debounce before issuing the second.
 const DEBOUNCE_MS = 180;
 
+// Mirror of ScreenPage's SEARCH_K — the number of results the page asks the
+// engine for. The truncation tests drive the engine to return EXACTLY this many
+// (the capped case) and one fewer (the uncapped case). If the page's real cap
+// ever moves, the "exactly K" fixture stops matching it and the capped test goes
+// red rather than silently testing nothing.
+const SEARCH_K = 25;
+
 // Minimal Entity/Match doubles — only the fields ScreenPage reads.
 const ivanEntity = {
 	entity_id: "DEMO:1",
@@ -137,6 +144,19 @@ const bancoMatch = matchWithTrigram(
 	// for the type-badge assertion, not the confidence split.
 	0.45,
 );
+
+// A broad query ("mohammed" on the live site) returns a full page of near-identical
+// primary cards. Build n of them named after the query token, so they clear the
+// page's lexical gate by token containment, and score them above the display line
+// so all n render as primary cards rather than grouped low-confidence ones.
+function broadMatches(given: string, n: number): Array<typeof ivanMatch> {
+	return Array.from({ length: n }, (_, i) => ({
+		...ivanMatch,
+		entity_id: `DEMO:${given.toUpperCase()}${i}`,
+		primary_name: `${given} Placeholder ${i}`,
+		score: 0.7,
+	}));
+}
 
 // Two distinguishable matches for the stale-cancellation test. The "slow"
 // query resolves LATER (longer delay) than the "fast" one, so if cancellation
@@ -286,6 +306,26 @@ vi.mock("@amlfilter/browser", async (importActual) => {
 							list_versions_used: {},
 							execution_time_ms: 3,
 							matches: [ivanCloseMatch, zzyzxFuzzOne],
+						});
+					}
+					// "mohammed": the engine fills the request exactly — the signal that
+					// the result list was cut off at k and more may exist behind it.
+					if (lower.includes("mohammed")) {
+						return Promise.resolve({
+							request_id: "capped",
+							list_versions_used: {},
+							execution_time_ms: 6,
+							matches: broadMatches("Mohammed", SEARCH_K),
+						});
+					}
+					// "mustafa": one short of the cap — the engine ran out of candidates,
+					// so this IS the whole list and nothing was cut off.
+					if (lower.includes("mustafa")) {
+						return Promise.resolve({
+							request_id: "nearcap",
+							list_versions_used: {},
+							execution_time_ms: 6,
+							matches: broadMatches("Mustafa", SEARCH_K - 1),
 						});
 					}
 					// Delay-aware branches drive the stale-result test: "slow"
@@ -674,5 +714,58 @@ describe("ScreenPage — in-browser search", () => {
 		// fabricated "PERSON" for a bank, the dossier OMITS the type label.
 		expect(card.querySelector(".match-card__type")).toBeNull();
 		expect(within(card).queryByText("PERSON")).toBeNull();
+	});
+});
+
+/**
+ * The page asks the engine for a fixed number of results (SEARCH_K). A broad
+ * query — "mohammed" on the live site — fills that quota with near-identical
+ * cards, and nothing on screen told the reader whether they were looking at ALL
+ * the matches or merely the first 25. That is the difference between "this list
+ * is complete" and "there may be more you cannot see", which on a sanctions
+ * screen is not a cosmetic distinction.
+ *
+ * The engine reports no total, so the honest statement is that the list was
+ * capped — never "25 of 431". And a full-quota return is the ONLY evidence of a
+ * cap: one result short means the engine ran out of candidates, so the note must
+ * stay off rather than becoming permanent furniture.
+ */
+describe("ScreenPage — a capped result list says so", () => {
+	it("flags the list as capped when the engine fills the whole quota", async () => {
+		render(<ScreenPage />);
+		const box = await readyBox();
+		fireEvent.change(box, { target: { value: "mohammed" } });
+
+		const note = await waitFor(() =>
+			screen.getByText(/closest matches/i, {
+				selector: ".screen-results__capped",
+			}),
+		);
+		// The number in the copy is the page's real cap rendered through the real
+		// path — not a literal typed into the catalogue — and it is the count of
+		// cards actually on screen.
+		expect(note.textContent).toContain(String(SEARCH_K));
+		expect(
+			screen.getAllByText(/Mohammed Placeholder/, {
+				selector: ".match-card__name",
+			}),
+		).toHaveLength(SEARCH_K);
+		// It must read as a cap, not as an exact total the engine never reported.
+		expect(note.textContent).not.toMatch(/\bof\s+\d/i);
+	});
+
+	it("stays silent when the engine returns fewer results than the cap", async () => {
+		render(<ScreenPage />);
+		const box = await readyBox();
+		fireEvent.change(box, { target: { value: "mustafa" } });
+
+		await waitFor(() =>
+			expect(
+				screen.getAllByText(/Mustafa Placeholder/, {
+					selector: ".match-card__name",
+				}),
+			).toHaveLength(SEARCH_K - 1),
+		);
+		expect(document.querySelector(".screen-results__capped")).toBeNull();
 	});
 });

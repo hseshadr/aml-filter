@@ -12,7 +12,7 @@ screening pipeline, one explainable scoring contract, three TypeScript units.
 
 There is no Python, no Postgres, no Docker, and no HTTP screening endpoint. The lists ship as
 a signed, content-addressed bundle of static files you can host on any CDN, delta-synced
-and cached durably in the browser (OPFS) so the app works offline; the trust comes from
+and cached durably in the browser (OPFS) so a repeat visit does not re-download them; the trust comes from
 an Ed25519 signature the browser checks — over fetched *and* cached bytes — before it
 will load a single byte.
 
@@ -178,9 +178,11 @@ The boot + screen flow:
 content-addressed store in **OPFS** (separate from the customer DB). On every load the
 bytes — cached or freshly fetched — are re-verified: chunks against their content hash
 and the pointer against the pinned key. A tampered or version-mismatched entry is
-rejected. If the network is down, the sync falls back to the cached active version
-(`readActive`) and re-verifies it fail-closed, so the app screens **offline** with no
-network call. ("Clear cached lists" in `/settings` drops the store.)
+rejected. If the pointer fetch fails, the sync falls back to the cached active version
+(`readActive`) and re-verifies it fail-closed, so screening survives an unreachable bundle
+origin with no network call. That is list caching, not an offline app: there is no service
+worker, so the document and the JS bundle still have to load over the network before any
+of this runs. ("Clear cached lists" in `/settings` drops the store.)
 
 Cross-tab mutations use two bounded Web Locks. Syncs share a lifecycle lock while
 staging verified CAS bytes; clear takes that lock exclusively. A separate short
@@ -295,8 +297,8 @@ document is the single source of truth for the artifact and this one does not re
 
 The signed-list trust model covers the engine's *input*. Score receipts extend the same
 discipline to its *output*: every scored match carries a signed record a reviewer can
-verify offline — proof that **this exact score was produced and not altered
-afterwards**. An explainable score (the `reasons[]` contract above) tells you *why* the
+verify locally, with no server asked — proof that **this exact score was produced and not
+altered afterwards**. An explainable score (the `reasons[]` contract above) tells you *why* the
 number is what it is; the receipt tells you the number on screen is still the number the
 engine computed.
 
