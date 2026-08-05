@@ -457,8 +457,7 @@ aml-filter/
 │   └── packages/
 │       ├── amlfilter-publisher/         #   @amlfilter/publisher — list adapters → embed → sign → signed content-addressed bundle
 │       ├── amlfilter-browser/           #   @amlfilter/browser — bundle delta-sync + verify + embed + cosine search + scorer + OPFS cache
-│       ├── amlfilter-workstation/       #   @amlfilter/workstation — SQLite-WASM/OPFS DB worker + rescan + audit trail
-│       └── edgeproc-errors/             #   @edgeproc/errors — vendored canonical-errors library (registers the bundle-load taxonomy)
+│       └── amlfilter-workstation/       #   @amlfilter/workstation — SQLite-WASM/OPFS DB worker + rescan + audit trail
 ├── .github/workflows/publish-watchlist.yml  # daily signed-list publish
 ├── docs/                                # ARCHITECTURE · QUICKSTART · DEPLOY · WATCHLIST_FORMAT · diagrams/
 ├── LICENSE  NOTICE  CHANGELOG.md  CONTRIBUTING.md
