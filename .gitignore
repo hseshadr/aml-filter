@@ -35,6 +35,23 @@ frontend/app/tests/e2e-bundle/fixtures/bundle-v2/origin/manifests/
 frontend/packages/amlfilter-publisher/.bundle-staging/
 frontend/packages/amlfilter-publisher/.bundle-v2-staging/
 
+# The decision harness's emitted evidence (~12 MB of per-(query, candidate) rows).
+# GENERATED, never committed: `gate:decision` emits it and scores it in ONE
+# command, so the Python floors can never grade a run describing a matcher that is
+# no longer in the tree — the staleness window does not exist. The reviewable
+# artifact is eval/baselines/decision-baseline.json, which IS committed.
+frontend/packages/amlfilter-publisher/.decision-out/
+
+# Python (eval/) — the offline decision-metrics scorer.
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
 # Logs
 *.log
 

@@ -47,8 +47,15 @@ export interface LabelledQuerySet {
 	readonly canonical: readonly LabelledQuery[];
 }
 
-/** Every entity id that publishes `canonical` as a primary name or an alias. */
-type OwnerIndex = ReadonlyMap<string, ReadonlySet<string>>;
+/**
+ * Every entity id that publishes `canonical` as a primary name or an alias.
+ *
+ * Exported because the decision harness needs exactly this index for two things
+ * the recall harness does not do: rejecting a generated negative that turns out
+ * to be a real published name, and deciding whether a returned entity is a
+ * legitimate answer or a collision (../decision/negatives, ../decision/emit).
+ */
+export type OwnerIndex = ReadonlyMap<string, ReadonlySet<string>>;
 
 function addOwner(
 	owners: Map<string, Set<string>>,
@@ -67,7 +74,7 @@ function addOwner(
 }
 
 /** Index every canonical name string in the feed to the entities that publish it. */
-function buildOwnerIndex(lines: readonly SourceLine[]): OwnerIndex {
+export function buildOwnerIndex(lines: readonly SourceLine[]): OwnerIndex {
 	const owners = new Map<string, Set<string>>();
 	for (const line of lines) {
 		addOwner(owners, canonicalize(line.primary_name), line.entity_id);

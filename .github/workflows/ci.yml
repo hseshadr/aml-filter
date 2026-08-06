@@ -54,6 +54,20 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
+      # uv + Python 3.13 for eval/ — the offline decision-metrics scorer the gate
+      # calls. It is the only Python in the repository and it ships nothing: it
+      # reads the artifact the TypeScript emitter writes and computes precision,
+      # recall, F1, FPR and FNR with `assay` (scikit-learn under a trust
+      # envelope). Nothing here reaches the browser bundle.
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: true
+      - name: Pin Python
+        run: uv python install 3.13
+      - name: Sync the eval scorer
+        working-directory: eval
+        run: uv sync --group dev
+
       - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
         with:
           package_json_file: frontend/package.json
@@ -118,6 +132,19 @@ jobs:
       #     candidates to the top 1 leaves all 510 browser-package tests green
       #     and takes alias recall@10 from 0.62 to 0.39, which only this gate
       #     sees.
+      #   • Decision metrics (amlfilter-publisher src/decision -> eval/) — the
+      #     other half of the same question. Recall@k says the sanctioned entity
+      #     appeared in the list; it cannot say how many of the alerts were the
+      #     entity screened, or how often a real match produced nothing. The
+      #     emitter screens the same frozen corpus at the LIVE strictness
+      #     thresholds' inputs (0.30 floor / 0.35 lexical for Balanced — the
+      #     preset thresholds in scoring.ts are dead on the live path) plus two
+      #     generated negative populations, and records the decision per (query,
+      #     entity) pair. `eval/` then scores it with `assay` and fails when
+      #     precision, recall, F1, FPR or FNR falls outside the committed floors.
+      #     Emit and score run in ONE command, so the floors cannot grade a stale
+      #     artifact. `poe gate` in eval/ (ruff, mypy, xenon, pytest >=90%) runs
+      #     with it — CI/CD and eval code are held to the same bar as the product.
       #   • i18n live-drive (scripts/verify-i18n.mjs) — headless Chromium boots
       #     the built Landing and asserts the mounted <I18nextProvider> renders
       #     translated copy (nav/footer/landing), NOT raw keys, with a clean

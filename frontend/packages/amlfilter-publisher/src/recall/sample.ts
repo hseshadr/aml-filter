@@ -15,8 +15,12 @@
  * mulberry32 — a small, fast, fully specified 32-bit PRNG. Chosen over
  * `Math.random` for the only property that matters here: an identical sequence
  * from an identical seed, across engines and platforms.
+ *
+ * Exported so the decision harness's negative generator (../decision/negatives)
+ * draws from the SAME generator this sampler does. Two seeded PRNGs in one
+ * repository is two definitions of "reproducible".
  */
-function mulberry32(seed: number): () => number {
+export function mulberry32(seed: number): () => number {
 	let state = seed >>> 0;
 	return () => {
 		state = (state + 0x6d2b79f5) >>> 0;

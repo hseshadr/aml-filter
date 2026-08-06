@@ -28,16 +28,25 @@
 // WHAT PHONETICS ARE FOR, AND WHAT THEY ARE NOT FOR
 //
 // Double Metaphone is a RECALL SIGNAL here — never a match decision and never a
-// sole blocker. Measured on this repository's own OFAC data: 5,281 real SDN
-// surnames collapse into a shared key 52.5% of the time (the `ST` bucket holds
-// SAYED, SOTO, ZADEH, SAAD and SADEGHI at once), and on 8,651 real alias pairs
-// vs 9,000 cross-person pairs, "shared DM key" as the decision scores 88.9%
-// recall at a 2.22% false-positive rate — unusable. As a blocker it is just as
-// wrong in the other direction: it discards ~11% of true matches, and it splits
-// consonant variants that are obviously the same name (Zawahiri `SHR` vs
-// Zawahri `SR`). What it does well is collapse vowel variants — Muhammad /
+// sole blocker. What it does well is collapse vowel variants: Muhammad /
 // Mohammed / Mohamad all key to `MHMT`, Qaddafi / Gaddafi / Khadafy to `KTF`.
-// Chinese romanisation is a total loss (Zhang and Chang split).
+// What it does badly is everything else — it splits consonant variants that are
+// obviously the same name (Zawahiri `SHR` vs Zawahri `SR`), and Chinese
+// romanisation is a total loss (Zhang and Chang split).
+//
+// THAT "NEVER A DECISION" RULE IS MEASURED, AND THE MEASUREMENT IS COMMITTED.
+// `packages/amlfilter-publisher/src/decision/pairStudy.ts` scores "the two names
+// share a Double Metaphone token key" as if it WERE the decision, over published
+// alias pairs against cross-designation pairs, and `eval/` reports its recall and
+// false-positive rate beside the token_set rule the engine actually decides with
+// (`eval/baselines/decision-baseline.json`, under `study`). The phonetic rule's
+// error rate is materially worse at comparable recall, which is the whole reason
+// phonetics widen retrieval here and never score.
+//
+// This comment used to quote "88.9% recall at a 2.22% false-positive rate" and a
+// "52.5% surname collision" figure from a script that was never committed. Both
+// are struck rather than corrected: a number nobody can regenerate is not
+// evidence. The committed study is.
 //
 // So: phonetics WIDEN the candidate pool. The score still decides.
 
