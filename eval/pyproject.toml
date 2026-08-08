@@ -1,0 +1,95 @@
+[project]
+name = "amlfilter-eval"
+version = "0.1.0"
+description = "Offline decision-quality evaluation for aml-filter: precision, recall, F1, FPR and FNR at the live screening thresholds."
+requires-python = ">=3.13"
+license = "MIT"
+dependencies = [
+  # The metrics engine. The distribution is `avow`; the import name is `assay`.
+  # The [assay] extra is what pulls scikit-learn/scipy/numpy — without it you get
+  # the trust kernel and no metrics at all.
+  #
+  # Every precision, recall, F1, FPR and FNR in this repository comes from here,
+  # through src/amlfilter_eval/assay_seam.py and nowhere else. Nothing in this
+  # package, and nothing in the TypeScript that produces the evidence,
+  # reimplements a metric: one metric written in two languages will diverge, and
+  # only the rendered number would ever show it.
+  #
+  # Floor only, no ceiling. A SemVer minor is not presumed breaking; if one ever
+  # is, pin the fix rather than fencing off releases that do not exist yet.
+  "avow[assay]>=0.3.0",
+  "pydantic>=2.11",
+]
+
+[dependency-groups]
+dev = [
+  "pytest>=9.0",
+  "pytest-cov>=7.1",
+  "mypy>=2.1",
+  "ruff>=0.6",
+  "poethepoet>=0.30",
+  "xenon>=0.9",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+package = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+pythonpath = ["src"]
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+disallow_any_explicit = true
+warn_unreachable = true
+packages = ["amlfilter_eval"]
+mypy_path = ["src"]
+
+# Pydantic v2 injects `__pydantic_extra__` / `__pydantic_private__: dict[str, Any]`
+# into every BaseModel, which trips `disallow_any_explicit` on files that declare
+# models. ANN401 in ruff still bans a literal `Any` in these files, so the ban is
+# not lost — it is re-enforced by a tool that is not confused by Pydantic's
+# internals.
+[[tool.mypy.overrides]]
+module = [
+  "amlfilter_eval.artifact",
+  "amlfilter_eval.report",
+  "amlfilter_eval.assay_seam",
+  "amlfilter_eval.study",
+  "amlfilter_eval.gate",
+]
+disallow_any_explicit = false
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "SIM", "UP", "N", "S", "A", "C4", "PT", "RUF", "ANN401"]
+ignore = ["S101"] # assert is how pytest asserts
+
+[tool.coverage.run]
+source = ["amlfilter_eval"]
+omit = ["tests/*"]
+
+[tool.coverage.report]
+fail_under = 90
+show_missing = true
+
+[tool.poe.tasks]
+fmt = "ruff format ."
+fmt-check = "ruff format --check ."
+lint = "ruff check ."
+typecheck = "mypy src"
+complexity = "xenon --max-absolute A --max-modules A --max-average A src"
+test = "pytest --cov=amlfilter_eval --cov-report=term-missing --cov-fail-under=90"
+gate = ["fmt-check", "lint", "typecheck", "complexity", "test"]

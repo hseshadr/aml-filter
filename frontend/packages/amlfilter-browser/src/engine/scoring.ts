@@ -133,15 +133,25 @@ const ALIAS_FULL_SORT_RATIO = 0.95;
 /**
  * Agreement above which an alias counts as a PARTIAL match.
  *
- * Range 0.5–0.8. Measured on this repository's data — 8,651 real OFAC alias
- * pairs against 9,000 cross-person pairs — fuzzball token_set_ratio at 0.60
- * scores 82.8% recall at a 0.37% false-positive rate, the best recall available
- * at that error rate. (For comparison, a shared Double Metaphone key used as the
- * decision manages 88.9% recall at 2.22% — an order of magnitude worse and
- * unusable, which is why phonetics widen retrieval here and never score.)
- * token_SET is the right tool for this tier specifically because it forgives
- * extra words: "Musa Muhammad Abu Marzuk" should still reach the alias "MARZUK,
- * Musa Abu".
+ * Range 0.5–0.8. token_SET is the right tool for this tier specifically because
+ * it forgives extra words: "Musa Muhammad Abu Marzuk" should still reach the
+ * alias "MARZUK, Musa Abu".
+ *
+ * THE ERROR RATE AT THIS CUT IS MEASURED, AND THE MEASUREMENT IS COMMITTED.
+ * `packages/amlfilter-publisher/src/decision/pairStudy.ts` scores every published
+ * (primary name, alias) pair in the frozen OFAC snapshot against a seeded set of
+ * cross-designation pairs, using this exact function; `eval/` turns that into
+ * recall and a false-positive rate with `assay`. The numbers live in
+ * `eval/baselines/decision-baseline.json` under `study`, beside the same two
+ * rates for the Double Metaphone rule this engine deliberately refuses to decide
+ * with (see ./fuzzyText). Run `pnpm --filter @amlfilter/publisher run
+ * measure-decision` to regenerate them.
+ *
+ * This comment used to quote "82.8% recall at a 0.37% false-positive rate" from
+ * a script that was never committed. It is struck rather than corrected: an
+ * unreproducible number is not evidence, whatever it says, and the committed
+ * study now reports different figures because the populations it builds are
+ * defined in code rather than remembered.
  */
 const ALIAS_FUZZY_SET_RATIO = 0.6;
 

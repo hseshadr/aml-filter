@@ -53,6 +53,16 @@ export {
 	EMBEDDING_MODEL,
 	type Embedder,
 } from "./engine/embedder";
+// --- the fuzzy/phonetic seam (fuzzball + double-metaphone live behind this) ---
+// Exported for the decision harness's name-similarity study
+// (packages/amlfilter-publisher/src/decision/pairStudy.ts), which measures the
+// error rate of the exact functions the alias tiers decide with. A study that
+// re-implemented either function would be grading the study.
+export {
+	phoneticKeys,
+	tokenSetSimilarity,
+	tokenSortSimilarity,
+} from "./engine/fuzzyText";
 // --- the per-install signing key behind every score receipt ---
 export {
 	defaultKeyStorage,
