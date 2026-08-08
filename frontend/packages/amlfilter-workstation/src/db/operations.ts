@@ -256,9 +256,17 @@ export function deleteCustomer(db: SqlDatabase, customerId: string): void {
 	db.transaction(() => {
 		// match_events intentionally has no FK because SUPPRESSED events can outlive
 		// a match row. Customer deletion is the privacy boundary: erase that audit
-		// history (reviewer id/notes included) before the customer + cascaded matches.
-		db.exec("DELETE FROM match_events WHERE customer_id = ?", [customerId]);
+		// history (reviewer id/notes included) along with the customer + cascaded
+		// matches.
+		//
+		// The customer goes FIRST, and that order is load-bearing, not cosmetic.
+		// match_events is append-only in the database itself (schema v4), and its
+		// BEFORE DELETE trigger refuses any delete whose customer still exists. So
+		// the trail can only be erased in the wake of the customer it belongs to —
+		// which is the guarantee we want, and it means this pair of statements is
+		// the only sequence that gets through. Swap the two lines and this throws.
 		db.exec("DELETE FROM customers WHERE customer_id = ?", [customerId]);
+		db.exec("DELETE FROM match_events WHERE customer_id = ?", [customerId]);
 	});
 }
 

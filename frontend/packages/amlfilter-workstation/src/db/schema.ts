@@ -8,7 +8,7 @@
 
 import type { SqlDatabase } from "./sqlite";
 
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 const MIGRATION_V1: ReadonlyArray<string> = [
 	`CREATE TABLE customers (
@@ -79,11 +79,43 @@ const MIGRATION_V3: ReadonlyArray<string> = [
 	"ALTER TABLE customers ADD COLUMN dob TEXT",
 ];
 
+// v4 — additive only: the append-only claim on match_events, moved out of code
+// comments and into the storage engine.
+//
+// Until v4 the ledger was append-only only in the sense that every statement we
+// happened to write was an INSERT. That is discipline, not enforcement: SQLite
+// accepted `UPDATE match_events SET to_status = ...` and `DELETE FROM
+// match_events` without complaint, so a future code path, a stray migration, or
+// a devtools console could rewrite a reviewer's disposition and leave no trace.
+//
+// UPDATE is refused outright — no lifecycle operation has ever needed one.
+//
+// DELETE is refused while the row's customer still exists. That is the exact
+// shape of the one sanctioned removal: deleting a customer is the privacy
+// boundary, it is all-or-nothing, and it destroys the customer record itself.
+// So a single event cannot be picked out of a live customer's trail, and the
+// trail cannot be truncated — but the right to erasure still works, provided
+// the caller erases the customer first (see deleteCustomer's ordering).
+const MIGRATION_V4: ReadonlyArray<string> = [
+	`CREATE TRIGGER match_events_no_update
+	 BEFORE UPDATE ON match_events
+	 BEGIN
+	   SELECT RAISE(ABORT, 'match_events is append-only: UPDATE is refused');
+	 END`,
+	`CREATE TRIGGER match_events_no_delete
+	 BEFORE DELETE ON match_events
+	 WHEN EXISTS (SELECT 1 FROM customers WHERE customer_id = OLD.customer_id)
+	 BEGIN
+	   SELECT RAISE(ABORT, 'match_events is append-only: DELETE is refused while the customer exists');
+	 END`,
+];
+
 /** Ordered migration ledger: index i holds the step that takes vi → v(i+1). */
 const MIGRATIONS: ReadonlyArray<ReadonlyArray<string>> = [
 	MIGRATION_V1,
 	MIGRATION_V2,
 	MIGRATION_V3,
+	MIGRATION_V4,
 ];
 
 function currentVersion(db: SqlDatabase): number {
@@ -117,6 +149,29 @@ function applyVersion(db: SqlDatabase, version: number): void {
 }
 
 /**
+ * Turn on recursive triggers, and refuse to proceed if that did not take.
+ *
+ * This is not a tuning knob — it closes a hole straight through the append-only
+ * guard. `INSERT OR REPLACE` resolves a primary-key conflict by deleting the old
+ * row first, and SQLite fires DELETE triggers for that implicit delete ONLY when
+ * recursive_triggers is on (it is off by default). With it off, one REPLACE
+ * swaps a forged event in under an existing event_id and the BEFORE DELETE
+ * trigger never runs. The setting is per-connection and is not stored in the
+ * file, so every connection has to re-assert it — which is why it lives here,
+ * in the function every connection already calls.
+ */
+function enableRecursiveTriggers(db: SqlDatabase): void {
+	db.exec("PRAGMA recursive_triggers = ON");
+	const enabled = db.selectObjects("PRAGMA recursive_triggers")[0]
+		?.recursive_triggers;
+	if (enabled !== 1) {
+		throw new Error(
+			"SQLite recursive_triggers is off; the match_events append-only guard would be bypassable by INSERT OR REPLACE",
+		);
+	}
+}
+
+/**
  * Bring the database to schema HEAD; per-connection pragmas included. Applies
  * every migration whose version is greater than the recorded current version,
  * in order, recording each in schema_migrations — so a v1 DB upgrades to v2
@@ -124,6 +179,7 @@ function applyVersion(db: SqlDatabase, version: number): void {
  */
 export function migrate(db: SqlDatabase): number {
 	db.exec("PRAGMA foreign_keys = ON");
+	enableRecursiveTriggers(db);
 	const from = currentVersion(db);
 	for (let version = from + 1; version <= SCHEMA_VERSION; version += 1) {
 		applyVersion(db, version);
