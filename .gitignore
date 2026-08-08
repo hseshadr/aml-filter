@@ -9,6 +9,22 @@ frontend/build/
 frontend/playwright-report/
 frontend/test-results/
 
+# Python (the eval package): bytecode and coverage state are build residue.
+# uv writes its own .gitignore inside eval/.venv, which is why that is not listed.
+__pycache__/
+*.py[cod]
+.coverage
+.coverage.*
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Eval study output — `amlfilter-eval` writes the pair corpus and per-pair study
+# here (tens of thousands of JSONL rows, regenerated on every run). The baseline
+# it produces IS committed, at eval/baselines/; the raw run output is not.
+frontend/app/.decision-out/
+.decision-out/
+
 # Environment
 .env
 .env.local

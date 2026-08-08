@@ -6,6 +6,38 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Security
+
+- **"Reviews are append-only" is now enforced by the database instead of merely
+  claimed.** The README, `docs/ARCHITECTURE.md`, `docs/OPERATIONS.md` and half a dozen
+  code comments have described `match_events` as append-only since schema v2, and
+  nothing enforced it. The claim was not false — every write we had written was an
+  `INSERT` — but it was completely unguarded: `UPDATE match_events SET to_status = ...`
+  and `DELETE FROM match_events` both succeeded silently, so a reviewer's disposition
+  could be rewritten, backdated, stripped of its reviewer's name, or lifted out of a
+  live customer's trail with no trace. Schema **v4** adds two triggers:
+  `match_events_no_update` refuses every `UPDATE`, and `match_events_no_delete` refuses
+  a `DELETE` whose `customer_id` still exists in `customers`. The one sanctioned removal
+  — deleting a customer, which is all-or-nothing and destroys the customer record too —
+  still works, so `deleteCustomer` now deletes the customer *before* its events; that
+  order is the only sequence the trigger permits. `PRAGMA recursive_triggers` is set and
+  **verified** in `migrate()`, closing a hole that would otherwise have gone straight
+  through the guard: `INSERT OR REPLACE` resolves a primary-key conflict by deleting the
+  old row first, and SQLite skips `DELETE` triggers for that implicit delete unless
+  recursive triggers are on, so one `REPLACE` could have swapped a forged event in under
+  an existing `event_id`. Nine new tests fire raw SQL at the database, bypassing
+  `operations.ts` entirely, and assert the row is **unchanged** after each refusal — a
+  statement matching zero rows also fails to throw, and only reading the row back tells
+  a refusal from a no-op.
+- **The append-only claim is narrowed to what is actually true.** The README now carries
+  a "What append-only means here" section stating plainly what the triggers do *not*
+  buy: this is not tamper-evidence. The database is a local file, the person using it
+  holds every key to it, there is no hash chain and no signature over the ledger, and
+  anyone who can open that OPFS file with their own SQLite can drop the triggers and
+  rewrite rows without leaving a trace. What is now true and enforced is narrower and
+  worth stating on its own terms — *the application cannot rewrite its own audit
+  history*, by accident, by a future code path, or through the devtools console.
+
 ### Removed
 
 - **The "works offline" claim is withdrawn — it was false.** The app has no service

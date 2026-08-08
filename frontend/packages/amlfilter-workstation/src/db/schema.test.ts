@@ -120,11 +120,11 @@ describe("schema migrations", () => {
 		expect(columns).toContain("dob");
 	});
 
-	it("upgrades a v2-shaped DB to v3 additively, backfilling dob = NULL", () => {
+	it("upgrades a v2-shaped DB to HEAD additively, backfilling dob = NULL", () => {
 		// Stand up a v1 DB by hand and run migrate, landing it at v2 with a row,
-		// then re-record it at v2 and migrate again so only the additive v3 step
-		// runs. The pre-existing customer must survive with dob backfilled NULL,
-		// and the ledger must record v3.
+		// then re-record it at v2 and migrate again so only the additive later steps
+		// run. The pre-existing customer must survive with dob backfilled NULL,
+		// and the ledger must record HEAD.
 		seedV1(db);
 		db.exec(
 			`INSERT INTO customers (customer_id, customer_reference, name, created_at, updated_at)
@@ -139,7 +139,50 @@ describe("schema migrations", () => {
 		const maxVersion = db.selectObjects(
 			"SELECT MAX(version) AS v FROM schema_migrations",
 		);
-		expect(maxVersion[0]?.v).toBe(3);
+		expect(maxVersion[0]?.v).toBe(SCHEMA_VERSION);
+	});
+
+	it("applies v4 — the match_events append-only triggers", () => {
+		expect(migrate(db)).toBe(SCHEMA_VERSION);
+		const triggers = db
+			.selectObjects(
+				"SELECT name FROM sqlite_schema WHERE type = 'trigger' ORDER BY name",
+			)
+			.map((row) => row.name);
+		expect(triggers).toContain("match_events_no_update");
+		expect(triggers).toContain("match_events_no_delete");
+	});
+
+	it("upgrades a v3-shaped DB by adding the triggers to an existing ledger", () => {
+		// The guard has to reach databases that already hold audit history, not just
+		// freshly-created ones — otherwise every existing user keeps the unguarded
+		// table. Land a DB at v3 with a real event in it, re-record it at v3, then
+		// migrate: the event must survive and the triggers must now bind it.
+		seedV1(db);
+		migrate(db);
+		db.exec(
+			`INSERT INTO customers (customer_id, customer_reference, name, created_at, updated_at)
+			 VALUES ('c1', 'REF-1', 'Ivan', 't', 't')`,
+		);
+		db.exec(
+			`INSERT INTO match_events (event_id, match_id, customer_id, ofac_entity_id,
+			   event_type, at)
+			 VALUES ('ev1', 'm1', 'c1', 'e1', 'DETECTED', 't')`,
+		);
+		db.exec("DROP TRIGGER match_events_no_update");
+		db.exec("DROP TRIGGER match_events_no_delete");
+		db.exec("DELETE FROM schema_migrations WHERE version = 4");
+
+		expect(migrate(db)).toBe(SCHEMA_VERSION);
+
+		expect(db.selectObjects("SELECT event_id FROM match_events")).toHaveLength(
+			1,
+		);
+		expect(() =>
+			db.exec(
+				"UPDATE match_events SET event_type = 'X' WHERE event_id = 'ev1'",
+			),
+		).toThrow(/append-only/i);
 	});
 
 	it("enforces foreign keys — a match for an unknown customer is rejected", () => {

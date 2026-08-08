@@ -14,7 +14,7 @@ operation is unbounded, or the deployed site cannot prove its exact Git commit.
 | Embedding model and ORT runtime | Same-origin immutable assets → browser cache / memory | Browser cache policy; user can clear site data | Same-origin GET only; no Hugging Face/jsDelivr fallback |
 | Typed screening query | Input → ephemeral worker embedding → score | Not persisted by `/screen`; query vector is ephemeral | **Zero requests while typing/scoring** and no query text in console output, enforced by C1 Chromium |
 | Customer profile, DOB, identifiers | UI → SQLite-WASM on origin-private OPFS | Local until explicit customer deletion or browser-site-data deletion; deletion removes application rows with `secure_delete=ON` | No application API, telemetry, prompt, or provider path |
-| Matches, reviewer identity, notes, audit events | Same local SQLite database | Lifecycle writes are append-only; customer deletion atomically removes matches, reviewer data, and events from SQLite | No application API or telemetry; C1 asserts screened names do not appear in console output |
+| Matches, reviewer identity, notes, audit events | Same local SQLite database | Lifecycle writes are append-only, enforced by SQLite triggers rather than by convention (not tamper-evidence — the file is yours and there is no hash chain); customer deletion atomically removes matches, reviewer data, and events from SQLite | No application API or telemetry; C1 asserts screened names do not appear in console output |
 | Settings | Same local SQLite database | Until changed or browser-site-data deletion; deleting one customer does not erase global settings | No application API or telemetry |
 
 There is no generative-AI prompt path, account service, server database, analytics SDK,
