@@ -400,6 +400,15 @@ tables that hold the workstation's state:
   `reviewer_id`, `notes`, `at` (NOT NULL). Indexed on `(match_id)` and
   `(customer_id, ofac_entity_id)`. Lifecycle writes use `appendEvent` only; explicit
   customer deletion removes the customer's ledger atomically with the customer row.
+  Two v4 triggers make "append-only" a property of the database rather than of the
+  code: `match_events_no_update` refuses every `UPDATE`, and `match_events_no_delete`
+  refuses a `DELETE` whose `customer_id` still exists in `customers`. The second is
+  why `deleteCustomer` deletes the customer *before* its events — that order is the
+  only sequence the trigger permits. `PRAGMA recursive_triggers` is set and verified
+  in `migrate()`, because `INSERT OR REPLACE` otherwise skips the delete trigger and
+  would swap a forged row in under an existing `event_id`. See the README for what
+  this does **not** claim (there is no hash chain, and a local operator can drop the
+  triggers).
 - **`settings`** — `key` (PK), `value` (NOT NULL). Holds
   `last_synced_watchlist_version` (the rescan version pointer above), the screening
   sensitivity / per-list overrides, the enabled-watchlist selection, and the analyst
@@ -478,7 +487,10 @@ stable.
   fallback to an unverified list.
 - **The audit trail is append-only during the customer's lifecycle.** `match_events`
   lifecycle writes are INSERT-only; dispositions and
-  re-review transitions are recorded, never rewritten.
+  re-review transitions are recorded, never rewritten. SQLite triggers enforce this, so
+  it binds any code path rather than only the ones written so far — but it is not
+  tamper-evidence: the file is local, there is no hash chain, and an operator with direct
+  SQLite access can drop the triggers. See the README's "What append-only means here".
 - **Your data stays local.** KYC records live only in the in-tab SQLite-WASM/OPFS
   database; nothing is sent to a server.
 

@@ -82,7 +82,9 @@ Embedded WebViews are not part of the release contract.
   list. Load customers at `/customers`, work the matches at `/review`.
 - **Core invariants** — verify-before-parse on every byte (any signature/hash mismatch
   aborts — fetched and cached alike); customer data never leaves the browser; reviews are
-  append-only during a customer's lifecycle (`match_events`) and only re-open when the
+  append-only during a customer's lifecycle (`match_events`, enforced by SQLite triggers
+  rather than by convention — [what that does and does not
+  mean](#what-append-only-means-here)) and only re-open when the
   match **materially** changes; deleting a customer atomically removes that ledger from
   the application database too;
   the TS scorer is parity-locked by frozen golden fixtures; `pnpm gate` == CI, literally.
@@ -324,7 +326,7 @@ Entry point: `EngineRuntime.bootstrap()` → `ScreeningEngine.screen({ name })`.
 
 [`frontend/packages/amlfilter-workstation`](frontend/packages/amlfilter-workstation) is
 the local-first KYC tier, and [`frontend/app`](frontend/app) is the React SPA on top of
-it. A SQLite-WASM/OPFS DB Web Worker holds your customers and match history (schema v3:
+it. A SQLite-WASM/OPFS DB Web Worker holds your customers and match history (schema v4:
 `customers`, `kyc_matches` — now with `material_fingerprint` + `review_state` columns —
 the append-only `match_events` audit trail, and `settings`). The package owns
 onboarding, review, tiering, and the **bidirectional rescan** (`rescan.ts`:
@@ -337,6 +339,29 @@ suppressed; a materially-changed one is flagged **CHANGED** (keeping the prior
 disposition) and an event is appended. `match_events` is insert-only — `DETECTED`,
 `DISPOSITIONED`, `REOPENED`, `CHANGED`, `SUPPRESSED` — and is the audit trail the History
 drawer reads.
+
+<h4 id="what-append-only-means-here">What "append-only" means here</h4>
+
+Two SQLite triggers (schema v4) enforce it in the database, so this is a property of the
+storage engine rather than a habit of the code that happens to write to it:
+
+| Operation on `match_events` | Result |
+| --- | --- |
+| `UPDATE` — any column, any row | **Refused.** No lifecycle path has ever needed one. |
+| `DELETE` while the customer still exists | **Refused.** A single event cannot be lifted out of a live trail, and the ledger cannot be truncated. |
+| `INSERT OR REPLACE` over an existing `event_id` | **Refused.** (`recursive_triggers` is on and verified at open — without it, `REPLACE` skips the delete trigger and swaps a forged row in silently.) |
+| `INSERT` of a new event | Allowed. Corrections are appended; the superseded decision stays readable. |
+| `DELETE` after the customer row is gone | Allowed — this is the erasure path. `deleteCustomer` removes the customer first, then the trail, in one transaction. |
+
+**And what it does not mean.** This is not tamper-evidence, and we are not going to
+pretend otherwise: the database is a file on your machine and you hold every key to it.
+Anyone who can open that OPFS file with their own SQLite can drop the triggers and
+rewrite whatever they like. There is no hash chain and no signature over the ledger, so
+such an edit leaves no trace for anyone to find later. What the triggers buy is real but
+bounded — **the application cannot rewrite its own audit history**, by accident, by a
+future code path, or through the devtools console — and that is a different and much
+weaker claim than "this log can be proven intact to a regulator". Anyone who needs the
+stronger property needs to export events to storage the reviewer does not control.
 
 React routes:
 

@@ -208,7 +208,7 @@ cache were **retired** — the signed content-addressed bundle over OPFS is now 
 transport.)
 
 ### 3. Workstation — `frontend/packages/amlfilter-workstation` (`@amlfilter/workstation`) + `frontend/app`
-A **SQLite-WASM/OPFS DB worker** (schema v3, `SCHEMA_VERSION = 3`; tables `customers`,
+A **SQLite-WASM/OPFS DB worker** (schema v4, `SCHEMA_VERSION = 4`; tables `customers`,
 `kyc_matches` (+ `material_fingerprint`, `review_state`), append-only `match_events`,
 `settings`) holds customers + match history; the workstation supplies onboarding, review,
 tiering, and the **bidirectional rescan** (`rescan.ts`: `screenCustomer(customerId)`,
@@ -216,7 +216,11 @@ tiering, and the **bidirectional rescan** (`rescan.ts`: `screenCustomer(customer
 `fingerprint.ts` hashes the customer + matched-entity identity fields; `planReplacement`
 (`db/operations.ts`) keeps an unchanged match suppressed with its prior disposition and
 flags a materially-changed one `CHANGED`. `match_events` (`appendEvent`, INSERT-only) is
-the audit trail the review board's History drawer reads. The `/settings` page configures
+the audit trail the review board's History drawer reads; schema v4 enforces that in
+SQLite with two triggers (`match_events_no_update` refuses every UPDATE;
+`match_events_no_delete` refuses a DELETE whose customer still exists), which is why
+`deleteCustomer` deletes the customer *before* its events and why `migrate()` sets and
+verifies `PRAGMA recursive_triggers`. The `/settings` page configures
 sensitivity, per-list thresholds, list selection, and analyst name. Tiering
 (`classifyTier`) maps a score to **STRONG** (≥0.8) / **POSSIBLE** (≥ the preset threshold)
 / **WEAK**; it is layered on top of scoring and **never alters the score**.
@@ -239,8 +243,10 @@ alike; any signature or hash mismatch aborts the load, with no silent empty list
   mismatch — over fetched and cached bytes alike.
 - **Review once, re-review on material change**: a `material_fingerprint` gates whether a
   re-screened match stays suppressed or flags `CHANGED`; the `match_events` trail is
-  append-only during the customer's lifecycle. Explicit customer deletion atomically
-  erases its matches, events, reviewer identity, and notes.
+  append-only during the customer's lifecycle, enforced by SQLite triggers rather than by
+  convention — but that is *not* tamper-evidence (local file, no hash chain, an operator
+  can drop the triggers), and the README says so explicitly. Explicit customer deletion
+  atomically erases its matches, events, reviewer identity, and notes.
 
 ### Entry Points
 - Frontend app: `frontend/app/src/main.tsx`
