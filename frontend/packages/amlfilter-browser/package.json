@@ -17,7 +17,7 @@
 		"test:coverage": "vitest run --coverage"
 	},
 	"dependencies": {
-		"@edgeproc/avow": "^0.1.1",
+		"@edgeproc/avow": "^0.3.0",
 		"@hpcc-js/wasm-zstd": "^1.15.0",
 		"@huggingface/transformers": "^4.2.0",
 		"@noble/ed25519": "^3.1.0",
@@ -25,14 +25,14 @@
 		"fuzzball": "^2.2.6"
 	},
 	"devDependencies": {
-		"@biomejs/biome": "^2.5.5",
+		"@biomejs/biome": "^2.5.7",
 		"@types/node": "^26.1.2",
 		"@vitejs/plugin-react": "^6.0.4",
 		"@vitest/coverage-v8": "^4.1.10",
 		"fake-indexeddb": "^6.2.5",
 		"jsdom": "^30.0.1",
 		"typescript": "^7.0.2",
-		"vite": "^8.1.5",
+		"vite": "^8.2.1",
 		"vitest": "^4.1.10"
 	}
 }

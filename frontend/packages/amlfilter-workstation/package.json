@@ -16,15 +16,15 @@
 	},
 	"dependencies": {
 		"@amlfilter/browser": "workspace:*",
-		"@edgeproc/avow": "^0.1.1",
+		"@edgeproc/avow": "^0.3.0",
 		"@sqlite.org/sqlite-wasm": "3.53.0-build1"
 	},
 	"devDependencies": {
-		"@biomejs/biome": "^2.5.5",
+		"@biomejs/biome": "^2.5.7",
 		"@types/node": "^26.1.2",
 		"@vitest/coverage-v8": "^4.1.10",
 		"typescript": "^7.0.2",
-		"vite": "^8.1.5",
+		"vite": "^8.2.1",
 		"vitest": "^4.1.10"
 	}
 }
