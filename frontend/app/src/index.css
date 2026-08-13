@@ -177,6 +177,11 @@ code {
 	display: grid;
 	gap: 0.75rem;
 }
+.screen-results,
+.screen-results__list,
+.match-card {
+	min-width: 0;
+}
 /* Zero primary matches but grouped candidates below: a neutral (NOT green/clear)
    headline — the low-confidence candidates underneath are still unreviewed. */
 .screen-results__none {
@@ -253,11 +258,15 @@ code {
 .match-card__head {
 	display: flex;
 	align-items: center;
+	flex-wrap: wrap;
 	gap: 0.6rem;
+	min-width: 0;
 }
 .match-card__name {
 	font-weight: 600;
 	font-size: 1.05rem;
+	min-width: 0;
+	overflow-wrap: anywhere;
 }
 .match-card__type {
 	color: #64748b;
@@ -298,6 +307,8 @@ code {
 .match-card__fact dd {
 	color: #1e293b;
 	margin: 0;
+	min-width: 0;
+	overflow-wrap: anywhere;
 }
 .match-card__why {
 	color: #334155;

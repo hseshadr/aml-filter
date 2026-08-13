@@ -1,5 +1,36 @@
 import { expect, test } from "@playwright/test";
 
+async function expectNoHorizontalOverflow(
+	page: import("@playwright/test").Page,
+) {
+	await expect
+		.poll(() =>
+			page.evaluate(
+				() => document.documentElement.scrollWidth - window.innerWidth,
+			),
+		)
+		.toBeLessThanOrEqual(0);
+}
+
+async function exerciseConstrainedResultWidths(
+	page: import("@playwright/test").Page,
+) {
+	const unbrokenEvidence = "AML-UNBROKEN-EVIDENCE-ID-".repeat(8);
+	await page
+		.locator(".match-card")
+		.first()
+		.evaluate((card, value) => {
+			for (const selector of [".match-card__name", ".match-card__fact dd"]) {
+				const target = card.querySelector(selector);
+				if (target !== null) target.textContent = value;
+			}
+		}, unbrokenEvidence);
+	for (const width of [320, 390, 430]) {
+		await page.setViewportSize({ width, height: 664 });
+		await expectNoHorizontalOverflow(page);
+	}
+}
+
 test("screening boots when WebKit exposes OPFS but cannot open it", async ({
 	page,
 }) => {
@@ -17,14 +48,18 @@ test("screening boots when WebKit exposes OPFS but cannot open it", async ({
 	await page.goto("/screen");
 	const expectedOrigin = new URL(page.url()).origin;
 	const search = page.getByLabel("Search the sanctions list", { exact: true });
+	await expectNoHorizontalOverflow(page);
 	await expect(search).toBeEnabled({ timeout: 120_000 });
 	await search.fill("Ivan Fakovich");
 	await expect(page.getByText(/potential match/i).first()).toBeVisible({
 		timeout: 30_000,
 	});
+	await expectNoHorizontalOverflow(page);
+	await exerciseConstrainedResultWidths(page);
 
 	await page.reload();
 	await expect(search).toBeEnabled({ timeout: 120_000 });
+	await expectNoHorizontalOverflow(page);
 	await expect(
 		page.getByRole("alert").filter({ hasText: "Browser memory limit reached" }),
 	).toHaveCount(0);
