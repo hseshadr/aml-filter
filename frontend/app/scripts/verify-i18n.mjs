@@ -22,10 +22,25 @@
  * raw-key leak. This drive covers the Landing + shared chrome those lanes skip.
  */
 import { spawn } from "node:child_process";
+import { createServer } from "node:net";
 import { setTimeout as sleep } from "node:timers/promises";
 import { chromium } from "@playwright/test";
 
-const REQUESTED_PORT = Number(process.env.VERIFY_I18N_PORT ?? 0);
+async function freePort() {
+	if (process.env.VERIFY_I18N_PORT) {
+		return Number(process.env.VERIFY_I18N_PORT);
+	}
+	const server = createServer();
+	await new Promise((resolve, reject) => {
+		server.once("error", reject);
+		server.listen(0, "127.0.0.1", resolve);
+	});
+	const address = server.address();
+	const port = typeof address === "object" && address ? address.port : 0;
+	await new Promise((resolve) => server.close(resolve));
+	if (!port) throw new Error("could not reserve a preview port");
+	return port;
+}
 
 // Known translated copy that MUST render on the Landing — the shared nav + footer
 // chrome (common namespace) plus headline Landing copy (landing namespace). Each
@@ -72,35 +87,22 @@ function fail(message) {
 
 /** Start `vite preview` on the built dist and resolve once it accepts requests. */
 async function startPreview() {
+	const port = await freePort();
+	const baseUrl = `http://localhost:${port}`;
 	const child = spawn(
 		"pnpm",
-		[
-			"exec",
-			"vite",
-			"preview",
-			"--port",
-			String(REQUESTED_PORT),
-			"--strictPort",
-		],
-		{ stdio: ["ignore", "pipe", "inherit"] },
+		["exec", "vite", "preview", "--port", String(port), "--strictPort"],
+		{ stdio: ["ignore", "ignore", "inherit"] },
 	);
-	let baseUrl;
-	child.stdout.setEncoding("utf8");
-	child.stdout.on("data", (chunk) => {
-		const match = chunk.match(/Local:\s+(http:\/\/[^\s]+)/);
-		if (match) baseUrl = match[1];
-	});
 	for (let i = 0; i < 60; i++) {
 		if (child.exitCode !== null) {
 			throw new Error("vite preview exited before it was ready");
 		}
-		if (baseUrl) {
-			try {
-				const res = await fetch(baseUrl);
-				if (res.ok) return { child, baseUrl };
-			} catch {
-				// not up yet
-			}
+		try {
+			const res = await fetch(baseUrl);
+			if (res.ok) return { child, baseUrl };
+		} catch {
+			// not up yet
 		}
 		await sleep(1000);
 	}

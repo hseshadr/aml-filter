@@ -8,7 +8,9 @@ describe("i18n browser gate isolation", () => {
 			join(process.cwd(), "scripts/verify-i18n.mjs"),
 			"utf8",
 		);
-		expect(source).toContain("process.env.VERIFY_I18N_PORT ?? 0");
+		expect(source).toContain("process.env.VERIFY_I18N_PORT");
 		expect(source).not.toContain("?? 4173");
+		expect(source).toContain("createServer");
+		expect(source).toMatch(/listen\(0,\s*"127\.0\.0\.1"/);
 	});
 });
