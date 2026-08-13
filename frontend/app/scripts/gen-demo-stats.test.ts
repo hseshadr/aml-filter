@@ -9,7 +9,7 @@
 
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	bytesToMb,
@@ -75,6 +75,15 @@ describe("renderModule", () => {
 });
 
 describe("source paths (single source of truth)", () => {
+	it("downloads the model before test stats are generated", async () => {
+		const packagePath = join(dirname(outputPath()), "..", "..", "package.json");
+		const packageJson = JSON.parse(await readFile(packagePath, "utf8"));
+		const prepare =
+			"pnpm run download-model && node scripts/gen-demo-stats.mjs";
+		expect(packageJson.scripts.pretest).toBe(prepare);
+		expect(packageJson.scripts["pretest:coverage"]).toBe(prepare);
+	});
+
 	it("demoEntitiesPath points at the committed demo sanctions list", async () => {
 		const p = demoEntitiesPath();
 		expect(

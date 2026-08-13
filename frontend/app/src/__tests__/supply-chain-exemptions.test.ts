@@ -72,6 +72,11 @@ function remediation(lines: readonly number[]): string {
 }
 
 describe("pnpm supply-chain exemption guard", () => {
+	it("pins nanoid to the patched 3.x line", () => {
+		const yaml = readFileSync(workspaceFile, "utf8");
+		expect(yaml).toContain('nanoid: ">=3.3.17 <4"');
+	});
+
 	it("keeps frontend/pnpm-workspace.yaml free of minimumReleaseAgeExclude", () => {
 		const found = findExemptionKeyLines(readFileSync(workspaceFile, "utf8"));
 		expect(found, remediation(found)).toEqual([]);
