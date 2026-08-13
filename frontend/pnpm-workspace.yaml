@@ -65,8 +65,14 @@ allowBuilds:
 # vitest copies of that same vite — which declares `postcss: ^8.5.x`, so there is
 # no direct dependency to bump instead. Bounded `<9`: a floor inside the patched
 # 8.x line, not a major upgrade.
+#
+# Pin transitive nanoid to the patched 3.x line for GHSA-2v37-7h3g-55p8.
+# Vite reaches nanoid through PostCSS; versions before 3.3.17 can loop forever
+# for a zero-size custom alphabet request. The `<4` ceiling avoids a silent
+# transitive major-version jump.
 overrides:
   adm-zip: "0.6.0"
   protobufjs: ">=7.6.5 <8"
   sharp: "^0.35.0"
   postcss: ">=8.5.18 <9"
+  nanoid: ">=3.3.17 <4"
