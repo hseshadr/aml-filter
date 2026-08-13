@@ -28,3 +28,17 @@ export function cspFromHeadersFile(headersFileContent: string): string {
 			"preview would silently run without the production CSP",
 	);
 }
+
+/**
+ * Keep production CSP on the HTTP localhost preview except for the transport
+ * upgrade directive. WebKit applies that directive to localhost module assets
+ * and attempts HTTPS against Vite's HTTP-only preview server. Localhost is
+ * already a browser secure context; production keeps the directive unchanged.
+ */
+export function localhostPreviewCsp(productionCsp: string): string {
+	return productionCsp
+		.split(";")
+		.map((directive) => directive.trim())
+		.filter((directive) => directive !== "upgrade-insecure-requests")
+		.join("; ");
+}

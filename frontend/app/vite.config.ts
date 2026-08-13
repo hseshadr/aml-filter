@@ -7,7 +7,10 @@ import react from "@vitejs/plugin-react";
 import { defineConfig, type Plugin } from "vite";
 import { configDefaults } from "vitest/config";
 import { resolveOrtAsset } from "./src/dev/ortDevAsset";
-import { cspFromHeadersFile } from "./src/dev/previewHeaders";
+import {
+	cspFromHeadersFile,
+	localhostPreviewCsp,
+} from "./src/dev/previewHeaders";
 
 const APP_ROOT = dirname(fileURLToPath(import.meta.url));
 
@@ -54,8 +57,10 @@ function previewProdCspPlugin(): Plugin {
 	return {
 		name: "amlfilter:preview-prod-csp",
 		configurePreviewServer(server) {
-			const csp = cspFromHeadersFile(
-				readFileSync(join(APP_ROOT, "public/_headers"), "utf8"),
+			const csp = localhostPreviewCsp(
+				cspFromHeadersFile(
+					readFileSync(join(APP_ROOT, "public/_headers"), "utf8"),
+				),
 			);
 			server.middlewares.use((_req, res, next) => {
 				res.setHeader("Content-Security-Policy", csp);

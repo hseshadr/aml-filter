@@ -50,7 +50,7 @@ export interface SyncResult {
 }
 
 /**
- * Local content-addressed store. The OPFS-backed and in-memory implementations
+ * Local content-addressed store. Durable and in-memory implementations
  * share this surface — the seam edge-proc's `cas.py` `CacheStore` Protocol names.
  */
 export interface CacheStore {

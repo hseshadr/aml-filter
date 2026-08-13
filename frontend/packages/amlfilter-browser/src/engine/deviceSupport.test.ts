@@ -14,6 +14,7 @@ import {
 // detector relies on OPFS getDirectory as the main-thread-safe proxy.
 const FULL: CapabilityScope = {
 	Worker: function Worker() {},
+	indexedDB: { open: () => {} },
 	navigator: {
 		storage: { getDirectory: () => {} },
 		locks: { request: () => {} },
@@ -24,7 +25,7 @@ describe("detectCapabilities", () => {
 	it("reports every capability present for a modern browser scope", () => {
 		expect(detectCapabilities(FULL)).toEqual({
 			moduleWorker: true,
-			opfs: true,
+			durableStorage: true,
 			webLocks: true,
 		});
 	});
@@ -34,14 +35,18 @@ describe("detectCapabilities", () => {
 		expect(caps.moduleWorker).toBe(false);
 	});
 
-	it("reports OPFS absent when navigator.storage.getDirectory is missing (older iOS Safari)", () => {
+	it("accepts IndexedDB when OPFS is missing", () => {
 		const caps = detectCapabilities({ ...FULL, navigator: { storage: {} } });
-		expect(caps.opfs).toBe(false);
+		expect(caps.durableStorage).toBe(true);
 	});
 
-	it("reports OPFS absent when navigator is missing entirely", () => {
-		const caps = detectCapabilities({ ...FULL, navigator: undefined });
-		expect(caps.opfs).toBe(false);
+	it("reports durable storage absent when both OPFS and IndexedDB are missing", () => {
+		const caps = detectCapabilities({
+			...FULL,
+			indexedDB: undefined,
+			navigator: undefined,
+		});
+		expect(caps.durableStorage).toBe(false);
 	});
 
 	it("reports Web Locks absent when cross-tab mutation serialization is unavailable", () => {

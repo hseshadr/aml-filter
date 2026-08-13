@@ -12,7 +12,7 @@ There are three deliberately separate storage classes:
 | Data | Durable browser storage | Runtime cost | Why it stays separate |
 | --- | --- | --- | --- |
 | MiniLM weights | Same-origin CacheStorage | ~23 MB model asset plus runtime/WASM allocations | The model is loaded once by its worker and reused; it is not customer data |
-| Signed public watchlists | Worker-owned content-addressed OPFS | One decoded list at a time in streaming mode | Ed25519, SHA-256, monotonic pointer, offline reuse, and verify-before-parse remain byte-level invariants |
+| Signed public watchlists | Worker-owned content-addressed store: OPFS preferred, bounded IndexedDB WebKit fallback | One decoded list at a time in streaming mode | Ed25519, SHA-256, monotonic pointer, offline reuse, and verify-before-parse remain byte-level invariants |
 | Customers, matches, settings, audit events | SQLite-WASM on origin-private OPFS | Small transactional rows | Private state needs transactions, deletion, and audit semantics rather than vector retrieval |
 
 The realistic 31,348 × 384 Float32 index is **48,150,528 bytes** (≤50 MiB). The exact
@@ -47,7 +47,7 @@ Elastic-licensed runtime with an open-source grant whose downstream terms must b
 reviewed before commercial distribution. Quantized scans are derived acceleration, not
 an acceptable sole sanctions authority without exact-score parity evidence.
 
-Therefore the current release **does not replace** the signed OPFS CAS or the exact
+Therefore the current release **does not replace** the signed browser CAS or the exact
 Float32 scan. A future `sqlite-vector-wasm` experiment must pass every gate below before
 it can become a default:
 
@@ -64,6 +64,6 @@ it can become a default:
 6. retain the current exact flat-scan fallback whenever the extension is unavailable,
    over budget, or fails parity.
 
-This keeps the simple path simple: SQLite for private durable records, signed OPFS for
-public verified artifacts, and bounded in-memory computation for the query that is
-actually being screened.
+This keeps the simple path simple: SQLite/OPFS for private durable records, one signed
+browser-store contract for public verified artifacts, and bounded in-memory computation
+for the query that is actually being screened.

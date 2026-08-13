@@ -112,9 +112,9 @@ jobs:
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('frontend/pnpm-lock.yaml') }}
-      - name: Install Playwright Chromium + system deps
+      - name: Install Playwright Chromium + WebKit system deps
         working-directory: frontend/app
-        run: pnpm exec playwright install --with-deps chromium
+        run: pnpm exec playwright install --with-deps chromium webkit
 
       # The canonical gate (frontend/package.json "gate"): Biome lint → tsc
       # typecheck → Vitest units (incl. the i18n locale-parity spec) → production
@@ -158,12 +158,13 @@ jobs:
       #   • Signed-bundle delta-sync boot — VITE_BUNDLE_BASE_URL=/bundle/origin:
       #     fetch+verify the signed /latest pointer, content-verify the manifest
       #     + every chunk against the pinned same-origin public.key, promote
-      #     into OPFS, screen; then prove a reload re-fetches ZERO chunks (delta
-      #     reuse) and an offline reload still screens from OPFS.
-      #   • Mobile memory smoke — Android Chromium + desktop control profile.
-      #     The full iPhone/WebKit profile remains available through
-      #     `pnpm test:e2e:mobile` on macOS; physical iOS Safari is the device-
-      #     level acceptance check.
+      #     into the durable browser store, screen; then prove a reload re-fetches
+      #     ZERO chunks (delta reuse) and an offline reload still screens locally.
+      #   • Mobile memory smoke — iPhone WebKit, Android Chromium and desktop
+      #     control. WebKit proves a browser that exposes but cannot open OPFS
+      #     boots through the bounded IndexedDB compatibility adapter and reloads
+      #     without fetching bundle chunks again. Physical iOS Safari remains the
+      #     final device-level acceptance check.
       - name: Run the gate (lint → typecheck → test → build → verify-i18n → e2e matrix)
         working-directory: frontend
         run: pnpm run gate

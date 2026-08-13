@@ -48,25 +48,26 @@ pnpm --filter aml-filter-app preview    # serve the minified build locally
 
 The `prebuild` hook self-hosts the MiniLM model weights and generates demo stats. The
 production build ships everything as static files in `app/dist/` — host it on any static
-host/CDN over HTTPS (a secure context is required for in-tab WebCrypto signature verification
-and OPFS).
+host/CDN over HTTPS. A secure context is required for in-tab WebCrypto verification;
+screening prefers OPFS and falls back to IndexedDB for its signed-list cache, while the
+SQLite KYC workstation requires OPFS.
 
 ## The gate
 
-There is no single `gate` script. The gate is the CI sequence, run from `frontend/`:
+The same canonical gate runs locally and in CI:
 
 ```bash
-pnpm -r run lint        # Biome
-pnpm -r run typecheck   # tsc
-pnpm -r run test        # Vitest (incl. the frozen scoring + tiering golden parity tests)
-pnpm -r run build       # production build across the workspace
+pnpm gate
 ```
 
-Plus the two real-Chromium Playwright lanes (from `frontend/app`):
+It includes lint, type checks, coverage, production builds, recall/evaluation, i18n,
+signed-bundle contracts, and the real-browser lanes. Run an individual lane from
+`frontend/app` when iterating:
 
 ```bash
 pnpm test:e2e:c1        # in-tab C1 screening
 pnpm test:e2e:kyc       # backend-free local-first KYC journey
+pnpm test:e2e:mobile:ci # WebKit iPhone + Chromium Android/desktop cold/reload
 ```
 
 ## Publish a watchlist

@@ -184,7 +184,7 @@ const translate: TFunction = (key, params) => i18n.t(key, params ?? {});
 /**
  * The /screen unsupported-device string. Shown when the up-front capability
  * preflight (engineSupport) finds this browser can't run the local engine —
- * an older iOS Safari / locked-down WebView missing OPFS, module Workers, Web
+ * an older iOS Safari / locked-down WebView missing durable storage, module Workers, Web
  * Locks, or synchronous file access. This is a graceful dead-end, not a hang: no Retry,
  * because retrying can't add a missing browser capability. Names the missing
  * features when known so a technical visitor can see why.

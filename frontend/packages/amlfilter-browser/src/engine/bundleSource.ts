@@ -3,13 +3,13 @@
 // EngineRuntime can screen from it unchanged.
 //
 // It drives the recovered edge-proc delta-sync tier THROUGH A WORKER (EngineClient
-// → worker.ts): the Worker owns the OPFS CacheStore (OPFS sync access handles are
+// → worker.ts): the Worker owns the durable CacheStore (OPFS sync access handles are
 // Worker-only — opening the store or reading a chunk on the MAIN thread hangs), so
 // the main thread only sends typed requests and awaits bytes. One `sync` against
 // the bundle base URL fetches + verifies the signed `/latest` pointer
 // (cache:no-store), verifies the manifest by content hash, delta-fetches only the
 // missing chunks, re-verifies each chunk + each reassembled file, and atomically
-// promotes into the durable OPFS store (so a reload re-uses chunks and an offline
+// promotes into the durable store (so a reload re-uses chunks and an offline
 // reload still screens). It then `readFile`s `catalog.json` + each enabled list's
 // `<slug>/{entities.jsonl,vectors.f32,meta.json}` out of the store and projects
 // them onto WatchlistCatalog / LoadedWatchlist on the main thread.
@@ -154,7 +154,7 @@ function wantedPathsFor(
 }
 
 /** The worker-backed sync client seam the bundle source drives: `sync` runs the
- * delta-sync in the Worker (where OPFS is legal), `readFile` materializes a synced
+ * delta-sync in the Worker (where browser storage is isolated), `readFile` materializes a synced
  * file's bytes out of the Worker's store. {@link EngineClient} satisfies it in the
  * browser; unit tests inject an in-process fake over a MemoryCacheStore. */
 export interface BundleEngineClient {
@@ -172,7 +172,7 @@ export interface BundleEngineClient {
 /** The client seam the bundle source depends on; defaulted to a spawned Worker
  * EngineClient. Injectable so unit tests drive the committed bundle over an
  * in-memory store + an fs-backed fetch (the demoBundleParity pattern) with no
- * Worker/OPFS. */
+ * Worker/browser storage. */
 export interface BundleSourceDeps {
 	readonly createClient: () => BundleEngineClient;
 }
@@ -314,7 +314,7 @@ export async function openBundleSource(
 			dispose,
 		};
 	} catch (error) {
-		// A failed bootstrap must not strand an OPFS Worker. The runtime retries by
+		// A failed bootstrap must not strand a storage Worker. The runtime retries by
 		// dropping this source; terminate the failed client before surfacing the
 		// original error so the retry starts with a bounded worker count.
 		client.terminate?.();

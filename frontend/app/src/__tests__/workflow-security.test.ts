@@ -112,6 +112,27 @@ describe("workflow permissions", () => {
 	});
 });
 
+describe("mobile WebKit release gate", () => {
+	it("installs WebKit and runs the iPhone profile in the canonical CI gate", () => {
+		const ci = readFileSync(join(workflowsDir, "ci.yml"), "utf8");
+		const mobileConfig = readFileSync(
+			join(repoRoot, "frontend", "app", "playwright.mobile.config.ts"),
+			"utf8",
+		);
+		const appPackage = JSON.parse(
+			readFileSync(join(repoRoot, "frontend", "app", "package.json"), "utf8"),
+		) as { readonly scripts: Readonly<Record<string, string>> };
+
+		expect(ci).toMatch(/playwright install --with-deps chromium webkit/);
+		expect(appPackage.scripts["test:e2e:mobile:ci"]).toContain(
+			"--project=ios-webkit",
+		);
+		expect(mobileConfig).toMatch(
+			/pnpm build && pnpm exec vite preview --port \$\{SPA_PORT\}/,
+		);
+	});
+});
+
 describe("the pin rule itself", () => {
 	it.each([
 		["a moving major tag", "actions/checkout@v7"],

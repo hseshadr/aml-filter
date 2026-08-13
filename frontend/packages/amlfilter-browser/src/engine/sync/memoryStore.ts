@@ -1,5 +1,5 @@
-// In-memory CacheStore (Map-backed) implementing the same surface as the OPFS
-// store, so the sync state machine is testable without OPFS (per the spec's
+// In-memory CacheStore (Map-backed) implementing the durable-store surface,
+// so the sync state machine is testable without browser storage (per the spec's
 // "thin in-memory CacheStore" for pure-logic tests).
 
 import { sha256Hex } from "../crypto";

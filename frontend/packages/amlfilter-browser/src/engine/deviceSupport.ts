@@ -3,19 +3,18 @@
 // locked-down in-app WebView can lack, all detectable from the main thread:
 //
 //   - module Web Workers — the sync + embedder engines are module Workers;
-//   - OPFS (navigator.storage.getDirectory) — the durable content-addressed
-//     chunk store the delta-sync promotes into.
+//   - durable browser storage — OPFS is preferred; IndexedDB is the fallback
+//     when WebKit exposes OPFS but cannot actually open it.
 //   - Web Locks — cross-tab sequencing for promotion and cache clearing. Without
 //     it, two live tabs could race a lower signed sequence over a newer one.
 //
-// NOTE on the Worker-only OPFS write path: the store writes chunks through
+// NOTE on the Worker-only OPFS write path: the preferred store writes chunks through
 // `createSyncAccessHandle`, which is `[Exposed=DedicatedWorker]` — it is NOT on
 // `FileSystemFileHandle.prototype` in the Window realm, so it CANNOT be
 // feature-detected from the main thread (an early version tried and wrongly
 // flagged every real browser as unsupported). It ships together with OPFS in the
 // browsers we target, so `getDirectory` is the reliable main-thread proxy; the
-// rare "OPFS present, sync-access-handle absent" case still fails safe — the
-// Worker throws and the boot shows its error banner.
+// rare "OPFS present, sync-access-handle absent" case falls back to IndexedDB.
 //
 // When a required capability is missing, boot would otherwise throw deep inside a
 // Worker — or, on iOS, the tab is killed with NO catchable JS error and the
@@ -26,7 +25,7 @@
 /** The capabilities the local engine requires, each detected present/absent. */
 export interface EngineCapabilities {
 	readonly moduleWorker: boolean;
-	readonly opfs: boolean;
+	readonly durableStorage: boolean;
 	readonly webLocks: boolean;
 }
 
@@ -35,6 +34,7 @@ export interface EngineCapabilities {
  * `globalThis`. */
 export interface CapabilityScope {
 	readonly Worker?: unknown;
+	readonly indexedDB?: { readonly open?: unknown };
 	readonly navigator?: {
 		readonly storage?: { readonly getDirectory?: unknown };
 		readonly locks?: { readonly request?: unknown };
@@ -44,7 +44,7 @@ export interface CapabilityScope {
 /** Human-readable name per capability, for the unsupported-device message. */
 const CAPABILITY_LABELS: Readonly<Record<keyof EngineCapabilities, string>> = {
 	moduleWorker: "Web Workers",
-	opfs: "private file storage (OPFS)",
+	durableStorage: "private browser storage (OPFS or IndexedDB)",
 	webLocks: "cross-tab Web Locks",
 };
 
@@ -52,7 +52,9 @@ const CAPABILITY_LABELS: Readonly<Record<keyof EngineCapabilities, string>> = {
 export function detectCapabilities(scope: CapabilityScope): EngineCapabilities {
 	return {
 		moduleWorker: typeof scope.Worker === "function",
-		opfs: typeof scope.navigator?.storage?.getDirectory === "function",
+		durableStorage:
+			typeof scope.navigator?.storage?.getDirectory === "function" ||
+			typeof scope.indexedDB?.open === "function",
 		webLocks: typeof scope.navigator?.locks?.request === "function",
 	};
 }

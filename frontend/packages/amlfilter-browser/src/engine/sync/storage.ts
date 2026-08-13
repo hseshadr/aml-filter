@@ -1,5 +1,5 @@
 // Storage-quota preflight + mid-sync quota handling for the delta-sync. iOS
-// Safari (and any browser under storage pressure) can refuse an OPFS write once
+// Safari (and any browser under storage pressure) can refuse a durable write once
 // the origin's quota is exhausted. Without a preflight the sync fetches tens of
 // MB before the FIRST write throws deep in a Worker; with one we can refuse
 // early and explain. Either way a QuotaExceededError mid-write becomes a typed,
@@ -31,7 +31,7 @@ export class QuotaError extends Error {
 /**
  * Whether the reported free space (`quota - usage`) can hold `neededBytes`. Pure.
  * BEST-EFFORT: when the browser can't report both numbers the preflight must not
- * block a sync that might well succeed — the OPFS write still fails closed with a
+ * block a sync that might well succeed — the durable write still fails closed with a
  * real QuotaExceededError if space actually runs out mid-sync.
  */
 export function fitsInQuota(

@@ -1,5 +1,37 @@
 import { expect, test } from "@playwright/test";
 
+test("screening boots when WebKit exposes OPFS but cannot open it", async ({
+	page,
+}) => {
+	test.setTimeout(180_000);
+	const consoleErrors: string[] = [];
+	const requestOrigins = new Set<string>();
+	page.on("request", (request) => {
+		requestOrigins.add(new URL(request.url()).origin);
+	});
+	page.on("console", (message) => {
+		if (message.type() === "error") consoleErrors.push(message.text());
+	});
+	page.on("pageerror", (error) => consoleErrors.push(error.message));
+
+	await page.goto("/screen");
+	const expectedOrigin = new URL(page.url()).origin;
+	const search = page.getByLabel("Search the sanctions list", { exact: true });
+	await expect(search).toBeEnabled({ timeout: 120_000 });
+	await search.fill("Ivan Fakovich");
+	await expect(page.getByText(/potential match/i).first()).toBeVisible({
+		timeout: 30_000,
+	});
+
+	await page.reload();
+	await expect(search).toBeEnabled({ timeout: 120_000 });
+	await expect(
+		page.getByRole("alert").filter({ hasText: "Browser memory limit reached" }),
+	).toHaveCount(0);
+	expect([...requestOrigins]).toEqual([expectedOrigin]);
+	expect(consoleErrors).toEqual([]);
+});
+
 /**
  * Settings must be usable on constrained browsers without constructing the
  * ONNX/WASM model. This catches the production failure where Safari reported
@@ -22,8 +54,10 @@ test("settings defers model/WASM allocation on mobile profiles", async ({
 
 	await page.goto("/settings");
 	const name = page.getByLabel("Analyst name", { exact: true });
-	const dbError = page.getByText(/could not open the local KYC database/i);
-	await expect(name.or(dbError)).toBeVisible();
+	const dbError = page
+		.getByRole("alert")
+		.filter({ hasText: "Local workspace unavailable" });
+	await expect(name.or(dbError)).toBeVisible({ timeout: 30_000 });
 	// Playwright's bundled WebKit does not expose the OPFS/SQLite worker surface
 	// used by the workstation (real iOS Safari does). Keep this result explicit
 	// rather than treating an emulator limitation as a product pass/failure.
