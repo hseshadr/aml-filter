@@ -25,8 +25,7 @@ import { spawn } from "node:child_process";
 import { setTimeout as sleep } from "node:timers/promises";
 import { chromium } from "@playwright/test";
 
-const PORT = Number(process.env.VERIFY_I18N_PORT ?? 4173);
-const BASE_URL = `http://localhost:${PORT}`;
+const REQUESTED_PORT = Number(process.env.VERIFY_I18N_PORT ?? 0);
 
 // Known translated copy that MUST render on the Landing — the shared nav + footer
 // chrome (common namespace) plus headline Landing copy (landing namespace). Each
@@ -75,26 +74,41 @@ function fail(message) {
 async function startPreview() {
 	const child = spawn(
 		"pnpm",
-		["exec", "vite", "preview", "--port", String(PORT), "--strictPort"],
-		{ stdio: ["ignore", "inherit", "inherit"] },
+		[
+			"exec",
+			"vite",
+			"preview",
+			"--port",
+			String(REQUESTED_PORT),
+			"--strictPort",
+		],
+		{ stdio: ["ignore", "pipe", "inherit"] },
 	);
+	let baseUrl;
+	child.stdout.setEncoding("utf8");
+	child.stdout.on("data", (chunk) => {
+		const match = chunk.match(/Local:\s+(http:\/\/[^\s]+)/);
+		if (match) baseUrl = match[1];
+	});
 	for (let i = 0; i < 60; i++) {
 		if (child.exitCode !== null) {
 			throw new Error("vite preview exited before it was ready");
 		}
-		try {
-			const res = await fetch(BASE_URL);
-			if (res.ok) return child;
-		} catch {
-			// not up yet
+		if (baseUrl) {
+			try {
+				const res = await fetch(baseUrl);
+				if (res.ok) return { child, baseUrl };
+			} catch {
+				// not up yet
+			}
 		}
 		await sleep(1000);
 	}
 	child.kill("SIGTERM");
-	throw new Error(`vite preview did not become ready at ${BASE_URL}`);
+	throw new Error("vite preview did not become ready");
 }
 
-const preview = await startPreview();
+const { child: preview, baseUrl } = await startPreview();
 const browser = await chromium.launch();
 try {
 	for (const { lang, strings } of CASES) {
@@ -106,7 +120,7 @@ try {
 		});
 		page.on("pageerror", (error) => consoleErrors.push(String(error)));
 
-		await page.goto(BASE_URL, { waitUntil: "domcontentloaded" });
+		await page.goto(baseUrl, { waitUntil: "domcontentloaded" });
 		await page
 			.waitForSelector("text=AML-Filter is a portfolio engineering demo", {
 				timeout: 15000,
