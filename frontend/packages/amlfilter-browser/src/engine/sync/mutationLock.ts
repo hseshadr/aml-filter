@@ -1,5 +1,5 @@
 /**
- * Cross-tab mutation serialization for the shared OPFS bundle store.
+ * Cross-tab mutation serialization for the shared durable bundle store.
  *
  * Syncs hold a shared lifecycle lock while they stage verified CAS bytes, so
  * they may run concurrently. Clear takes the same lock exclusively, preventing

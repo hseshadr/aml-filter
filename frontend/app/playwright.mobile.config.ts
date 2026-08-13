@@ -1,10 +1,12 @@
 import { defineConfig, devices } from "@playwright/test";
 
 /**
- * Mobile browser smoke gate. WebKit approximates iPhone Safari's browser
- * surface; Chromium uses the Pixel 5 Android profile. This is intentionally a
- * separate config because the normal CI gate installs Chromium only.
+ * Mobile browser smoke gate over the minified production build. WebKit
+ * approximates iPhone Safari's browser surface; Chromium uses the Pixel 5
+ * Android profile plus a desktop control.
  */
+const SPA_PORT = Number(process.env.E2E_MOBILE_SPA_PORT ?? 4178);
+
 export default defineConfig({
 	testDir: "./tests",
 	testMatch: "**/mobile-workstation.spec.ts",
@@ -14,7 +16,7 @@ export default defineConfig({
 	workers: process.env.CI ? 1 : undefined,
 	reporter: "line",
 	use: {
-		baseURL: "http://localhost:5173",
+		baseURL: `http://localhost:${SPA_PORT}`,
 		trace: "on-first-retry",
 	},
 	projects: [
@@ -32,11 +34,11 @@ export default defineConfig({
 		},
 	],
 	webServer: {
-		command: "pnpm dev",
-		url: "http://localhost:5173",
+		command: `pnpm build && pnpm exec vite preview --port ${SPA_PORT} --strictPort`,
+		url: `http://localhost:${SPA_PORT}/screen`,
 		reuseExistingServer: !process.env.CI,
-		// No lane-only env on purpose: the local server pairs the committed demo bundle
-		// with the demo verify key by default (vite.config localDemoPubkeyPin), so this
-		// lane boots exactly the way a `pnpm dev` cold clone does.
+		timeout: 240_000,
+		// No lane-only env: local preview pairs the committed demo bundle with its
+		// demo verify key. The browser still exercises minified production assets.
 	},
 });

@@ -1,5 +1,5 @@
 // Thin main-thread client over the Worker engine. The main thread cannot touch
-// OPFS sync access handles, so it only sends typed requests and awaits replies.
+// browser-storage handles, so it only sends typed requests and awaits replies.
 // One in-flight map keyed by request id correlates responses to promises.
 
 import { type IdleTimer, startIdleTimer } from "../idleTimeout";

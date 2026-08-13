@@ -27,7 +27,7 @@ interface SyncArgs {
 	 * Optional storage-quota seam (production: `navigator.storage.estimate`).
 	 * When present, a preflight refuses fail-fast with a {@link QuotaError} if the
 	 * device can't hold the chunks about to be fetched — instead of downloading
-	 * tens of MB only for the first OPFS write to throw deep in the Worker. Absent
+	 * tens of MB only for the first durable write to throw deep in the Worker. Absent
 	 * = no preflight (the write path still fails closed on a real quota error).
 	 */
 	readonly estimateStorage?: EstimateStorage;
@@ -255,7 +255,7 @@ function pointerSigningBytes(pointer: VersionPointer): Uint8Array {
  * re-read and fail signature verification against the pinned key — a failure even
  * Retry cannot clear, since Retry re-reads the same cached bytes. The immutable
  * `manifest/<hash>` + `chunk/<hash>` fetches are content-addressed (hash in the
- * URL) and stay cacheable; OPFS dedupes them anyway. */
+ * URL) and stay cacheable; the content-addressed store dedupes them anyway. */
 async function fetchPointer(
 	baseUrl: string,
 	fetchBytes: FetchBytes,
@@ -468,7 +468,7 @@ async function verifyReassembly(
 }
 
 /** Sum the (uncompressed) sizes of the chunks about to be fetched. An upper
- * bound on the OPFS bytes the sync will add — chunks are stored compressed, so
+ * bound on the durable bytes the sync will add — chunks are stored compressed, so
  * this over-estimates, keeping the quota preflight conservative (it never
  * under-warns). */
 function neededBytes(

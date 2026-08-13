@@ -66,7 +66,7 @@ type Phase =
 			readonly detail: UserFacingBootError;
 	  }
 	// A device/browser that can't run the local engine at all (older iOS Safari /
-	// locked-down WebView missing OPFS, module Workers, or sync file access). A
+	// locked-down WebView missing durable storage, module Workers, or safe locking). A
 	// graceful dead-end detected BEFORE bootstrap — no Retry, since retrying can't
 	// add a missing browser capability. Maps to future `bundle.device_unsupported`.
 	| { readonly kind: "unsupported"; readonly message: string };
@@ -227,7 +227,7 @@ function errorDetail(error: unknown): string {
 export function ScreenPage() {
 	const { t } = useTranslation("screen");
 	const runtime = useMemo(() => new EngineRuntime(), []);
-	// Capability preflight (once): before spawning any Worker or touching OPFS,
+	// Capability preflight (once): before spawning any Worker or touching durable storage,
 	// check this browser can actually run the local engine. On an unsupported
 	// device the boot below would otherwise throw deep in a Worker — or, on iOS,
 	// silently hang with no catchable error — so we branch to an explicit screen.

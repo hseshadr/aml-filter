@@ -1,5 +1,5 @@
 // Typed postMessage envelopes between the main thread and the Worker. The Worker
-// owns OPFS + the sync engine; the main thread only sends requests + awaits
+// owns the durable store + sync engine; the main thread only sends requests + awaits
 // replies. Discriminated unions on `kind` / `ok` keep the bridge type-safe.
 
 import type { SyncProgress, SyncResult } from "./types";

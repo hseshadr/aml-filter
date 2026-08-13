@@ -4,7 +4,7 @@
 //
 //   - the bundle source (bundleSource.ts) delta-syncs + verifies (fail-closed)
 //     the signed, content-addressed bundle THROUGH A WORKER, materializes its
-//     catalog + each enabled list's files out of the durable OPFS store, and
+//     catalog + each enabled list's files out of the durable browser store, and
 //     builds the cosine index + entity map. This is the ONLY catalog/list path:
 //     dev, e2e, and prod all run the exact same signed-bundle delta-sync;
 //   - the embedder Worker (embedderWorker.ts) owns transformers.js: the ~23 MB
@@ -319,7 +319,7 @@ export interface CatalogListInfo extends ResolvedListFreshness {
  * signed-bundle source. `makeEmbedder` receives an optional progress sink for
  * injected implementations; the production worker currently stays indeterminate;
  * `openBundleSource` delta-syncs + verifies (fail-closed) the signed bundle (the
- * ONLY catalog/list path); `clearCache` drops the durable OPFS bundle store (the
+ * ONLY catalog/list path); `clearCache` drops the durable bundle store (the
  * "Clear cached lists" affordance). */
 export interface RuntimeDeps {
 	readonly makeEmbedder: (onProgress: OnEmbedProgress) => Embedder;
@@ -340,7 +340,7 @@ export interface RuntimeDeps {
 const defaultDeps: RuntimeDeps = {
 	makeEmbedder: (onProgress) =>
 		createWorkerEmbedder(spawnEmbedderWorker(), onProgress),
-	// "Clear cached lists": drop the durable OPFS bundle store (every chunk +
+	// "Clear cached lists": drop the durable bundle store (every chunk +
 	// manifest + the active pointer) THROUGH THE WORKER (sync access handles are
 	// Worker-only). A transient bundle source at the default origin owns the
 	// Worker; the next load re-syncs from the now-empty store (re-fetches).
@@ -353,7 +353,7 @@ const defaultDeps: RuntimeDeps = {
 };
 
 /**
- * Best-effort request that the browser keep the list cache + OPFS durable
+ * Best-effort request that the browser keep the list cache + private storage durable
  * (not evicted under storage pressure). Guarded: a browser without the
  * Storage API, or a denied request, is a no-op — durability is an
  * optimization, never a correctness requirement (every load re-verifies).
@@ -466,7 +466,7 @@ export class EngineRuntime {
 	}
 
 	/**
-	 * Drop the durable OPFS bundle store (every chunk + manifest + the active
+	 * Drop the durable bundle store (every chunk + manifest + the active
 	 * pointer) — the "Clear cached lists" affordance. The clear runs THROUGH THE
 	 * WORKER (sync access handles are Worker-only) via {@link RuntimeDeps.clearCache}
 	 * (whose default opens a bundle source at the same-origin default origin and
@@ -503,7 +503,7 @@ export class EngineRuntime {
 
 	/**
 	 * Release the running engine (resident vectors + metadata) and the model
-	 * worker WITHOUT touching the durable OPFS bundle store — the page-unmount
+	 * worker WITHOUT touching the durable bundle store — the page-unmount
 	 * counterpart to {@link clearListCache}. A page that owns its runtime calls
 	 * this when it leaves the DOM so its embedder Worker + ONNX WASM heap don't
 	 * outlive it; the untouched store keeps the next visit a warm re-sync, not a
@@ -847,7 +847,7 @@ export class EngineRuntime {
 	): Promise<BundleSource> {
 		if (this.#bundleSource === null) {
 			// The Worker fetches + verifies the pinned same-origin pubkey itself; the
-			// main thread never touches OPFS (sync access handles are Worker-only).
+			// main thread never touches the bundle store (OPFS handles are Worker-only).
 			//
 			// The selection is handed to the sync, not just applied after it. It used
 			// to be consulted only in #loadEnabledLists / #loadStreamingSources —
@@ -967,9 +967,9 @@ export class EngineRuntime {
 			await this.#disposeBundleSource(previousSource);
 		}
 		this.#config = config;
-		// Ask the browser to keep the model cache + OPFS durable ONCE up front
+		// Ask the browser to keep the model cache + private storage durable ONCE up front
 		// (best-effort, guarded — a no-op where unsupported). Model weights use
-		// CacheStorage; signed bundle bytes use the Worker-owned OPFS store.
+		// CacheStorage; signed bundle bytes use the Worker-owned durable store.
 		await requestPersistentStorage();
 		assertCurrent();
 		// Feed cold-sync per-chunk progress to the downloading banner for THIS boot

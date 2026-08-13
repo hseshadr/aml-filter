@@ -104,13 +104,16 @@ loaded carelessly. The app therefore:
 - keeps one runtime owner instead of compiling duplicate ONNX sessions;
 - uses one-list-at-a-time vector residency on mobile, unknown-memory devices, and
   desktops reporting 8 GB or less;
+- stores compressed, content-addressed list chunks behind one durable-store contract:
+  OPFS when it opens, with an IndexedDB compatibility adapter for affected WebKit;
 - disposes the old engine before a reload, then builds and swaps the replacement;
 - prevents overlapping update checks and clears recurring timers on unmount.
 
 The supported baseline is the current and previous desktop Chrome, Edge, Firefox, and
 Safari 17+. Mobile Safari and Chrome use the bounded-memory path. Embedded WebViews are
-outside the release contract. The app checks for Workers, OPFS, WebCrypto, Web Locks,
-and a secure context before boot.
+outside the release contract. Screening requires Workers, durable browser storage
+(OPFS or IndexedDB), WebCrypto, Web Locks, and a secure context. The KYC workstation
+additionally requires OPFS for its SQLite database.
 
 Read [Memory architecture](docs/MEMORY-ARCHITECTURE.md) for the ownership and disposal
 invariants.
@@ -133,7 +136,8 @@ curl -fsSL https://aml-filter.com/build.json
 
 The gate runs strict type checks, lint, unit and coverage suites, production builds,
 the recall and evaluation gates, translation checks, signed-bundle contracts, and the
-real-browser KYC, receipt, bundle, and mobile lanes.
+real-browser KYC, receipt, bundle, and mobile lanes, including iPhone-shaped WebKit
+cold boot and reload. Physical iPhone Safari remains a device-level check.
 
 ## Production build
 

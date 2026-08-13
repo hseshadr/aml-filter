@@ -1,10 +1,15 @@
-// The sync engine's Worker entry. It owns the OPFS store (sync access handles
-// are Worker-only) and the engine; the main thread drives it over postMessage.
+// The sync engine's Worker entry. It owns the durable bundle store (OPFS when
+// it opens, IndexedDB fallback for affected WebKit builds) and the engine;
+// the main thread drives it over postMessage.
 // One concern: route a request to the engine, reply with a typed envelope.
 
 /// <reference lib="webworker" />
 
 import { verifyEd25519 } from "../crypto";
+import {
+	openDurableCacheStore,
+	requestPersistentStorage,
+} from "./durableStore";
 import { toErrorResponse } from "./errorEnvelope";
 import { fetchBytes } from "./fetchBytes";
 import {
@@ -13,7 +18,6 @@ import {
 	withPromotionLock,
 	withSyncLifecycleLock,
 } from "./mutationLock";
-import { OpfsCacheStore } from "./opfsStore";
 import type {
 	ClearRequest,
 	EngineRequest,
@@ -23,16 +27,16 @@ import type {
 } from "./protocol";
 import { materializeFile, syncIndex } from "./sync";
 import { transferables } from "./transfer";
-import type { IndexManifest, VersionPointer } from "./types";
+import type { CacheStore, IndexManifest, VersionPointer } from "./types";
 
 const DECODER = new TextDecoder();
 
-let storePromise: Promise<OpfsCacheStore> | null = null;
+let storePromise: Promise<CacheStore> | null = null;
 let activeManifest: IndexManifest | null = null;
 
-function store(): Promise<OpfsCacheStore> {
+function store(): Promise<CacheStore> {
 	if (storePromise === null) {
-		storePromise = OpfsCacheStore.open();
+		storePromise = openDurableCacheStore();
 	}
 	return storePromise;
 }
@@ -50,7 +54,7 @@ async function loadPubkey(pubkeyUrl: string): Promise<Uint8Array> {
 
 async function handleSync(req: SyncRequest): Promise<EngineResponse> {
 	return withSyncLifecycleLock(lockManager(), async () => {
-		void navigator.storage.persist?.().catch(() => false); // best-effort, never blocks
+		requestPersistentStorage(navigator.storage); // best-effort, never blocks
 		const cacheStore = await store();
 		const pubkey = await loadPubkey(req.pubkeyUrl);
 		const result = await syncIndex({
@@ -64,7 +68,7 @@ async function handleSync(req: SyncRequest): Promise<EngineResponse> {
 			verify: (message, signature) => verifyEd25519(pubkey, message, signature),
 			// Storage-quota preflight seam: refuse fail-fast with a QuotaError if the
 			// device can't hold the bundle, instead of fetching tens of MB only for the
-			// first OPFS write to throw. Guarded — a browser without estimate() reports
+			// first durable write to throw. Guarded — a browser without estimate() reports
 			// nothing, which the preflight treats best-effort (proceed).
 			estimateStorage: () =>
 				navigator.storage?.estimate?.() ?? Promise.resolve({}),

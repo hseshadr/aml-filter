@@ -8,7 +8,7 @@ watchlist files**. There is no server-side database or service to provision. Bui
 then host the output directory on any static host or CDN
 (Netlify, Vercel, GitHub Pages, S3 + CloudFront, Cloudflare Pages, …). The only hard
 requirement is that it be served over a **secure context (HTTPS)** so the browser can do
-WebCrypto signature verification and use OPFS.
+WebCrypto signature verification and use private browser storage.
 
 ## 1. Build the static site
 
@@ -41,6 +41,8 @@ Serve `dist/` as plain static files over **HTTPS**. A secure context is required
   watchlist. The verification is **fail-closed**: any signature or hash mismatch aborts
   the load.
 - **OPFS** — where the local-first KYC store (SQLite-WASM) persists in the browser.
+- **OPFS or IndexedDB** — the signed-list cache prefers OPFS and uses a bounded
+  IndexedDB compatibility adapter when WebKit cannot actually open OPFS.
 
 `localhost` also counts as a secure context, which is what local preview and the e2e
 lanes rely on; a LAN IP does **not** and will fail differently. Any static host that
@@ -112,7 +114,7 @@ Once a new bundle is live, browser clients verify the signed `latest` pointer's
 repository-wide monotonic `sequence`, reject any rollback, then delta-sync the changed
 chunks and **re-verify
 fail-closed** against the pinned `public.key`, re-screening every customer. The durable
-OPFS cache is content-addressed, so unchanged chunks are reused and a new publish only
+bundle cache is content-addressed, so unchanged chunks are reused and a new publish only
 fetches what changed. So the refresh flow is: rebuild + re-sign the bundle (the Action /
 `build-demo-bundle`) → publish the new `latest`/`manifest`/`chunk` files to your host →
 clients converge on their own.
@@ -181,7 +183,7 @@ path and query. This is code-reviewed and covered by the contract gate, so it do
 on a separate host-level Redirect Rule.
 
 > Pages serves over HTTPS automatically, which is the secure context the app needs for
-> WebCrypto signature verification and OPFS — nothing extra to configure. Because the bundle is
+> WebCrypto signature verification and private browser storage — nothing extra to configure. Because the bundle is
 > same-origin, **no CORS policy is required** (the former `deploy/r2-cors.json` is obsolete).
 > The advanced-mode worker also strips any permissive CORS headers that the static host adds
 > before returning an asset to a browser.

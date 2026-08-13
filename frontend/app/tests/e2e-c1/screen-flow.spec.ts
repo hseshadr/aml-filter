@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { expect, test } from "@playwright/test";
+import { localhostPreviewCsp } from "../../src/dev/previewHeaders";
 
 /**
  * C1 — the headline in-browser SEARCH flow, proven END-TO-END in a REAL
@@ -54,7 +55,7 @@ test("searches the sanctions list in-browser over the minified build, with full 
 	page,
 }) => {
 	test.setTimeout(240_000);
-	const csp = productionCsp();
+	const csp = localhostPreviewCsp(productionCsp());
 	await page.addInitScript(() => {
 		const violations: string[] = [];
 		Object.defineProperty(window, "__cspViolations", { value: violations });

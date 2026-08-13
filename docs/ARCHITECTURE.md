@@ -12,7 +12,7 @@ screening pipeline, one explainable scoring contract, three TypeScript units.
 
 There is no Python, no Postgres, no Docker, and no HTTP screening endpoint. The lists ship as
 a signed, content-addressed bundle of static files you can host on any CDN, delta-synced
-and cached durably in the browser (OPFS) so a repeat visit does not re-download them; the trust comes from
+and cached durably in the browser so a repeat visit does not re-download them; the trust comes from
 an Ed25519 signature the browser checks — over fetched *and* cached bytes — before it
 will load a single byte.
 
@@ -34,7 +34,7 @@ you accept that, the server disappears:
   content-addressed bundle: a signed pointer names a content-hashed manifest that names
   every chunk. The tab verifies the signed pointer against a pinned public key and
   content-verifies every chunk + reassembled file before loading — and re-verifies the
-  same way over the durable OPFS cache — so a hostile or buggy CDN (or a poisoned cache)
+  same way over the durable browser cache — so a hostile or buggy CDN (or a poisoned cache)
   can't slip in a tampered list. Verification is **fail-closed**.
 
 What you give up is server-side scale; what you get is a screening tool that runs
@@ -160,9 +160,10 @@ The boot + screen flow:
    hashes to the signed `manifest_hash`. The signed pointer is the trust anchor:
    verify-before-parse, top to bottom.
 2. **Delta-sync + content-verify the chunks.** It diffs the manifest's chunk set against
-   OPFS and fetches only the missing `chunk/<hash>` files, verifying each chunk hashes to
-   its name and each reassembled file hashes to its `file_sha256`. Any signature or hash
-   mismatch aborts the load — there is no fallback to unverified bytes.
+   the durable browser store and fetches only the missing `chunk/<hash>` files,
+   verifying each chunk hashes to its name and each reassembled file hashes to its
+   `file_sha256`. Any signature or hash mismatch aborts the load — there is no fallback
+   to unverified bytes.
 3. **Materialize + decode.** The verified bundle is materialized into `catalog.json` +
    per-list `{entities.jsonl, vectors.f32, meta.json}` files;
    `buildLoadedFromBundleFiles` (`engine/watchlist.ts`) reconstructs the Float32 vector
@@ -174,9 +175,11 @@ The boot + screen flow:
    per-list threshold (`perList[id] ?? query.threshold ?? default`), then concatenates
    and re-ranks the matches so a strong hit in *any* list surfaces.
 
-**Durable, fail-closed bundle cache.** Verified chunks are promoted into a
-content-addressed store in **OPFS** (separate from the customer DB). On every load the
-bytes — cached or freshly fetched — are re-verified: chunks against their content hash
+**Durable, fail-closed bundle cache.** Verified chunks are promoted into one
+content-addressed store contract (separate from the customer DB). The Worker prefers
+**OPFS**; if WebKit exposes OPFS but cannot open it, the same contract uses bounded
+**IndexedDB** storage. On every load the bytes — cached or freshly fetched — are
+re-verified: chunks against their content hash
 and the pointer against the pinned key. A tampered or version-mismatched entry is
 rejected. If the pointer fetch fails, the sync falls back to the cached active version
 (`readActive`) and re-verifies it fail-closed, so screening survives an unreachable bundle
@@ -196,7 +199,7 @@ scored, explained matches.
 
 The package also exposes a domain-agnostic **`./engine` subpath** of fail-closed crypto
 primitives — `verifyEd25519`, `sha256Hex`, and `SignatureError`. The signed
-content-addressed **bundle-sync tier** (content-addressed OPFS store, content-defined
+content-addressed **bundle-sync tier** (content-addressed durable store, content-defined
 chunk reassembly, the signed `latest` pointer poll, delta sync — `engine/sync/`) is now
 the **single** watchlist distribution path. (It was recovered after the v3 pivot briefly
 removed it in favor of fetching flat signed JSON files; that JSON path has since been
@@ -213,7 +216,8 @@ is the React single-page app that drives it (entry `frontend/app/src/main.tsx`).
   required). The customer's data never leaves the device.
 - **Two stores, two trust models.** The reference lists come from the signed,
   fail-closed bundle-sync path (`@amlfilter/browser`), cached as content-addressed chunks
-  in OPFS; your KYC records live in the local SQLite-WASM/OPFS database. The reference
+  behind the OPFS-first storage adapter; your KYC records live in the local
+  SQLite-WASM/OPFS database. The reference
   data is verified-and-trusted; your data is yours.
 
 #### Bidirectional rescan — the key behavior
@@ -281,7 +285,7 @@ verifying each chunk against its content hash and each reassembled file against 
 `file_sha256`. The pointer's detached Ed25519 signature is checked against a public key
 pinned in the app and served **same-origin** from `frontend/app/public/public.key` (never
 from the untrusted list origin). Any verification failure aborts the load — and the same
-check runs over OPFS-cached bytes, so a poisoned cache entry is never trusted. The
+check runs over durably cached bytes, so a poisoned cache entry is never trusted. The
 bundle then materializes into `catalog.json` + the per-list files the engine reads.
 
 The signing **private** key never lives in the repo or the app — it is held only in CI

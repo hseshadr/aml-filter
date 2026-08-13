@@ -29,7 +29,8 @@ needed to clone it and run everything below.
   offline app, though: it has no service worker, so a browser tab still has to reach the
   server to load the page.
 - **A supported desktop browser** — current or previous Chrome, Edge, Firefox, or
-  Safari 17+, with module Workers, OPFS, WebCrypto, and Web Locks enabled
+  Safari 17+, with module Workers, private browser storage, WebCrypto, and Web Locks.
+  The KYC workstation additionally needs OPFS for SQLite.
 
 That's the whole list. There is no backend, database, API key, or account to set up.
 
@@ -51,8 +52,8 @@ on a cold clone with nothing else to do. Expect a couple of minutes the first ti
 about a second every time after.
 
 Open the printed URL (default <http://localhost:5173>). Use **`localhost`**, not a LAN
-IP — a secure context is required for the in-tab WebCrypto signature check and OPFS
-storage.
+IP — a secure context is required for the in-tab WebCrypto signature check and private
+browser storage.
 
 > **Which signing key does local use?** The bundle under
 > `frontend/app/public/bundle/origin/` is the committed *demo* bundle, signed with a
@@ -100,7 +101,7 @@ Go to **`/settings`** to configure the screening run. It persists to the local S
   rescan.
 - **Per-list overrides** — tighten or loosen the threshold for one list independently.
 - **Analyst name** — stamped on the dispositions you record.
-- **Clear cached lists** — drops the durable OPFS bundle cache; the next load
+- **Clear cached lists** — drops the durable signed-bundle cache; the next load
   re-fetches and re-verifies fail-closed.
 
 ## 4. Onboard a customer and work a match (`/customers` → `/review`)
@@ -181,10 +182,11 @@ demo bundle** in real Chromium (from `frontend/app`):
 cd frontend/app
 pnpm test:e2e:c1     # the in-tab C1 screening lane (boot → verify → screen)
 pnpm test:e2e:kyc    # the backend-free KYC journey: onboard → auto-screen → review → resolve
-pnpm test:e2e:bundle # signed-bundle delta sync: verify → OPFS → offline reload
+pnpm test:e2e:bundle # signed-bundle delta sync: verify → durable cache → offline reload
+pnpm test:e2e:mobile:ci # iPhone WebKit + Android/desktop cold boot and reload
 ```
 
-CI runs all three. A green build is **not** proof the app works — these lanes are the
+CI runs all four. A green build is **not** proof the app works — these lanes are the
 guard that the actual demo bundle verifies and screens in a real browser.
 
 ## Production build + preview (browser-validation path)

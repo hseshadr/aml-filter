@@ -3,7 +3,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { cspFromHeadersFile } from "./previewHeaders";
+import { cspFromHeadersFile, localhostPreviewCsp } from "./previewHeaders";
 
 const headersPath = resolve(import.meta.dirname, "../../public/_headers");
 
@@ -19,5 +19,16 @@ describe("preview production headers", () => {
 		expect(() => cspFromHeadersFile("/*\n  X-Frame-Options: DENY\n")).toThrow(
 			/Content-Security-Policy/,
 		);
+	});
+
+	it("keeps production CSP while preventing WebKit from upgrading localhost assets", () => {
+		const production = cspFromHeadersFile(readFileSync(headersPath, "utf8"));
+		const preview = localhostPreviewCsp(production);
+
+		expect(production).toContain("upgrade-insecure-requests");
+		expect(preview).not.toContain("upgrade-insecure-requests");
+		expect(preview).toContain("default-src 'self'");
+		expect(preview).toContain("script-src 'self' 'wasm-unsafe-eval'");
+		expect(preview).toContain("connect-src 'self'");
 	});
 });
