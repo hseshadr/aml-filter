@@ -14,15 +14,15 @@ import { canonicalize, type Match } from "@amlfilter/browser";
 // How closely a name must match to surface as a search hit. The embedder gives
 // any two short names a ~0.45 baseline cosine, so the combined-score `floor`
 // alone lets vector noise through; the `minLexical` gate (on the discriminating
-// name_trigram signal) is what actually hides it. Defaults to Balanced.
-// Floors/minLexicals were tuned against the real trigram data.
+// name_sequence signal) is what actually hides it. Defaults to Balanced.
+// Floors/minLexicals were tuned against the real sequence-ratio data.
 export type Strictness = "lenient" | "balanced" | "strict";
 
 export interface StrictnessLevel {
 	readonly level: Strictness;
 	/** Passed to engine.screen as the combined-score `threshold`. Range 0–1. */
 	readonly floor: number;
-	/** Minimum name_trigram a match must clear (unless a token matches). Range 0–1. */
+	/** Minimum name_sequence a match must clear (unless a token matches). Range 0–1. */
 	readonly minLexical: number;
 	/**
 	 * Combined-score line below which a KEPT match renders grouped under the
@@ -76,13 +76,13 @@ export const LEVEL: Readonly<Record<Strictness, StrictnessLevel>> = {
 	strict: STRICTNESS_LEVELS[2],
 };
 
-/** The match's name_trigram signal value (the discriminating lexical signal), or 0. */
-function trigramScore(match: Match): number {
-	const reason = match.reasons.find((r) => r.signal === "name_trigram");
+/** The match's name_sequence signal value, or zero when it is absent. */
+function sequenceScore(match: Match): number {
+	const reason = match.reasons.find((r) => r.signal === "name_sequence");
 	return typeof reason?.value === "number" ? reason.value : 0;
 }
 
-/** Canonical whitespace tokens of a name, mirroring the engine's trigram canonicalization. */
+/** Canonical whitespace tokens of a name, mirroring the engine's canonicalization. */
 function nameTokens(name: string): ReadonlySet<string> {
 	const canonical = canonicalize(name);
 	return new Set(canonical.length === 0 ? [] : canonical.split(" "));
@@ -122,7 +122,8 @@ export function passesStrictness(
 	level: StrictnessLevel,
 ): boolean {
 	return (
-		trigramScore(match) >= level.minLexical || hasTokenContainment(match, query)
+		sequenceScore(match) >= level.minLexical ||
+		hasTokenContainment(match, query)
 	);
 }
 

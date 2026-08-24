@@ -35,11 +35,11 @@ export interface Dossier {
 	readonly score?: number;
 	readonly explanation?: string;
 	readonly reasons?: ReadonlyArray<MatchReason>;
-	/** The signed Avow receipt sealing a scored match (absent on directory rows). */
+	/** Signed receipt sealing the score and Assay evidence (absent on directory rows). */
 	readonly score_receipt?: ScoreReceipt;
 }
 
-/** The signed Avow receipt a scored match carries. */
+/** The signed receipt a scored match carries. */
 type ScoreReceipt = NonNullable<Match["score_receipt"]>;
 
 export function dossierFromEntity(entity: Entity): Dossier {
@@ -268,6 +268,28 @@ function ReceiptSubject({ payload, t }: ReceiptSubjectProps) {
 					<code>{payload.inputs_hash}</code>
 				</dd>
 			</div>
+			{payload.assay !== undefined && (
+				<>
+					<div className="match-card__signal">
+						<dt>{t("dossier.receipt.assayMethod")}</dt>
+						<dd>{`Assay ${payload.assay.method.version}`}</dd>
+					</div>
+					<div className="match-card__signal">
+						<dt>{t("dossier.receipt.assayInputs")}</dt>
+						<dd>
+							<code>{payload.assay.inputs_hash}</code>
+						</dd>
+					</div>
+					{payload.assay.components.map((component) => (
+						<div className="match-card__signal" key={component.id}>
+							<dt>{component.id}</dt>
+							<dd>
+								{`${component.raw} × ${component.coefficient ?? 1} = ${component.contribution}`}
+							</dd>
+						</div>
+					))}
+				</>
+			)}
 		</dl>
 	);
 }

@@ -95,7 +95,7 @@ pnpm -r run build       # Production build across the workspace
 
 ### e2e lanes (from `frontend/app`; all five are part of the gate)
 ```bash
-pnpm test:e2e:receipt   # Module-level Avow score-receipt crypto proof in real Chromium (vite dev)
+pnpm test:e2e:receipt   # Module-level score-receipt crypto proof in Chromium, Firefox, and WebKit
 pnpm test:e2e:c1        # Browser-engine e2e in real Chromium (incl. the receipt-badge journey)
 pnpm test:e2e:kyc       # Backend-free local-first KYC journey in real Chromium
 pnpm test:e2e:bundle    # Signed-bundle delta-sync boot (verify → OPFS → offline reload)
@@ -193,8 +193,8 @@ origin): the signed `latest` pointer → the content-hashed `manifest` → only 
 deduplicated `chunk/` files. **Verify fail-closed** every byte (Ed25519 + SHA-256 against the
 pinned `frontend/app/public/public.key`; any signature or hash mismatch aborts the load) →
 decode the precomputed name vectors → embed the query name in-tab once → **brute-force
-cosine** retrieval per list → explainable weighted scorer (`computeScore` / `PRESETS`:
-`strict` / `balanced` / `lenient`; 5 signals — `name_vector`, `name_trigram`, `alias_match`,
+cosine** retrieval per list → the typed Assay additive adapter (`computeScore` / `PRESETS`:
+`strict` / `balanced` / `lenient`; 5 signals — `name_vector`, `name_sequence`, `alias_match`,
 `dob_match`, `country_match`). The `MultiListScreeningEngine` (`engine/multiEngine.ts`)
 holds one index per list over a shared embedder, applies the per-list threshold
 (`perList[id] ?? query.threshold ?? default`), and merges. Verified bundle bytes are cached
@@ -233,9 +233,10 @@ pinned public key) for the pointer, manifest, and every chunk — over fetched a
 alike; any signature or hash mismatch aborts the load, with no silent empty list.
 
 ### Key Patterns
-- **One scoring contract**: the TS scorer emits a numeric score plus `reasons[]` with a
-  plain-language `explanation`. The scorer is the source of truth and is parity-locked by a
-  frozen golden snapshot (see Testing).
+- **One scoring contract**: the AML adapter composes exact
+  `@edgeproc/assay@0.5.0-dev.2`, then emits its score, stable input hash, ordered
+  component evidence, `reasons[]`, and a plain-language `explanation`. The contract is
+  parity-locked by a frozen golden snapshot (see Testing).
 - **Local-first**: customer data lives only in the browser (SQLite-WASM over OPFS) and
   never leaves the machine; verified list bytes cache durably in the OPFS bundle store
   (separate store).
@@ -268,8 +269,8 @@ build** against the **committed signed demo catalog**:
   reload.
 
 Two run against `vite dev`:
-- `pnpm test:e2e:receipt` — the module-level Avow score-receipt crypto proof (sign →
-  verify → tamper-reject → wrong-key-reject) in real Chromium; it backs the
+- `pnpm test:e2e:receipt` — the module-level score-receipt crypto proof (sign →
+  verify → tamper-reject → wrong-key-reject) in Chromium, Firefox, and WebKit; it backs the
   `@vitest-environment node` opt-out in `scoreReceipt.test.ts` (see
   `playwright.config.ts` for why it cannot fold into the preview lanes).
 - `pnpm test:e2e:mobile:ci` — the mobile memory smoke (Android Chromium + desktop

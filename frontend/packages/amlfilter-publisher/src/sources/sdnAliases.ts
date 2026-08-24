@@ -72,7 +72,7 @@ export interface StreamLimits {
 }
 
 /** ~4x the July 2026 feed (125.7 MB): a runaway guard, not a tight fit. */
-const MAX_FEED_BYTES = 512 * 1024 * 1024;
+export const MAX_ALIAS_FEED_BYTES = 512 * 1024 * 1024;
 /** The largest real <DistinctParty> measured is 69 KB; 8 MB is ~120x slack. */
 const MAX_WINDOW_CHARS = 8 * 1024 * 1024;
 
@@ -262,7 +262,7 @@ export async function parseNonLatinAliasesFromStream(
 	chunks: AsyncIterable<Uint8Array>,
 	limits: Partial<StreamLimits> = {},
 ): Promise<AliasEnrichment> {
-	const maxBytes = limits.maxBytes ?? MAX_FEED_BYTES;
+	const maxBytes = limits.maxBytes ?? MAX_ALIAS_FEED_BYTES;
 	const maxWindowChars = limits.maxWindowChars ?? MAX_WINDOW_CHARS;
 	const collector = newCollector();
 	// `stream: true` keeps multi-byte codepoints intact across chunk edges —
@@ -368,11 +368,7 @@ export function applyAliasEnrichment(
 export async function fetchNonLatinAliases(
 	limits: Partial<StreamLimits> = {},
 ): Promise<AliasEnrichment> {
-	const response = await fetchWithTimeout(
-		SDN_ALIAS_MIRROR_URL,
-		"OFAC SDN aliases (Treasury SDN_ADVANCED.XML via mirror)",
-		MIRROR_TIMEOUT_MS,
-	);
+	const response = await fetchAliasResponse();
 	if (response.body === null) {
 		throw new Error("alias mirror returned no response body");
 	}
@@ -383,5 +379,14 @@ export async function fetchNonLatinAliases(
 	return parseNonLatinAliasesFromStream(
 		response.body as AsyncIterable<Uint8Array>,
 		limits,
+	);
+}
+
+/** Fetch the exact alias response so snapshotting and parsing share one seam. */
+export function fetchAliasResponse(): Promise<Response> {
+	return fetchWithTimeout(
+		SDN_ALIAS_MIRROR_URL,
+		"OFAC SDN aliases (Treasury SDN_ADVANCED.XML via mirror)",
+		MIRROR_TIMEOUT_MS,
 	);
 }

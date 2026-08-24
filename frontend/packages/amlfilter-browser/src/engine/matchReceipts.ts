@@ -92,6 +92,9 @@ async function sealOne(
 		{
 			score: match.score,
 			tier: classifyTier(match.score, context.possibleThresholdFor(match)),
+			...(match.score_evidence === undefined
+				? {}
+				: { assay: match.score_evidence }),
 		},
 		{
 			engineVersion: ENGINE_VERSION,

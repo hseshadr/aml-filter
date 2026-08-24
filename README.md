@@ -14,7 +14,8 @@ runs in the browser, explains every score, and keeps customer data on the device
 ## What it does
 
 - Screens names against OFAC SDN, EU, UN, and UK OFSI lists.
-- Returns a numeric score with the evidence behind it, not a vague match label.
+- Returns an Assay-computed numeric score with the signed component evidence behind
+  it, not a vague match label.
 - Onboards customers and keeps a local KYC review queue and audit history.
 - Imports `.csv`, `.xls`, and `.xlsx` customer files and exports `.xlsx` snapshots.
 - Checks for a new signed watchlist at boot and every 30 minutes while the tab is open.
@@ -59,7 +60,7 @@ AML-Filter is four small, separately tested pieces:
 | Lego | Responsibility |
 | --- | --- |
 | `@amlfilter/publisher` | Converts public source lists into signed, content-addressed static bundles. |
-| `@amlfilter/browser` | Verifies bundles, embeds the query, retrieves candidates, and calculates explained scores. |
+| `@amlfilter/browser` | Verifies bundles, embeds the query, retrieves candidates, and composes the Assay scorer. |
 | `@amlfilter/workstation` | Owns customer records, review state, rescans, and the SQLite audit ledger. |
 | React app | Composes the three capabilities into Screen, Customers, Review, and Settings pages. |
 
@@ -87,8 +88,9 @@ and failure model.
   an active list.
 - **Safe spreadsheet boundaries.** Imports are validated and bounded; exports escape
   spreadsheet formulas.
-- **Auditable decisions.** Score receipts contain signed fingerprints and inputs, not
-  customer text. The local review ledger is append-only during a customer's lifecycle.
+- **Auditable decisions.** Score receipts seal Assay method `amlfilter.additive.v2`,
+  ordered component contributions, and input fingerprints—not customer text. The
+  local review ledger is append-only during a customer's lifecycle.
 - **Deletion is explicit.** Deleting a customer removes that customer's matches and
   review history in the same SQLite transaction.
 
@@ -139,6 +141,18 @@ the recall and evaluation gates, translation checks, signed-bundle contracts, an
 real-browser KYC, receipt, bundle, and mobile lanes, including iPhone-shaped WebKit
 cold boot and reload. Physical iPhone Safari remains a device-level check.
 
+The same gate is also a portable Dagger Function. With Dagger 0.21.8 installed, run
+it from any supported host or export the production build without reproducing CI setup:
+
+```bash
+dagger check
+dagger call build export --path=frontend/app/dist
+```
+
+The module is deliberately thin: it composes Dagger's native directory, container,
+and cache objects around the existing repository commands. The legacy CI lane remains
+in shadow until the new required check has proven stable on `main`.
+
 ## Production build
 
 ```bash
@@ -159,9 +173,11 @@ uses fictional entities; it is safe for tests and local demonstrations. Producti
 bundles are generated from the public sources described in
 [Watchlist format](docs/WATCHLIST_FORMAT.md).
 
-Candidate retrieval uses in-browser MiniLM embeddings. A deterministic five-signal
-scorer then combines name similarity, token evidence, date of birth, country, and
-identifier evidence. Frozen golden fixtures lock score and tier behavior. The recall
+Candidate retrieval uses in-browser MiniLM embeddings. `@edgeproc/assay@0.5.0-dev.2`
+then applies the deterministic five-signal additive policy to vector similarity,
+sequence similarity, alias, date-of-birth, and country evidence. Each result includes
+the ordered contributions and a stable input hash; the signed score receipt seals that
+evidence. Frozen golden fixtures lock score and tier behavior. The recall
 gate measures retrieval against the real OFAC corpus with named spelling probes and
 fails below its published floors. See [Recall](docs/RECALL.md).
 

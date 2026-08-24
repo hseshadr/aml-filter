@@ -123,7 +123,9 @@ describe("mobile WebKit release gate", () => {
 			readFileSync(join(repoRoot, "frontend", "app", "package.json"), "utf8"),
 		) as { readonly scripts: Readonly<Record<string, string>> };
 
-		expect(ci).toMatch(/playwright install --with-deps chromium webkit/);
+		expect(ci).toMatch(
+			/playwright install --with-deps chromium firefox webkit/,
+		);
 		expect(appPackage.scripts["test:e2e:mobile:ci"]).toContain(
 			"--project=ios-webkit",
 		);

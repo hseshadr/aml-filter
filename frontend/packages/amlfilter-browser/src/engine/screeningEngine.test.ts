@@ -102,7 +102,7 @@ describe("ScreeningEngine — in-browser OFAC screen", () => {
 		// explainable: carries the weighted signals + a plain-language summary
 		const signals = top?.reasons.map((r) => r.signal) ?? [];
 		expect(signals).toContain("name_vector");
-		expect(signals).toContain("name_trigram");
+		expect(signals).toContain("name_sequence");
 		expect(top?.explanation).toContain("Match due to");
 		expect(res.list_versions_used.OFAC_SDN).toBe("2026-05-30");
 	});

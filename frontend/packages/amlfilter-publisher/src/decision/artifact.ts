@@ -30,7 +30,7 @@ export interface EmittedCandidate {
 	readonly retrieved: boolean;
 	/** Combined score in [0, 1]. 0 for a candidate that was never scored. */
 	readonly score: number;
-	/** The `name_trigram` signal value the app's lexical gate reads. */
+	/** The `name_sequence` signal value the app's lexical gate reads. */
 	readonly lexical: number;
 	/** Whole-token overlap with the query — the lexical gate's escape hatch. */
 	readonly tokenContainment: boolean;

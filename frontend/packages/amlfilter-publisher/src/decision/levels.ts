@@ -23,7 +23,7 @@ export interface DecisionLevel {
 	readonly level: "lenient" | "balanced" | "strict";
 	/** Combined-score floor sent to `engine.screen` as `threshold`. Range 0–1. */
 	readonly floor: number;
-	/** Minimum name_trigram a match must clear (unless a token matches). Range 0–1. */
+	/** Minimum name_sequence a match must clear (unless a token matches). Range 0–1. */
 	readonly minLexical: number;
 	/** Score below which a KEPT match renders under the collapsed disclosure. */
 	readonly displayFloor: number;

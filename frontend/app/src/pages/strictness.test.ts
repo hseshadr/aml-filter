@@ -9,7 +9,7 @@ import {
 } from "./strictness";
 
 // A Match double carrying only what the strictness layer reads: the combined
-// score (partition), the name_trigram reason (lexical gate), and the entity's
+// score (partition), the name_sequence reason (lexical gate), and the entity's
 // published names — primary plus aliases — for token containment.
 function matchDouble(
 	score: number,
@@ -32,11 +32,11 @@ function matchDouble(
 		identifiers: { passport: [], national_id: [], other: {} },
 		reasons: [
 			{
-				signal: "name_trigram",
+				signal: "name_sequence",
 				value: trigram,
 				weight: 0.2,
 				contribution: trigram * 0.2,
-				description: `Trigram similarity: ${trigram.toFixed(3)}`,
+				description: `Sequence similarity: ${trigram.toFixed(3)}`,
 			},
 		],
 		explanation: "",

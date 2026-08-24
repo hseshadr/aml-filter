@@ -29,7 +29,7 @@ const MODULE = `/@fs${fileURLToPath(
 	),
 )}`;
 
-test("Avow score receipt signs + verifies in real Chromium", async ({
+test("Avow score receipt signs + verifies in a real browser", async ({
 	page,
 }) => {
 	const consoleErrors: string[] = [];
@@ -112,7 +112,7 @@ test("Avow score receipt signs + verifies in real Chromium", async ({
 		return result;
 	}, MODULE);
 
-	console.log("=== REAL CHROMIUM EVIDENCE ===");
+	console.log("=== REAL BROWSER EVIDENCE ===");
 	console.log(JSON.stringify(out, null, 2));
 	console.log(
 		"console errors:",

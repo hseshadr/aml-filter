@@ -77,6 +77,8 @@
 			"engine": "engine",
 			"watchlist": "watchlist",
 			"inputs": "inputs hash",
+			"assayMethod": "scoring method",
+			"assayInputs": "Assay inputs hash",
 			"status": {
 				"pending": "Verification pending…",
 				"unavailable": "Verification unavailable",

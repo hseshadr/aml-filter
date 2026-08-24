@@ -53,7 +53,7 @@ function match(score: number, lexical: number, primaryName: string): Match {
 		identifiers: EMPTY_IDENTIFIERS,
 		reasons: [
 			{
-				signal: "name_trigram",
+				signal: "name_sequence",
 				value: lexical,
 				weight: 0.2,
 				contribution: 0,

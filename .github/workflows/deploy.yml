@@ -270,9 +270,11 @@ jobs:
             rm -rf "$ORIGIN"
             mkdir -p "$(dirname "$ORIGIN")"
             mv "$CANDIDATE" "$ORIGIN"
-            echo "BUNDLE_REFRESHED=true" >> "$GITHUB_ENV"
-            echo "SERVED_VERSION=$VERSION" >> "$GITHUB_ENV"
-            echo "SERVED_SEQUENCE=$SEQUENCE" >> "$GITHUB_ENV"
+            {
+              echo "BUNDLE_REFRESHED=true"
+              echo "SERVED_VERSION=$VERSION"
+              echo "SERVED_SEQUENCE=$SEQUENCE"
+            } >> "$GITHUB_ENV"
             echo "Watchlist refreshed from the live feeds (version $VERSION)." >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi

@@ -36,11 +36,11 @@
           "description": "Vector similarity: 1.000"
         },
         {
-          "signal": "name_trigram",
+          "signal": "name_sequence",
           "value": 1.0,
           "weight": 0.2,
           "contribution": 0.2,
-          "description": "Trigram similarity: 1.000"
+          "description": "Sequence similarity: 1.000"
         },
         {
           "signal": "country_match",
@@ -97,11 +97,11 @@
           "description": "Vector similarity: 1.000"
         },
         {
-          "signal": "name_trigram",
+          "signal": "name_sequence",
           "value": 1.0,
           "weight": 0.2,
           "contribution": 0.2,
-          "description": "Trigram similarity: 1.000"
+          "description": "Sequence similarity: 1.000"
         },
         {
           "signal": "country_match",
@@ -158,11 +158,11 @@
           "description": "Vector similarity: 1.000"
         },
         {
-          "signal": "name_trigram",
+          "signal": "name_sequence",
           "value": 1.0,
           "weight": 0.2,
           "contribution": 0.2,
-          "description": "Trigram similarity: 1.000"
+          "description": "Sequence similarity: 1.000"
         },
         {
           "signal": "country_match",
@@ -222,11 +222,11 @@
           "description": "Vector similarity: 0.700"
         },
         {
-          "signal": "name_trigram",
+          "signal": "name_sequence",
           "value": 0.5,
           "weight": 0.2,
           "contribution": 0.1,
-          "description": "Trigram similarity: 0.500"
+          "description": "Sequence similarity: 0.500"
         },
         {
           "signal": "alias_match",
@@ -282,11 +282,11 @@
           "description": "Vector similarity: 1.000"
         },
         {
-          "signal": "name_trigram",
+          "signal": "name_sequence",
           "value": 1.0,
           "weight": 0.2,
           "contribution": 0.2,
-          "description": "Trigram similarity: 1.000"
+          "description": "Sequence similarity: 1.000"
         },
         {
           "signal": "dob_match",
@@ -344,11 +344,11 @@
           "description": "Vector similarity: 1.000"
         },
         {
-          "signal": "name_trigram",
+          "signal": "name_sequence",
           "value": 1.0,
           "weight": 0.15,
           "contribution": 0.15,
-          "description": "Trigram similarity: 1.000"
+          "description": "Sequence similarity: 1.000"
         },
         {
           "signal": "dob_match",
@@ -409,11 +409,11 @@
           "description": "Vector similarity: 0.100"
         },
         {
-          "signal": "name_trigram",
+          "signal": "name_sequence",
           "value": 0.1,
           "weight": 0.2,
           "contribution": 0.020000000000000004,
-          "description": "Trigram similarity: 0.100"
+          "description": "Sequence similarity: 0.100"
         },
         {
           "signal": "entity_type_match",
@@ -460,11 +460,11 @@
           "description": "Vector similarity: 1.000"
         },
         {
-          "signal": "name_trigram",
+          "signal": "name_sequence",
           "value": 1.0,
           "weight": 0.2,
           "contribution": 0.2,
-          "description": "Trigram similarity: 1.000"
+          "description": "Sequence similarity: 1.000"
         },
         {
           "signal": "entity_type_match",
@@ -517,11 +517,11 @@
           "description": "Vector similarity: 0.700"
         },
         {
-          "signal": "name_trigram",
+          "signal": "name_sequence",
           "value": 0.6,
           "weight": 0.2,
           "contribution": 0.12,
-          "description": "Trigram similarity: 0.600"
+          "description": "Sequence similarity: 0.600"
         },
         {
           "signal": "alias_match",
@@ -577,11 +577,11 @@
           "description": "Vector similarity: 1.000"
         },
         {
-          "signal": "name_trigram",
+          "signal": "name_sequence",
           "value": 1.0,
           "weight": 0.2,
           "contribution": 0.2,
-          "description": "Trigram similarity: 1.000"
+          "description": "Sequence similarity: 1.000"
         },
         {
           "signal": "dob_match",

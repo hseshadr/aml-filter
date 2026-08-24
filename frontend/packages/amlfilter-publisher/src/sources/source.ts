@@ -21,6 +21,38 @@
  * (One list may publish several files, e.g. the UN/EU consolidated XML pair.) */
 export type RawListBytes = Record<string, string>;
 
+/** Immutable HTTP provenance captured with a source's canonical bytes. */
+export interface SourceTransportMetadata {
+	readonly finalUrl: string;
+	readonly etag: string | null;
+	readonly lastModified: string | null;
+}
+
+/** One source fetch suitable for a hermetic downstream build. */
+export interface SourceSnapshot {
+	readonly raw: RawListBytes;
+	readonly transport: SourceTransportMetadata;
+	readonly sourceUpdatedAt: string;
+}
+
+/** Build transport provenance from the exact response that supplied `raw`. */
+export function sourceSnapshot(
+	raw: RawListBytes,
+	response: Response,
+	requestedUrl: string,
+	sourceUpdatedAt: string,
+): SourceSnapshot {
+	return {
+		raw,
+		transport: {
+			finalUrl: response.url || requestedUrl,
+			etag: response.headers.get("etag"),
+			lastModified: response.headers.get("last-modified"),
+		},
+		sourceUpdatedAt,
+	};
+}
+
 /** The neutral source record every adapter emits and the publisher consumes.
  * Identical field shape across all lists (this is the OFAC `SourceLine` promoted
  * to the shared contract). */
@@ -45,6 +77,8 @@ export interface WatchlistSource {
 	readonly title: string;
 	/** Fetch the raw list bytes off the network (real URLs). */
 	fetchRaw(): Promise<RawListBytes>;
+	/** Fetch canonical bytes and the exact transport/source provenance together. */
+	fetchSnapshot?(): Promise<SourceSnapshot>;
 	/** Extract the upstream list's publication/update instant from its payload or
 	 * transport metadata. Production publication rejects unprovably stale data. */
 	sourceUpdatedAt?(raw: RawListBytes): string | undefined;

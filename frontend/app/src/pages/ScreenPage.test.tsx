@@ -63,7 +63,7 @@ const ivanMatch = {
 	explanation: "Match due to: strong vector similarity",
 };
 
-// Build a Match-like double carrying a name_trigram reason of the given value,
+// Build a Match-like double carrying a name_sequence reason of the given value,
 // so the strictness gate (which reads that reason) can be driven deterministically.
 // `score` drives the presentation split: below Balanced's 0.40 display line a
 // kept match renders grouped under the low-confidence disclosure, not primary.
@@ -86,11 +86,11 @@ function matchWithTrigram(
 				description: "Vector similarity: 0.450",
 			},
 			{
-				signal: "name_trigram",
+				signal: "name_sequence",
 				value: trigram,
 				weight: 0.2,
 				contribution: trigram * 0.2,
-				description: `Trigram similarity: ${trigram.toFixed(3)}`,
+				description: `Sequence similarity: ${trigram.toFixed(3)}`,
 			},
 		],
 	};

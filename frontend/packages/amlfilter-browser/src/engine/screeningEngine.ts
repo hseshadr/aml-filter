@@ -277,6 +277,7 @@ export class ScreeningEngine {
 			identifiers: entity.identifiers ?? EMPTY_IDENTIFIERS,
 			reasons: result.reasons,
 			explanation: result.summary,
+			score_evidence: result.assay,
 		};
 		return { score: result.score, entity, match };
 	}

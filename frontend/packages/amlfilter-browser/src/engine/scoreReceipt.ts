@@ -1,6 +1,6 @@
 // Avow score receipt — seal an in-tab risk/match score into a signed,
-// offline-verifiable Avow receipt. The screening engine still computes its own
-// score and tier exactly as before; this module only wraps that result in the
+// offline-verifiable Avow receipt. Assay computes the score; this module seals
+// that score, its ordered Assay component evidence, and the AML tier in the
 // `@edgeproc/avow` envelope (RFC-8785 canonical bytes + Ed25519), so a reviewer
 // (or an auditor) can later verify "this score, for this watchlist version, was
 // produced by this installation" without trusting any server.
@@ -28,12 +28,17 @@
 //     minified build by app/tests/e2e-c1/receipt-badge.spec.ts.
 
 import {
+	type ScoreResult as AssayScoreResult,
+	parseScoreResult,
+} from "@edgeproc/assay";
+import {
 	type JsonValue,
 	type SignedReceipt,
 	signPayload,
 	verifySignature,
 } from "@edgeproc/avow";
 
+import { SCORING_POLICY_VERSION } from "./assayScoring";
 import type { MatchTier } from "./tiering";
 
 /** Re-exported so a receipt consumer needs only this module. ONE definition
@@ -44,6 +49,7 @@ export type { MatchTier };
 export interface MatchScoreInput {
 	readonly score: number;
 	readonly tier: MatchTier;
+	readonly assay?: AssayScoreResult;
 }
 
 /** Coded error: a score outside the engine's legitimate [0, 1] output range. */
@@ -61,6 +67,14 @@ export class InputsHashInvalid extends TypeError {
 	constructor(value: string) {
 		super(`score receipt: inputs_hash must be "sha256:<hex>", got "${value}"`);
 		this.name = "InputsHashInvalid";
+	}
+}
+
+/** Coded error: signed Assay evidence is malformed or disagrees with the score. */
+export class MatchScoreEvidenceInvalid extends TypeError {
+	public constructor() {
+		super("score receipt: Assay evidence does not match the attested score");
+		this.name = "MatchScoreEvidenceInvalid";
 	}
 }
 
@@ -111,6 +125,7 @@ export type MatchScoreSubject = {
 	readonly inputs_hash: Sha256Hash;
 	readonly score: AttestedScore;
 	readonly tier: MatchTier;
+	readonly assay?: AssayScoreResult & JsonValue;
 };
 
 // Compile-time proof the subject is a valid Avow payload.
@@ -131,7 +146,41 @@ export function matchScoreSubject(
 		inputs_hash: context.inputsHash,
 		score: attestedScore(match.score),
 		tier: match.tier,
+		...(match.assay === undefined
+			? {}
+			: { assay: match.assay as AssayScoreResult & JsonValue }),
 	};
+}
+
+const EXPECTED_COMPONENTS = [
+	"name_vector",
+	"name_sequence",
+	"alias_match",
+	"dob_match",
+	"country_match",
+] as const;
+
+function assertAssayEvidence(payload: MatchScoreSubject): void {
+	if (payload.assay === undefined) {
+		return;
+	}
+	try {
+		const evidence = parseScoreResult(payload.assay);
+		const ids = evidence.components.map((component) => component.id);
+		if (
+			evidence.method.id !== "additive" ||
+			evidence.method.version !== SCORING_POLICY_VERSION ||
+			evidence.score !== payload.score ||
+			ids.join("\u0000") !== EXPECTED_COMPONENTS.join("\u0000")
+		) {
+			throw new MatchScoreEvidenceInvalid();
+		}
+	} catch (error: unknown) {
+		if (error instanceof MatchScoreEvidenceInvalid) {
+			throw error;
+		}
+		throw new MatchScoreEvidenceInvalid();
+	}
 }
 
 /**
@@ -145,6 +194,7 @@ function assertAttestable(payload: MatchScoreSubject): void {
 	if (!SHA256_HASH_PATTERN.test(payload.inputs_hash)) {
 		throw new InputsHashInvalid(payload.inputs_hash);
 	}
+	assertAssayEvidence(payload);
 }
 
 /** Hash + Ed25519-sign the score subject into a verifiable receipt. */

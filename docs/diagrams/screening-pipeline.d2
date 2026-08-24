@@ -24,7 +24,7 @@ retrieve: {
 }
 
 score: {
-  label: "4. Score (weighted, explainable)\nname_vector · name_trigram · alias · dob · country\nfinal = Σ (weight × value), per preset"
+  label: "4. Score (Assay additive, explainable)\nname_vector · name_sequence · alias · dob · country\nfinal = clamp(Σ coefficient × value)"
   shape: rectangle
 }
 

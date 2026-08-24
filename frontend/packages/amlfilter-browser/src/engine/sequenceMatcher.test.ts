@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { sequenceRatio } from "./sequenceMatcher";
 
 // Reference values from Python difflib.SequenceMatcher(None, a, b).ratio() —
-// the exact function the backend bundle path uses for `name_trigram`.
+// the exact function the backend bundle path uses for `name_sequence`.
 describe("sequenceRatio matches Python difflib.SequenceMatcher.ratio()", () => {
 	const cases: ReadonlyArray<readonly [string, string, number]> = [
 		["vladimir ivanov", "vladimir ivanov", 1.0],

@@ -12,6 +12,8 @@ import {
 	namespacedId,
 	type RawListBytes,
 	type SourceLine,
+	type SourceSnapshot,
+	sourceSnapshot,
 	type WatchlistSource,
 } from "./source.ts";
 import { elements } from "./xml.ts";
@@ -88,18 +90,36 @@ function toLine(inner: string, attrs: Record<string, string>): SourceLine {
 	};
 }
 
+function updatedAt(raw: RawListBytes): string | undefined {
+	return elements(raw[EU_RAW_FILE] ?? "", "export")[0]?.attrs.generationDate;
+}
+
+async function fetchEuSnapshot(): Promise<SourceSnapshot> {
+	const { raw, response } = await fetchEuRaw();
+	const sourceUpdatedAt = updatedAt(raw);
+	if (sourceUpdatedAt === undefined) {
+		throw new Error("EU_CONSOLIDATED: freshness timestamp is missing");
+	}
+	return sourceSnapshot(raw, response, EU_URL, sourceUpdatedAt);
+}
+
+async function fetchEuRaw(): Promise<{
+	readonly raw: RawListBytes;
+	readonly response: Response;
+}> {
+	const response = await fetchWithTimeout(EU_URL, "EU");
+	return { raw: { [EU_RAW_FILE]: await response.text() }, response };
+}
+
 export const euSource: WatchlistSource = {
 	id: EU_LIST_ID,
 	title: "EU Consolidated",
 	async fetchRaw(): Promise<RawListBytes> {
-		const res = await fetchWithTimeout(EU_URL, "EU");
-		if (!res.ok) {
-			throw new Error(`fetch EU list failed: ${res.status} ${res.statusText}`);
-		}
-		return { [EU_RAW_FILE]: await res.text() };
+		return (await fetchEuRaw()).raw;
 	},
+	fetchSnapshot: fetchEuSnapshot,
 	sourceUpdatedAt(raw: RawListBytes): string | undefined {
-		return elements(raw[EU_RAW_FILE] ?? "", "export")[0]?.attrs.generationDate;
+		return updatedAt(raw);
 	},
 	parse(raw: RawListBytes, listVersion: string): SourceLine[] {
 		const xml = raw[EU_RAW_FILE] ?? "";

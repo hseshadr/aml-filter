@@ -23,6 +23,8 @@ import {
 	type RawListBytes,
 	SOURCE_UPDATED_AT_KEY,
 	type SourceLine,
+	type SourceSnapshot,
+	sourceSnapshot,
 	type WatchlistSource,
 } from "./source.ts";
 
@@ -67,6 +69,8 @@ export function withKeyHint(message: string, hasKey: boolean): string {
 interface FetchedText {
 	readonly text: string;
 	readonly updatedAt: string;
+	readonly response: Response;
+	readonly url: string;
 }
 
 async function fetchCsl(): Promise<FetchedText> {
@@ -87,22 +91,26 @@ async function fetchCsl(): Promise<FetchedText> {
 	if (updatedAt === null) {
 		throw new Error(`fetch ${url} omitted Last-Modified`);
 	}
-	return { text: await res.text(), updatedAt };
+	return { text: await res.text(), updatedAt, response: res, url };
+}
+
+async function fetchCslSnapshot(): Promise<SourceSnapshot> {
+	const csl = await fetchCsl();
+	const parsed = Date.parse(csl.updatedAt);
+	const updatedAt = Number.isFinite(parsed)
+		? new Date(parsed).toISOString()
+		: "invalid";
+	const raw = { [CSL_FILE]: csl.text, [SOURCE_UPDATED_AT_KEY]: updatedAt };
+	return sourceSnapshot(raw, csl.response, csl.url, updatedAt);
 }
 
 export const ofacSource: WatchlistSource = {
 	id: OFAC_LIST_ID,
 	title: "OFAC SDN",
 	async fetchRaw(): Promise<RawListBytes> {
-		const csl = await fetchCsl();
-		const parsed = Date.parse(csl.updatedAt);
-		return {
-			[CSL_FILE]: csl.text,
-			[SOURCE_UPDATED_AT_KEY]: Number.isFinite(parsed)
-				? new Date(parsed).toISOString()
-				: "invalid",
-		};
+		return (await fetchCslSnapshot()).raw;
 	},
+	fetchSnapshot: fetchCslSnapshot,
 	sourceUpdatedAt(raw: RawListBytes): string | undefined {
 		return raw[SOURCE_UPDATED_AT_KEY];
 	},

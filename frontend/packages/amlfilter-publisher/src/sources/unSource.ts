@@ -11,6 +11,8 @@ import {
 	namespacedId,
 	type RawListBytes,
 	type SourceLine,
+	type SourceSnapshot,
+	sourceSnapshot,
 	UN_LIST_ID,
 	type WatchlistSource,
 } from "./source.ts";
@@ -19,7 +21,8 @@ import { elements, textOf } from "./xml.ts";
 /** The logical raw-file key for the single UN XML document. */
 export const UN_RAW_FILE = "un_consolidated.xml";
 
-const UN_URL = "https://scsanctions.un.org/resources/xml/en/consolidated.xml";
+export const UN_URL =
+	"https://scsanctions.un.org/resources/xml/en/consolidated.xml";
 
 const NAME_TAGS = ["FIRST_NAME", "SECOND_NAME", "THIRD_NAME", "FOURTH_NAME"];
 
@@ -72,19 +75,37 @@ function toLine(
 	};
 }
 
+function updatedAt(raw: RawListBytes): string | undefined {
+	return elements(raw[UN_RAW_FILE] ?? "", "CONSOLIDATED_LIST")[0]?.attrs
+		.dateGenerated;
+}
+
+async function fetchUnSnapshot(): Promise<SourceSnapshot> {
+	const { raw, response } = await fetchUnRaw();
+	const sourceUpdatedAt = updatedAt(raw);
+	if (sourceUpdatedAt === undefined) {
+		throw new Error("UN_CONSOLIDATED: freshness timestamp is missing");
+	}
+	return sourceSnapshot(raw, response, UN_URL, sourceUpdatedAt);
+}
+
+async function fetchUnRaw(): Promise<{
+	readonly raw: RawListBytes;
+	readonly response: Response;
+}> {
+	const response = await fetchWithTimeout(UN_URL, "UN");
+	return { raw: { [UN_RAW_FILE]: await response.text() }, response };
+}
+
 export const unSource: WatchlistSource = {
 	id: UN_LIST_ID,
 	title: "UN Consolidated",
 	async fetchRaw(): Promise<RawListBytes> {
-		const res = await fetchWithTimeout(UN_URL, "UN");
-		if (!res.ok) {
-			throw new Error(`fetch UN list failed: ${res.status} ${res.statusText}`);
-		}
-		return { [UN_RAW_FILE]: await res.text() };
+		return (await fetchUnRaw()).raw;
 	},
+	fetchSnapshot: fetchUnSnapshot,
 	sourceUpdatedAt(raw: RawListBytes): string | undefined {
-		return elements(raw[UN_RAW_FILE] ?? "", "CONSOLIDATED_LIST")[0]?.attrs
-			.dateGenerated;
+		return updatedAt(raw);
 	},
 	parse(raw: RawListBytes, listVersion: string): SourceLine[] {
 		const xml = raw[UN_RAW_FILE] ?? "";
