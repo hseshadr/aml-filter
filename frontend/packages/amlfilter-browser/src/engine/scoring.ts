@@ -376,6 +376,18 @@ function signalValues(
 	};
 }
 
+function boundedSimilarity(value: number): number {
+	return Math.max(0, Math.min(1, value));
+}
+
+function boundedNameSignals(query: ScoringQuery): ScoringQuery {
+	return {
+		...query,
+		vectorSimilarity: boundedSimilarity(query.vectorSimilarity),
+		lexicalSimilarity: boundedSimilarity(query.lexicalSimilarity),
+	};
+}
+
 function addEntityTypeSignal(
 	acc: Accumulator,
 	entity: Entity,
@@ -407,8 +419,9 @@ export function computeScore(
 	query: ScoringQuery,
 	weights: ScoringWeights,
 ): ScoreResult {
+	const scoringQuery = boundedNameSignals(query);
 	const acc: Accumulator = { reasons: [] };
-	addNameSignals(acc, weights, query);
+	addNameSignals(acc, weights, scoringQuery);
 
 	const alias = aliasMatch(entity.aliases, query.nameCanonical);
 	if (alias.score > 0) {
@@ -440,7 +453,7 @@ export function computeScore(
 
 	addEntityTypeSignal(acc, entity, query.entityType);
 	const assay = calculateAssayScore(
-		signalValues(query, alias.score, dob.score, country.score),
+		signalValues(scoringQuery, alias.score, dob.score, country.score),
 		weights as ScoringSignalWeights,
 	);
 	const finalScore = assay.score;
@@ -450,8 +463,8 @@ export function computeScore(
 		assay,
 		summary: summarize(
 			finalScore,
-			query.vectorSimilarity,
-			query.lexicalSimilarity,
+			scoringQuery.vectorSimilarity,
+			scoringQuery.lexicalSimilarity,
 			alias.score,
 			dob.score,
 			country.score,

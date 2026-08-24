@@ -134,6 +134,7 @@ export function createMatchReceiptSealer(
 				keyPromise = null;
 				console.warn("amlfilter.match_receipts.unavailable", {
 					error: error instanceof Error ? error.name : typeof error,
+					detail: error instanceof Error ? error.message : undefined,
 				});
 				return matches;
 			}
@@ -151,6 +152,7 @@ export function createMatchReceiptSealer(
 				}
 				console.warn("amlfilter.match_receipts.unavailable", {
 					error: error instanceof Error ? error.name : typeof error,
+					detail: error instanceof Error ? error.message : undefined,
 				});
 				return matches;
 			}

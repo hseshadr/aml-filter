@@ -118,7 +118,15 @@ describe("Assay-backed match score receipt", () => {
 			})),
 		});
 		const forged = {
-			...matchScoreSubject({ score: EVIDENCE.score, tier: "STRONG" }, CONTEXT),
+			...matchScoreSubject(
+				{
+					score: EVIDENCE.score,
+					tier: "STRONG",
+					possibleThreshold: 0.65,
+					assay: EVIDENCE,
+				},
+				CONTEXT,
+			),
 			score: forgedEvidence.score,
 			tier: "WEAK",
 			possible_threshold: 0.3,
@@ -134,7 +142,12 @@ describe("Assay-backed match score receipt", () => {
 		const seed = generateSeedHex();
 		const pinned = await publicKeyHex(seed);
 		const subject = matchScoreSubject(
-			{ score: EVIDENCE.score, tier: "STRONG" },
+			{
+				score: EVIDENCE.score,
+				tier: "STRONG",
+				possibleThreshold: 0.65,
+				assay: EVIDENCE,
+			},
 			CONTEXT,
 		);
 		const impossible = {
@@ -152,7 +165,12 @@ describe("Assay-backed match score receipt", () => {
 		const seed = generateSeedHex();
 		const pinned = await publicKeyHex(seed);
 		const subject = matchScoreSubject(
-			{ score: EVIDENCE.score, tier: "STRONG" },
+			{
+				score: EVIDENCE.score,
+				tier: "STRONG",
+				possibleThreshold: 0.65,
+				assay: EVIDENCE,
+			},
 			CONTEXT,
 		);
 		const wrongPolicy = {
@@ -167,4 +185,74 @@ describe("Assay-backed match score receipt", () => {
 			verifyMatchReceipt(await signPayload(wrongPolicy, seed), pinned),
 		).rejects.toBeInstanceOf(MatchScoreEvidenceInvalid);
 	});
+
+	it("rejects a valid signature that omits current Assay proof", async () => {
+		const seed = generateSeedHex();
+		const pinned = await publicKeyHex(seed);
+		const unproved = {
+			...matchScoreSubject(
+				{
+					score: EVIDENCE.score,
+					tier: "STRONG",
+					possibleThreshold: 0.65,
+					assay: EVIDENCE,
+				},
+				CONTEXT,
+			),
+			assay: undefined,
+			possible_threshold: undefined,
+		} as unknown as MatchScoreSubject;
+
+		await expect(
+			verifyMatchReceipt(await signPayload(unproved, seed), pinned),
+		).rejects.toBeInstanceOf(MatchScoreEvidenceInvalid);
+	});
+
+	it.each([
+		["forged inputs hash", { inputs_hash: `sha256:${"0".repeat(64)}` }],
+		[
+			"out-of-range raw signal",
+			{
+				components: EVIDENCE.components.map((component, index) =>
+					index === 0 ? { ...component, raw: 1.1 } : component,
+				),
+			},
+		],
+		[
+			"drifted interval",
+			{
+				components: EVIDENCE.components.map((component, index) =>
+					index === 0
+						? {
+								...component,
+								contribution_interval: { low: 0.1, high: 0.2 },
+							}
+						: component,
+				),
+			},
+		],
+	] as const)(
+		"rejects validly signed evidence with %s",
+		async (_name, patch) => {
+			const seed = generateSeedHex();
+			const pinned = await publicKeyHex(seed);
+			const subject = matchScoreSubject(
+				{
+					score: EVIDENCE.score,
+					tier: "STRONG",
+					possibleThreshold: 0.65,
+					assay: EVIDENCE,
+				},
+				CONTEXT,
+			);
+			const forged = {
+				...subject,
+				assay: { ...EVIDENCE, ...patch },
+			} as MatchScoreSubject;
+
+			await expect(
+				verifyMatchReceipt(await signPayload(forged, seed), pinned),
+			).rejects.toBeInstanceOf(MatchScoreEvidenceInvalid);
+		},
+	);
 });

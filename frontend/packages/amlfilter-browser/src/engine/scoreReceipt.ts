@@ -39,7 +39,12 @@ import {
 	verifySignature,
 } from "@edgeproc/avow";
 
-import { SCORING_POLICY_VERSION } from "./assayScoring";
+import {
+	calculateAssayScore,
+	SCORING_POLICY_VERSION,
+	type ScoringSignalValues,
+	type ScoringSignalWeights,
+} from "./assayScoring";
 import { PRESETS } from "./scoring";
 import type { MatchTier } from "./tiering";
 import { classifyTier } from "./tiering";
@@ -76,8 +81,8 @@ export class InputsHashInvalid extends TypeError {
 
 /** Coded error: signed Assay evidence is malformed or disagrees with the score. */
 export class MatchScoreEvidenceInvalid extends TypeError {
-	public constructor() {
-		super("score receipt: Assay evidence does not match the attested score");
+	public constructor(reason = "semantic replay failed") {
+		super(`score receipt: Assay evidence is invalid (${reason})`);
 		this.name = "MatchScoreEvidenceInvalid";
 	}
 }
@@ -216,27 +221,115 @@ function validThreshold(value: unknown): value is number {
 	);
 }
 
+function pointEvidenceMismatch(evidence: AssayScoreResult): string | null {
+	const invalidRaw = evidence.components.find(
+		(component) => !validThreshold(component.raw),
+	);
+	if (invalidRaw !== undefined) {
+		return `${invalidRaw.id} raw signal out of range`;
+	}
+	const derived = evidence.components.find(
+		(component) =>
+			component.normalized !== null ||
+			component.declared_weight !== null ||
+			component.contribution_interval !== null,
+	);
+	return derived === undefined ? null : `${derived.id} carried derived bounds`;
+}
+
+function replayAssayEvidence(evidence: AssayScoreResult): AssayScoreResult {
+	const raw = evidence.components.map((component) => component.raw);
+	const weights = evidence.components.map((component) => component.coefficient);
+	const signals: ScoringSignalValues = {
+		name_vector: raw[0] ?? Number.NaN,
+		name_sequence: raw[1] ?? Number.NaN,
+		alias_match: raw[2] ?? Number.NaN,
+		dob_match: raw[3] ?? Number.NaN,
+		country_match: raw[4] ?? Number.NaN,
+	};
+	const coefficients: ScoringSignalWeights = {
+		name_vector: weights[0] ?? Number.NaN,
+		name_sequence: weights[1] ?? Number.NaN,
+		alias_match: weights[2] ?? Number.NaN,
+		dob_match: weights[3] ?? Number.NaN,
+		country_match: weights[4] ?? Number.NaN,
+	};
+	return calculateAssayScore(signals, coefficients);
+}
+
+function assayReplayMismatch(evidence: AssayScoreResult): string | null {
+	const pointMismatch = pointEvidenceMismatch(evidence);
+	if (pointMismatch !== null) {
+		return pointMismatch;
+	}
+	if (
+		evidence.interval !== null ||
+		evidence.weight_total !== null ||
+		evidence.selected_component_id !== null
+	) {
+		return "non-point AML signal evidence";
+	}
+	const replayed = replayAssayEvidence(evidence);
+	if (replayed.inputs_hash !== evidence.inputs_hash) {
+		return "inputs hash mismatch";
+	}
+	if (replayed.score !== evidence.score) {
+		return "replayed score mismatch";
+	}
+	if (
+		JSON.stringify(replayed.components) !== JSON.stringify(evidence.components)
+	) {
+		return "component replay mismatch";
+	}
+	return null;
+}
+
+function requireEvidence(value: boolean, reason: string): asserts value {
+	if (!value) {
+		throw new MatchScoreEvidenceInvalid(reason);
+	}
+}
+
 function assertAssayEvidence(payload: MatchScoreSubject): void {
 	if (payload.assay === undefined) {
-		return;
+		throw new MatchScoreEvidenceInvalid("proof omitted");
 	}
 	try {
 		const evidence = parseScoreResult(payload.assay);
 		const ids = evidence.components.map((component) => component.id);
-		if (
-			evidence.method.id !== "additive" ||
-			evidence.method.version !== SCORING_POLICY_VERSION ||
-			evidence.score !== payload.score ||
-			evidence.clamp !== "clamp" ||
-			evidence.intercept !== 0 ||
-			ids.join("\u0000") !== EXPECTED_COMPONENTS.join("\u0000") ||
-			evidence.components.some((component) => component.operation !== "add") ||
-			!validThreshold(payload.possible_threshold) ||
-			!hasApprovedCoefficients(evidence) ||
-			classifyTier(payload.score, payload.possible_threshold) !== payload.tier
-		) {
-			throw new MatchScoreEvidenceInvalid();
-		}
+		requireEvidence(evidence.method.id === "additive", "wrong method");
+		requireEvidence(
+			evidence.method.version === SCORING_POLICY_VERSION,
+			"wrong policy version",
+		);
+		requireEvidence(evidence.score === payload.score, "score mismatch");
+		requireEvidence(evidence.clamp === "clamp", "wrong clamp policy");
+		requireEvidence(evidence.intercept === 0, "wrong intercept");
+		requireEvidence(
+			ids.join("\u0000") === EXPECTED_COMPONENTS.join("\u0000"),
+			"wrong component order",
+		);
+		requireEvidence(
+			evidence.components.every((component) => component.operation === "add"),
+			"wrong component operation",
+		);
+		requireEvidence(
+			validThreshold(payload.possible_threshold),
+			"effective threshold omitted",
+		);
+		requireEvidence(
+			hasApprovedCoefficients(evidence),
+			"unapproved coefficients",
+		);
+		const replayMismatch = assayReplayMismatch(evidence);
+		requireEvidence(
+			replayMismatch === null,
+			replayMismatch ?? "replay mismatch",
+		);
+		requireEvidence(
+			classifyTier(payload.score, payload.possible_threshold) === payload.tier,
+			"tier mismatch",
+		);
 	} catch (error: unknown) {
 		if (error instanceof MatchScoreEvidenceInvalid) {
 			throw error;

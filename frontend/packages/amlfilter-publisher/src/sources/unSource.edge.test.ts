@@ -75,6 +75,20 @@ describe("unSource.fetchRaw", () => {
 		).toBe("2026-07-01");
 	});
 
+	test("rejects an impossible upstream generated date", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(
+				async (): Promise<Response> =>
+					new Response('<CONSOLIDATED_LIST dateGenerated="2026-02-31"/>'),
+			),
+		);
+
+		await expect(unSource.fetchSnapshot?.()).rejects.toThrow(
+			/UN_CONSOLIDATED.*freshness timestamp.*invalid/i,
+		);
+	});
+
 	test("rejects with the status on a non-OK response", async () => {
 		vi.stubGlobal(
 			"fetch",

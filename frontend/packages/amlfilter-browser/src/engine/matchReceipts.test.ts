@@ -16,6 +16,26 @@ import { PRESETS } from "./scoring";
 import { ENGINE_VERSION } from "./version";
 
 const SEED = "cd".repeat(32);
+const DEFAULT_EVIDENCE = calculateAssayScore(
+	{
+		name_vector: 0.8,
+		name_sequence: 0.6,
+		alias_match: 1,
+		dob_match: 0,
+		country_match: 0,
+	},
+	PRESETS.balanced.weights,
+);
+const SEVENTY_EVIDENCE = calculateAssayScore(
+	{
+		name_vector: 7 / 11,
+		name_sequence: 0,
+		alias_match: 1,
+		dob_match: 0,
+		country_match: 0,
+	},
+	PRESETS.balanced.weights,
+);
 
 function storageWithSeed(seed: string = SEED): KeyStorage {
 	const map = new Map<string, string>([[INSTALL_SEED_KEY, seed]]);
@@ -30,7 +50,8 @@ function storageWithSeed(seed: string = SEED): KeyStorage {
 function match(overrides: Partial<Match> = {}): Match {
 	return {
 		entity_id: "OFAC:1",
-		score: 0.91,
+		score: DEFAULT_EVIDENCE.score,
+		score_evidence: DEFAULT_EVIDENCE,
 		entity_type: "PERSON",
 		risk_category: "SANCTION",
 		source_list: "ofac",
@@ -80,9 +101,15 @@ describe("createMatchReceiptSealer", () => {
 		const strict = match({
 			entity_id: "A:1",
 			source_list: "strict",
-			score: 0.7,
+			score: SEVENTY_EVIDENCE.score,
+			score_evidence: SEVENTY_EVIDENCE,
 		});
-		const loose = match({ entity_id: "B:1", source_list: "loose", score: 0.7 });
+		const loose = match({
+			entity_id: "B:1",
+			source_list: "loose",
+			score: SEVENTY_EVIDENCE.score,
+			score_evidence: SEVENTY_EVIDENCE,
+		});
 
 		const sealed = await sealer.seal(
 			[strict, loose],

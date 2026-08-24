@@ -117,6 +117,50 @@ describe("snapshotSources", () => {
 		expect(await readdir(parent)).toEqual([]);
 	});
 
+	it("rejects impossible ISO calendar dates instead of normalizing them", async () => {
+		const parent = await mkdtemp(join(tmpdir(), "snapshot-impossible-date-"));
+		const root = join(parent, "snapshot");
+		const impossible = {
+			...captured(
+				{ "source.txt": "canonical bytes" },
+				"https://feeds.example/source",
+				"Sat, 23 Aug 2026 00:00:00 GMT",
+			),
+			sourceUpdatedAt: "2026-02-31T00:00:00Z",
+		};
+
+		await expect(
+			snapshotSources(root, [source("bad-calendar", impossible)]),
+		).rejects.toThrow(/bad-calendar.*freshness timestamp.*invalid/i);
+		expect(await readdir(parent)).toEqual([]);
+	});
+
+	it("claims a cooperative exclusive lock before fetching sources", async () => {
+		const parent = await mkdtemp(join(tmpdir(), "snapshot-lock-"));
+		const root = join(parent, "snapshot");
+		const guarded: WatchlistSource = {
+			...source(
+				"guarded",
+				captured(
+					{ "source.txt": "canonical bytes" },
+					"https://feeds.example/source",
+					"Sat, 23 Aug 2026 00:00:00 GMT",
+				),
+			),
+			async fetchSnapshot() {
+				expect(await readdir(parent)).toContain(".snapshot.lock");
+				return captured(
+					{ "source.txt": "canonical bytes" },
+					"https://feeds.example/source",
+					"Sat, 23 Aug 2026 00:00:00 GMT",
+				);
+			},
+		};
+
+		await snapshotSources(root, [guarded]);
+		expect(await readdir(parent)).toEqual(["snapshot"]);
+	});
+
 	it("cleans concurrent partial work and permits a residue-free retry", async () => {
 		const parent = await mkdtemp(join(tmpdir(), "snapshot-atomic-"));
 		const root = join(parent, "snapshot");

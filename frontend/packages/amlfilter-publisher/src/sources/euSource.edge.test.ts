@@ -81,6 +81,20 @@ describe("euSource.fetchRaw", () => {
 		).toBe("2026-07-01T10:11:12Z");
 	});
 
+	test("rejects an impossible upstream generation date", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(
+				async (): Promise<Response> =>
+					new Response('<export generationDate="2026-02-31T00:00:00Z"/>'),
+			),
+		);
+
+		await expect(euSource.fetchSnapshot?.()).rejects.toThrow(
+			/EU_CONSOLIDATED.*freshness timestamp.*invalid/i,
+		);
+	});
+
 	test("rejects with the status on a non-OK response", async () => {
 		vi.stubGlobal(
 			"fetch",

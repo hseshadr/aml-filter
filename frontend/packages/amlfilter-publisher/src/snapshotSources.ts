@@ -278,16 +278,26 @@ export async function snapshotSources(
 	const target = resolve(outputRoot);
 	const parent = dirname(target);
 	await mkdir(parent, { recursive: true });
-	await assertTargetAbsent(target);
-	const staging = await mkdtemp(join(parent, `.${basename(target)}.tmp-`));
+	const lockPath = join(parent, `.${basename(target)}.lock`);
+	const lock = await open(lockPath, "wx");
+	let staging: string | undefined;
 	try {
+		await assertTargetAbsent(target);
+		staging = await mkdtemp(join(parent, `.${basename(target)}.tmp-`));
 		const manifest = await buildSnapshot(staging, sources);
 		await writeManifest(staging, manifest);
+		// All cooperative publishers hold lockPath across this check + promotion.
 		await assertTargetAbsent(target);
 		await rename(staging, target);
+		staging = undefined;
 		return manifest;
 	} catch (error: unknown) {
-		await rm(staging, { recursive: true, force: true });
+		if (staging !== undefined) {
+			await rm(staging, { recursive: true, force: true });
+		}
 		throw error;
+	} finally {
+		await lock.close();
+		await rm(lockPath, { force: true });
 	}
 }

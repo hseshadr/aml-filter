@@ -40,11 +40,27 @@ export function canonicalSourceTimestamp(
 	sourceId: string,
 	value: string,
 ): string {
+	const calendar = /^(\d{4})-(\d{2})-(\d{2})(?=T|$)/.exec(value);
+	if (calendar !== null && !isRealCalendarDate(calendar)) {
+		throw new Error(`${sourceId}: freshness timestamp is invalid`);
+	}
 	const parsed = Date.parse(value);
 	if (!Number.isFinite(parsed)) {
 		throw new Error(`${sourceId}: freshness timestamp is invalid`);
 	}
 	return new Date(parsed).toISOString();
+}
+
+function isRealCalendarDate(parts: RegExpExecArray): boolean {
+	const year = Number(parts[1]);
+	const month = Number(parts[2]);
+	const day = Number(parts[3]);
+	const date = new Date(Date.UTC(year, month - 1, day));
+	return (
+		date.getUTCFullYear() === year &&
+		date.getUTCMonth() === month - 1 &&
+		date.getUTCDate() === day
+	);
 }
 
 /** Build transport provenance from the exact response that supplied `raw`. */
