@@ -31,12 +31,33 @@ function query(overrides: Partial<ScoringQuery> = {}): ScoringQuery {
 }
 
 describe("computeScore — explainable weighted signals", () => {
-	it("always emits name_vector + name_trigram + entity_type_match signals", () => {
+	it("bounds floating-point cosine overshoot before producing Assay evidence", () => {
+		const result = computeScore(
+			entity(),
+			query({ vectorSimilarity: 1 + Number.EPSILON }),
+			PRESETS.balanced.weights,
+		);
+
+		expect(result.assay.components[0]?.raw).toBe(1);
+		expect(result.assay.components[0]?.contribution).toBe(
+			PRESETS.balanced.weights.name_vector,
+		);
+	});
+
+	it("emits the truthful name_sequence signal and five-term Assay proof", () => {
 		const result = computeScore(entity(), query(), PRESETS.balanced.weights);
 		const signals = result.reasons.map((r) => r.signal);
 		expect(signals).toContain("name_vector");
-		expect(signals).toContain("name_trigram");
+		expect(signals).toContain("name_sequence");
 		expect(signals).toContain("entity_type_match");
+		expect(result.assay.components.map((component) => component.id)).toEqual([
+			"name_vector",
+			"name_sequence",
+			"alias_match",
+			"dob_match",
+			"country_match",
+		]);
+		expect(result.assay.score).toBe(result.score);
 	});
 
 	it("a perfect name match clears the balanced threshold", () => {

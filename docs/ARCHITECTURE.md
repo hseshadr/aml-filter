@@ -67,8 +67,8 @@ normalize → embed → cosine retrieve → explainable weighted score → thres
    **one index per enabled list**; the `MultiListScreeningEngine` runs the scan against
    each, then merges and re-ranks the per-list candidates. No approximate index — the
    lists are small enough that exact is plenty fast.
-4. **Score.** Each candidate is scored by `computeScore` (`scoring.ts`) — a transparent,
-   weighted sum of five signals (below).
+4. **Score.** `computeScore` (`scoring.ts`) adapts five typed AML signals into the exact
+   `@edgeproc/assay@0.5.0-dev.2` additive contract. Assay is the score source of truth.
 5. **Threshold → reasons.** A candidate whose final score is **at or above the active
    threshold for its list** becomes a match (per-list threshold =
    `perList[id] ?? query.threshold ?? default`). Each match carries `reasons[]` (one per
@@ -77,17 +77,18 @@ normalize → embed → cosine retrieve → explainable weighted score → thres
 
 ## Scoring & explainability contract
 
-The score is **not** a black box. `computeScore` sums weighted signals:
+The score is **not** a black box. Assay policy `amlfilter.additive.v2` sums weighted
+signals:
 
 ```
 final_score = Σ ( weight_i × value_i )      # clamped to [0, 1]
 ```
 
-The five signals: `name_vector`, `name_trigram`, `alias_match`, `dob_match`,
+The five signals: `name_vector`, `name_sequence`, `alias_match`, `dob_match`,
 `country_match`. The weights and the match threshold come from a named **preset**
 (`PRESETS` in `scoring.ts`):
 
-| Preset | name_vector | name_trigram | alias_match | dob_match | country_match | threshold |
+| Preset | name_vector | name_sequence | alias_match | dob_match | country_match | threshold |
 | --- | --- | --- | --- | --- | --- | --- |
 | strict | 0.60 | 0.25 | 0.05 | 0.05 | 0.05 | 0.75 |
 | balanced | 0.55 | 0.20 | 0.10 | 0.10 | 0.05 | 0.65 |
@@ -95,6 +96,8 @@ The five signals: `name_vector`, `name_trigram`, `alias_match`, `dob_match`,
 
 Every match carries:
 
+- `score_evidence` — the Assay method/version, stable `inputs_hash`, and five ordered
+  component contributions.
 - `reasons[]` — the weighted signals, each with `value`, `weight`, and `contribution`
   (`weight × value`) plus a plain-language description.
 - `explanation` — a plain-language summary (e.g. _"Match due to: strong vector
@@ -314,8 +317,10 @@ the engine hands each scored match to a sealer built by `createMatchReceiptSeale
 signed with Ed25519 (`engine/scoreReceipt.ts`).
 
 **The sealed subject.** The receipt seals `{ score, tier, engine version, watchlist
-version, inputs hash }` — enough to pin the number, its tier classification, the code
-that produced it, the list data it ran against, and a hash of the inputs it scored.
+version, identity inputs hash, assay }`. The Assay evidence contains method
+`additive@amlfilter.additive.v2`, a separate stable scoring-input hash, and the ordered
+five component contributions. Verification rejects even a correctly signed receipt if
+that evidence is malformed, reordered, uses another policy, or disagrees with `score`.
 
 **Bounds are validated at both ends — reject, never clamp.** The scorer clamps its
 output to `[0, 1]`, so an out-of-range score reaching the sealer is a bug or hostile
@@ -444,7 +449,7 @@ Boundaries are inclusive on the lower edge of each tier. The TS implementation i
 control. Like tiering, it layers **on top of** the scoring contract — it never changes
 a score, and it never drops a match the engine returned:
 
-| level | engine floor | min `name_trigram` | display line |
+| level | engine floor | min `name_sequence` | display line |
 | --- | --- | --- | --- |
 | lenient | 0.30 | — | — (every match is a primary card) |
 | balanced | 0.30 | 0.35 | 0.40 (`BALANCED_LOW_CONFIDENCE_LINE`) |
@@ -461,10 +466,11 @@ from the display line.
 
 ## Parity / correctness
 
-Both the **scoring** output (score, reasons, each reason's plain-language description)
+Both the **Assay-backed scoring** output (score, evidence, reasons, and each reason's
+plain-language description)
 and the **tiering** classification are locked by committed golden-JSON parity tests —
 **frozen regression snapshots**. There is no Python side anymore: the TypeScript
-implementation is the source of truth, and the goldens are TS-emitted snapshots (the old
+adapter contract is the source of truth, and the goldens are TS-emitted snapshots (the old
 Python golden generators were deleted in the v3 pivot). The fixtures:
 
 - `frontend/packages/amlfilter-browser/src/engine/__fixtures__/scoring/golden.json`

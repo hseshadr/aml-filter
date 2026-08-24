@@ -1,8 +1,8 @@
 // A faithful TS port of Python difflib.SequenceMatcher.ratio() — the exact
-// trigram-similarity stand-in the backend's bundle screening path uses
+// sequence-similarity stand-in the backend's bundle screening path uses
 // (aml_filter.bundle.screening._trigram_similarity ->
 // SequenceMatcher(None, a, b).ratio()). Mirroring it here keeps the browser's
-// `name_trigram` signal byte-identical to the no-Postgres server path.
+// `name_sequence` signal byte-identical to the no-Postgres server path.
 //
 // ratio = 2.0 * M / T, where T = len(a) + len(b) and M = total size of the
 // matching blocks found by the Ratcliff/Obershelp recursive longest-match.

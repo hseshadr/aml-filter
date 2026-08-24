@@ -9,7 +9,7 @@ the tab. This directory is a **pnpm workspace** (pnpm + Biome; not npm/bun).
 | Package | Name | What it is |
 |---------|------|------------|
 | `app/` | `aml-filter-app` | The React + TypeScript (Vite) SPA — routes `/`, `/screen`, `/customers`, `/review`. |
-| `packages/amlfilter-browser/` | `@amlfilter/browser` | The in-tab screening engine: fetch + fail-closed-verify the signed watchlist, embed in-tab, cosine search, explainable score. |
+| `packages/amlfilter-browser/` | `@amlfilter/browser` | The in-tab screening engine: fetch + fail-closed-verify the signed watchlist, embed in-tab, cosine search, Assay scoring and evidence. |
 | `packages/amlfilter-publisher/` | `@amlfilter/publisher` | The Node-side tool that builds + Ed25519-signs the static watchlist files. |
 | `packages/amlfilter-workstation/` | `@amlfilter/workstation` | The local-first KYC tier: SQLite-WASM/OPFS store + onboarding, review, tiering, and the bidirectional rescan. |
 
@@ -38,6 +38,10 @@ The app is served at `http://localhost:5173` (Vite prints the exact URL). Open `
 the in-tab OFAC screening demo, then `/customers` and `/review` for the KYC workstation.
 The Customers page supports preview-first local CSV/XLS/XLSX import and XLSX customer
 table export; the spreadsheet is not a full match/audit backup.
+
+The scorer composes the exact registry release `@edgeproc/assay@0.5.0-dev.2` behind
+AML-Filter's typed five-signal contract. It emits stable input hashes and ordered
+component contributions that are sealed into each score receipt.
 
 ## Build
 

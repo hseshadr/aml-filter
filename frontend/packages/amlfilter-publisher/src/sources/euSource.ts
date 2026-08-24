@@ -6,12 +6,19 @@
 // parse:    REAL — maps <sanctionEntity> (logicalId, subjectType, nameAlias,
 //   birthdate, citizenship/address country) into namespaced SourceLines.
 
-import { fetchWithTimeout } from "./fetchWithTimeout.ts";
 import {
+	fetchWithTimeout,
+	readResponseText,
+	SOURCE_FETCH_TIMEOUT_MS,
+} from "./fetchWithTimeout.ts";
+import {
+	canonicalSourceTimestamp,
 	EU_LIST_ID,
 	namespacedId,
 	type RawListBytes,
 	type SourceLine,
+	type SourceSnapshot,
+	sourceSnapshot,
 	type WatchlistSource,
 } from "./source.ts";
 import { elements } from "./xml.ts";
@@ -29,6 +36,12 @@ export const EU_RAW_FILE = "eu_consolidated.xml";
  */
 export const EU_URL =
 	"https://webgate.ec.europa.eu/fsd/fsf/public/files/xmlFullSanctionsList_1_1/content?token=dG9rZW4tMjAxNw";
+
+const EU_BODY_LIMITS = {
+	maxBytes: 32 * 1024 * 1024,
+	elapsedMs: SOURCE_FETCH_TIMEOUT_MS,
+	idleMs: 15_000,
+} as const;
 
 function entityType(code: string): "PERSON" | "ORGANIZATION" {
 	return code.toLowerCase() === "person" ? "PERSON" : "ORGANIZATION";
@@ -88,18 +101,46 @@ function toLine(inner: string, attrs: Record<string, string>): SourceLine {
 	};
 }
 
+function updatedAt(raw: RawListBytes): string | undefined {
+	return elements(raw[EU_RAW_FILE] ?? "", "export")[0]?.attrs.generationDate;
+}
+
+async function fetchEuSnapshot(): Promise<SourceSnapshot> {
+	const { raw, response } = await fetchEuRaw();
+	const sourceUpdatedAt = updatedAt(raw);
+	if (sourceUpdatedAt === undefined) {
+		throw new Error("EU_CONSOLIDATED: freshness timestamp is missing");
+	}
+	return sourceSnapshot(
+		raw,
+		response,
+		EU_URL,
+		canonicalSourceTimestamp(EU_LIST_ID, sourceUpdatedAt),
+	);
+}
+
+async function fetchEuRaw(): Promise<{
+	readonly raw: RawListBytes;
+	readonly response: Response;
+}> {
+	const response = await fetchWithTimeout(EU_URL, "EU");
+	return {
+		raw: {
+			[EU_RAW_FILE]: await readResponseText(response, "EU", EU_BODY_LIMITS),
+		},
+		response,
+	};
+}
+
 export const euSource: WatchlistSource = {
 	id: EU_LIST_ID,
 	title: "EU Consolidated",
 	async fetchRaw(): Promise<RawListBytes> {
-		const res = await fetchWithTimeout(EU_URL, "EU");
-		if (!res.ok) {
-			throw new Error(`fetch EU list failed: ${res.status} ${res.statusText}`);
-		}
-		return { [EU_RAW_FILE]: await res.text() };
+		return (await fetchEuRaw()).raw;
 	},
+	fetchSnapshot: fetchEuSnapshot,
 	sourceUpdatedAt(raw: RawListBytes): string | undefined {
-		return elements(raw[EU_RAW_FILE] ?? "", "export")[0]?.attrs.generationDate;
+		return updatedAt(raw);
 	},
 	parse(raw: RawListBytes, listVersion: string): SourceLine[] {
 		const xml = raw[EU_RAW_FILE] ?? "";

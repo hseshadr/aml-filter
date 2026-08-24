@@ -29,7 +29,7 @@
 // FAIL SOFT, NEVER SILENT. A mirror outage yields an EMPTY enrichment, the
 // bundle publishes CSL-only, and the caller reports which mode produced it.
 
-import { fetchWithTimeout } from "./fetchWithTimeout.ts";
+import { fetchWithTimeout, streamResponseBody } from "./fetchWithTimeout.ts";
 import type { SourceLine } from "./source.ts";
 
 /** The script name this enrichment deliberately skips (CSL already has it). */
@@ -42,6 +42,11 @@ export const SDN_ALIAS_MIRROR_URL =
 
 /** ~125 MB, so it gets a longer deadline than the record feed. */
 const MIRROR_TIMEOUT_MS = 240_000;
+export const ALIAS_BODY_LIMITS = {
+	maxBytes: 512 * 1024 * 1024,
+	elapsedMs: MIRROR_TIMEOUT_MS,
+	idleMs: 30_000,
+} as const;
 
 /** Non-Latin alias names, keyed by OFAC entity number (the XML's FixedRef). */
 export interface AliasEnrichment {
@@ -72,7 +77,7 @@ export interface StreamLimits {
 }
 
 /** ~4x the July 2026 feed (125.7 MB): a runaway guard, not a tight fit. */
-const MAX_FEED_BYTES = 512 * 1024 * 1024;
+export const MAX_ALIAS_FEED_BYTES = 512 * 1024 * 1024;
 /** The largest real <DistinctParty> measured is 69 KB; 8 MB is ~120x slack. */
 const MAX_WINDOW_CHARS = 8 * 1024 * 1024;
 
@@ -262,7 +267,7 @@ export async function parseNonLatinAliasesFromStream(
 	chunks: AsyncIterable<Uint8Array>,
 	limits: Partial<StreamLimits> = {},
 ): Promise<AliasEnrichment> {
-	const maxBytes = limits.maxBytes ?? MAX_FEED_BYTES;
+	const maxBytes = limits.maxBytes ?? MAX_ALIAS_FEED_BYTES;
 	const maxWindowChars = limits.maxWindowChars ?? MAX_WINDOW_CHARS;
 	const collector = newCollector();
 	// `stream: true` keeps multi-byte codepoints intact across chunk edges —
@@ -368,20 +373,33 @@ export function applyAliasEnrichment(
 export async function fetchNonLatinAliases(
 	limits: Partial<StreamLimits> = {},
 ): Promise<AliasEnrichment> {
-	const response = await fetchWithTimeout(
-		SDN_ALIAS_MIRROR_URL,
-		"OFAC SDN aliases (Treasury SDN_ADVANCED.XML via mirror)",
-		MIRROR_TIMEOUT_MS,
-	);
-	if (response.body === null) {
-		throw new Error("alias mirror returned no response body");
-	}
+	const response = await fetchAliasResponse();
 	// STREAMED, never buffered: `response.text()` on this ~125 MB feed would
 	// materialize it (and its UTF-16 expansion) on the heap. An OOM there is
 	// fatal and uncatchable, so the fail-soft path would never run and the
 	// deploy would die on an unrelated third party's payload growing.
 	return parseNonLatinAliasesFromStream(
-		response.body as AsyncIterable<Uint8Array>,
+		streamResponseBody(
+			response,
+			"OFAC SDN aliases (Treasury SDN_ADVANCED.XML via mirror)",
+			{
+				...ALIAS_BODY_LIMITS,
+				maxBytes: limits.maxBytes ?? MAX_ALIAS_FEED_BYTES,
+				sizeError: (maxBytes: number) =>
+					new AliasFeedTooLargeError(
+						`alias feed exceeded ${maxBytes} bytes — refusing to keep reading`,
+					),
+			},
+		),
 		limits,
+	);
+}
+
+/** Fetch the exact alias response so snapshotting and parsing share one seam. */
+export function fetchAliasResponse(): Promise<Response> {
+	return fetchWithTimeout(
+		SDN_ALIAS_MIRROR_URL,
+		"OFAC SDN aliases (Treasury SDN_ADVANCED.XML via mirror)",
+		MIRROR_TIMEOUT_MS,
 	);
 }

@@ -9,6 +9,7 @@
 //   - SearchResponse       -> aml_filter/domain/search.py
 //   - OfacBundleMeta       -> aml_filter/bundle/meta.py
 
+import type { ScoreResult as AssayScoreResult } from "@edgeproc/assay";
 import type { SignedReceipt } from "@edgeproc/avow";
 import type { MatchScoreSubject } from "./scoreReceipt";
 
@@ -118,6 +119,8 @@ export interface Match {
 	readonly identifiers: Identifiers;
 	readonly reasons: ReadonlyArray<MatchReason>;
 	readonly explanation: string;
+	/** Exact Assay additive result from which `score` and reasons were derived. */
+	readonly score_evidence?: AssayScoreResult;
 	/**
 	 * Browser-tier ONLY (no backend twin): the signed Avow receipt sealing this
 	 * match's score, tier, and screening context. Optional because it depends on

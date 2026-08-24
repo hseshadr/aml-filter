@@ -1,11 +1,18 @@
 import {
+	calculateAssayScore,
 	loadInstallKey,
 	type Match,
 	type MatchScoreSubject,
 	matchScoreSubject,
 	signMatchReceipt,
 } from "@amlfilter/browser";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DossierCard, dossierFromMatch } from "./DossierCard";
 
@@ -43,8 +50,29 @@ function baseMatch(): Match {
 
 /** Sign a real receipt for the base match — by default with THIS install's key. */
 async function signedMatch(seedHex?: string): Promise<Match> {
+	const assay = calculateAssayScore(
+		{
+			name_vector: 0.8,
+			name_sequence: 0.62,
+			alias_match: 1,
+			dob_match: 0,
+			country_match: 0,
+		},
+		{
+			name_vector: 0.6,
+			name_sequence: 0.25,
+			alias_match: 0.2,
+			dob_match: 0.05,
+			country_match: 0.05,
+		},
+	);
 	const subject = matchScoreSubject(
-		{ score: 0.914, tier: "STRONG" },
+		{
+			score: assay.score,
+			tier: "STRONG",
+			possibleThreshold: 0.75,
+			assay,
+		},
 		{
 			engineVersion: "engine-test-1",
 			watchlistVersion: "watchlist-test-1",
@@ -83,6 +111,21 @@ describe("dossierFromMatch", () => {
 });
 
 describe("DossierCard receipt verdict", () => {
+	it("renders the signed Assay method, input hash, and component evidence", async () => {
+		const match = await signedMatch();
+		renderCard(match);
+		fireEvent.click(await screen.findByText("Score receipt"));
+
+		await screen.findByText("Assay amlfilter.additive.v2");
+		expect(
+			screen.getByText(
+				match.score_receipt?.payload.assay?.inputs_hash ?? "missing",
+			),
+		).toBeVisible();
+		expect(screen.getByText("name_vector")).toBeVisible();
+		expect(screen.getByText("0.8 × 0.6 = 0.48")).toBeVisible();
+	});
+
 	it("renders a Verified icon+text badge beside the score for a receipt signed by this install", async () => {
 		const match = await signedMatch();
 		const { container } = renderCard(match);
@@ -308,7 +351,9 @@ describe("DossierCard receipt panel", () => {
 		expect(panel?.textContent).toContain("Ed25519");
 		// The sealed subject renders through the card's payload renderer.
 		expect(screen.getByText("sealed score")).toBeTruthy();
-		expect(panel?.textContent).toContain("0.914");
+		expect(panel?.textContent).toContain(
+			String(match.score_receipt?.payload.score),
+		);
 		expect(panel?.textContent).toContain("STRONG");
 		expect(screen.getByText("engine-test-1")).toBeTruthy();
 		expect(screen.getByText("watchlist-test-1")).toBeTruthy();

@@ -43,13 +43,14 @@
 import {
 	generateSeedHex,
 	publicKeyHex,
-	ReplayMismatch,
 	SignatureInvalid,
 	signPayload,
 } from "@edgeproc/avow";
 import { describe, expect, it } from "vitest";
+import { calculateAssayScore } from "./assayScoring";
 import {
 	InputsHashInvalid,
+	MatchScoreEvidenceInvalid,
 	type MatchScoreInput,
 	type MatchScoreSubject,
 	matchScoreSubject,
@@ -58,8 +59,24 @@ import {
 	signMatchReceipt,
 	verifyMatchReceipt,
 } from "./scoreReceipt";
+import { PRESETS } from "./scoring";
 
-const MATCH: MatchScoreInput = { score: 0.87, tier: "STRONG" };
+const EVIDENCE = calculateAssayScore(
+	{
+		name_vector: 0.8,
+		name_sequence: 0.6,
+		alias_match: 1,
+		dob_match: 0,
+		country_match: 0,
+	},
+	PRESETS.balanced.weights,
+);
+const MATCH: MatchScoreInput = {
+	score: EVIDENCE.score,
+	tier: "STRONG",
+	possibleThreshold: 0.65,
+	assay: EVIDENCE,
+};
 const CONTEXT: ScoreReceiptContext = {
 	engineVersion: "4.0.0",
 	watchlistVersion: "2026.06.09",
@@ -70,15 +87,17 @@ const CONTEXT: ScoreReceiptContext = {
 describe("matchScoreSubject", () => {
 	it("carries the app-computed score, tier, and screening context verbatim", () => {
 		const subject = matchScoreSubject(MATCH, CONTEXT);
-		expect(subject).toEqual({
+		expect(subject).toMatchObject({
 			kind: "aml.match_score",
 			engine: "amlfilter-sequenceMatcher",
 			engine_version: "4.0.0",
 			watchlist_version: "2026.06.09",
 			inputs_hash:
 				"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-			score: 0.87,
+			score: EVIDENCE.score,
 			tier: "STRONG",
+			possible_threshold: 0.65,
+			assay: EVIDENCE,
 		});
 	});
 
@@ -99,11 +118,11 @@ describe("signMatchReceipt + verifyMatchReceipt", () => {
 		);
 
 		expect(receipt.public_key).toBe(pinned);
-		expect(receipt.payload.score).toBe(0.87);
+		expect(receipt.payload.score).toBe(EVIDENCE.score);
 		await expect(verifyMatchReceipt(receipt, pinned)).resolves.toBeUndefined();
 	});
 
-	it("REJECTS a tampered score (coded ReplayMismatch)", async () => {
+	it("REJECTS a tampered score before granting semantic verification", async () => {
 		const seed = generateSeedHex();
 		const pinned = await publicKeyHex(seed);
 		const receipt = await signMatchReceipt(
@@ -115,7 +134,7 @@ describe("signMatchReceipt + verifyMatchReceipt", () => {
 			payload: { ...receipt.payload, score: 0.01 } as MatchScoreSubject,
 		};
 		await expect(verifyMatchReceipt(tampered, pinned)).rejects.toBeInstanceOf(
-			ReplayMismatch,
+			MatchScoreEvidenceInvalid,
 		);
 	});
 
@@ -176,8 +195,27 @@ describe("signMatchReceipt + verifyMatchReceipt", () => {
 // fabricated value, and the receipt's whole purpose is that the sealed number
 // is the number the engine produced.
 describe("attested score bounds", () => {
+	const boundaryEvidence = (score: 0 | 1) =>
+		calculateAssayScore(
+			{
+				name_vector: score,
+				name_sequence: score,
+				alias_match: score,
+				dob_match: score,
+				country_match: score,
+			},
+			PRESETS.balanced.weights,
+		);
 	const subjectWith = (score: number) =>
-		matchScoreSubject({ score, tier: "STRONG" }, CONTEXT);
+		matchScoreSubject(
+			{
+				score,
+				tier: score === 0 ? "WEAK" : "STRONG",
+				possibleThreshold: 0.65,
+				assay: score === 0 || score === 1 ? boundaryEvidence(score) : EVIDENCE,
+			},
+			CONTEXT,
+		);
 
 	it.each([[1.5], [-0.1], [Number.NaN], [Number.POSITIVE_INFINITY]])(
 		"REFUSES to seal an impossible score (%s) — coded ScoreOutOfRange",

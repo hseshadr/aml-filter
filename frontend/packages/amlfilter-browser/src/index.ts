@@ -15,6 +15,15 @@
 //
 // Primary entry point: EngineRuntime.bootstrap() → MultiListScreeningEngine.
 
+// --- Assay additive score composition and policy decision contract ---
+export {
+	calculateAssayScore,
+	SCORING_POLICY_VERSION,
+	type ScoringPolicyDecision,
+	type ScoringSignalValues,
+	type ScoringSignalWeights,
+	scoringPolicyDecision,
+} from "./engine/assayScoring";
 // --- the signed-bundle delta-sync path: open + materialize a signed bundle ---
 export {
 	type BundleEngineClient,
@@ -106,6 +115,7 @@ export {
 } from "./engine/runtime";
 // --- the Avow score receipt: seal a score into an offline-verifiable envelope ---
 export {
+	MatchScoreEvidenceInvalid,
 	type MatchScoreInput,
 	type MatchScoreSubject,
 	matchScoreSubject,

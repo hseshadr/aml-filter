@@ -21,6 +21,66 @@
  * (One list may publish several files, e.g. the UN/EU consolidated XML pair.) */
 export type RawListBytes = Record<string, string>;
 
+/** Immutable HTTP provenance captured with a source's canonical bytes. */
+export interface SourceTransportMetadata {
+	readonly finalUrl: string;
+	readonly etag: string | null;
+	readonly lastModified: string | null;
+}
+
+/** One source fetch suitable for a hermetic downstream build. */
+export interface SourceSnapshot {
+	readonly raw: RawListBytes;
+	readonly transport: SourceTransportMetadata;
+	readonly sourceUpdatedAt: string;
+}
+
+/** Validate and normalize an upstream freshness instant for signed provenance. */
+export function canonicalSourceTimestamp(
+	sourceId: string,
+	value: string,
+): string {
+	const calendar = /^(\d{4})-(\d{2})-(\d{2})(?=T|$)/.exec(value);
+	if (calendar !== null && !isRealCalendarDate(calendar)) {
+		throw new Error(`${sourceId}: freshness timestamp is invalid`);
+	}
+	const parsed = Date.parse(value);
+	if (!Number.isFinite(parsed)) {
+		throw new Error(`${sourceId}: freshness timestamp is invalid`);
+	}
+	return new Date(parsed).toISOString();
+}
+
+function isRealCalendarDate(parts: RegExpExecArray): boolean {
+	const year = Number(parts[1]);
+	const month = Number(parts[2]);
+	const day = Number(parts[3]);
+	const date = new Date(Date.UTC(year, month - 1, day));
+	return (
+		date.getUTCFullYear() === year &&
+		date.getUTCMonth() === month - 1 &&
+		date.getUTCDate() === day
+	);
+}
+
+/** Build transport provenance from the exact response that supplied `raw`. */
+export function sourceSnapshot(
+	raw: RawListBytes,
+	response: Response,
+	requestedUrl: string,
+	sourceUpdatedAt: string,
+): SourceSnapshot {
+	return {
+		raw,
+		transport: {
+			finalUrl: response.url || requestedUrl,
+			etag: response.headers.get("etag"),
+			lastModified: response.headers.get("last-modified"),
+		},
+		sourceUpdatedAt,
+	};
+}
+
 /** The neutral source record every adapter emits and the publisher consumes.
  * Identical field shape across all lists (this is the OFAC `SourceLine` promoted
  * to the shared contract). */
@@ -45,6 +105,8 @@ export interface WatchlistSource {
 	readonly title: string;
 	/** Fetch the raw list bytes off the network (real URLs). */
 	fetchRaw(): Promise<RawListBytes>;
+	/** Fetch canonical bytes and the exact transport/source provenance together. */
+	fetchSnapshot?(): Promise<SourceSnapshot>;
 	/** Extract the upstream list's publication/update instant from its payload or
 	 * transport metadata. Production publication rejects unprovably stale data. */
 	sourceUpdatedAt?(raw: RawListBytes): string | undefined;

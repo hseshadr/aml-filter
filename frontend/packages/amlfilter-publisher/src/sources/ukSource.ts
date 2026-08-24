@@ -7,11 +7,18 @@
 //   AKA rows of one entity share an id) into namespaced SourceLines.
 //   Fixture-tested in ukSource.test.ts.
 
-import { fetchWithTimeout } from "./fetchWithTimeout.ts";
 import {
+	fetchWithTimeout,
+	readResponseText,
+	SOURCE_FETCH_TIMEOUT_MS,
+} from "./fetchWithTimeout.ts";
+import {
+	canonicalSourceTimestamp,
 	namespacedId,
 	type RawListBytes,
 	type SourceLine,
+	type SourceSnapshot,
+	sourceSnapshot,
 	UK_LIST_ID,
 	type WatchlistSource,
 } from "./source.ts";
@@ -24,8 +31,14 @@ export const UK_RAW_FILE = "uk_ofsi.csv";
 // still being updated, so we ship it now; migrating the adapter to UKSL is a
 // tracked future increment. (The bare `.../publishlive/ConList.csv` and the
 // `assets.publishing.service.gov.uk/...` paths now 404 — do not use them.)
-const UK_URL =
+export const UK_URL =
 	"https://ofsistorage.blob.core.windows.net/publishlive/2022format/ConList.csv";
+
+const UK_BODY_LIMITS = {
+	maxBytes: 64 * 1024 * 1024,
+	elapsedMs: SOURCE_FETCH_TIMEOUT_MS,
+	idleMs: 15_000,
+} as const;
 
 /** The column that uniquely keys a real ConList header row. */
 const HEADER_MARKER_COL = "Group ID";
@@ -142,24 +155,62 @@ function groupRows(rows: Row[]): Map<string, Row[]> {
 	return groups;
 }
 
+function updatedAt(raw: RawListBytes): string | undefined {
+	const firstLine = (raw[UK_RAW_FILE] ?? "").split(/\r?\n/, 1)[0];
+	const value = firstLine?.match(/^Last Updated,(\d{2})\/(\d{2})\/(\d{4})$/);
+	if (value === null || value === undefined) {
+		return undefined;
+	}
+	const [, day, month, year] = value;
+	const parsed = new Date(
+		Date.UTC(Number(year), Number(month) - 1, Number(day)),
+	);
+	if (
+		parsed.getUTCFullYear() !== Number(year) ||
+		parsed.getUTCMonth() !== Number(month) - 1 ||
+		parsed.getUTCDate() !== Number(day)
+	) {
+		throw new Error(`${UK_LIST_ID}: freshness timestamp is invalid`);
+	}
+	return parsed.toISOString();
+}
+
+async function fetchUkSnapshot(): Promise<SourceSnapshot> {
+	const { raw, response } = await fetchUkRaw();
+	const sourceUpdatedAt = updatedAt(raw);
+	if (sourceUpdatedAt === undefined) {
+		throw new Error("UK_OFSI: freshness timestamp is missing");
+	}
+	return sourceSnapshot(
+		raw,
+		response,
+		UK_URL,
+		canonicalSourceTimestamp(UK_LIST_ID, sourceUpdatedAt),
+	);
+}
+
+async function fetchUkRaw(): Promise<{
+	readonly raw: RawListBytes;
+	readonly response: Response;
+}> {
+	const response = await fetchWithTimeout(UK_URL, "UK");
+	return {
+		raw: {
+			[UK_RAW_FILE]: await readResponseText(response, "UK", UK_BODY_LIMITS),
+		},
+		response,
+	};
+}
+
 export const ukSource: WatchlistSource = {
 	id: UK_LIST_ID,
 	title: "UK OFSI",
 	async fetchRaw(): Promise<RawListBytes> {
-		const res = await fetchWithTimeout(UK_URL, "UK");
-		if (!res.ok) {
-			throw new Error(`fetch UK list failed: ${res.status} ${res.statusText}`);
-		}
-		return { [UK_RAW_FILE]: await res.text() };
+		return (await fetchUkRaw()).raw;
 	},
+	fetchSnapshot: fetchUkSnapshot,
 	sourceUpdatedAt(raw: RawListBytes): string | undefined {
-		const firstLine = (raw[UK_RAW_FILE] ?? "").split(/\r?\n/, 1)[0];
-		const value = firstLine?.match(/^Last Updated,(\d{2})\/(\d{2})\/(\d{4})$/);
-		if (value === null || value === undefined) {
-			return undefined;
-		}
-		const [, day, month, year] = value;
-		return `${year}-${month}-${day}T00:00:00.000Z`;
+		return updatedAt(raw);
 	},
 	parse(raw: RawListBytes, listVersion: string): SourceLine[] {
 		const rows = parseRows(raw[UK_RAW_FILE] ?? "");

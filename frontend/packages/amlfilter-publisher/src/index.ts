@@ -35,6 +35,12 @@ export {
 	toBytes,
 } from "./publisher.ts";
 export { derivePublicKey, signBytes, writeSigned } from "./signing.ts";
+export {
+	type SnapshotFile,
+	type SnapshotManifest,
+	type SnapshotSource,
+	snapshotSources,
+} from "./snapshotSources.ts";
 export { parseEntities, toWatchlistEntity } from "./sourceEntity.ts";
 export { CSL_SDN_SOURCE, parseCslSdn, splitCsvLine } from "./sources/csl.ts";
 export { euSource } from "./sources/euSource.ts";

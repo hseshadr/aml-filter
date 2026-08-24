@@ -17,14 +17,13 @@ import { canonicalize, type Match } from "@amlfilter/browser";
 import type { DecisionLevel } from "./levels.ts";
 
 /** The signal name the app's lexical gate reads. Wire, not an internal name. */
-const LEXICAL_SIGNAL = "name_trigram";
+const LEXICAL_SIGNAL = "name_sequence";
 
 /**
  * The match's lexical signal value, or 0.
  *
- * Mirrors `trigramScore`. The signal is named `name_trigram` on the wire and
- * computes a Ratcliff/Obershelp ratio; see engine/scoring.ts for why the wrong
- * name is knowingly still there.
+ * Mirrors the app's sequence score. The value is the Ratcliff/Obershelp ratio
+ * produced by the screening engine and named truthfully on the v2 wire.
  */
 export function lexicalOf(match: Match): number {
 	const reason = match.reasons.find((r) => r.signal === LEXICAL_SIGNAL);

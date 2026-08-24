@@ -74,8 +74,8 @@ Go to **`/screen`**. On first visit the page:
    oversized, stale, or unsigned artifact aborts the load),
 3. is then ready to screen names across all enabled lists entirely in-tab.
 
-Type a sanctioned-ish name (something close to a demo entry) and submit. You get a
-**scored result with a `reasons[]` breakdown and a plain-language explanation** —
+Type a sanctioned-ish name (something close to a demo entry) and submit. You get an
+**Assay-computed result with a `reasons[]` breakdown and a plain-language explanation** —
 which name signals fired (name similarity, alias, country, DOB), how they rolled up
 into the score, and which **source list** the match came from. Adjust the strictness
 slider (Lenient / Balanced / Strict) to see the match threshold tighten. See
@@ -84,8 +84,9 @@ slider (Lenient / Balanced / Strict) to see the match threshold tighten. See
 Beside each match score you'll also see a small **Verified** chip — the engine seals
 every score it produces with a signed **score receipt**. Expand **Score receipt** on the
 match card to see the full signed envelope: algorithm, signer key, payload hash,
-signature, and the sealed score, tier, engine version, watchlist version, and inputs
-hash. Prove it to yourself: the verdict is computed in your browser, with no server asked, against
+signature, sealed score, tier, engine version, watchlist version, identity inputs hash,
+Assay policy version, Assay input hash, and the five ordered contributions. Prove it to
+yourself: the verdict is computed in your browser, with no server asked, against
 this install's own key — if the sealed data were altered in any way, the chip would read
 **Not verified — tampered**.
 

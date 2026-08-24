@@ -1,6 +1,6 @@
 // Avow score receipt — seal an in-tab risk/match score into a signed,
-// offline-verifiable Avow receipt. The screening engine still computes its own
-// score and tier exactly as before; this module only wraps that result in the
+// offline-verifiable Avow receipt. Assay computes the score; this module seals
+// that score, its ordered Assay component evidence, and the AML tier in the
 // `@edgeproc/avow` envelope (RFC-8785 canonical bytes + Ed25519), so a reviewer
 // (or an auditor) can later verify "this score, for this watchlist version, was
 // produced by this installation" without trusting any server.
@@ -17,7 +17,8 @@
 //     no browser has, and @noble/ed25519 hashes via `subtle.digest(SHA-512,
 //     m.buffer)` — a bare ArrayBuffer that Node 22's WebCrypto rejects when it
 //     is cross-realm. That file's header documents the full diagnosis.
-//   • app/tests/score-receipt-browser.spec.ts — real headless Chromium. Because
+//   • app/tests/score-receipt-browser.spec.ts — real Chromium, Firefox, and
+//     WebKit. Because
 //     the unit suite deliberately leaves jsdom, browser behaviour must be shown
 //     somewhere real; that spec drives sign -> verify -> tamper-reject ->
 //     wrong-key-reject in an actual page.
@@ -28,13 +29,25 @@
 //     minified build by app/tests/e2e-c1/receipt-badge.spec.ts.
 
 import {
+	type ScoreResult as AssayScoreResult,
+	parseScoreResult,
+} from "@edgeproc/assay";
+import {
 	type JsonValue,
 	type SignedReceipt,
 	signPayload,
 	verifySignature,
 } from "@edgeproc/avow";
 
+import {
+	calculateAssayScore,
+	SCORING_POLICY_VERSION,
+	type ScoringSignalValues,
+	type ScoringSignalWeights,
+} from "./assayScoring";
+import { PRESETS } from "./scoring";
 import type { MatchTier } from "./tiering";
+import { classifyTier } from "./tiering";
 
 /** Re-exported so a receipt consumer needs only this module. ONE definition
  * lives in ./tiering; @amlfilter/workstation re-exports that same one. */
@@ -44,6 +57,8 @@ export type { MatchTier };
 export interface MatchScoreInput {
 	readonly score: number;
 	readonly tier: MatchTier;
+	readonly possibleThreshold?: number;
+	readonly assay?: AssayScoreResult;
 }
 
 /** Coded error: a score outside the engine's legitimate [0, 1] output range. */
@@ -61,6 +76,14 @@ export class InputsHashInvalid extends TypeError {
 	constructor(value: string) {
 		super(`score receipt: inputs_hash must be "sha256:<hex>", got "${value}"`);
 		this.name = "InputsHashInvalid";
+	}
+}
+
+/** Coded error: signed Assay evidence is malformed or disagrees with the score. */
+export class MatchScoreEvidenceInvalid extends TypeError {
+	public constructor(reason = "semantic replay failed") {
+		super(`score receipt: Assay evidence is invalid (${reason})`);
+		this.name = "MatchScoreEvidenceInvalid";
 	}
 }
 
@@ -111,6 +134,8 @@ export type MatchScoreSubject = {
 	readonly inputs_hash: Sha256Hash;
 	readonly score: AttestedScore;
 	readonly tier: MatchTier;
+	readonly possible_threshold?: number;
+	readonly assay?: AssayScoreResult & JsonValue;
 };
 
 // Compile-time proof the subject is a valid Avow payload.
@@ -123,7 +148,7 @@ export function matchScoreSubject(
 	match: MatchScoreInput,
 	context: ScoreReceiptContext,
 ): MatchScoreSubject {
-	return {
+	const subject: MatchScoreSubject = {
 		kind: "aml.match_score",
 		engine: "amlfilter-sequenceMatcher",
 		engine_version: context.engineVersion,
@@ -131,7 +156,186 @@ export function matchScoreSubject(
 		inputs_hash: context.inputsHash,
 		score: attestedScore(match.score),
 		tier: match.tier,
+		...(match.possibleThreshold === undefined
+			? {}
+			: { possible_threshold: match.possibleThreshold }),
+		...(match.assay === undefined
+			? {}
+			: { assay: match.assay as AssayScoreResult & JsonValue }),
 	};
+	assertAttestable(subject);
+	return subject;
+}
+
+const EXPECTED_COMPONENTS = [
+	"name_vector",
+	"name_sequence",
+	"alias_match",
+	"dob_match",
+	"country_match",
+] as const;
+
+const SUBJECT_KEYS = new Set([
+	"kind",
+	"engine",
+	"engine_version",
+	"watchlist_version",
+	"inputs_hash",
+	"score",
+	"tier",
+	"possible_threshold",
+	"assay",
+]);
+
+const APPROVED_COEFFICIENTS = Object.values(PRESETS).map((preset) =>
+	EXPECTED_COMPONENTS.map((id) => preset.weights[id]),
+);
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+	if (value === null || typeof value !== "object" || Array.isArray(value)) {
+		return false;
+	}
+	const prototype = Object.getPrototypeOf(value);
+	return prototype === Object.prototype || prototype === null;
+}
+
+function hasApprovedCoefficients(evidence: AssayScoreResult): boolean {
+	const coefficients = evidence.components.map(
+		(component) => component.coefficient,
+	);
+	return APPROVED_COEFFICIENTS.some((approved) =>
+		approved.every((value, index) => value === coefficients[index]),
+	);
+}
+
+function isTier(value: unknown): value is MatchTier {
+	return value === "STRONG" || value === "POSSIBLE" || value === "WEAK";
+}
+
+function validThreshold(value: unknown): value is number {
+	return (
+		typeof value === "number" &&
+		Number.isFinite(value) &&
+		value >= 0 &&
+		value <= 1
+	);
+}
+
+function pointEvidenceMismatch(evidence: AssayScoreResult): string | null {
+	const invalidRaw = evidence.components.find(
+		(component) => !validThreshold(component.raw),
+	);
+	if (invalidRaw !== undefined) {
+		return `${invalidRaw.id} raw signal out of range`;
+	}
+	const derived = evidence.components.find(
+		(component) =>
+			component.normalized !== null ||
+			component.declared_weight !== null ||
+			component.contribution_interval !== null,
+	);
+	return derived === undefined ? null : `${derived.id} carried derived bounds`;
+}
+
+function replayAssayEvidence(evidence: AssayScoreResult): AssayScoreResult {
+	const raw = evidence.components.map((component) => component.raw);
+	const weights = evidence.components.map((component) => component.coefficient);
+	const signals: ScoringSignalValues = {
+		name_vector: raw[0] ?? Number.NaN,
+		name_sequence: raw[1] ?? Number.NaN,
+		alias_match: raw[2] ?? Number.NaN,
+		dob_match: raw[3] ?? Number.NaN,
+		country_match: raw[4] ?? Number.NaN,
+	};
+	const coefficients: ScoringSignalWeights = {
+		name_vector: weights[0] ?? Number.NaN,
+		name_sequence: weights[1] ?? Number.NaN,
+		alias_match: weights[2] ?? Number.NaN,
+		dob_match: weights[3] ?? Number.NaN,
+		country_match: weights[4] ?? Number.NaN,
+	};
+	return calculateAssayScore(signals, coefficients);
+}
+
+function assayReplayMismatch(evidence: AssayScoreResult): string | null {
+	const pointMismatch = pointEvidenceMismatch(evidence);
+	if (pointMismatch !== null) {
+		return pointMismatch;
+	}
+	if (
+		evidence.interval !== null ||
+		evidence.weight_total !== null ||
+		evidence.selected_component_id !== null
+	) {
+		return "non-point AML signal evidence";
+	}
+	const replayed = replayAssayEvidence(evidence);
+	if (replayed.inputs_hash !== evidence.inputs_hash) {
+		return "inputs hash mismatch";
+	}
+	if (replayed.score !== evidence.score) {
+		return "replayed score mismatch";
+	}
+	if (
+		JSON.stringify(replayed.components) !== JSON.stringify(evidence.components)
+	) {
+		return "component replay mismatch";
+	}
+	return null;
+}
+
+function requireEvidence(value: boolean, reason: string): asserts value {
+	if (!value) {
+		throw new MatchScoreEvidenceInvalid(reason);
+	}
+}
+
+function assertAssayEvidence(payload: MatchScoreSubject): void {
+	if (payload.assay === undefined) {
+		throw new MatchScoreEvidenceInvalid("proof omitted");
+	}
+	try {
+		const evidence = parseScoreResult(payload.assay);
+		const ids = evidence.components.map((component) => component.id);
+		requireEvidence(evidence.method.id === "additive", "wrong method");
+		requireEvidence(
+			evidence.method.version === SCORING_POLICY_VERSION,
+			"wrong policy version",
+		);
+		requireEvidence(evidence.score === payload.score, "score mismatch");
+		requireEvidence(evidence.clamp === "clamp", "wrong clamp policy");
+		requireEvidence(evidence.intercept === 0, "wrong intercept");
+		requireEvidence(
+			ids.join("\u0000") === EXPECTED_COMPONENTS.join("\u0000"),
+			"wrong component order",
+		);
+		requireEvidence(
+			evidence.components.every((component) => component.operation === "add"),
+			"wrong component operation",
+		);
+		requireEvidence(
+			validThreshold(payload.possible_threshold),
+			"effective threshold omitted",
+		);
+		requireEvidence(
+			hasApprovedCoefficients(evidence),
+			"unapproved coefficients",
+		);
+		const replayMismatch = assayReplayMismatch(evidence);
+		requireEvidence(
+			replayMismatch === null,
+			replayMismatch ?? "replay mismatch",
+		);
+		requireEvidence(
+			classifyTier(payload.score, payload.possible_threshold) === payload.tier,
+			"tier mismatch",
+		);
+	} catch (error: unknown) {
+		if (error instanceof MatchScoreEvidenceInvalid) {
+			throw error;
+		}
+		throw new MatchScoreEvidenceInvalid();
+	}
 }
 
 /**
@@ -145,6 +349,38 @@ function assertAttestable(payload: MatchScoreSubject): void {
 	if (!SHA256_HASH_PATTERN.test(payload.inputs_hash)) {
 		throw new InputsHashInvalid(payload.inputs_hash);
 	}
+	if (
+		payload.kind !== "aml.match_score" ||
+		payload.engine !== "amlfilter-sequenceMatcher" ||
+		!payload.engine_version.trim() ||
+		!payload.watchlist_version.trim() ||
+		!isTier(payload.tier) ||
+		(payload.possible_threshold !== undefined &&
+			!validThreshold(payload.possible_threshold))
+	) {
+		throw new MatchScoreEvidenceInvalid();
+	}
+	assertAssayEvidence(payload);
+}
+
+/** Parse the signed wire subject before either signing or signature acceptance. */
+export function parseMatchScoreSubject(value: unknown): MatchScoreSubject {
+	if (
+		!isPlainRecord(value) ||
+		Object.keys(value).some((key) => !SUBJECT_KEYS.has(key)) ||
+		typeof value.kind !== "string" ||
+		typeof value.engine !== "string" ||
+		typeof value.engine_version !== "string" ||
+		typeof value.watchlist_version !== "string" ||
+		typeof value.inputs_hash !== "string" ||
+		typeof value.score !== "number" ||
+		typeof value.tier !== "string"
+	) {
+		throw new MatchScoreEvidenceInvalid();
+	}
+	const payload = value as MatchScoreSubject;
+	assertAttestable(payload);
+	return payload;
 }
 
 /** Hash + Ed25519-sign the score subject into a verifiable receipt. */
@@ -152,7 +388,7 @@ export function signMatchReceipt(
 	subject: MatchScoreSubject,
 	seedHex: string,
 ): Promise<SignedReceipt<MatchScoreSubject>> {
-	return signPayload(subject, seedHex);
+	return signPayload(parseMatchScoreSubject(subject), seedHex);
 }
 
 /** Fail-closed verify of a score receipt against a pinned signer key. */
@@ -160,6 +396,6 @@ export async function verifyMatchReceipt(
 	receipt: SignedReceipt<MatchScoreSubject>,
 	expectedPublicKey: string,
 ): Promise<void> {
-	assertAttestable(receipt.payload);
+	parseMatchScoreSubject(receipt.payload);
 	return verifySignature(receipt, expectedPublicKey);
 }

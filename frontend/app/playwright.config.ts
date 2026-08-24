@@ -5,7 +5,7 @@ import { defineConfig, devices } from "@playwright/test";
  *
  * ONE spec in this lane IS gate-enforced: `tests/score-receipt-browser.spec.ts`,
  * run by `pnpm test:e2e:receipt` (app) which the canonical gate
- * (frontend/package.json) invokes by path. It is the real-Chromium proof that
+ * (frontend/package.json) invokes by path. It is the cross-browser proof that
  * backs the `@vitest-environment node` switch in
  * packages/amlfilter-browser/src/engine/scoreReceipt.test.ts — leaving jsdom is
  * only defensible while a real browser proves the same path, so that proof has
@@ -44,6 +44,14 @@ export default defineConfig({
 		{
 			name: "chromium",
 			use: { ...devices["Desktop Chrome"] },
+		},
+		{
+			name: "firefox",
+			use: { ...devices["Desktop Firefox"] },
+		},
+		{
+			name: "webkit",
+			use: { ...devices["Desktop Safari"] },
 		},
 	],
 	webServer: {

@@ -29,7 +29,7 @@ function match(overrides: Partial<Match> = {}): Match {
 }
 
 describe("lexicalOf", () => {
-	it("reads the name_trigram signal the app's gate reads", () => {
+	it("reads the name_sequence signal the app's gate reads", () => {
 		const m = match({
 			reasons: [
 				{
@@ -40,7 +40,7 @@ describe("lexicalOf", () => {
 					description: "",
 				},
 				{
-					signal: "name_trigram",
+					signal: "name_sequence",
 					value: 0.42,
 					weight: 0.2,
 					contribution: 0.08,
@@ -58,7 +58,7 @@ describe("lexicalOf", () => {
 				match({
 					reasons: [
 						{
-							signal: "name_trigram",
+							signal: "name_sequence",
 							value: "x",
 							weight: 0,
 							contribution: 0,

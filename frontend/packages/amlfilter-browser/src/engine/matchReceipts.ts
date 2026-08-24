@@ -88,10 +88,15 @@ async function sealOne(
 	context: SealContext,
 	key: InstallKey,
 ): Promise<Match> {
+	const possibleThreshold = context.possibleThresholdFor(match);
 	const subject = matchScoreSubject(
 		{
 			score: match.score,
-			tier: classifyTier(match.score, context.possibleThresholdFor(match)),
+			tier: classifyTier(match.score, possibleThreshold),
+			possibleThreshold,
+			...(match.score_evidence === undefined
+				? {}
+				: { assay: match.score_evidence }),
 		},
 		{
 			engineVersion: ENGINE_VERSION,
@@ -129,6 +134,7 @@ export function createMatchReceiptSealer(
 				keyPromise = null;
 				console.warn("amlfilter.match_receipts.unavailable", {
 					error: error instanceof Error ? error.name : typeof error,
+					detail: error instanceof Error ? error.message : undefined,
 				});
 				return matches;
 			}
@@ -146,6 +152,7 @@ export function createMatchReceiptSealer(
 				}
 				console.warn("amlfilter.match_receipts.unavailable", {
 					error: error instanceof Error ? error.name : typeof error,
+					detail: error instanceof Error ? error.message : undefined,
 				});
 				return matches;
 			}

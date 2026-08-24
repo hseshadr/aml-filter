@@ -298,8 +298,8 @@ const BUNDLE_CONFIG: RuntimeConfig = {
 };
 
 /** A stub embedder: the query vector is arbitrary (orthogonal to the real MiniLM
- * rows). The exact-name match still surfaces via the trigram signal — candidate
- * retrieval over-fetches every entity in the tiny demo list, so the name_trigram
+ * rows). The exact-name match still surfaces via the sequence signal — candidate
+ * retrieval over-fetches every entity in the tiny demo list, so the name_sequence
  * signal (1.0 on an exact canonical match) carries it. */
 function stubEmbedder(): Embedder {
 	return { embed: () => Promise.resolve(new Float32Array(384)) };

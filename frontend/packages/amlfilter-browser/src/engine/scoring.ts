@@ -3,13 +3,19 @@
 // explainable shape the backend returns: a list of weighted MatchSignals, a
 // clamped total score, and a plain-language summary. Pure + deterministic.
 
+import type { ScoreResult as AssayScoreResult } from "@edgeproc/assay";
+import {
+	calculateAssayScore,
+	type ScoringSignalValues,
+	type ScoringSignalWeights,
+} from "./assayScoring";
 import type { Alias, Entity, MatchReason } from "./domain";
 import { tokenSetSimilarity, tokenSortSimilarity } from "./fuzzyText";
 
 /** The named weights for the five scoring signals (mirrors ScoringWeights). */
 export interface ScoringWeights {
 	readonly name_vector: number;
-	readonly name_trigram: number;
+	readonly name_sequence: number;
 	readonly alias_match: number;
 	readonly dob_match: number;
 	readonly country_match: number;
@@ -63,7 +69,7 @@ export const PRESETS: Readonly<Record<Preset, PresetConfig>> = {
 	strict: {
 		weights: {
 			name_vector: 0.6,
-			name_trigram: 0.25,
+			name_sequence: 0.25,
 			alias_match: 0.2,
 			dob_match: 0.05,
 			country_match: 0.05,
@@ -73,7 +79,7 @@ export const PRESETS: Readonly<Record<Preset, PresetConfig>> = {
 	balanced: {
 		weights: {
 			name_vector: 0.55,
-			name_trigram: 0.2,
+			name_sequence: 0.2,
 			alias_match: 0.35,
 			dob_match: 0.1,
 			country_match: 0.05,
@@ -83,7 +89,7 @@ export const PRESETS: Readonly<Record<Preset, PresetConfig>> = {
 	lenient: {
 		weights: {
 			name_vector: 0.5,
-			name_trigram: 0.15,
+			name_sequence: 0.15,
 			alias_match: 0.4,
 			dob_match: 0.1,
 			country_match: 0.1,
@@ -160,6 +166,7 @@ export interface ScoreResult {
 	readonly score: number;
 	readonly reasons: ReadonlyArray<MatchReason>;
 	readonly summary: string;
+	readonly assay: AssayScoreResult;
 }
 
 /** The query fields scoring reads (canonical name precomputed by the caller). */
@@ -174,7 +181,6 @@ export interface ScoringQuery {
 
 interface Accumulator {
 	readonly reasons: MatchReason[];
-	total: number;
 }
 
 function isStrong(similarity: number | null): boolean {
@@ -197,7 +203,6 @@ function addWeighted(
 		contribution,
 		description,
 	});
-	acc.total += contribution;
 }
 
 /**
@@ -334,20 +339,7 @@ function summarize(
 	return `Low confidence match (score: ${finalScore.toFixed(3)})`;
 }
 
-/**
- * THE `name_trigram` SIGNAL NAME IS WRONG AND IS KNOWINGLY LEFT WRONG HERE.
- *
- * Nothing computes trigrams. The value is a Ratcliff/Obershelp sequence ratio
- * (a port of Python `difflib.SequenceMatcher.ratio`, see ./sequenceMatcher) over
- * the closest name an entity is published under. Everything INTERNAL has been
- * renamed to say so — `ScoringQuery.lexicalSimilarity`, `bestNameSimilarity` in
- * ./screeningEngine — but the two strings below are wire, not internals:
- * `MatchReason.signal` is read by the app's lexical gate, frozen into the
- * committed scoring golden, and named in README.md and docs/ARCHITECTURE.md,
- * which another pull request owns right now. Renaming the wire string without
- * those docs would leave the repository describing a signal that no longer
- * exists. It is deferred, not forgotten.
- */
+/** Add the vector and Ratcliff/Obershelp sequence signals in stable order. */
 function addNameSignals(
 	acc: Accumulator,
 	weights: ScoringWeights,
@@ -362,11 +354,38 @@ function addNameSignals(
 	);
 	addWeighted(
 		acc,
-		"name_trigram",
+		"name_sequence",
 		q.lexicalSimilarity,
-		weights.name_trigram,
-		`Trigram similarity: ${q.lexicalSimilarity.toFixed(3)}`,
+		weights.name_sequence,
+		`Sequence similarity: ${q.lexicalSimilarity.toFixed(3)}`,
 	);
+}
+
+function signalValues(
+	query: ScoringQuery,
+	aliasScore: number,
+	dobScore: number,
+	countryScore: number,
+): ScoringSignalValues {
+	return {
+		name_vector: query.vectorSimilarity,
+		name_sequence: query.lexicalSimilarity,
+		alias_match: aliasScore,
+		dob_match: dobScore,
+		country_match: countryScore,
+	};
+}
+
+function boundedSimilarity(value: number): number {
+	return Math.max(0, Math.min(1, value));
+}
+
+function boundedNameSignals(query: ScoringQuery): ScoringQuery {
+	return {
+		...query,
+		vectorSimilarity: boundedSimilarity(query.vectorSimilarity),
+		lexicalSimilarity: boundedSimilarity(query.lexicalSimilarity),
+	};
 }
 
 function addEntityTypeSignal(
@@ -400,8 +419,9 @@ export function computeScore(
 	query: ScoringQuery,
 	weights: ScoringWeights,
 ): ScoreResult {
-	const acc: Accumulator = { reasons: [], total: 0 };
-	addNameSignals(acc, weights, query);
+	const scoringQuery = boundedNameSignals(query);
+	const acc: Accumulator = { reasons: [] };
+	addNameSignals(acc, weights, scoringQuery);
 
 	const alias = aliasMatch(entity.aliases, query.nameCanonical);
 	if (alias.score > 0) {
@@ -432,14 +452,19 @@ export function computeScore(
 	}
 
 	addEntityTypeSignal(acc, entity, query.entityType);
-	const finalScore = Math.max(0.0, Math.min(1.0, acc.total));
+	const assay = calculateAssayScore(
+		signalValues(scoringQuery, alias.score, dob.score, country.score),
+		weights as ScoringSignalWeights,
+	);
+	const finalScore = assay.score;
 	return {
 		score: finalScore,
 		reasons: acc.reasons,
+		assay,
 		summary: summarize(
 			finalScore,
-			query.vectorSimilarity,
-			query.lexicalSimilarity,
+			scoringQuery.vectorSimilarity,
+			scoringQuery.lexicalSimilarity,
 			alias.score,
 			dob.score,
 			country.score,

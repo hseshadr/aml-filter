@@ -5,9 +5,8 @@ description = "Offline decision-quality evaluation for aml-filter: precision, re
 requires-python = ">=3.13"
 license = "MIT"
 dependencies = [
-  # The metrics engine. The distribution is `avow`; the import name is `assay`.
-  # The [assay] extra is what pulls scikit-learn/scipy/numpy — without it you get
-  # the trust kernel and no metrics at all.
+  # The metrics engine. The distribution is `assay-engine`; the import name is
+  # `assay`. The [metrics] extra pulls the pinned sklearn/scipy/numpy stack.
   #
   # Every precision, recall, F1, FPR and FNR in this repository comes from here,
   # through src/amlfilter_eval/assay_seam.py and nowhere else. Nothing in this
@@ -15,9 +14,9 @@ dependencies = [
   # reimplements a metric: one metric written in two languages will diverge, and
   # only the rendered number would ever show it.
   #
-  # Floor only, no ceiling. A SemVer minor is not presumed breaking; if one ever
-  # is, pin the fix rather than fencing off releases that do not exist yet.
-  "avow[assay]>=0.3.0",
+  # Exact immutable release: the decision evidence must not drift underneath a
+  # protected source revision.
+  "assay-engine[metrics]==0.5.0.dev2",
   "pydantic>=2.11",
 ]
 
