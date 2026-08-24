@@ -88,10 +88,12 @@ async function sealOne(
 	context: SealContext,
 	key: InstallKey,
 ): Promise<Match> {
+	const possibleThreshold = context.possibleThresholdFor(match);
 	const subject = matchScoreSubject(
 		{
 			score: match.score,
-			tier: classifyTier(match.score, context.possibleThresholdFor(match)),
+			tier: classifyTier(match.score, possibleThreshold),
+			possibleThreshold,
 			...(match.score_evidence === undefined
 				? {}
 				: { assay: match.score_evidence }),

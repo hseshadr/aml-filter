@@ -6,8 +6,13 @@
 //   *_ALIAS/ALIAS_NAME, INDIVIDUAL_DATE_OF_BIRTH/DATE, NATIONALITY/VALUE) into
 //   namespaced SourceLines. Fixture-tested in unSource.test.ts.
 
-import { fetchWithTimeout } from "./fetchWithTimeout.ts";
 import {
+	fetchWithTimeout,
+	readResponseText,
+	SOURCE_FETCH_TIMEOUT_MS,
+} from "./fetchWithTimeout.ts";
+import {
+	canonicalSourceTimestamp,
 	namespacedId,
 	type RawListBytes,
 	type SourceLine,
@@ -23,6 +28,12 @@ export const UN_RAW_FILE = "un_consolidated.xml";
 
 export const UN_URL =
 	"https://scsanctions.un.org/resources/xml/en/consolidated.xml";
+
+const UN_BODY_LIMITS = {
+	maxBytes: 32 * 1024 * 1024,
+	elapsedMs: SOURCE_FETCH_TIMEOUT_MS,
+	idleMs: 15_000,
+} as const;
 
 const NAME_TAGS = ["FIRST_NAME", "SECOND_NAME", "THIRD_NAME", "FOURTH_NAME"];
 
@@ -86,7 +97,12 @@ async function fetchUnSnapshot(): Promise<SourceSnapshot> {
 	if (sourceUpdatedAt === undefined) {
 		throw new Error("UN_CONSOLIDATED: freshness timestamp is missing");
 	}
-	return sourceSnapshot(raw, response, UN_URL, sourceUpdatedAt);
+	return sourceSnapshot(
+		raw,
+		response,
+		UN_URL,
+		canonicalSourceTimestamp(UN_LIST_ID, sourceUpdatedAt),
+	);
 }
 
 async function fetchUnRaw(): Promise<{
@@ -94,7 +110,12 @@ async function fetchUnRaw(): Promise<{
 	readonly response: Response;
 }> {
 	const response = await fetchWithTimeout(UN_URL, "UN");
-	return { raw: { [UN_RAW_FILE]: await response.text() }, response };
+	return {
+		raw: {
+			[UN_RAW_FILE]: await readResponseText(response, "UN", UN_BODY_LIMITS),
+		},
+		response,
+	};
 }
 
 export const unSource: WatchlistSource = {

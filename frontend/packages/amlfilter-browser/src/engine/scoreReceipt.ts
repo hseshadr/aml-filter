@@ -17,7 +17,8 @@
 //     no browser has, and @noble/ed25519 hashes via `subtle.digest(SHA-512,
 //     m.buffer)` — a bare ArrayBuffer that Node 22's WebCrypto rejects when it
 //     is cross-realm. That file's header documents the full diagnosis.
-//   • app/tests/score-receipt-browser.spec.ts — real headless Chromium. Because
+//   • app/tests/score-receipt-browser.spec.ts — real Chromium, Firefox, and
+//     WebKit. Because
 //     the unit suite deliberately leaves jsdom, browser behaviour must be shown
 //     somewhere real; that spec drives sign -> verify -> tamper-reject ->
 //     wrong-key-reject in an actual page.
@@ -39,7 +40,9 @@ import {
 } from "@edgeproc/avow";
 
 import { SCORING_POLICY_VERSION } from "./assayScoring";
+import { PRESETS } from "./scoring";
 import type { MatchTier } from "./tiering";
+import { classifyTier } from "./tiering";
 
 /** Re-exported so a receipt consumer needs only this module. ONE definition
  * lives in ./tiering; @amlfilter/workstation re-exports that same one. */
@@ -49,6 +52,7 @@ export type { MatchTier };
 export interface MatchScoreInput {
 	readonly score: number;
 	readonly tier: MatchTier;
+	readonly possibleThreshold?: number;
 	readonly assay?: AssayScoreResult;
 }
 
@@ -125,6 +129,7 @@ export type MatchScoreSubject = {
 	readonly inputs_hash: Sha256Hash;
 	readonly score: AttestedScore;
 	readonly tier: MatchTier;
+	readonly possible_threshold?: number;
 	readonly assay?: AssayScoreResult & JsonValue;
 };
 
@@ -138,7 +143,7 @@ export function matchScoreSubject(
 	match: MatchScoreInput,
 	context: ScoreReceiptContext,
 ): MatchScoreSubject {
-	return {
+	const subject: MatchScoreSubject = {
 		kind: "aml.match_score",
 		engine: "amlfilter-sequenceMatcher",
 		engine_version: context.engineVersion,
@@ -146,10 +151,15 @@ export function matchScoreSubject(
 		inputs_hash: context.inputsHash,
 		score: attestedScore(match.score),
 		tier: match.tier,
+		...(match.possibleThreshold === undefined
+			? {}
+			: { possible_threshold: match.possibleThreshold }),
 		...(match.assay === undefined
 			? {}
 			: { assay: match.assay as AssayScoreResult & JsonValue }),
 	};
+	assertAttestable(subject);
+	return subject;
 }
 
 const EXPECTED_COMPONENTS = [
@@ -159,6 +169,52 @@ const EXPECTED_COMPONENTS = [
 	"dob_match",
 	"country_match",
 ] as const;
+
+const SUBJECT_KEYS = new Set([
+	"kind",
+	"engine",
+	"engine_version",
+	"watchlist_version",
+	"inputs_hash",
+	"score",
+	"tier",
+	"possible_threshold",
+	"assay",
+]);
+
+const APPROVED_COEFFICIENTS = Object.values(PRESETS).map((preset) =>
+	EXPECTED_COMPONENTS.map((id) => preset.weights[id]),
+);
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+	if (value === null || typeof value !== "object" || Array.isArray(value)) {
+		return false;
+	}
+	const prototype = Object.getPrototypeOf(value);
+	return prototype === Object.prototype || prototype === null;
+}
+
+function hasApprovedCoefficients(evidence: AssayScoreResult): boolean {
+	const coefficients = evidence.components.map(
+		(component) => component.coefficient,
+	);
+	return APPROVED_COEFFICIENTS.some((approved) =>
+		approved.every((value, index) => value === coefficients[index]),
+	);
+}
+
+function isTier(value: unknown): value is MatchTier {
+	return value === "STRONG" || value === "POSSIBLE" || value === "WEAK";
+}
+
+function validThreshold(value: unknown): value is number {
+	return (
+		typeof value === "number" &&
+		Number.isFinite(value) &&
+		value >= 0 &&
+		value <= 1
+	);
+}
 
 function assertAssayEvidence(payload: MatchScoreSubject): void {
 	if (payload.assay === undefined) {
@@ -171,7 +227,13 @@ function assertAssayEvidence(payload: MatchScoreSubject): void {
 			evidence.method.id !== "additive" ||
 			evidence.method.version !== SCORING_POLICY_VERSION ||
 			evidence.score !== payload.score ||
-			ids.join("\u0000") !== EXPECTED_COMPONENTS.join("\u0000")
+			evidence.clamp !== "clamp" ||
+			evidence.intercept !== 0 ||
+			ids.join("\u0000") !== EXPECTED_COMPONENTS.join("\u0000") ||
+			evidence.components.some((component) => component.operation !== "add") ||
+			!validThreshold(payload.possible_threshold) ||
+			!hasApprovedCoefficients(evidence) ||
+			classifyTier(payload.score, payload.possible_threshold) !== payload.tier
 		) {
 			throw new MatchScoreEvidenceInvalid();
 		}
@@ -194,7 +256,38 @@ function assertAttestable(payload: MatchScoreSubject): void {
 	if (!SHA256_HASH_PATTERN.test(payload.inputs_hash)) {
 		throw new InputsHashInvalid(payload.inputs_hash);
 	}
+	if (
+		payload.kind !== "aml.match_score" ||
+		payload.engine !== "amlfilter-sequenceMatcher" ||
+		!payload.engine_version.trim() ||
+		!payload.watchlist_version.trim() ||
+		!isTier(payload.tier) ||
+		(payload.possible_threshold !== undefined &&
+			!validThreshold(payload.possible_threshold))
+	) {
+		throw new MatchScoreEvidenceInvalid();
+	}
 	assertAssayEvidence(payload);
+}
+
+/** Parse the signed wire subject before either signing or signature acceptance. */
+export function parseMatchScoreSubject(value: unknown): MatchScoreSubject {
+	if (
+		!isPlainRecord(value) ||
+		Object.keys(value).some((key) => !SUBJECT_KEYS.has(key)) ||
+		typeof value.kind !== "string" ||
+		typeof value.engine !== "string" ||
+		typeof value.engine_version !== "string" ||
+		typeof value.watchlist_version !== "string" ||
+		typeof value.inputs_hash !== "string" ||
+		typeof value.score !== "number" ||
+		typeof value.tier !== "string"
+	) {
+		throw new MatchScoreEvidenceInvalid();
+	}
+	const payload = value as MatchScoreSubject;
+	assertAttestable(payload);
+	return payload;
 }
 
 /** Hash + Ed25519-sign the score subject into a verifiable receipt. */
@@ -202,7 +295,7 @@ export function signMatchReceipt(
 	subject: MatchScoreSubject,
 	seedHex: string,
 ): Promise<SignedReceipt<MatchScoreSubject>> {
-	return signPayload(subject, seedHex);
+	return signPayload(parseMatchScoreSubject(subject), seedHex);
 }
 
 /** Fail-closed verify of a score receipt against a pinned signer key. */
@@ -210,6 +303,6 @@ export async function verifyMatchReceipt(
 	receipt: SignedReceipt<MatchScoreSubject>,
 	expectedPublicKey: string,
 ): Promise<void> {
-	assertAttestable(receipt.payload);
+	parseMatchScoreSubject(receipt.payload);
 	return verifySignature(receipt, expectedPublicKey);
 }

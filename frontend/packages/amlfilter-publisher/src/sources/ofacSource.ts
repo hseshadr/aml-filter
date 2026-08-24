@@ -17,8 +17,13 @@
 // See csl.ts for the provenance rationale and the field-level notes.
 
 import { CSL_SDN_SOURCE, parseCslSdn } from "./csl.ts";
-import { fetchWithTimeout } from "./fetchWithTimeout.ts";
 import {
+	cancelResponse,
+	fetchWithTimeout,
+	readResponseText,
+} from "./fetchWithTimeout.ts";
+import {
+	canonicalSourceTimestamp,
 	OFAC_LIST_ID,
 	type RawListBytes,
 	SOURCE_UPDATED_AT_KEY,
@@ -38,6 +43,11 @@ export const CSL_FILE = "consolidated.csv";
 
 /** ~17 MB, so it gets a longer deadline than a few-hundred-KB feed. */
 const CSL_TIMEOUT_MS = 90_000;
+const CSL_BODY_LIMITS = {
+	maxBytes: 64 * 1024 * 1024,
+	elapsedMs: CSL_TIMEOUT_MS,
+	idleMs: 15_000,
+} as const;
 
 /** Where an operator gets a key if trade.gov ever starts requiring one. */
 const KEY_HELP =
@@ -89,17 +99,21 @@ async function fetchCsl(): Promise<FetchedText> {
 	}
 	const updatedAt = res.headers.get("last-modified");
 	if (updatedAt === null) {
-		throw new Error(`fetch ${url} omitted Last-Modified`);
+		const failure = new Error(`fetch ${url} omitted Last-Modified`);
+		await cancelResponse(res, failure);
+		throw failure;
 	}
-	return { text: await res.text(), updatedAt, response: res, url };
+	return {
+		text: await readResponseText(res, "OFAC SDN (via CSL)", CSL_BODY_LIMITS),
+		updatedAt,
+		response: res,
+		url,
+	};
 }
 
 async function fetchCslSnapshot(): Promise<SourceSnapshot> {
 	const csl = await fetchCsl();
-	const parsed = Date.parse(csl.updatedAt);
-	const updatedAt = Number.isFinite(parsed)
-		? new Date(parsed).toISOString()
-		: "invalid";
+	const updatedAt = canonicalSourceTimestamp(OFAC_LIST_ID, csl.updatedAt);
 	const raw = { [CSL_FILE]: csl.text, [SOURCE_UPDATED_AT_KEY]: updatedAt };
 	return sourceSnapshot(raw, csl.response, csl.url, updatedAt);
 }

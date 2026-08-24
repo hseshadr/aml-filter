@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { FEED_USER_AGENT, fetchWithTimeout } from "./fetchWithTimeout.ts";
+import {
+	FEED_USER_AGENT,
+	fetchWithTimeout,
+	readResponseText,
+} from "./fetchWithTimeout.ts";
 
 /** Never sleep for real in a retry test. */
 const noSleep = async (): Promise<void> => {};
@@ -42,6 +46,88 @@ describe("fetchWithTimeout", () => {
 			"EU request timed out after 50ms",
 		);
 		await vi.advanceTimersByTimeAsync(50);
+		await assertion;
+	});
+
+	it("cancels a response body that stalls after headers", async () => {
+		vi.useFakeTimers();
+		const cancel = vi.fn();
+		const request: { signal: AbortSignal | null } = { signal: null };
+		const response = new Response(
+			new ReadableStream<Uint8Array>({
+				start(controller) {
+					controller.enqueue(new TextEncoder().encode("partial"));
+				},
+				cancel,
+			}),
+		);
+		vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+			request.signal = init?.signal ?? null;
+			return response;
+		});
+
+		const fetched = await fetchWithTimeout("https://example.test/feed", "EU");
+		const pending = readResponseText(fetched, "EU", {
+			maxBytes: 1_024,
+			elapsedMs: 100,
+			idleMs: 20,
+		});
+		const assertion = expect(pending).rejects.toThrow(/idle.*20ms/i);
+		await vi.advanceTimersByTimeAsync(20);
+		await assertion;
+		expect(cancel).toHaveBeenCalledOnce();
+		expect(request.signal?.aborted).toBe(true);
+	});
+
+	it("cancels a response body as soon as it exceeds its byte ceiling", async () => {
+		const cancel = vi.fn();
+		const response = new Response(
+			new ReadableStream<Uint8Array>({
+				start(controller) {
+					controller.enqueue(new Uint8Array(17));
+				},
+				cancel,
+			}),
+		);
+		vi.spyOn(globalThis, "fetch").mockResolvedValue(response);
+
+		const fetched = await fetchWithTimeout("https://example.test/feed", "UN");
+		await expect(
+			readResponseText(fetched, "UN", {
+				maxBytes: 16,
+				elapsedMs: 100,
+				idleMs: 50,
+			}),
+		).rejects.toThrow(/exceeded 16 bytes/i);
+		expect(cancel).toHaveBeenCalledOnce();
+	});
+
+	it("enforces total elapsed time even while chunks keep arriving", async () => {
+		vi.useFakeTimers();
+		const body: {
+			controller: ReadableStreamDefaultController<Uint8Array> | null;
+		} = { controller: null };
+		const response = new Response(
+			new ReadableStream<Uint8Array>({
+				start(controller) {
+					body.controller = controller;
+					controller.enqueue(new Uint8Array([1]));
+				},
+			}),
+		);
+		vi.spyOn(globalThis, "fetch").mockResolvedValue(response);
+		const fetched = await fetchWithTimeout("https://example.test/feed", "UK");
+		const pending = readResponseText(fetched, "UK", {
+			maxBytes: 16,
+			elapsedMs: 40,
+			idleMs: 20,
+		});
+		const assertion = expect(pending).rejects.toThrow(/elapsed.*40ms/i);
+		await vi.advanceTimersByTimeAsync(15);
+		body.controller?.enqueue(new Uint8Array([2]));
+		await vi.advanceTimersByTimeAsync(15);
+		body.controller?.enqueue(new Uint8Array([3]));
+		await vi.advanceTimersByTimeAsync(10);
 		await assertion;
 	});
 });

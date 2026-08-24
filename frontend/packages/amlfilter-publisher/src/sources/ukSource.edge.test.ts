@@ -84,6 +84,20 @@ describe("ukSource.fetchRaw", () => {
 		).toBe("2026-07-01T00:00:00.000Z");
 	});
 
+	test("rejects an impossible upstream calendar date", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(
+				async (): Promise<Response> =>
+					new Response("Last Updated,31/02/2026\nGroup ID,Alias Type\n"),
+			),
+		);
+
+		await expect(ukSource.fetchSnapshot?.()).rejects.toThrow(
+			/UK_OFSI.*freshness timestamp.*invalid/i,
+		);
+	});
+
 	test("rejects with the status on a non-OK response", async () => {
 		vi.stubGlobal(
 			"fetch",

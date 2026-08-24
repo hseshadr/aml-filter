@@ -6,8 +6,13 @@
 // parse:    REAL — maps <sanctionEntity> (logicalId, subjectType, nameAlias,
 //   birthdate, citizenship/address country) into namespaced SourceLines.
 
-import { fetchWithTimeout } from "./fetchWithTimeout.ts";
 import {
+	fetchWithTimeout,
+	readResponseText,
+	SOURCE_FETCH_TIMEOUT_MS,
+} from "./fetchWithTimeout.ts";
+import {
+	canonicalSourceTimestamp,
 	EU_LIST_ID,
 	namespacedId,
 	type RawListBytes,
@@ -31,6 +36,12 @@ export const EU_RAW_FILE = "eu_consolidated.xml";
  */
 export const EU_URL =
 	"https://webgate.ec.europa.eu/fsd/fsf/public/files/xmlFullSanctionsList_1_1/content?token=dG9rZW4tMjAxNw";
+
+const EU_BODY_LIMITS = {
+	maxBytes: 32 * 1024 * 1024,
+	elapsedMs: SOURCE_FETCH_TIMEOUT_MS,
+	idleMs: 15_000,
+} as const;
 
 function entityType(code: string): "PERSON" | "ORGANIZATION" {
 	return code.toLowerCase() === "person" ? "PERSON" : "ORGANIZATION";
@@ -100,7 +111,12 @@ async function fetchEuSnapshot(): Promise<SourceSnapshot> {
 	if (sourceUpdatedAt === undefined) {
 		throw new Error("EU_CONSOLIDATED: freshness timestamp is missing");
 	}
-	return sourceSnapshot(raw, response, EU_URL, sourceUpdatedAt);
+	return sourceSnapshot(
+		raw,
+		response,
+		EU_URL,
+		canonicalSourceTimestamp(EU_LIST_ID, sourceUpdatedAt),
+	);
 }
 
 async function fetchEuRaw(): Promise<{
@@ -108,7 +124,12 @@ async function fetchEuRaw(): Promise<{
 	readonly response: Response;
 }> {
 	const response = await fetchWithTimeout(EU_URL, "EU");
-	return { raw: { [EU_RAW_FILE]: await response.text() }, response };
+	return {
+		raw: {
+			[EU_RAW_FILE]: await readResponseText(response, "EU", EU_BODY_LIMITS),
+		},
+		response,
+	};
 }
 
 export const euSource: WatchlistSource = {

@@ -29,7 +29,7 @@
 // FAIL SOFT, NEVER SILENT. A mirror outage yields an EMPTY enrichment, the
 // bundle publishes CSL-only, and the caller reports which mode produced it.
 
-import { fetchWithTimeout } from "./fetchWithTimeout.ts";
+import { fetchWithTimeout, streamResponseBody } from "./fetchWithTimeout.ts";
 import type { SourceLine } from "./source.ts";
 
 /** The script name this enrichment deliberately skips (CSL already has it). */
@@ -42,6 +42,11 @@ export const SDN_ALIAS_MIRROR_URL =
 
 /** ~125 MB, so it gets a longer deadline than the record feed. */
 const MIRROR_TIMEOUT_MS = 240_000;
+export const ALIAS_BODY_LIMITS = {
+	maxBytes: 512 * 1024 * 1024,
+	elapsedMs: MIRROR_TIMEOUT_MS,
+	idleMs: 30_000,
+} as const;
 
 /** Non-Latin alias names, keyed by OFAC entity number (the XML's FixedRef). */
 export interface AliasEnrichment {
@@ -369,15 +374,23 @@ export async function fetchNonLatinAliases(
 	limits: Partial<StreamLimits> = {},
 ): Promise<AliasEnrichment> {
 	const response = await fetchAliasResponse();
-	if (response.body === null) {
-		throw new Error("alias mirror returned no response body");
-	}
 	// STREAMED, never buffered: `response.text()` on this ~125 MB feed would
 	// materialize it (and its UTF-16 expansion) on the heap. An OOM there is
 	// fatal and uncatchable, so the fail-soft path would never run and the
 	// deploy would die on an unrelated third party's payload growing.
 	return parseNonLatinAliasesFromStream(
-		response.body as AsyncIterable<Uint8Array>,
+		streamResponseBody(
+			response,
+			"OFAC SDN aliases (Treasury SDN_ADVANCED.XML via mirror)",
+			{
+				...ALIAS_BODY_LIMITS,
+				maxBytes: limits.maxBytes ?? MAX_ALIAS_FEED_BYTES,
+				sizeError: (maxBytes: number) =>
+					new AliasFeedTooLargeError(
+						`alias feed exceeded ${maxBytes} bytes — refusing to keep reading`,
+					),
+			},
+		),
 		limits,
 	);
 }

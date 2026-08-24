@@ -1,4 +1,4 @@
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -37,7 +37,8 @@ describe("snapshotSources", () => {
 	afterEach(() => vi.unstubAllGlobals());
 
 	it("writes sorted canonical bytes and provenance without building or signing", async () => {
-		const root = await mkdtemp(join(tmpdir(), "snapshot-sources-"));
+		const parent = await mkdtemp(join(tmpdir(), "snapshot-sources-"));
+		const root = join(parent, "snapshot");
 		const manifest = await snapshotSources(root, [
 			source(
 				"zeta",
@@ -85,7 +86,8 @@ describe("snapshotSources", () => {
 	});
 
 	it("fails closed when an adapter cannot provide transport provenance", async () => {
-		const root = await mkdtemp(join(tmpdir(), "snapshot-sources-missing-"));
+		const parent = await mkdtemp(join(tmpdir(), "snapshot-sources-missing-"));
+		const root = join(parent, "snapshot");
 		const legacy: WatchlistSource = {
 			id: "legacy",
 			title: "legacy",
@@ -96,6 +98,121 @@ describe("snapshotSources", () => {
 		await expect(snapshotSources(root, [legacy])).rejects.toThrow(
 			"legacy: source adapter cannot produce a provenance snapshot",
 		);
+		expect(await readdir(parent)).toEqual([]);
+	});
+
+	it("rejects invalid provenance before exposing any canonical output", async () => {
+		const parent = await mkdtemp(join(tmpdir(), "snapshot-invalid-date-"));
+		const root = join(parent, "snapshot");
+		const invalid = captured(
+			{ "source.txt": "canonical bytes" },
+			"https://feeds.example/source",
+			"Sat, 23 Aug 2026 00:00:00 GMT",
+		);
+		const badSnapshot = { ...invalid, sourceUpdatedAt: "not-a-date" };
+
+		await expect(
+			snapshotSources(root, [source("bad", badSnapshot)]),
+		).rejects.toThrow(/bad.*freshness timestamp.*invalid/i);
+		expect(await readdir(parent)).toEqual([]);
+	});
+
+	it("cleans concurrent partial work and permits a residue-free retry", async () => {
+		const parent = await mkdtemp(join(tmpdir(), "snapshot-atomic-"));
+		const root = join(parent, "snapshot");
+		let fail = true;
+		const delayed: WatchlistSource = {
+			...source(
+				"delayed",
+				captured(
+					{ "delayed.txt": "complete" },
+					"https://feeds.example/delayed",
+					"Sat, 23 Aug 2026 00:00:00 GMT",
+				),
+			),
+			async fetchSnapshot() {
+				await new Promise((resolve) => setTimeout(resolve, 10));
+				return captured(
+					{ "delayed.txt": "complete" },
+					"https://feeds.example/delayed",
+					"Sat, 23 Aug 2026 00:00:00 GMT",
+				);
+			},
+		};
+		const flaky: WatchlistSource = {
+			...delayed,
+			id: "flaky",
+			async fetchSnapshot() {
+				await new Promise((resolve) => setTimeout(resolve, 5));
+				if (fail) {
+					throw new Error("source stream failed midway");
+				}
+				return captured(
+					{ "flaky.txt": "complete" },
+					"https://feeds.example/flaky",
+					"Sat, 23 Aug 2026 00:00:00 GMT",
+				);
+			},
+		};
+
+		await expect(snapshotSources(root, [delayed, flaky])).rejects.toThrow(
+			"source stream failed midway",
+		);
+		expect(await readdir(parent)).toEqual([]);
+
+		fail = false;
+		await expect(
+			snapshotSources(root, [delayed, flaky]),
+		).resolves.toMatchObject({
+			sources: [{ id: "delayed" }, { id: "flaky" }],
+		});
+		expect((await readdir(parent)).sort()).toEqual(["snapshot"]);
+	});
+
+	it("rejects an existing final target without changing it", async () => {
+		const parent = await mkdtemp(join(tmpdir(), "snapshot-existing-"));
+		const root = join(parent, "snapshot");
+		await writeFile(root, "do not replace", "utf8");
+
+		await expect(snapshotSources(root, [])).rejects.toThrow(/already exists/i);
+		expect(await readFile(root, "utf8")).toBe("do not replace");
+	});
+
+	it("removes staged primary bytes when the alias snapshot stream fails", async () => {
+		const parent = await mkdtemp(join(tmpdir(), "snapshot-alias-stream-"));
+		const root = join(parent, "snapshot");
+		vi.stubGlobal(
+			"fetch",
+			vi.fn((input: string | URL | Request) => {
+				const url = String(input);
+				const body = url.includes("opensanctions")
+					? new ReadableStream<Uint8Array>({
+							start(controller) {
+								controller.enqueue(new TextEncoder().encode("<partial>"));
+							},
+							pull(controller) {
+								controller.error(new Error("alias stream failed midway"));
+							},
+						})
+					: url.includes("trade.gov")
+						? "source,entity_number\n"
+						: url.includes("webgate")
+							? '<export generationDate="2026-08-23T00:00:00Z"></export>'
+							: url.includes("scsanctions")
+								? '<CONSOLIDATED_LIST dateGenerated="2026-08-23T00:00:00Z"></CONSOLIDATED_LIST>'
+								: "Last Updated,23/08/2026\nGroup ID,Alias Type\n";
+				return Promise.resolve(
+					new Response(body, {
+						headers: { "last-modified": "Sun, 23 Aug 2026 00:00:00 GMT" },
+					}),
+				);
+			}),
+		);
+
+		await expect(snapshotSources(root)).rejects.toThrow(
+			"alias stream failed midway",
+		);
+		expect(await readdir(parent)).toEqual([]);
 	});
 
 	it("captures the four production source adapters through their bounded fetch seam", async () => {
@@ -122,7 +239,8 @@ describe("snapshotSources", () => {
 				return Promise.resolve(response);
 			}),
 		);
-		const root = await mkdtemp(join(tmpdir(), "snapshot-sources-real-"));
+		const parent = await mkdtemp(join(tmpdir(), "snapshot-sources-real-"));
+		const root = join(parent, "snapshot");
 
 		const manifest = await snapshotSources(root);
 

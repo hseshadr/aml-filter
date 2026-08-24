@@ -3,6 +3,7 @@
 
 import { publicKeyHex } from "@edgeproc/avow";
 import { describe, expect, it, vi } from "vitest";
+import { calculateAssayScore } from "./assayScoring";
 import type { Match, ScreenQuery } from "./domain";
 import { INSTALL_SEED_KEY, type KeyStorage } from "./installKey";
 import {
@@ -11,6 +12,7 @@ import {
 	type SealContext,
 } from "./matchReceipts";
 import { ScoreOutOfRange, verifyMatchReceipt } from "./scoreReceipt";
+import { PRESETS } from "./scoring";
 import { ENGINE_VERSION } from "./version";
 
 const SEED = "cd".repeat(32);
@@ -107,6 +109,27 @@ describe("createMatchReceiptSealer", () => {
 		await expect(
 			verifyMatchReceipt(receipt, await publicKeyHex(SEED)),
 		).resolves.toBeUndefined();
+	});
+
+	it("seals the effective screen threshold independently of the weight preset", async () => {
+		const evidence = calculateAssayScore(
+			{
+				name_vector: 0.8,
+				name_sequence: 0.6,
+				alias_match: 1,
+				dob_match: 0,
+				country_match: 0,
+			},
+			PRESETS.balanced.weights,
+		);
+		const sealer = createMatchReceiptSealer(storageWithSeed());
+
+		const [sealed] = await sealer.seal(
+			[match({ score: evidence.score, score_evidence: evidence })],
+			context({ possibleThresholdFor: () => 0.3 }),
+		);
+
+		expect(sealed?.score_receipt?.payload.possible_threshold).toBe(0.3);
 	});
 
 	it("resolves the install key ONCE across repeated screens", async () => {

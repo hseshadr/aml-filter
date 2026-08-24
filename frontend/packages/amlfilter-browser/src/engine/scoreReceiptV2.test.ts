@@ -1,5 +1,6 @@
 /** @vitest-environment node */
 
+import { additive } from "@edgeproc/assay";
 import { generateSeedHex, publicKeyHex, signPayload } from "@edgeproc/avow";
 import { describe, expect, it } from "vitest";
 import { calculateAssayScore } from "./assayScoring";
@@ -38,7 +39,12 @@ const CONTEXT = {
 describe("Assay-backed match score receipt", () => {
 	it("seals the exact five-term Assay result with the policy decision", () => {
 		const subject = matchScoreSubject(
-			{ score: EVIDENCE.score, tier: "STRONG", assay: EVIDENCE },
+			{
+				score: EVIDENCE.score,
+				tier: "STRONG",
+				possibleThreshold: 0.65,
+				assay: EVIDENCE,
+			},
 			CONTEXT,
 		);
 
@@ -57,7 +63,12 @@ describe("Assay-backed match score receipt", () => {
 		const seed = generateSeedHex();
 		const pinned = await publicKeyHex(seed);
 		const subject = matchScoreSubject(
-			{ score: EVIDENCE.score, tier: "STRONG", assay: EVIDENCE },
+			{
+				score: EVIDENCE.score,
+				tier: "STRONG",
+				possibleThreshold: 0.65,
+				assay: EVIDENCE,
+			},
 			CONTEXT,
 		);
 		const inconsistent = {
@@ -75,12 +86,85 @@ describe("Assay-backed match score receipt", () => {
 		const seed = generateSeedHex();
 		const pinned = await publicKeyHex(seed);
 		const subject = matchScoreSubject(
-			{ score: EVIDENCE.score, tier: "STRONG", assay: EVIDENCE },
+			{
+				score: EVIDENCE.score,
+				tier: "STRONG",
+				possibleThreshold: 0.65,
+				assay: EVIDENCE,
+			},
 			CONTEXT,
 		);
 
 		await expect(
 			verifyMatchReceipt(await signMatchReceipt(subject, seed), pinned),
 		).resolves.toBeUndefined();
+	});
+
+	it("rejects a valid signature over a different additive formula", async () => {
+		const seed = generateSeedHex();
+		const pinned = await publicKeyHex(seed);
+		const forgedEvidence = additive({
+			method: "additive",
+			method_version: "amlfilter.additive.v2",
+			clamp: null,
+			intercept: 0.95,
+			terms: EVIDENCE.components.map((component) => ({
+				id: component.id,
+				label: component.id,
+				value: 0,
+				coefficient: 0,
+				operation: "add" as const,
+				interval: null,
+			})),
+		});
+		const forged = {
+			...matchScoreSubject({ score: EVIDENCE.score, tier: "STRONG" }, CONTEXT),
+			score: forgedEvidence.score,
+			tier: "WEAK",
+			possible_threshold: 0.3,
+			assay: forgedEvidence,
+		} as MatchScoreSubject;
+
+		await expect(
+			verifyMatchReceipt(await signPayload(forged, seed), pinned),
+		).rejects.toBeInstanceOf(MatchScoreEvidenceInvalid);
+	});
+
+	it("rejects impossible tiers and missing policy thresholds", async () => {
+		const seed = generateSeedHex();
+		const pinned = await publicKeyHex(seed);
+		const subject = matchScoreSubject(
+			{ score: EVIDENCE.score, tier: "STRONG" },
+			CONTEXT,
+		);
+		const impossible = {
+			...subject,
+			tier: "WEAK",
+			assay: EVIDENCE,
+		} as MatchScoreSubject;
+
+		await expect(
+			verifyMatchReceipt(await signPayload(impossible, seed), pinned),
+		).rejects.toBeInstanceOf(MatchScoreEvidenceInvalid);
+	});
+
+	it("rejects wrong AML discriminants and empty versions", async () => {
+		const seed = generateSeedHex();
+		const pinned = await publicKeyHex(seed);
+		const subject = matchScoreSubject(
+			{ score: EVIDENCE.score, tier: "STRONG" },
+			CONTEXT,
+		);
+		const wrongPolicy = {
+			...subject,
+			kind: "not.aml",
+			engine: "other",
+			engine_version: "",
+			watchlist_version: "",
+		} as unknown as MatchScoreSubject;
+
+		await expect(
+			verifyMatchReceipt(await signPayload(wrongPolicy, seed), pinned),
+		).rejects.toBeInstanceOf(MatchScoreEvidenceInvalid);
 	});
 });

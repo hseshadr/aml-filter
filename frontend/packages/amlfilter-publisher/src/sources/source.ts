@@ -35,6 +35,18 @@ export interface SourceSnapshot {
 	readonly sourceUpdatedAt: string;
 }
 
+/** Validate and normalize an upstream freshness instant for signed provenance. */
+export function canonicalSourceTimestamp(
+	sourceId: string,
+	value: string,
+): string {
+	const parsed = Date.parse(value);
+	if (!Number.isFinite(parsed)) {
+		throw new Error(`${sourceId}: freshness timestamp is invalid`);
+	}
+	return new Date(parsed).toISOString();
+}
+
 /** Build transport provenance from the exact response that supplied `raw`. */
 export function sourceSnapshot(
 	raw: RawListBytes,

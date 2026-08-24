@@ -60,6 +60,16 @@ export interface FeedFetchOptions {
 	readonly headers?: Readonly<Record<string, string>>;
 }
 
+/** Bounds applied while consuming a response body, after headers arrive. */
+export interface ResponseBodyLimits {
+	readonly maxBytes: number;
+	readonly elapsedMs: number;
+	readonly idleMs: number;
+	readonly sizeError?: (maxBytes: number) => Error;
+}
+
+const responseControllers = new WeakMap<Response, AbortController>();
+
 const defaultSleep = (ms: number): Promise<void> =>
 	new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -96,7 +106,7 @@ async function attemptOnce(
 	const controller = new AbortController();
 	const timer = setTimeout(() => controller.abort(), timeoutMs);
 	try {
-		return await fetch(url, {
+		const response = await fetch(url, {
 			signal: controller.signal,
 			headers: {
 				"user-agent": FEED_USER_AGENT,
@@ -104,6 +114,8 @@ async function attemptOnce(
 				...extraHeaders,
 			},
 		});
+		responseControllers.set(response, controller);
+		return response;
 	} catch (error) {
 		if (controller.signal.aborted) {
 			// Our own deadline — see the header note on why this is terminal.
@@ -123,6 +135,18 @@ async function attemptOnce(
 	}
 }
 
+export async function cancelResponse(
+	response: Response,
+	reason: unknown,
+): Promise<void> {
+	responseControllers.get(response)?.abort(reason);
+	try {
+		await response.body?.cancel(reason);
+	} catch {
+		// The transport may already have closed the stream. The original error wins.
+	}
+}
+
 /** Run one attempt and classify the outcome. */
 async function classifyAttempt(
 	url: string,
@@ -136,7 +160,12 @@ async function classifyAttempt(
 		if (reason === null) {
 			return response;
 		}
-		return new FeedFetchError(reason, isRetryableStatus(response.status));
+		const failure = new FeedFetchError(
+			reason,
+			isRetryableStatus(response.status),
+		);
+		await cancelResponse(response, failure);
+		return failure;
 	} catch (error) {
 		return error instanceof FeedFetchError
 			? error
@@ -144,6 +173,156 @@ async function classifyAttempt(
 					cause: error,
 				});
 	}
+}
+
+function bodyTimeoutError(
+	label: string,
+	kind: "elapsed" | "idle",
+	ms: number,
+): FeedFetchError {
+	return new FeedFetchError(
+		`${label} response body exceeded its ${kind} timeout of ${ms}ms`,
+		false,
+	);
+}
+
+async function readWithDeadline(
+	reader: ReadableStreamDefaultReader<Uint8Array>,
+	label: string,
+	remainingMs: number,
+	idleMs: number,
+	elapsedMs: number,
+): Promise<ReadableStreamReadResult<Uint8Array>> {
+	const timeoutMs = Math.min(remainingMs, idleMs);
+	const kind = remainingMs <= idleMs ? "elapsed" : "idle";
+	const reportedMs = kind === "elapsed" ? elapsedMs : idleMs;
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const timeout = new Promise<never>((_resolve, reject) => {
+		timer = setTimeout(
+			() => reject(bodyTimeoutError(label, kind, reportedMs)),
+			timeoutMs,
+		);
+	});
+	try {
+		return await Promise.race([reader.read(), timeout]);
+	} finally {
+		if (timer !== undefined) {
+			clearTimeout(timer);
+		}
+	}
+}
+
+interface BodyReadState {
+	bytes: number;
+	readonly startedAt: number;
+}
+
+function sizeError(label: string, limits: ResponseBodyLimits): Error {
+	return (
+		limits.sizeError?.(limits.maxBytes) ??
+		new FeedFetchError(
+			`${label} response body exceeded ${limits.maxBytes} bytes`,
+			false,
+		)
+	);
+}
+
+async function nextBodyChunk(
+	reader: ReadableStreamDefaultReader<Uint8Array>,
+	label: string,
+	limits: ResponseBodyLimits,
+	state: BodyReadState,
+): Promise<Uint8Array | null> {
+	const remainingMs = limits.elapsedMs - (Date.now() - state.startedAt);
+	if (remainingMs <= 0) {
+		throw bodyTimeoutError(label, "elapsed", limits.elapsedMs);
+	}
+	const result = await readWithDeadline(
+		reader,
+		label,
+		remainingMs,
+		limits.idleMs,
+		limits.elapsedMs,
+	);
+	if (result.done) {
+		return null;
+	}
+	state.bytes += result.value.byteLength;
+	if (state.bytes > limits.maxBytes) {
+		throw sizeError(label, limits);
+	}
+	return result.value;
+}
+
+async function cancelReader(
+	response: Response,
+	reader: ReadableStreamDefaultReader<Uint8Array>,
+	reason: unknown,
+): Promise<void> {
+	responseControllers.get(response)?.abort(reason);
+	try {
+		await reader.cancel(reason);
+	} catch {
+		// Preserve the consumption error even if cancellation also fails.
+	}
+}
+
+/** Stream a response under byte, total-elapsed, and between-chunk deadlines. */
+export async function* streamResponseBody(
+	response: Response,
+	label: string,
+	limits: ResponseBodyLimits,
+): AsyncGenerator<Uint8Array> {
+	if (response.body === null) {
+		const failure = new FeedFetchError(
+			`${label} response body is missing`,
+			false,
+		);
+		responseControllers.get(response)?.abort(failure);
+		throw failure;
+	}
+	const reader = response.body.getReader();
+	const state: BodyReadState = { bytes: 0, startedAt: Date.now() };
+	let complete = false;
+	let cancelled = false;
+	try {
+		for (;;) {
+			const chunk = await nextBodyChunk(reader, label, limits, state);
+			if (chunk === null) {
+				complete = true;
+				return;
+			}
+			yield chunk;
+		}
+	} catch (error: unknown) {
+		cancelled = true;
+		await cancelReader(response, reader, error);
+		throw error;
+	} finally {
+		if (!complete && !cancelled) {
+			await cancelReader(
+				response,
+				reader,
+				new Error(`${label} body abandoned`),
+			);
+		}
+		reader.releaseLock();
+	}
+}
+
+/** Decode a bounded response body without using the unbounded Response.text(). */
+export async function readResponseText(
+	response: Response,
+	label: string,
+	limits: ResponseBodyLimits,
+): Promise<string> {
+	const decoder = new TextDecoder();
+	const text: string[] = [];
+	for await (const chunk of streamResponseBody(response, label, limits)) {
+		text.push(decoder.decode(chunk, { stream: true }));
+	}
+	text.push(decoder.decode());
+	return text.join("");
 }
 
 /** Fetch one external feed: identified, bounded, and retried when it can help. */
