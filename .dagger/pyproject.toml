@@ -4,9 +4,55 @@ version = "0.1.0"
 requires-python = ">=3.14"
 dependencies = ["dagger-io"]
 
+[dependency-groups]
+dev = [
+  "mypy>=1.17",
+  "poethepoet>=0.37",
+  "pytest>=9.0",
+  "pytest-cov>=7.0",
+  "ruff>=0.12",
+  "xenon>=0.9",
+]
+
 [build-system]
 requires = ["uv_build>=0.8.4,<0.9.0"]
 build-backend = "uv_build"
 
 [tool.uv.sources]
 dagger-io = { path = "sdk", editable = true }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py314"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "C901", "B", "UP", "SIM", "N", "RUF", "ASYNC", "S", "PL"]
+ignore = ["S101"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 5
+
+[tool.ruff.lint.per-file-ignores]
+"tests/test_module_contract.py" = ["S603"]
+
+[tool.mypy]
+strict = true
+python_version = "3.14"
+warn_unreachable = true
+disallow_any_explicit = true
+
+[tool.coverage.run]
+source = ["src/aml_filter"]
+omit = ["src/aml_filter/main.py"] # exercised by real Dagger schema and integration calls
+
+[tool.poe.tasks]
+lint-fix = "ruff check --fix ."
+format = "ruff format ."
+lint = ["lint-fix", "format"]
+typecheck = "mypy src tests"
+complexity = "xenon --max-absolute A --max-modules A --max-average A src"
+test = "pytest --cov=aml_filter --cov-report=term-missing --cov-fail-under=90"
+gate = ["lint", "typecheck", "complexity", "test"]

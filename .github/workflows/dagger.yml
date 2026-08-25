@@ -4,23 +4,53 @@ on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    - cron: "0 9 * * 1"
+  workflow_dispatch:
 
 permissions:
   contents: read
 
-concurrency:
-  group: dagger-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
-  check:
+  checks:
     name: Canonical checks
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
       - name: Run Dagger checks
-        uses: dagger/dagger-for-github@496f1b3d8b0d823834c13e67cf8a8e08ca3b9602 # v8.4.0
+        uses: dagger/dagger-for-github@27b130bf0f79a7f6fbbbe0fbca6760dc9bb40a77 # v8.4.1
         with:
           version: "0.21.8"
           check: "**"
+
+  deploy:
+    name: Deploy aml-filter.com
+    needs: checks
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: deploy-aml-filter-com
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Build, verify, deploy, and verify live
+        uses: dagger/dagger-for-github@27b130bf0f79a7f6fbbbe0fbca6760dc9bb40a77 # v8.4.1
+        env:
+          WATCHLIST_SIGNING_KEY: ${{ secrets.WATCHLIST_SIGNING_KEY }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        with:
+          version: "0.21.8"
+          call: >-
+            deploy
+            --signing-key=env://WATCHLIST_SIGNING_KEY
+            --cloudflare-api-token=env://CLOUDFLARE_API_TOKEN
+            --cloudflare-account-id=env://CLOUDFLARE_ACCOUNT_ID
+            --release-id=${{ github.sha }}:${{ github.run_id }}
