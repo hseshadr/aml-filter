@@ -8,7 +8,6 @@ from datetime import date
 from enum import StrEnum
 from typing import Final
 
-APEX_ORIGIN: Final = "https://aml-filter.com"
 FALLBACK_DAYS: Final = 7
 SAFE_VERSION: Final = re.compile(r"^[A-Za-z0-9._-]+$")
 SOURCE_SHA: Final = re.compile(r"^[0-9a-f]{40}$")
@@ -16,20 +15,16 @@ RUN_ID: Final = re.compile(r"^[0-9]+$")
 
 
 class InvalidReleaseIdentityError(ValueError):
-    """Raised when untrusted release metadata violates the public contract."""
+    pass
 
 
 class ReleaseKind(StrEnum):
-    """The two publication paths with intentionally different fallbacks."""
-
     CODE = "code"
     WATCHLIST = "watchlist"
 
 
 @dataclass(frozen=True)
 class ReleaseIdentity:
-    """Exact source and hosted-run identity stamped into the application."""
-
     source_sha: str
     run_id: str
 
@@ -59,15 +54,7 @@ def release_identity(source_sha: str, run_id: str) -> ReleaseIdentity:
 
 
 def parse_release_identity(stamp: str) -> ReleaseIdentity:
-    """Parse the ingress-safe ``<source-sha>:<run-id>`` identity."""
     source_sha, separator, run_id = stamp.partition(":")
     if separator == "":
         raise InvalidReleaseIdentityError("release identity must separate SHA and run id")
     return release_identity(source_sha, run_id)
-
-
-def canonical_redirect(path_and_query: str) -> str:
-    """Return the exact apex target expected from the www redirect."""
-    if not path_and_query.startswith("/"):
-        raise InvalidReleaseIdentityError("canonical path must start with slash")
-    return f"{APEX_ORIGIN}{path_and_query}"

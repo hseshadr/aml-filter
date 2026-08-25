@@ -4,9 +4,9 @@
 // WHY THIS EXISTS. Cloudflare Pages deploys a whole directory: whatever is in
 // `frontend/app/dist` becomes the site. The signed bundle is served from that
 // same tree, so a deploy that omits it would take the watchlist offline. Before
-// this module, `deploy.yml` deleted the served origin and rebuilt it from the
+// this module, a code deploy deleted the served origin and rebuilt it from the
 // four live feeds — meaning any feed outage (2026-07-30: Treasury's new AWS WAF
-// 403ing our fetch) failed the job and froze the ENTIRE site, docs and all.
+// 403ing our fetch) failed the release and froze the ENTIRE site, docs and all.
 //
 // WHAT IT DOES. Re-publish the bytes that are already live. It fetches the
 // currently-served origin and re-verifies the complete trust chain — signed

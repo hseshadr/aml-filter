@@ -10,7 +10,6 @@ import pytest
 from aml_filter.policy import (
     InvalidReleaseIdentityError,
     ReleaseKind,
-    canonical_redirect,
     parse_release_identity,
     release_identity,
     release_version,
@@ -93,14 +92,3 @@ def test_should_parse_identity_when_ingress_binds_sha_and_run() -> None:
     # Then
     assert identity.source_sha == "a" * 40
     assert identity.run_id == "123456"
-
-
-def test_should_preserve_path_and_query_when_redirecting_to_apex() -> None:
-    # Given
-    path_and_query = "/settings?source=deploy-check"
-
-    # When
-    target = canonical_redirect(path_and_query)
-
-    # Then
-    assert target == "https://aml-filter.com/settings?source=deploy-check"

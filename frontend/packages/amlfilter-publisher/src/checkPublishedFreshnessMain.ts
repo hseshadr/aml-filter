@@ -5,9 +5,9 @@
 // and mirrorPublishedOriginMain).
 //
 // Exit code is the alert: 0 = the live bundle is as fresh as the product claims,
-// 1 = it is not, or its freshness could not be proven. The scheduled
-// watchlist-freshness workflow turns that non-zero into a GitHub issue, because
-// a red dot on a cron run is exactly the signal that went unread for 22 days.
+// 1 = it is not, or its freshness could not be proven. Dagger records that
+// verdict for the thin issue-metadata ingress, because a red cron run alone was
+// exactly the signal that went unread for 22 days.
 
 import { runCheckPublishedFreshness } from "./checkPublishedFreshness.ts";
 

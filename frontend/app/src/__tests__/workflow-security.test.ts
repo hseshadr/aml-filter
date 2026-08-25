@@ -78,26 +78,18 @@ describe("GitHub Actions workflow pinning", () => {
 	});
 });
 
-// The signing-path edge-proc dependency is NOT a `uses:` ref — it is a `git
-// clone` inside the deploy and watchlist-publish workflows, feeding the code
-// that handles the watchlist signing key. The same rule applies for the same
-// reason: a tag (`v0.1.4`) can be repointed by whoever controls the upstream
-// repo; a full 40-hex commit SHA cannot. Pinning is transitive — a moving ref
-// nested anywhere inside a signing path is still a supply-chain hole.
+// The signing-path edge-proc dependency is loaded by Dagger, not a `uses:` ref.
+// Pinning remains transitive: its source commit must be immutable too.
 describe("signing-path edge-proc pin", () => {
-	const SIGNING_WORKFLOWS = ["deploy.yml", "publish-watchlist.yml"] as const;
-
-	it.each(SIGNING_WORKFLOWS)(
-		"%s pins edge-proc to a full commit SHA, not a movable ref",
-		(file) => {
-			const yaml = readFileSync(join(workflowsDir, file), "utf8");
-			const pin = yaml.match(/^\s*EDGEPROC_COMMIT:\s*([^\s#]+)/m);
-			expect(pin, `${file} must declare EDGEPROC_COMMIT`).not.toBeNull();
-			expect(pin?.[1]).toMatch(/^[0-9a-f]{40}$/);
-			// And no movable-ref variable may survive alongside the pin.
-			expect(yaml).not.toMatch(/EDGEPROC_REF/);
-		},
-	);
+	it("pins edge-proc to a full commit SHA, not a movable ref", () => {
+		const module = readFileSync(
+			join(repoRoot, ".dagger/src/aml_filter/main.py"),
+			"utf8",
+		);
+		const pin = module.match(/EDGEPROC_COMMIT:\s*Final\s*=\s*"([0-9a-f]+)"/);
+		expect(pin?.[1]).toMatch(/^[0-9a-f]{40}$/);
+		expect(module).not.toMatch(/EDGEPROC_REF/);
+	});
 });
 
 // GITHUB_TOKEN defaults are repo-wide; a workflow that never writes must say
@@ -114,7 +106,10 @@ describe("workflow permissions", () => {
 
 describe("mobile WebKit release gate", () => {
 	it("installs WebKit and runs the iPhone profile in the canonical CI gate", () => {
-		const ci = readFileSync(join(workflowsDir, "ci.yml"), "utf8");
+		const module = readFileSync(
+			join(repoRoot, ".dagger/src/aml_filter/main.py"),
+			"utf8",
+		);
 		const mobileConfig = readFileSync(
 			join(repoRoot, "frontend", "app", "playwright.mobile.config.ts"),
 			"utf8",
@@ -123,8 +118,8 @@ describe("mobile WebKit release gate", () => {
 			readFileSync(join(repoRoot, "frontend", "app", "package.json"), "utf8"),
 		) as { readonly scripts: Readonly<Record<string, string>> };
 
-		expect(ci).toMatch(
-			/playwright install --with-deps chromium firefox webkit/,
+		expect(module).toContain(
+			"playwright install --with-deps chromium firefox webkit",
 		);
 		expect(appPackage.scripts["test:e2e:mobile:ci"]).toContain(
 			"--project=ios-webkit",

@@ -21,7 +21,6 @@ def dagger_bin() -> str:
 DAGGER_BIN: Final = dagger_bin()
 FUNCTIONS: Final = frozenset(
     {
-        "build",
         "dependency-audit",
         "deploy",
         "freshness-report",

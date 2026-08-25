@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from shlex import split
 from typing import Annotated, Final
 
 from dagger import (
-    CacheVolume,
     Container,
     DefaultPath,
     Directory,
@@ -46,24 +46,11 @@ EDGEPROC_REPO: Final = "https://github.com/hseshadr/edge-proc"
 EDGEPROC_COMMIT: Final = "e3bfb570feb8619c823df63b6c012fd8c8c6a9b6"
 LIVE_ORIGIN: Final = "https://aml-filter.com"
 PUBLIC_KEY: Final = "/src/frontend/app/public/public.key"
-SOURCE_EXCLUDES: Final = [
-    ".git",
-    ".venv",
-    "**/.venv",
-    "**/node_modules",
-    "**/dist",
-    "**/.decision-out",
-    "**/playwright-report",
-    "**/test-results",
-    "frontend/app/public/models",
-]
-HISTORY_EXCLUDES: Final = [
-    ".venv",
-    "**/.venv",
-    "**/node_modules",
-    "**/dist",
-    "frontend/app/public/models",
-]
+SOURCE_EXCLUDES: Final = split(
+    ".git .venv **/.venv **/node_modules **/dist **/.decision-out "
+    "**/playwright-report **/test-results frontend/app/public/models"
+)
+HISTORY_EXCLUDES: Final = split(".venv **/.venv **/node_modules **/dist frontend/app/public/models")
 NODE_CACHES: Final = (
     ("/root/.local/share/pnpm/store", "aml-filter-pnpm"),
     ("/root/.cache/corepack", "aml-filter-corepack"),
@@ -73,48 +60,19 @@ QUALITY_CACHES: Final = (
     ("/root/.cache/uv", "aml-filter-uv"),
     ("/root/.cache/ms-playwright", "aml-filter-playwright"),
 )
-PLAYWRIGHT_INSTALL: Final = [
-    "pnpm",
-    "--filter",
-    "aml-filter-app",
-    "exec",
-    "playwright",
-    "install",
-    "--with-deps",
-    "chromium",
-    "firefox",
-    "webkit",
-]
-APP_BUILD: Final = ["pnpm", "--filter", "aml-filter-app", "run", "build"]
-WRANGLER_DEPLOY: Final = [
-    "pnpm",
-    "exec",
-    "wrangler",
-    "pages",
-    "deploy",
-    "/deploy",
-    "--project-name",
-    "aml-filter",
-    "--branch",
-    "main",
-]
-PREVIEW_ARGS: Final = [
-    "pnpm",
-    "--filter",
-    "aml-filter-app",
-    "exec",
-    "vite",
-    "preview",
-    "--host",
-    "--port",
-    "4173",
-]
+PLAYWRIGHT_INSTALL: Final = split(
+    "pnpm --filter aml-filter-app exec playwright install --with-deps chromium firefox webkit"
+)
+APP_BUILD: Final = split("pnpm --filter aml-filter-app run build")
+WRANGLER_DEPLOY: Final = split(
+    "pnpm exec wrangler pages deploy /deploy --project-name aml-filter --branch main"
+)
+PREVIEW_ARGS: Final = split("pnpm --filter aml-filter-app exec vite preview --host --port 4173")
 RELEASE_SCRIPT: Final = r"""
 set -euo pipefail
 rm -rf /release /tmp/bundle-candidate /tmp/verify-cache /tmp/verify-out
 mkdir -p /release
-SEQUENCE="$(pnpm --silent --filter @amlfilter/publisher \
-  run next-published-sequence -- \
+SEQUENCE="$(pnpm --silent --filter @amlfilter/publisher run next-published-sequence -- \
   --base-url "$LIVE_BUNDLE" --pubkey "$PUBLIC_KEY")"
 umask 077
 printf '%s' "$WATCHLIST_SIGNING_KEY" | base64 -d > /run/watchlist-signing.key
@@ -122,8 +80,8 @@ printf '%s' "$WATCHLIST_SIGNING_KEY" | base64 -d > /run/watchlist-signing.key
 trap 'rm -f /run/watchlist-signing.key' EXIT
 set +e
 pnpm --filter @amlfilter/publisher run build-real-bundle -- \
-  --version "$VERSION" --sequence "$SEQUENCE" \
-  --key /run/watchlist-signing.key --out /tmp/bundle-candidate \
+  --version "$VERSION" --sequence "$SEQUENCE" --key /run/watchlist-signing.key \
+  --out /tmp/bundle-candidate \
   --live-base-url "$LIVE_BUNDLE" --pubkey "$PUBLIC_KEY" \
   | tee /tmp/build.out
 BUILD_STATUS="${PIPESTATUS[0]}"
@@ -133,26 +91,22 @@ if [ "$BUILD_STATUS" -eq 0 ]; then
   printf 'BUNDLE_REFRESHED=true\nSERVED_VERSION=%s\n' "$VERSION" > /release/identity.env
   printf 'SERVED_SEQUENCE=%s\n' "$SEQUENCE" >> /release/identity.env
 elif [ "$FALLBACK_DAYS" -gt 0 ]; then
-  pnpm --silent --filter @amlfilter/publisher \
-    run mirror-published-origin -- \
+  pnpm --silent --filter @amlfilter/publisher run mirror-published-origin -- \
     --base-url "$LIVE_BUNDLE" --pubkey "$PUBLIC_KEY" \
-    --out /release/origin --max-age-days "$FALLBACK_DAYS" \
-    > /tmp/mirror.env
+    --out /release/origin --max-age-days "$FALLBACK_DAYS" > /tmp/mirror.env
   grep -E '^SERVED_(VERSION|SEQUENCE|AGE_DAYS)=' /tmp/mirror.env > /release/identity.env
   printf 'BUNDLE_REFRESHED=false\n' >> /release/identity.env
 else
   exit "$BUILD_STATUS"
 fi
-grep -E '^(ALIAS_(MODE|ADDED)|STALE_LISTS)=' /tmp/build.out \
-  >> /release/identity.env || true
+grep -E '^(ALIAS_(MODE|ADDED)|STALE_LISTS)=' /tmp/build.out >> /release/identity.env || true
 uv run --project /edgeproc edgeproc sync \
   --base-url /release/origin --cache-dir /tmp/verify-cache \
   --materialize-to /tmp/verify-out --key "$PUBLIC_KEY" --pretty
 """
 FRESHNESS_SCRIPT: Final = r"""
 set +e
-pnpm --silent --filter @amlfilter/publisher \
-  run check-published-freshness -- \
+pnpm --silent --filter @amlfilter/publisher run check-published-freshness -- \
   --base-url "$LIVE_BUNDLE" --pubkey "$PUBLIC_KEY" \
   > /tmp/freshness.txt 2>&1
 STATUS="$?"
@@ -200,13 +154,9 @@ class PublishRequest:
     release_id: str
 
 
-def cache(name: str) -> CacheVolume:
-    return dag.cache_volume(name)
-
-
 def mount_caches(container: Container, caches: tuple[tuple[str, str], ...]) -> Container:
     for path, name in caches:
-        container = container.with_mounted_cache(path, cache(name))
+        container = container.with_mounted_cache(path, dag.cache_volume(name))
     return container
 
 
@@ -231,17 +181,10 @@ class AmlFilter:
         container = container.with_env_variable("UV_PYTHON", "3.13.5")
         return container.with_env_variable("SSL_CERT_FILE", "/etc/ssl/certs/ca-certificates.crt")
 
-    def _quality(self) -> Container:
-        container = mount_caches(self._with_uv(self._node()), QUALITY_CACHES)
-        container = container.with_exec(["uv", "sync", "--project", "../eval", "--frozen"])
-        return container.with_exec(PLAYWRIGHT_INSTALL)
-
-    def _edgeproc(self) -> Directory:
-        return dag.git(EDGEPROC_REPO).commit(EDGEPROC_COMMIT).tree()
-
     def _release_base(self) -> Container:
         container = mount_caches(self._with_uv(self._node()), QUALITY_CACHES[:1])
-        container = container.with_directory("/edgeproc", self._edgeproc())
+        edgeproc = dag.git(EDGEPROC_REPO).commit(EDGEPROC_COMMIT).tree()
+        container = container.with_directory("/edgeproc", edgeproc)
         container = container.with_exec(
             ["uv", "sync", "--project", "/edgeproc", "--extra", "bundles"]
         )
@@ -299,15 +242,6 @@ class AmlFilter:
         container = container.with_exec(["bash", "-ceu", VERIFY_SCRIPT])
         return container.with_exec(["bash", "-ceu", CANONICAL_SCRIPT])
 
-    def _secret_scan(self) -> Container:
-        container = dag.container().from_(GITLEAKS_IMAGE)
-        container = container.with_directory("/repo", self.history)
-        container = container.with_directory("/source", self.source)
-        container = container.with_exec(["git", "-C", "/repo", "rev-parse", "--git-dir"])
-        common = ["--config", "/repo/.gitleaks.toml", "--redact=100"]
-        container = container.with_exec(["gitleaks", "dir", *common, "/source"])
-        return container.with_exec(["gitleaks", "git", *common, "--log-opts=--all", "/repo"])
-
     async def _publish(
         self,
         request: PublishRequest,
@@ -328,7 +262,13 @@ class AmlFilter:
     @check
     def secret_scan(self) -> Container:
         """Scan the complete Git history with the current pinned gitleaks rules."""
-        return self._secret_scan()
+        container = dag.container().from_(GITLEAKS_IMAGE)
+        container = container.with_directory("/repo", self.history)
+        container = container.with_directory("/source", self.source)
+        container = container.with_exec(["git", "-C", "/repo", "rev-parse", "--git-dir"])
+        common = ["--config", "/repo/.gitleaks.toml", "--redact=100"]
+        container = container.with_exec(["gitleaks", "dir", *common, "/source"])
+        return container.with_exec(["gitleaks", "git", *common, "--log-opts=--all", "/repo"])
 
     @function
     @check
@@ -340,13 +280,10 @@ class AmlFilter:
     @check
     def quality(self) -> Container:
         """Run the repository's complete canonical product gate."""
-        return self._quality().with_exec(["pnpm", "run", "gate"])
-
-    @function
-    def build(self) -> Directory:
-        """Return the production-static application as a Dagger Directory."""
-        container = self._node().with_exec(APP_BUILD)
-        return container.directory("/src/frontend/app/dist")
+        container = mount_caches(self._with_uv(self._node()), QUALITY_CACHES)
+        container = container.with_exec(["uv", "sync", "--project", "../eval", "--frozen"])
+        container = container.with_exec(PLAYWRIGHT_INSTALL)
+        return container.with_exec(["pnpm", "run", "gate"])
 
     @function
     def preview(self, app: Directory) -> Service:
