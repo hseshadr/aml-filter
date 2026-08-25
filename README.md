@@ -173,7 +173,7 @@ uses fictional entities; it is safe for tests and local demonstrations. Producti
 bundles are generated from the public sources described in
 [Watchlist format](docs/WATCHLIST_FORMAT.md).
 
-Candidate retrieval uses in-browser MiniLM embeddings. `@edgeproc/assay@0.5.0-dev.2`
+Candidate retrieval uses in-browser MiniLM embeddings. `@edgeproc/assay@0.5.0-dev.3`
 then applies the deterministic five-signal additive policy to vector similarity,
 sequence similarity, alias, date-of-birth, and country evidence. Each result includes
 the ordered contributions and a stable input hash; the signed score receipt seals that

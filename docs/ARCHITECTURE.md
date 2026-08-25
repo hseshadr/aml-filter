@@ -68,7 +68,7 @@ normalize → embed → cosine retrieve → explainable weighted score → thres
    each, then merges and re-ranks the per-list candidates. No approximate index — the
    lists are small enough that exact is plenty fast.
 4. **Score.** `computeScore` (`scoring.ts`) adapts five typed AML signals into the exact
-   `@edgeproc/assay@0.5.0-dev.2` additive contract. Assay is the score source of truth.
+   `@edgeproc/assay@0.5.0-dev.3` additive contract. Assay is the score source of truth.
 5. **Threshold → reasons.** A candidate whose final score is **at or above the active
    threshold for its list** becomes a match (per-list threshold =
    `perList[id] ?? query.threshold ?? default`). Each match carries `reasons[]` (one per
@@ -377,9 +377,9 @@ states — goes through i18next like the rest of the app. The expanded receipt p
 itself is rendered by `@edgeproc/receipt-ui` 0.1.0, whose internal labels ("Algorithm",
 "Signer", …) are English-only. receipt-ui 0.2.0 adds an injectable-labels API (released
 on the library's main branch; its npm publish is pending), and its adoption here is
-**pending** — gated by this repository's 24-hour dependency-age policy once the package
-is published. Until then the panel-internal labels remain English. (The `DossierCard`
-source comment points readers here.)
+**pending** until that exact registry artifact and its integrity are verified. Until then
+the panel-internal labels remain English. (The `DossierCard` source comment points readers
+here.)
 
 ## Local data model (SQLite-WASM)
 
