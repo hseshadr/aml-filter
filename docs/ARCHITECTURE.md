@@ -68,7 +68,7 @@ normalize → embed → cosine retrieve → explainable weighted score → thres
    each, then merges and re-ranks the per-list candidates. No approximate index — the
    lists are small enough that exact is plenty fast.
 4. **Score.** `computeScore` (`scoring.ts`) adapts five typed AML signals into the exact
-   `@edgeproc/assay@0.5.0-dev.2` additive contract. Assay is the score source of truth.
+   `@edgeproc/assay@0.5.0-dev.3` additive contract. Assay is the score source of truth.
 5. **Threshold → reasons.** A candidate whose final score is **at or above the active
    threshold for its list** becomes a match (per-list threshold =
    `perList[id] ?? query.threshold ?? default`). Each match carries `reasons[]` (one per
