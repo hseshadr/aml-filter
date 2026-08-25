@@ -2,6 +2,10 @@ packages:
   - app
   - packages/*
 
+# pnpm 11 defaults this to 1440 minutes. Set zero explicitly so clean CI and
+# warm local installs both apply the project's no-release-delay policy.
+minimumReleaseAge: 0
+
 # pnpm v11 does not run a dependency's build/postinstall scripts unless it is
 # explicitly allowlisted here (replaces v10's onlyBuiltDependencies). esbuild is
 # Vite's bundler and ships a native binary whose postinstall must run for

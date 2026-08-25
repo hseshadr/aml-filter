@@ -9,14 +9,21 @@ import { describe, expect, it } from "vitest";
 
 const appDir = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const workspaceFile = resolve(appDir, "..", "pnpm-workspace.yaml");
-const browserPackageFile = resolve(appDir, "..", "packages", "amlfilter-browser", "package.json");
+const browserPackageFile = resolve(
+	appDir,
+	"..",
+	"packages",
+	"amlfilter-browser",
+	"package.json",
+);
 const lockFile = resolve(appDir, "..", "pnpm-lock.yaml");
 const ASSAY_VERSION = "0.5.0-dev.3";
 const ASSAY_SRI =
 	"sha512-s0NBvvTvbc7Y6z50oqaIPraN0hd6RRd9vY4dPXkWpB3DTGKCuJ8c4Kz2eX1KjEqF7PecQ4FyqzAYvgxIrJsQYg==";
 
-function activeReleaseAgeLines(yaml: string): string[] {
-	return yaml.split("\n").filter((line) => /^\s*minimumReleaseAge\s*:/.test(line));
+function releaseAgeMinutes(yaml: string): number | undefined {
+	const match = yaml.match(/^\s*minimumReleaseAge\s*:\s*(\d+)\s*$/m);
+	return match ? Number(match[1]) : undefined;
 }
 
 describe("pnpm dependency policy", () => {
@@ -26,8 +33,11 @@ describe("pnpm dependency policy", () => {
 	});
 
 	it("does not delay exact registry dependencies with a release-age policy", () => {
-		const found = activeReleaseAgeLines(readFileSync(workspaceFile, "utf8"));
-		expect(found, "remove minimumReleaseAge; verify trust through exact artifacts").toEqual([]);
+		const minutes = releaseAgeMinutes(readFileSync(workspaceFile, "utf8"));
+		expect(
+			minutes,
+			"pnpm 11 defaults to 1440 minutes unless explicitly disabled",
+		).toBe(0);
 	});
 
 	it("pins the reviewed Assay npm artifact and registry integrity", () => {
