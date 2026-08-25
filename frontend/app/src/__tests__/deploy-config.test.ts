@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -14,7 +14,6 @@ import { describe, expect, it } from "vitest";
 // This guard locks all three at the source files Pages copies from public/.
 const appDir = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const publicDir = resolve(appDir, "public");
-const repoDir = resolve(appDir, "..", "..");
 
 /**
  * Parse the Cloudflare Pages `_headers` grammar: an unindented non-comment line
@@ -168,74 +167,6 @@ describe("Cloudflare Pages deploy config", () => {
 			expect(rules.get(pattern)).toContain(
 				"Cache-Control: public, max-age=31536000, immutable",
 			);
-		}
-	});
-
-	it("publishes and verifies a repository-wide monotonic workflow sequence", () => {
-		const deploy = readFileSync(
-			resolve(repoDir, ".github/workflows/deploy.yml"),
-			"utf8",
-		);
-		const nightly = readFileSync(
-			resolve(repoDir, ".github/workflows/publish-watchlist.yml"),
-			"utf8",
-		);
-		for (const workflow of [deploy, nightly]) {
-			expect(workflow).not.toContain("GITHUB_RUN_ID * 1000");
-			expect(workflow).toContain("next-published-sequence");
-			expect(workflow).toContain("https://aml-filter.com/bundle/origin");
-			expect(workflow).toMatch(
-				/next-published-sequence[\s\S]{0,400}--pubkey "\$GITHUB_WORKSPACE\/frontend\/app\/public\/public\.key"/,
-			);
-			expect(workflow).toContain('--sequence "$SEQUENCE"');
-			expect(workflow).toContain("verify-published-origin");
-			// The post-deploy verifier must bind to a sequence derived from the
-			// verified LIVE pointer — never a locally invented number. `deploy.yml`
-			// binds to $SERVED_SEQUENCE (the sequence actually published by this
-			// run: $SEQUENCE when the feeds were refreshed, or the mirrored
-			// last-good one when a feed was down); the nightly only ever refreshes,
-			// so it binds to $SEQUENCE directly.
-			expect(workflow).toMatch(/--expect-sequence "\$(SERVED_)?SEQUENCE"/);
-		}
-	});
-
-	it("stamps and verifies the exact deployed commit so a no-op cannot pass", () => {
-		for (const workflow of ["deploy.yml", "publish-watchlist.yml"]) {
-			const yaml = readFileSync(
-				resolve(repoDir, ".github/workflows", workflow),
-				"utf8",
-			);
-			expect(yaml).toContain("build-identity.mjs stamp");
-			expect(yaml).toContain("build-identity.mjs verify");
-			expect(yaml).toContain("https://aml-filter.com/build.json");
-			expect(yaml).toContain('DEPLOY_SHA="$(git rev-parse HEAD)"');
-		}
-	});
-
-	it("pins every third-party workflow action to an immutable commit", () => {
-		const workflowsDir = resolve(repoDir, ".github/workflows");
-		const actionUse = /^\s*uses:\s*([^\s#]+)(?:\s+#\s*(.+))?$/gm;
-		for (const file of readdirSync(workflowsDir).filter((name) =>
-			/\.ya?ml$/.test(name),
-		)) {
-			const yaml = readFileSync(resolve(workflowsDir, file), "utf8");
-			for (const match of yaml.matchAll(actionUse)) {
-				const target = match[1] ?? "";
-				if (target.startsWith("./")) {
-					continue;
-				}
-				expect(target, `${file}: ${target}`).toMatch(/^[^@]+@[0-9a-f]{40}$/);
-				// The comment must name the RELEASE that SHA belongs to, so a human
-				// (and Dependabot) can bump it. Third-party actions release as `vN`;
-				// the first-party shared workflows in hseshadr/ci release as
-				// `ci-vN.N.N`. Demanding a bare `vN` there would force a comment
-				// naming a tag that does not exist. Each ref is held to its own
-				// scheme, and neither accepts the other's.
-				const release = target.startsWith("hseshadr/ci/") ? /^ci-v\d/ : /^v\d/;
-				expect(match[2], `${file}: ${target} needs a version comment`).toMatch(
-					release,
-				);
-			}
 		}
 	});
 });

@@ -18,6 +18,7 @@ allowBuilds:
   onnxruntime-node: true
   protobufjs: true
   sharp: true
+  workerd: true # Wrangler's pinned local runtime binary
 
 # Pin transitive protobufjs to the patched 7.x line. It is pulled in transitively
 # via @huggingface/transformers > onnxruntime-web, so it is overridden here.
