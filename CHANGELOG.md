@@ -67,6 +67,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Registry releases are accepted by evidence, not elapsed time.** The pnpm
+  publication-age delay and its exemption machinery are removed. Exact versions,
+  frozen locks, registry provenance, integrity hashes, full-history secret scanning,
+  and unsuppressed dependency audits remain mandatory.
+
+
 - **`@edgeproc/errors` now comes from npm, not a vendored copy.** The canonical-errors
   library was vendored at `frontend/packages/edgeproc-errors` as a 509-line snapshot;
   it is now a real dependency (`@edgeproc/errors@^0.1.0`, 853 source lines, resolving

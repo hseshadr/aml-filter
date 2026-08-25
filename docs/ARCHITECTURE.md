@@ -377,9 +377,9 @@ states — goes through i18next like the rest of the app. The expanded receipt p
 itself is rendered by `@edgeproc/receipt-ui` 0.1.0, whose internal labels ("Algorithm",
 "Signer", …) are English-only. receipt-ui 0.2.0 adds an injectable-labels API (released
 on the library's main branch; its npm publish is pending), and its adoption here is
-**pending** — gated by this repository's 24-hour dependency-age policy once the package
-is published. Until then the panel-internal labels remain English. (The `DossierCard`
-source comment points readers here.)
+**pending** until that exact registry artifact and its integrity are verified. Until then
+the panel-internal labels remain English. (The `DossierCard` source comment points readers
+here.)
 
 ## Local data model (SQLite-WASM)
 
