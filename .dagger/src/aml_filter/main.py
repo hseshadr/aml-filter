@@ -11,7 +11,6 @@ from dagger import (
     Container,
     DefaultPath,
     Directory,
-    File,
     Ignore,
     Secret,
     Service,
@@ -67,6 +66,19 @@ APP_BUILD: Final = split("pnpm --filter aml-filter-app run build")
 WRANGLER_DEPLOY: Final = split(
     "pnpm exec wrangler pages deploy /deploy --project-name aml-filter --branch main"
 )
+FRESHNESS_CHECK: Final = [
+    "pnpm",
+    "--silent",
+    "--filter",
+    "@amlfilter/publisher",
+    "run",
+    "check-published-freshness",
+    "--",
+    "--base-url",
+    f"{LIVE_ORIGIN}/bundle/origin",
+    "--pubkey",
+    PUBLIC_KEY,
+]
 PREVIEW_ARGS: Final = split("pnpm --filter aml-filter-app exec vite preview --host --port 4173")
 RELEASE_SCRIPT: Final = r"""
 set -euo pipefail
@@ -103,18 +115,6 @@ grep -E '^(ALIAS_(MODE|ADDED)|STALE_LISTS)=' /tmp/build.out >> /release/identity
 uv run --project /edgeproc edgeproc sync \
   --base-url /release/origin --cache-dir /tmp/verify-cache \
   --materialize-to /tmp/verify-out --key "$PUBLIC_KEY" --pretty
-"""
-FRESHNESS_SCRIPT: Final = r"""
-set +e
-pnpm --silent --filter @amlfilter/publisher run check-published-freshness -- \
-  --base-url "$LIVE_BUNDLE" --pubkey "$PUBLIC_KEY" \
-  > /tmp/freshness.txt 2>&1
-STATUS="$?"
-set -e
-mkdir -p /report
-[ "$STATUS" -eq 0 ] && BREACHED=false || BREACHED=true
-printf 'BREACHED=%s\n' "$BREACHED" > /report/freshness.txt
-cat /tmp/freshness.txt >> /report/freshness.txt
 """
 VERIFY_SCRIPT: Final = r"""
 set -euo pipefail
@@ -306,11 +306,9 @@ class AmlFilter:
         return container.directory("/release")
 
     @function
-    def freshness_report(self) -> File:
-        """Return a fail-closed live freshness report for GitHub issue projection."""
-        container = self._node().with_env_variable("LIVE_BUNDLE", f"{LIVE_ORIGIN}/bundle/origin")
-        container = container.with_env_variable("PUBLIC_KEY", PUBLIC_KEY)
-        return container.with_exec(["bash", "-ceu", FRESHNESS_SCRIPT]).file("/report/freshness.txt")
+    def freshness(self) -> Container:
+        """Fail closed unless the live signed sanctions origin is fresh."""
+        return self._node().with_exec(FRESHNESS_CHECK)
 
     @function
     def live_verify(self, release: Directory, source_sha: str, run_id: str) -> Container:

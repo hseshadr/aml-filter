@@ -30,7 +30,7 @@ describe("thin Dagger ingress", () => {
 		}
 	});
 
-	it("uses only checkout, Dagger, and the issue metadata projection", () => {
+	it("uses only pinned checkout and Dagger actions", () => {
 		for (const file of workflows()) {
 			const refs = [...read(file).matchAll(/^\s*-?\s*uses:\s*([^\s#]+)/gm)].map(
 				(match) => match[1],
@@ -45,12 +45,41 @@ describe("thin Dagger ingress", () => {
 			);
 			expect(
 				refs.every((ref) =>
-					/^(actions\/checkout|dagger\/dagger-for-github|actions\/github-script)@/.test(
-						ref ?? "",
-					),
+					/^(actions\/checkout|dagger\/dagger-for-github)@/.test(ref ?? ""),
 				),
 			).toBe(true);
 		}
+	});
+
+	it("disables persisted credentials on every checkout", () => {
+		for (const file of workflows()) {
+			const yaml = read(file);
+			const checkouts = [...yaml.matchAll(/uses:\s*actions\/checkout@/g)]
+				.length;
+			const disabled = [...yaml.matchAll(/persist-credentials:\s*false/g)]
+				.length;
+			expect(disabled, file).toBe(checkouts);
+		}
+	});
+
+	it("exposes the sole PR and push gate as exact Dagger", () => {
+		const eventIngress = workflows().filter((file) =>
+			/^ {2}(?:push|pull_request):/m.test(read(file)),
+		);
+		expect(eventIngress).toEqual(["dagger.yml"]);
+		expect(read("dagger.yml")).toMatch(
+			/jobs:\n {2}checks:\n {4}name: Dagger\n/,
+		);
+		expect(read("dagger.yml")).not.toContain("Canonical checks");
+	});
+
+	it("runs freshness entirely inside a fail-closed Dagger entrypoint", () => {
+		const yaml = read("watchlist-freshness.yml");
+		expect(yaml).toContain("permissions:\n  contents: read\n");
+		expect(yaml).toContain("call: freshness sync");
+		expect(yaml).not.toMatch(/issues:\s*write/);
+		expect(yaml).not.toContain("actions/github-script");
+		expect(yaml).not.toContain("BREACHED=");
 	});
 
 	it("serializes every production upload through one mutex", () => {

@@ -7,7 +7,6 @@ on:
 
 permissions:
   contents: read
-  issues: write
 
 concurrency:
   group: watchlist-freshness
@@ -24,31 +23,4 @@ jobs:
       - uses: dagger/dagger-for-github@27b130bf0f79a7f6fbbbe0fbca6760dc9bb40a77 # v8.4.1
         with:
           version: "0.21.8"
-          call: freshness-report export --path=freshness.txt
-      - name: Project the Dagger verdict into one durable issue
-        if: always()
-        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
-        with:
-          script: |
-            const fs = require('node:fs');
-            const label = 'watchlist-freshness';
-            const title = 'Sanctions bundle freshness breached';
-            const report = fs.existsSync('freshness.txt')
-              ? fs.readFileSync('freshness.txt', 'utf8').trim().slice(0, 50000)
-              : 'BREACHED=true\nDagger produced no freshness report.';
-            const breached = !report.startsWith('BREACHED=false');
-            const { data: open } = await github.rest.issues.listForRepo({
-              ...context.repo, state: 'open', labels: label, per_page: 1,
-            });
-            const issue = open[0];
-            const run = `${process.env.GITHUB_SERVER_URL}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-            const body = `${breached ? '**Freshness breached.**' : '**Freshness recovered.**'}\n\n\`\`\`\n${report}\n\`\`\`\n\n[Run log](${run})`;
-            if (breached && !issue) {
-              await github.rest.issues.create({ ...context.repo, title, labels: [label], body });
-            } else if (issue) {
-              await github.rest.issues.createComment({ ...context.repo, issue_number: issue.number, body });
-              if (!breached) await github.rest.issues.update({
-                ...context.repo, issue_number: issue.number, state: 'closed', state_reason: 'completed',
-              });
-            }
-            if (breached) core.setFailed('live sanctions bundle freshness could not be proven');
+          call: freshness sync

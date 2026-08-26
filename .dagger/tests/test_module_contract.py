@@ -7,6 +7,8 @@ from pathlib import Path
 from shutil import which
 from typing import Final
 
+from aml_filter.main import FRESHNESS_CHECK
+
 ROOT: Final = Path(__file__).resolve().parents[2]
 
 
@@ -23,7 +25,7 @@ FUNCTIONS: Final = frozenset(
     {
         "dependency-audit",
         "deploy",
-        "freshness-report",
+        "freshness",
         "live-verify",
         "preview",
         "publish-watchlist",
@@ -82,6 +84,11 @@ def test_should_require_typed_secrets_when_deploy_help_loads() -> None:
     assert "--cloudflare-api-token Secret" in help_text
     assert "--cloudflare-account-id Secret" in help_text
     assert "--release-id string" in help_text
+
+
+def test_should_supply_exec_arguments_as_dagger_list() -> None:
+    # Given / When / Then
+    assert isinstance(FRESHNESS_CHECK, list)
 
 
 def test_should_fail_secret_scan_when_history_is_not_git(tmp_path: Path) -> None:
