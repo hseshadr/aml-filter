@@ -37,19 +37,16 @@ UV_IMAGE: Final = (
     "ghcr.io/astral-sh/uv:0.11.32@sha256:"
     "df4cae8f3a96d175e2e5f992e597550000edbe78fdc2594d5cd8de1a217f504c"
 )
-GITLEAKS_IMAGE: Final = (
-    "zricethezav/gitleaks:v8.30.1@sha256:"
-    "c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f"
-)
 EDGEPROC_REPO: Final = "https://github.com/hseshadr/edge-proc"
 EDGEPROC_COMMIT: Final = "e3bfb570feb8619c823df63b6c012fd8c8c6a9b6"
+REPOSITORY: Final = "hseshadr/aml-filter"
+REPOSITORY_URL: Final = f"https://github.com/{REPOSITORY}.git"
 LIVE_ORIGIN: Final = "https://aml-filter.com"
 PUBLIC_KEY: Final = "/src/frontend/app/public/public.key"
 SOURCE_EXCLUDES: Final = split(
     ".git .venv **/.venv **/node_modules **/dist **/.decision-out "
     "**/playwright-report **/test-results frontend/app/public/models"
 )
-HISTORY_EXCLUDES: Final = split(".venv **/.venv **/node_modules **/dist frontend/app/public/models")
 NODE_CACHES: Final = (
     ("/root/.local/share/pnpm/store", "aml-filter-pnpm"),
     ("/root/.cache/corepack", "aml-filter-corepack"),
@@ -165,7 +162,6 @@ class AmlFilter:
     """Run every repository-authored CI/CD operation through Dagger."""
 
     source: Annotated[Directory, DefaultPath("/"), Ignore(SOURCE_EXCLUDES)] = field()
-    history: Annotated[Directory, DefaultPath("/"), Ignore(HISTORY_EXCLUDES)] = field()
 
     def _node(self) -> Container:
         container = mount_caches(dag.container().from_(NODE_IMAGE), NODE_CACHES)
@@ -242,6 +238,20 @@ class AmlFilter:
         container = container.with_exec(["bash", "-ceu", VERIFY_SCRIPT])
         return container.with_exec(["bash", "-ceu", CANONICAL_SCRIPT])
 
+    async def _canonical_guard_source(self) -> tuple[Directory, str]:
+        """Fetch exact public main bytes for canonical history binding."""
+        commit_sha = await dag.git(REPOSITORY_URL).branch("main").commit()
+        source = dag.git(REPOSITORY_URL).commit(commit_sha).tree(depth=0)
+        return source, commit_sha
+
+    def _shared_guard(self, source: Directory, commit_sha: str) -> Container:
+        """Build the exact-SHA Foundation repository guard."""
+        return dag.foundation().guard(
+            source=source,
+            repository=REPOSITORY,
+            commit_sha=commit_sha,
+        )
+
     async def _publish(
         self,
         request: PublishRequest,
@@ -260,15 +270,10 @@ class AmlFilter:
 
     @function
     @check
-    def secret_scan(self) -> Container:
-        """Scan the complete Git history with the current pinned gitleaks rules."""
-        container = dag.container().from_(GITLEAKS_IMAGE)
-        container = container.with_directory("/repo", self.history)
-        container = container.with_directory("/source", self.source)
-        container = container.with_exec(["git", "-C", "/repo", "rev-parse", "--git-dir"])
-        common = ["--config", "/repo/.gitleaks.toml", "--redact=100"]
-        container = container.with_exec(["gitleaks", "dir", *common, "/source"])
-        return container.with_exec(["gitleaks", "git", *common, "--log-opts=--all", "/repo"])
+    async def secret_scan(self) -> Container:
+        """Delegate snapshot and complete-history scanning to Foundation."""
+        source, commit_sha = await self._canonical_guard_source()
+        return self._shared_guard(source, commit_sha)
 
     @function
     @check
