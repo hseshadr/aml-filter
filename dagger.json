@@ -4,5 +4,17 @@
   "sdk": {
     "source": "python"
   },
+  "dependencies": [
+    {
+      "name": "cloudflare-pages",
+      "source": "github.com/hseshadr/ci/modules/cloudflare-pages@daebff7ebf3e69a0361b90cd7b7a767c0e4b48e1",
+      "pin": "daebff7ebf3e69a0361b90cd7b7a767c0e4b48e1"
+    },
+    {
+      "name": "foundation",
+      "source": "github.com/hseshadr/ci/modules/portfolio-foundation@daebff7ebf3e69a0361b90cd7b7a767c0e4b48e1",
+      "pin": "daebff7ebf3e69a0361b90cd7b7a767c0e4b48e1"
+    }
+  ],
   "source": ".dagger"
 }

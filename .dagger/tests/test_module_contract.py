@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 from pathlib import Path
 from shutil import which
@@ -10,6 +11,7 @@ from typing import Final
 from aml_filter.main import FRESHNESS_CHECK
 
 ROOT: Final = Path(__file__).resolve().parents[2]
+CENTRAL_SHA: Final = "daebff7ebf3e69a0361b90cd7b7a767c0e4b48e1"
 
 
 def dagger_bin() -> str:
@@ -89,6 +91,19 @@ def test_should_require_typed_secrets_when_deploy_help_loads() -> None:
 def test_should_supply_exec_arguments_as_dagger_list() -> None:
     # Given / When / Then
     assert isinstance(FRESHNESS_CHECK, list)
+
+
+def test_should_pin_both_shared_modules_to_exact_central_main() -> None:
+    config = json.loads(ROOT.joinpath("dagger.json").read_text())
+    dependencies = {item["name"]: item for item in config["dependencies"]}
+    for name, module in (
+        ("foundation", "portfolio-foundation"),
+        ("cloudflare-pages", "cloudflare-pages"),
+    ):
+        assert (
+            dependencies[name]["source"] == f"github.com/hseshadr/ci/modules/{module}@{CENTRAL_SHA}"
+        )
+        assert dependencies[name]["pin"] == CENTRAL_SHA
 
 
 def test_should_fail_secret_scan_when_history_is_not_git(tmp_path: Path) -> None:
