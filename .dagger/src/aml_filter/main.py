@@ -41,7 +41,7 @@ UV_IMAGE: Final = (
 )
 EDGEPROC_REPO: Final = "https://github.com/hseshadr/edge-proc"
 EDGEPROC_COMMIT: Final = "e3bfb570feb8619c823df63b6c012fd8c8c6a9b6"
-CENTRAL_MODULE_SHA: Final = "6539b146c99208723848f5dea373ab255e22657b"
+CENTRAL_MODULE_SHA: Final = "26bebf5e59ba2e819632ee3f3e3cbcf314d3c1a7"
 TARGET: Final = AmlTarget.production()
 REPOSITORY: Final = TARGET.repository
 REPOSITORY_URL: Final = f"https://github.com/{REPOSITORY}.git"
