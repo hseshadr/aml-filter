@@ -8,7 +8,9 @@ import json
 import os
 import subprocess
 import textwrap
-from collections.abc import Awaitable
+import tomllib
+from collections.abc import Awaitable, Mapping
+from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 from shutil import which
@@ -16,6 +18,8 @@ from typing import Final, cast
 
 import pytest
 from dagger import Container, Directory, Secret
+from ruamel.yaml import YAML
+from ruamel.yaml.error import YAMLError
 
 import aml_filter.main as main_module
 from aml_filter.main import (
@@ -28,6 +32,54 @@ from aml_filter.main import (
 from aml_filter.policy import ReleaseKind, release_identity
 
 ROOT: Final = Path(__file__).resolve().parents[2]
+WORKFLOW_DIRECTORY: Final = ROOT / ".github" / "workflows"
+CHECKOUT_ACTION: Final = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
+DAGGER_ACTION: Final = "dagger/dagger-for-github@27b130bf0f79a7f6fbbbe0fbca6760dc9bb40a77"
+DELIVERY_ACTIONS: Final = (CHECKOUT_ACTION, DAGGER_ACTION)
+DELIVERY_WORKFLOWS: Final = {
+    "dagger.yml": "deploy",
+    "publish-watchlist.yml": "publish",
+}
+DELIVERY_PERMISSIONS: Final = {"contents": "read", "actions": "read"}
+DELIVERY_CONCURRENCY: Final = {
+    "group": "deploy-aml-filter-com",
+    "cancel-in-progress": False,
+}
+CHECKS_CONCURRENCY: Final = {
+    "group": "dagger-checks-${{ github.workflow }}-${{ github.ref }}",
+    "cancel-in-progress": True,
+}
+DELIVERY_ENVIRONMENT: Final = {
+    "WATCHLIST_SIGNING_KEY": "${{ secrets.WATCHLIST_SIGNING_KEY }}",
+    "CLOUDFLARE_API_TOKEN": "${{ secrets.CLOUDFLARE_API_TOKEN }}",
+    "CLOUDFLARE_ACCOUNT_ID": "${{ secrets.CLOUDFLARE_ACCOUNT_ID }}",
+    "GITHUB_TOKEN": "${{ github.token }}",
+}
+EXPECTED_WORKFLOW_JOBS: Final = {
+    "dagger.yml": frozenset({"checks", "deploy"}),
+    "publish-watchlist.yml": frozenset({"publish"}),
+    "watchlist-freshness.yml": frozenset({"freshness"}),
+}
+EXPECTED_WORKFLOW_PERMISSIONS: Final = {
+    "dagger.yml": DELIVERY_PERMISSIONS,
+    "publish-watchlist.yml": DELIVERY_PERMISSIONS,
+    "watchlist-freshness.yml": {"contents": "read"},
+}
+MUTATION_FUNCTIONS: Final = {
+    ("dagger.yml", "deploy"): "deploy",
+    ("publish-watchlist.yml", "publish"): "publish-watchlist",
+}
+PROVIDER_MARKERS: Final = (
+    "cloudflare_",
+    "watchlist_signing_key",
+    "github_token",
+    "wrangler",
+    "pages deploy",
+    "publish-watchlist",
+    '"call": "deploy',
+    "--cloudflare",
+)
+YAML_DEPENDENCY: Final = "ruamel-yaml>=0.18.16,<0.19.0"
 CENTRAL_SHA: Final = "daebff7ebf3e69a0361b90cd7b7a767c0e4b48e1"
 FOUNDATION_MODULE: Final = f"github.com/hseshadr/ci/modules/portfolio-foundation@{CENTRAL_SHA}"
 CLOUDFLARE_MODULE: Final = f"github.com/hseshadr/ci/modules/cloudflare-pages@{CENTRAL_SHA}"
@@ -581,6 +633,423 @@ FUNCTIONS: Final = frozenset(
 CHECKS: Final = frozenset(
     {"aml-filter:dependency-audit", "aml-filter:quality", "aml-filter:secret-scan"}
 )
+
+
+def workflow_paths(directory: Path = WORKFLOW_DIRECTORY) -> tuple[Path, ...]:
+    """Discover every supported GitHub workflow extension."""
+    paths = (*directory.glob("*.yml"), *directory.glob("*.yaml"))
+    return tuple(sorted(paths))
+
+
+def mapping_field(mapping: Mapping[str, object], field: str) -> Mapping[str, object]:
+    """Require one YAML mapping field without accepting coercion."""
+    value = mapping.get(field)
+    assert isinstance(value, dict), f"{field} must be a mapping"
+    return cast(Mapping[str, object], value)
+
+
+def workflow_jobs(workflow: Mapping[str, object]) -> Mapping[str, object]:
+    """Return jobs only after every job has a mapping body."""
+    jobs = mapping_field(workflow, "jobs")
+    assert all(isinstance(job, dict) for job in jobs.values()), "jobs must contain mappings"
+    return jobs
+
+
+def yaml_12_load(content: str) -> object:
+    """Load GitHub Actions YAML using safe YAML 1.2 scalar semantics."""
+    parser = YAML(typ="safe", pure=True)
+    parser.version = (1, 2)
+    return cast(object, parser.load(content))
+
+
+def load_workflow(path: Path) -> Mapping[str, object]:
+    """Parse one workflow semantically and reject malformed boundaries."""
+    try:
+        loaded = yaml_12_load(path.read_text(encoding="utf-8"))
+    except YAMLError as error:
+        raise AssertionError(f"malformed workflow: {path.name}") from error
+    assert isinstance(loaded, dict), "workflow must be a mapping"
+    workflow = cast(Mapping[str, object], loaded)
+    assert isinstance(workflow.get("name"), str), "workflow name must be a string"
+    mapping_field(workflow, "permissions")
+    workflow_jobs(workflow)
+    return workflow
+
+
+def workflow_inventory() -> Mapping[str, Mapping[str, object]]:
+    """Load the complete checked-in workflow inventory."""
+    return {path.name: load_workflow(path) for path in workflow_paths()}
+
+
+def job_body(workflow: Mapping[str, object], name: str) -> Mapping[str, object]:
+    """Require one named job mapping."""
+    job = workflow_jobs(workflow).get(name)
+    assert isinstance(job, dict), f"{name} must be a job mapping"
+    return cast(Mapping[str, object], job)
+
+
+def step_bodies(job: Mapping[str, object]) -> tuple[Mapping[str, object], ...]:
+    """Require a job's steps to be a list of mappings."""
+    steps = job.get("steps")
+    assert isinstance(steps, list), "steps must be a list"
+    assert all(isinstance(step, dict) for step in steps), "steps must contain mappings"
+    return tuple(cast(Mapping[str, object], step) for step in steps)
+
+
+def action_step(job: Mapping[str, object], action: str) -> Mapping[str, object]:
+    """Require exactly one use of an immutable action reference."""
+    matches = tuple(step for step in step_bodies(job) if step.get("uses") == action)
+    assert len(matches) == 1, f"expected one {action} step"
+    return matches[0]
+
+
+def expected_delivery_arguments(function_name: str) -> list[str]:
+    """Build the exact typed Dagger delivery invocation."""
+    return [
+        function_name,
+        "--signing-key=env://WATCHLIST_SIGNING_KEY",
+        "--cloudflare-api-token=env://CLOUDFLARE_API_TOKEN",
+        "--cloudflare-account-id=env://CLOUDFLARE_ACCOUNT_ID",
+        "--github-token=env://GITHUB_TOKEN",
+        "--release-id=${{",
+        "github.sha",
+        "}}:${{",
+        "github.run_id",
+        "}}",
+    ]
+
+
+def assert_delivery_steps(job: Mapping[str, object], function_name: str) -> None:
+    """Require credentialless checkout followed by typed Dagger delivery."""
+    steps = step_bodies(job)
+    assert tuple(step.get("uses") for step in steps) == DELIVERY_ACTIONS
+    checkout = action_step(job, CHECKOUT_ACTION)
+    dagger_step = action_step(job, DAGGER_ACTION)
+    assert mapping_field(checkout, "with").get("persist-credentials") is False
+    assert checkout.get("env") is None, "checkout env is forbidden"
+    assert dagger_step.get("env") == DELIVERY_ENVIRONMENT, "delivery env must be exact"
+    inputs = mapping_field(dagger_step, "with")
+    assert str(inputs.get("call", "")).split() == expected_delivery_arguments(function_name)
+    assert all("run" not in step for step in steps)
+
+
+def production_jobs(
+    workflows: Mapping[str, Mapping[str, object]],
+) -> frozenset[tuple[str, str]]:
+    """Collect every job that can enter a GitHub environment."""
+    return frozenset(
+        (filename, name)
+        for filename, workflow in workflows.items()
+        for name, job in workflow_jobs(workflow).items()
+        if isinstance(job, dict) and job.get("environment") is not None
+    )
+
+
+def workflows_with_job(
+    workflows: Mapping[str, Mapping[str, object]],
+    filename: str,
+    job_name: str,
+    job: Mapping[str, object],
+) -> Mapping[str, Mapping[str, object]]:
+    """Copy a workflow inventory and replace one job for adversarial tests."""
+    copied = deepcopy({name: dict(workflow) for name, workflow in workflows.items()})
+    jobs = cast(dict[str, object], copied[filename]["jobs"])
+    jobs[job_name] = dict(job)
+    return copied
+
+
+def direct_provider_step() -> Mapping[str, object]:
+    """Build one forbidden direct-transport step for adversarial contracts."""
+    return {
+        "run": "npx wrangler pages deploy",
+        "env": {"CLOUDFLARE_API_TOKEN": "${{ secrets.CLOUDFLARE_API_TOKEN }}"},
+    }
+
+
+def assert_nonmutation_job(
+    job: Mapping[str, object], steps: tuple[Mapping[str, object], ...]
+) -> None:
+    """Reject environment, secret, and provider inputs outside delivery jobs."""
+    assert job.get("environment") is None, "environment is forbidden outside mutation jobs"
+    assert all(step.get("env") is None for step in steps), (
+        "secret inputs are forbidden outside mutation jobs"
+    )
+    serialized = json.dumps(job).lower()
+    assert "secrets." not in serialized, "secret inputs are forbidden outside mutation jobs"
+    assert all(marker not in serialized for marker in PROVIDER_MARKERS), (
+        "provider inputs are forbidden outside approved mutation jobs"
+    )
+
+
+def assert_safe_job(filename: str, name: str, job: Mapping[str, object]) -> None:
+    """Reject job-local privilege and every direct transport path."""
+    assert job.get("permissions") is None, "job permissions are forbidden"
+    assert job.get("env") is None, "job env is forbidden"
+    steps = step_bodies(job)
+    assert all("run" not in step for step in steps), "shell steps are forbidden"
+    assert all(step.get("uses") in DELIVERY_ACTIONS for step in steps), "action is not approved"
+    function_name = MUTATION_FUNCTIONS.get((filename, name))
+    if function_name is not None:
+        assert_delivery_steps(job, function_name)
+        return
+    assert_nonmutation_job(job, steps)
+
+
+def assert_workflow_policy(workflows: Mapping[str, Mapping[str, object]]) -> None:
+    """Enforce the complete fail-closed GitHub Actions boundary."""
+    assert frozenset(workflows) == frozenset(EXPECTED_WORKFLOW_JOBS), (
+        "exact workflow inventory is required"
+    )
+    for filename, workflow in workflows.items():
+        assert workflow.get("env") is None, "workflow env is forbidden"
+        jobs = workflow_jobs(workflow)
+        assert frozenset(jobs) == EXPECTED_WORKFLOW_JOBS[filename], (
+            "exact job inventory is required"
+        )
+        assert mapping_field(workflow, "permissions") == EXPECTED_WORKFLOW_PERMISSIONS[filename]
+        for name, job in jobs.items():
+            assert isinstance(job, dict)
+            assert_safe_job(filename, name, cast(Mapping[str, object], job))
+
+
+def test_should_discover_both_workflow_extensions(tmp_path: Path) -> None:
+    # Given
+    tmp_path.joinpath("first.yml").write_text("one", encoding="utf-8")
+    tmp_path.joinpath("second.yaml").write_text("two", encoding="utf-8")
+    tmp_path.joinpath("ignored.txt").write_text("three", encoding="utf-8")
+
+    # When
+    names = tuple(path.name for path in workflow_paths(tmp_path))
+
+    # Then
+    assert names == ("first.yml", "second.yaml")
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "{",
+        "[]",
+        "name: Broken\npermissions: []\njobs: {}\n",
+        "name: Broken\npermissions: {}\njobs: []\n",
+        "name: Broken\npermissions: {}\njobs:\n  broken: scalar\n",
+    ],
+)
+def test_should_fail_closed_when_workflow_structure_is_malformed(
+    tmp_path: Path, content: str
+) -> None:
+    # Given
+    path = tmp_path / "broken.yaml"
+    path.write_text(content, encoding="utf-8")
+
+    # When / Then
+    with pytest.raises(AssertionError):
+        load_workflow(path)
+
+
+def test_should_reject_unapproved_job_with_direct_provider_path() -> None:
+    # Given
+    rogue = {
+        "runs-on": "ubuntu-latest",
+        "steps": [direct_provider_step()],
+    }
+    workflows = workflows_with_job(workflow_inventory(), "dagger.yml", "rogue", rogue)
+
+    # When / Then
+    with pytest.raises(AssertionError, match="exact job inventory"):
+        assert_workflow_policy(workflows)
+
+
+def test_should_reject_direct_provider_step_inside_known_check_job() -> None:
+    # Given
+    checks = deepcopy(dict(job_body(workflow_inventory()["dagger.yml"], "checks")))
+    steps = cast(list[object], checks["steps"])
+    steps.append(dict(direct_provider_step()))
+    workflows = workflows_with_job(workflow_inventory(), "dagger.yml", "checks", checks)
+
+    # When / Then
+    with pytest.raises(AssertionError, match="shell steps are forbidden"):
+        assert_workflow_policy(workflows)
+
+
+def test_should_reject_check_when_job_permissions_override_read_only_policy() -> None:
+    # Given
+    checks = dict(job_body(workflow_inventory()["dagger.yml"], "checks"))
+    checks["permissions"] = {"contents": "write"}
+    workflows = workflows_with_job(workflow_inventory(), "dagger.yml", "checks", checks)
+
+    # When / Then
+    with pytest.raises(AssertionError, match="job permissions are forbidden"):
+        assert_workflow_policy(workflows)
+
+
+def test_should_reject_secret_environment_when_injected_into_check_step() -> None:
+    # Given
+    checks = deepcopy(dict(job_body(workflow_inventory()["dagger.yml"], "checks")))
+    steps = cast(list[object], checks["steps"])
+    dagger_step = cast(dict[str, object], steps[1])
+    dagger_step["env"] = {"OTHER_TOKEN": "${{ secrets.OTHER_TOKEN }}"}
+    workflows = workflows_with_job(workflow_inventory(), "dagger.yml", "checks", checks)
+
+    # When / Then
+    with pytest.raises(AssertionError, match="secret inputs are forbidden"):
+        assert_workflow_policy(workflows)
+
+
+def test_should_reject_workflow_secret_environment_before_check_inherits_it() -> None:
+    # Given
+    workflows = deepcopy(dict(workflow_inventory()))
+    dagger_workflow = cast(dict[str, object], workflows["dagger.yml"])
+    dagger_workflow["env"] = {"SHARED_TOKEN": "${{ secrets.SHARED_TOKEN }}"}
+
+    # When / Then
+    with pytest.raises(AssertionError, match="workflow env is forbidden"):
+        assert_workflow_policy(workflows)
+
+
+def test_should_reject_secret_environment_when_injected_into_deploy_job() -> None:
+    # Given
+    deploy = dict(job_body(workflow_inventory()["dagger.yml"], "deploy"))
+    deploy["env"] = {"SHARED_TOKEN": "${{ secrets.SHARED_TOKEN }}"}
+    workflows = workflows_with_job(workflow_inventory(), "dagger.yml", "deploy", deploy)
+
+    # When / Then
+    with pytest.raises(AssertionError, match="job env is forbidden"):
+        assert_workflow_policy(workflows)
+
+
+def test_should_reject_secret_environment_when_injected_into_checkout_step() -> None:
+    # Given
+    deploy = deepcopy(dict(job_body(workflow_inventory()["dagger.yml"], "deploy")))
+    steps = cast(list[object], deploy["steps"])
+    checkout = cast(dict[str, object], steps[0])
+    checkout["env"] = {"SHARED_TOKEN": "${{ secrets.SHARED_TOKEN }}"}
+    workflows = workflows_with_job(workflow_inventory(), "dagger.yml", "deploy", deploy)
+
+    # When / Then
+    with pytest.raises(AssertionError, match="checkout env is forbidden"):
+        assert_workflow_policy(workflows)
+
+
+def test_should_parse_on_as_yaml_12_string_when_workflow_loads() -> None:
+    # Given / When
+    workflow = load_workflow(WORKFLOW_DIRECTORY / "dagger.yml")
+
+    # Then
+    assert "on" in workflow
+
+
+def test_should_declare_bounded_yaml_parser_as_direct_test_dependency() -> None:
+    # Given
+    configuration = cast(
+        object,
+        tomllib.loads(ROOT.joinpath(".dagger/pyproject.toml").read_text(encoding="utf-8")),
+    )
+    assert isinstance(configuration, dict)
+
+    # When
+    dependency_groups = mapping_field(
+        cast(Mapping[str, object], configuration), "dependency-groups"
+    )
+    development = dependency_groups.get("dev")
+
+    # Then
+    assert isinstance(development, list)
+    assert YAML_DEPENDENCY in development
+
+
+def test_should_scope_exact_production_jobs_to_environment() -> None:
+    # Given / When
+    workflows = workflow_inventory()
+
+    # Then
+    assert_workflow_policy(workflows)
+    assert production_jobs(workflows) == frozenset(
+        {("dagger.yml", "deploy"), ("publish-watchlist.yml", "publish")}
+    )
+    for filename, job_name in DELIVERY_WORKFLOWS.items():
+        assert job_body(workflows[filename], job_name).get("environment") == "production"
+
+
+def test_should_keep_dagger_check_unprivileged_and_uniquely_named() -> None:
+    # Given
+    workflows = workflow_inventory()
+    dagger_workflow = workflows["dagger.yml"]
+    checks = job_body(dagger_workflow, "checks")
+
+    # When
+    named_dagger = tuple(
+        (filename, name)
+        for filename, workflow in workflows.items()
+        for name, job in workflow_jobs(workflow).items()
+        if isinstance(job, dict) and job.get("name") == "Dagger"
+    )
+
+    # Then
+    assert dagger_workflow.get("name") == "Dagger"
+    assert named_dagger == (("dagger.yml", "checks"),)
+    assert checks.get("environment") is None
+    assert checks.get("env") is None
+    assert checks.get("permissions") is None
+    assert mapping_field(dagger_workflow, "permissions") == DELIVERY_PERMISSIONS
+    assert mapping_field(checks, "concurrency") == CHECKS_CONCURRENCY
+
+
+def test_should_grant_only_read_permissions_to_mutation_workflows() -> None:
+    # Given / When
+    workflows = workflow_inventory()
+
+    # Then
+    for filename, job_name in DELIVERY_WORKFLOWS.items():
+        workflow = workflows[filename]
+        job = job_body(workflow, job_name)
+        assert mapping_field(workflow, "permissions") == DELIVERY_PERMISSIONS
+        assert job.get("permissions") is None
+
+
+def test_should_serialize_all_delivery_through_one_concurrency_group() -> None:
+    # Given / When
+    workflows = workflow_inventory()
+
+    # Then
+    for filename, job_name in DELIVERY_WORKFLOWS.items():
+        job = job_body(workflows[filename], job_name)
+        assert mapping_field(job, "concurrency") == DELIVERY_CONCURRENCY
+    assert job_body(workflows["publish-watchlist.yml"], "publish").get("name") == (
+        "Publish signed watchlist"
+    )
+
+
+@pytest.mark.parametrize(
+    ("filename", "job_name", "function_name"),
+    [
+        ("dagger.yml", "deploy", "deploy"),
+        ("publish-watchlist.yml", "publish", "publish-watchlist"),
+    ],
+)
+def test_should_pass_typed_secrets_to_only_dagger_delivery(
+    filename: str, job_name: str, function_name: str
+) -> None:
+    # Given
+    job = job_body(workflow_inventory()[filename], job_name)
+
+    # When / Then
+    assert_delivery_steps(job, function_name)
+
+
+def test_should_keep_freshness_read_only_and_outside_production() -> None:
+    # Given
+    workflow = workflow_inventory()["watchlist-freshness.yml"]
+    serialized = json.dumps(workflow)
+
+    # When / Then
+    assert mapping_field(workflow, "permissions") == {"contents": "read"}
+    for job in workflow_jobs(workflow).values():
+        assert isinstance(job, dict)
+        assert job.get("environment") is None
+        assert job.get("env") is None
+    for forbidden in (*DELIVERY_ENVIRONMENT, "cloudflare-pages", "publish-watchlist"):
+        assert forbidden not in serialized
 
 
 def dagger(*arguments: str) -> str:
