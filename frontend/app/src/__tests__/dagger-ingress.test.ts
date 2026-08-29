@@ -84,11 +84,10 @@ const SECURITY_AUDIT_TRIGGERS =
 const READ_ONLY_PERMISSIONS = "contents: read";
 
 describe("thin Dagger ingress", () => {
-	it("keeps only the six orchestration entrypoints", () => {
+	it("keeps only the five orchestration entrypoints", () => {
 		expect(workflows()).toEqual([
 			"dagger.yml",
 			"deploy.yml",
-			"production-secret-migration.yml",
 			"publish-watchlist.yml",
 			"security-audit.yml",
 			"watchlist-freshness.yml",
