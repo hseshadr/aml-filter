@@ -5,7 +5,15 @@ requires-python = ">=3.14"
 dependencies = ["dagger-io"]
 
 [dependency-groups]
-dev = ["mypy>=1.17", "poethepoet>=0.37", "pytest>=9.0", "pytest-cov>=7.0", "ruff>=0.12", "xenon>=0.9"]
+dev = [
+  "mypy>=1.17",
+  "pip-audit==2.10.1",
+  "poethepoet>=0.37",
+  "pytest>=9.0",
+  "pytest-cov>=7.0",
+  "ruff>=0.12",
+  "xenon>=0.9",
+]
 
 [build-system]
 requires = ["uv_build>=0.8.4,<0.9.0"]
@@ -27,6 +35,7 @@ max-complexity = 5
 
 [tool.ruff.lint.per-file-ignores]
 "tests/test_module_contract.py" = ["S603"]
+"tests/test_quality_contract.py" = ["S603"]
 
 [tool.mypy]
 strict = true
@@ -41,8 +50,25 @@ omit = ["src/aml_filter/main.py"] # exercised by real Dagger schema and integrat
 [tool.poe.tasks]
 lint-fix = "ruff check --fix ."
 format = "ruff format ."
-lint = ["lint-fix", "format"]
+lint-check = "ruff check ."
+format-check = "ruff format --check ."
+lint = ["lint-check", "format-check"]
 typecheck = "mypy src tests"
 complexity = "xenon --max-absolute A --max-modules A --max-average A src"
 test = "pytest --cov=aml_filter --cov-report=term-missing --cov-fail-under=90"
+# Snapshot the installed registry packages while excluding only the editable module and SDK.
+audit = { shell = """
+set -eu
+audit_requirements="$(mktemp /tmp/aml-filter-audit.XXXXXX)"
+trap 'unlink "$audit_requirements"' EXIT
+editable_names="$(python -m pip list --editable --format=freeze | cut -d= -f1 | LC_ALL=C sort)"
+expected_editables='aml-filter
+dagger-io'
+if [ "$editable_names" != "$expected_editables" ]; then
+  echo 'unexpected editable distribution inventory' >&2
+  exit 1
+fi
+python -m pip freeze --all --exclude-editable > "$audit_requirements"
+pip-audit --strict --progress-spinner off --requirement "$audit_requirements"
+""" }
 gate = ["lint", "typecheck", "complexity", "test"]
