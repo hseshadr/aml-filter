@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from shlex import split
 from typing import Annotated, Final
 
+import dagger
 from dagger import (
     Container,
     DefaultPath,
@@ -29,6 +30,7 @@ from .policy import (
     release_version,
     whole_bundle_fallback_days,
 )
+from .targets import AmlTarget, GreenMainEvidence, ProviderIdentity, parse_green_main
 
 NODE_IMAGE: Final = (
     "node:22.13.0-bookworm@sha256:fa54405993eaa6bab6b6e460f5f3e945a2e2f07942ba31c0e297a7d9c2041f62"
@@ -39,9 +41,13 @@ UV_IMAGE: Final = (
 )
 EDGEPROC_REPO: Final = "https://github.com/hseshadr/edge-proc"
 EDGEPROC_COMMIT: Final = "e3bfb570feb8619c823df63b6c012fd8c8c6a9b6"
-REPOSITORY: Final = "hseshadr/aml-filter"
+CENTRAL_MODULE_SHA: Final = "daebff7ebf3e69a0361b90cd7b7a767c0e4b48e1"
+TARGET: Final = AmlTarget.production()
+REPOSITORY: Final = TARGET.repository
 REPOSITORY_URL: Final = f"https://github.com/{REPOSITORY}.git"
-LIVE_ORIGIN: Final = "https://aml-filter.com"
+LIVE_ORIGIN: Final = f"https://{TARGET.domain}"
+DEPLOY_ROOT: Final = "dist"
+PAGES_DOMAINS: Final = ()
 PUBLIC_KEY: Final = "/src/frontend/app/public/public.key"
 SOURCE_EXCLUDES: Final = split(
     ".git .venv **/.venv **/node_modules **/dist **/.decision-out "
@@ -60,9 +66,6 @@ PLAYWRIGHT_INSTALL: Final = split(
     "pnpm --filter aml-filter-app exec playwright install --with-deps chromium firefox webkit"
 )
 APP_BUILD: Final = split("pnpm --filter aml-filter-app run build")
-WRANGLER_DEPLOY: Final = split(
-    "pnpm exec wrangler pages deploy /deploy --project-name aml-filter --branch main"
-)
 FRESHNESS_CHECK: Final = [
     "pnpm",
     "--silent",
@@ -148,7 +151,31 @@ class PublishRequest:
     signing_key: Secret
     api_token: Secret
     account_id: Secret
+    github_token: Secret
     release_id: str
+
+
+@dataclass(frozen=True)
+class ReleaseContext:
+    """Foundation-authorized source and exact hosted workflow attempt."""
+
+    source: Directory
+    evidence: GreenMainEvidence
+
+
+@dataclass(frozen=True)
+class ProviderRequest:
+    """Closed central-envelope inputs for one shared provider transaction."""
+
+    envelope: Directory
+    consumer_identity: str
+    producing_identity: str
+    workflow_run_id: str
+    run_attempt: int
+
+
+class ReleaseSourceMismatchError(ValueError):
+    """The caller's product identity is not the authorized green-main SHA."""
 
 
 def mount_caches(container: Container, caches: tuple[tuple[str, str], ...]) -> Container:
@@ -163,9 +190,9 @@ class AmlFilter:
 
     source: Annotated[Directory, DefaultPath("/"), Ignore(SOURCE_EXCLUDES)] = field()
 
-    def _node(self) -> Container:
+    def _node(self, source: Directory) -> Container:
         container = mount_caches(dag.container().from_(NODE_IMAGE), NODE_CACHES)
-        container = container.with_directory("/src", self.source).with_workdir("/src/frontend")
+        container = container.with_directory("/src", source).with_workdir("/src/frontend")
         container = container.with_env_variable("COREPACK_HOME", "/root/.cache/corepack")
         container = container.with_exec(["npm", "install", "--global", "corepack@0.34.5"])
         container = container.with_exec(["corepack", "enable"])
@@ -177,19 +204,22 @@ class AmlFilter:
         container = container.with_env_variable("UV_PYTHON", "3.13.5")
         return container.with_env_variable("SSL_CERT_FILE", "/etc/ssl/certs/ca-certificates.crt")
 
-    def _release_base(self) -> Container:
-        container = mount_caches(self._with_uv(self._node()), QUALITY_CACHES[:1])
+    def _release_base(self, source: Directory) -> Container:
+        container = mount_caches(self._with_uv(self._node(source)), QUALITY_CACHES[:1])
         edgeproc = dag.git(EDGEPROC_REPO).commit(EDGEPROC_COMMIT).tree()
         container = container.with_directory("/edgeproc", edgeproc)
+        container = container.with_env_variable("EDGEPROC_DIR", "/edgeproc")
         container = container.with_exec(
             ["uv", "sync", "--project", "/edgeproc", "--extra", "bundles"]
         )
         container = container.with_exec(["node", "app/scripts/download-model.mjs"])
         return container
 
-    def _signed_release(self, signing_key: Secret, version: str, kind: ReleaseKind) -> Container:
+    def _signed_release(
+        self, source: Directory, signing_key: Secret, version: str, kind: ReleaseKind
+    ) -> Container:
         fallback = 0 if kind is ReleaseKind.WATCHLIST else whole_bundle_fallback_days(kind)
-        container = self._release_base()
+        container = self._release_base(source)
         container = container.with_secret_variable("WATCHLIST_SIGNING_KEY", signing_key)
         container = container.with_env_variable("VERSION", version)
         container = container.with_env_variable("FALLBACK_DAYS", str(fallback))
@@ -197,8 +227,10 @@ class AmlFilter:
         container = container.with_env_variable("PUBLIC_KEY", PUBLIC_KEY)
         return container.with_exec(["bash", "-ceu", RELEASE_SCRIPT])
 
-    def _release_app(self, release: Directory, source_sha: str, run_id: str) -> Container:
-        container = self._node().without_directory("/src/frontend/app/public/bundle/origin")
+    def _release_app(
+        self, source: Directory, release: Directory, source_sha: str, run_id: str
+    ) -> Container:
+        container = self._node(source).without_directory("/src/frontend/app/public/bundle/origin")
         container = container.with_directory(
             "/src/frontend/app/public/bundle/origin", release.directory("origin")
         )
@@ -207,9 +239,9 @@ class AmlFilter:
         return container.with_exec(APP_BUILD).with_exec(stamp)
 
     def _verify_container(
-        self, release: Directory, identity: ReleaseIdentity, origin: str
+        self, source: Directory, release: Directory, identity: ReleaseIdentity, origin: str
     ) -> Container:
-        container = self._node().with_directory("/release", release)
+        container = self._node(source).with_directory("/release", release)
         container = container.with_env_variable("APP_ORIGIN", origin)
         container = container.with_env_variable("SOURCE_SHA", identity.source_sha)
         container = container.with_env_variable("RUN_ID", identity.run_id)
@@ -217,22 +249,23 @@ class AmlFilter:
         return container
 
     def _preview_verify(
-        self, app: Directory, release: Directory, identity: ReleaseIdentity
+        self, source: Directory, app: Directory, release: Directory, identity: ReleaseIdentity
     ) -> Container:
-        container = self._verify_container(release, identity, "http://preview:4173")
-        container = container.with_service_binding("preview", self.preview(app))
+        container = self._verify_container(source, release, identity, "http://preview:4173")
+        container = container.with_service_binding("preview", self._preview(source, app))
         container = container.with_env_variable("ATTEMPTS", "1")
         container = container.with_env_variable("DELAY_SECONDS", "0")
         return container.with_exec(["bash", "-ceu", VERIFY_SCRIPT])
 
-    def _upload(self, app: Directory, token: Secret, account_id: Secret) -> Container:
-        container = self._node().with_directory("/deploy", app)
-        container = container.with_secret_variable("CLOUDFLARE_API_TOKEN", token)
-        container = container.with_secret_variable("CLOUDFLARE_ACCOUNT_ID", account_id)
-        return container.with_exec(WRANGLER_DEPLOY)
+    def _preview(self, source: Directory, app: Directory) -> Service:
+        container = self._node(source).with_directory("/src/frontend/app/dist", app)
+        container = container.with_exposed_port(4173)
+        return container.as_service(args=PREVIEW_ARGS)
 
-    def _live_verify(self, release: Directory, identity: ReleaseIdentity) -> Container:
-        container = self._verify_container(release, identity, LIVE_ORIGIN)
+    def _live_verify(
+        self, source: Directory, release: Directory, identity: ReleaseIdentity
+    ) -> Container:
+        container = self._verify_container(source, release, identity, LIVE_ORIGIN)
         container = container.with_env_variable("ATTEMPTS", "10")
         container = container.with_env_variable("DELAY_SECONDS", "15")
         container = container.with_exec(["bash", "-ceu", VERIFY_SCRIPT])
@@ -252,21 +285,92 @@ class AmlFilter:
             commit_sha=commit_sha,
         )
 
-    async def _publish(
-        self,
-        request: PublishRequest,
-    ) -> str:
-        identity = parse_release_identity(request.release_id)
-        stamp = release_version("", datetime.now(UTC).date())
-        release = self._signed_release(request.signing_key, stamp, request.kind).directory(
-            "/release"
+    async def _release_context(self, github_token: Secret) -> ReleaseContext:
+        shared = dag.foundation()
+        raw = shared.green_main(github_token=github_token, repository=TARGET.repository)
+        evidence = parse_green_main(await raw.serialization())
+        source = (
+            dag.git(REPOSITORY_URL).commit(evidence.commit_sha).tree(depth=0, include_tags=True)
         )
-        built = self._release_app(release, identity.source_sha, identity.run_id)
+        bound = shared.source(source, TARGET.repository, evidence.commit_sha)
+        return ReleaseContext(bound, evidence)
+
+    async def _build_publication(
+        self, request: PublishRequest, context: ReleaseContext, identity: ReleaseIdentity
+    ) -> tuple[Directory, Directory]:
+        stamp = release_version("", datetime.now(UTC).date())
+        release = self._signed_release(
+            context.source, request.signing_key, stamp, request.kind
+        ).directory("/release")
+        built = self._release_app(context.source, release, identity.source_sha, identity.run_id)
         app = built.directory("/src/frontend/app/dist")
-        await self._preview_verify(app, release, identity).sync()
-        uploaded = await self._upload(app, request.api_token, request.account_id).stdout()
-        verified = await self._live_verify(release, identity).stdout()
-        return f"{uploaded}\n{verified}"
+        await self._preview_verify(context.source, app, release, identity).sync()
+        return release, app
+
+    @staticmethod
+    def _require_matching_source(identity: ReleaseIdentity, context: ReleaseContext) -> None:
+        if identity.source_sha != context.evidence.commit_sha:
+            raise ReleaseSourceMismatchError("release identity must match the green-main SHA")
+
+    @staticmethod
+    def _provider_request(app: Directory, context: ReleaseContext) -> ProviderRequest:
+        consumer = f"{TARGET.repository}@{context.evidence.commit_sha}"
+        producing = f"{CENTRAL_MODULE_SHA}:{context.evidence.workflow_run_id}"
+        artifact = dag.directory().with_directory(DEPLOY_ROOT, app)
+        envelope = dag.foundation().envelope(artifact, consumer, producing, [DEPLOY_ROOT])
+        return ProviderRequest(
+            envelope,
+            consumer,
+            producing,
+            context.evidence.workflow_run_id,
+            context.evidence.run_attempt,
+        )
+
+    @staticmethod
+    def _provider_deploy(
+        request: ProviderRequest, github_token: Secret, token: Secret, account: Secret
+    ) -> dagger.CloudflarePagesDeploymentEvidence:
+        provider = dag.cloudflare_pages()
+        r = request
+        target = TARGET
+        domains: list[str] = list(PAGES_DOMAINS)
+        return provider.deploy(
+            r.envelope, github_token, token, account, r.workflow_run_id, r.run_attempt,
+            target.repository, target.project, target.branch, target.domain, DEPLOY_ROOT, domains,
+            r.consumer_identity, r.producing_identity, [DEPLOY_ROOT])  # fmt: skip
+
+    @staticmethod
+    async def _provider_identity(
+        evidence: dagger.CloudflarePagesDeploymentEvidence,
+    ) -> ProviderIdentity:
+        object_id = dagger.CloudflarePagesDeploymentEvidenceID(await evidence.id())
+        stored = dag.load_cloudflare_pages_deployment_evidence_from_id(object_id)
+        deployment_id = await stored.deployment_id()
+        deployment_url = await stored.deployment_url()
+        return ProviderIdentity(deployment_id, deployment_url)
+
+    async def _deliver(
+        self, request: ProviderRequest, publication: PublishRequest
+    ) -> ProviderIdentity:
+        evidence = self._provider_deploy(
+            request, publication.github_token, publication.api_token, publication.account_id
+        )
+        return await self._provider_identity(evidence)
+
+    @staticmethod
+    def _deployment_result(identity: ProviderIdentity, live: str) -> str:
+        evidence = f"provider deployment verified: id={identity.deployment_id}"
+        return f"{evidence} url={identity.deployment_url}\n{live}"
+
+    async def _publish(self, request: PublishRequest) -> str:
+        identity = parse_release_identity(request.release_id)
+        context = await self._release_context(request.github_token)
+        self._require_matching_source(identity, context)
+        release, app = await self._build_publication(request, context, identity)
+        provider_request = self._provider_request(app, context)
+        provider_identity = await self._deliver(provider_request, request)
+        live = await self._live_verify(context.source, release, identity).stdout()
+        return self._deployment_result(provider_identity, live)
 
     @function
     @check
@@ -279,13 +383,13 @@ class AmlFilter:
     @check
     def dependency_audit(self) -> Container:
         """Audit the locked frontend dependency graph without suppressions."""
-        return self._node().with_exec(["pnpm", "audit", "--audit-level", "low"])
+        return self._node(self.source).with_exec(["pnpm", "audit", "--audit-level", "low"])
 
     @function
     @check
     def quality(self) -> Container:
         """Run the repository's complete canonical product gate."""
-        container = mount_caches(self._with_uv(self._node()), QUALITY_CACHES)
+        container = mount_caches(self._with_uv(self._node(self.source)), QUALITY_CACHES)
         container = container.with_exec(["uv", "sync", "--project", "../eval", "--frozen"])
         container = container.with_exec(PLAYWRIGHT_INSTALL)
         return container.with_exec(["pnpm", "run", "gate"])
@@ -293,9 +397,7 @@ class AmlFilter:
     @function
     def preview(self, app: Directory) -> Service:
         """Serve an application Directory for pre-upload verification."""
-        container = self._node().with_directory("/src/frontend/app/dist", app)
-        container = container.with_exposed_port(4173)
-        return container.as_service(args=PREVIEW_ARGS)
+        return self._preview(self.source, app)
 
     @function
     def signed_origin(
@@ -307,19 +409,19 @@ class AmlFilter:
         """Build and verify an isolated, monotonically sequenced signed origin."""
         kind = ReleaseKind.CODE if code_deploy else ReleaseKind.WATCHLIST
         stamp = release_version(version, datetime.now(UTC).date())
-        container = self._signed_release(signing_key, stamp, kind)
+        container = self._signed_release(self.source, signing_key, stamp, kind)
         return container.directory("/release")
 
     @function
     def freshness(self) -> Container:
         """Fail closed unless the live signed sanctions origin is fresh."""
-        return self._node().with_exec(FRESHNESS_CHECK)
+        return self._node(self.source).with_exec(FRESHNESS_CHECK)
 
     @function
     def live_verify(self, release: Directory, source_sha: str, run_id: str) -> Container:
         """Verify exact live app, signed bundle, source, run, and canonical identity."""
         identity = release_identity(source_sha, run_id)
-        return self._live_verify(release, identity)
+        return self._live_verify(self.source, release, identity)
 
     @function
     async def deploy(
@@ -327,13 +429,12 @@ class AmlFilter:
         signing_key: Secret,
         cloudflare_api_token: Secret,
         cloudflare_account_id: Secret,
+        github_token: Secret,
         release_id: str,
     ) -> str:
         """Build, verify, upload, and live-verify an exact code release."""
-        request = PublishRequest(
-            ReleaseKind.CODE, signing_key, cloudflare_api_token, cloudflare_account_id, release_id
-        )
-        return await self._publish(request)
+        secrets = signing_key, cloudflare_api_token, cloudflare_account_id, github_token
+        return await self._publish(PublishRequest(ReleaseKind.CODE, *secrets, release_id))
 
     @function
     async def publish_watchlist(
@@ -341,13 +442,8 @@ class AmlFilter:
         signing_key: Secret,
         cloudflare_api_token: Secret,
         cloudflare_account_id: Secret,
+        github_token: Secret,
         release_id: str,
     ) -> str:
-        request = PublishRequest(
-            ReleaseKind.WATCHLIST,
-            signing_key,
-            cloudflare_api_token,
-            cloudflare_account_id,
-            release_id,
-        )
-        return await self._publish(request)
+        secrets = signing_key, cloudflare_api_token, cloudflare_account_id, github_token
+        return await self._publish(PublishRequest(ReleaseKind.WATCHLIST, *secrets, release_id))
