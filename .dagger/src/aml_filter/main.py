@@ -30,6 +30,7 @@ from .policy import (
     release_version,
     whole_bundle_fallback_days,
 )
+from .secret_relay import relay as relay_secrets
 from .targets import AmlTarget, GreenMainEvidence, ProviderIdentity, parse_green_main
 
 NODE_IMAGE: Final = (
@@ -422,6 +423,19 @@ class AmlFilter:
         """Verify exact live app, signed bundle, source, run, and canonical identity."""
         identity = release_identity(source_sha, run_id)
         return self._live_verify(self.source, release, identity)
+
+    @function
+    async def relay_production_secrets(
+        self,
+        admin_token: Secret,
+        cloudflare_api_token: Secret,
+        cloudflare_account_id: Secret,
+        watchlist_signing_key: Secret,
+        operation_id: str,
+    ) -> str:
+        """Temporarily relay the exact repository allowlist to production."""
+        sources = cloudflare_api_token, cloudflare_account_id, watchlist_signing_key
+        return await relay_secrets(admin_token, sources, operation_id)
 
     @function
     async def deploy(
