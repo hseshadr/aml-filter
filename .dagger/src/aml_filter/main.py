@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from shlex import split
-from typing import Annotated, Final
+from typing import Annotated, Final, cast
 
 import dagger
 from dagger import (
@@ -271,12 +271,6 @@ class AmlFilter:
         container = container.with_exec(["bash", "-ceu", VERIFY_SCRIPT])
         return container.with_exec(["bash", "-ceu", CANONICAL_SCRIPT])
 
-    async def _canonical_guard_source(self) -> tuple[Directory, str]:
-        """Fetch exact public main bytes for canonical history binding."""
-        commit_sha = await dag.git(REPOSITORY_URL).branch("main").commit()
-        source = dag.git(REPOSITORY_URL).commit(commit_sha).tree(depth=0)
-        return source, commit_sha
-
     def _shared_guard(self, source: Directory, commit_sha: str) -> Container:
         """Build the exact-SHA Foundation repository guard."""
         return dag.foundation().guard(
@@ -373,11 +367,17 @@ class AmlFilter:
         return self._deployment_result(provider_identity, live)
 
     @function
-    @check
-    async def secret_scan(self) -> Container:
-        """Delegate snapshot and complete-history scanning to Foundation."""
-        source, commit_sha = await self._canonical_guard_source()
-        return self._shared_guard(source, commit_sha)
+    async def ci(self, commit_sha: str) -> str:
+        """Run all CI stages against the caller's exact source snapshot."""
+        await cast(Container, self.quality()).sync()
+        await cast(Container, self.dependency_audit()).sync()
+        await cast(Container, self.secret_scan(commit_sha)).sync()
+        return "caller snapshot CI passed"
+
+    @function
+    def secret_scan(self, commit_sha: str) -> Container:
+        """Guard the caller's exact source and commit through Foundation."""
+        return self._shared_guard(self.source, commit_sha)
 
     @function
     @check

@@ -37,9 +37,10 @@ CHECKOUT_ACTION: Final = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba9
 DAGGER_ACTION: Final = "dagger/dagger-for-github@27b130bf0f79a7f6fbbbe0fbca6760dc9bb40a77"
 DELIVERY_ACTIONS: Final = (CHECKOUT_ACTION, DAGGER_ACTION)
 DELIVERY_WORKFLOWS: Final = {
-    "dagger.yml": "deploy",
+    "deploy.yml": "deploy",
     "publish-watchlist.yml": "publish",
 }
+READ_ONLY_PERMISSIONS: Final = {"contents": "read"}
 DELIVERY_PERMISSIONS: Final = {"contents": "read", "actions": "read"}
 DELIVERY_CONCURRENCY: Final = {
     "group": "deploy-aml-filter-com",
@@ -49,6 +50,27 @@ CHECKS_CONCURRENCY: Final = {
     "group": "dagger-checks-${{ github.workflow }}-${{ github.ref }}",
     "cancel-in-progress": True,
 }
+SECURITY_CONCURRENCY: Final = {
+    "group": "security-audit-${{ github.ref }}",
+    "cancel-in-progress": True,
+}
+CI_CHECKOUT_INPUTS: Final = {
+    "fetch-depth": 0,
+    "persist-credentials": False,
+    "ref": "${{ github.sha }}",
+}
+CI_DAGGER_INPUTS: Final = {
+    "version": "0.21.8",
+    "call": "ci --commit-sha=${{ github.sha }}",
+}
+AUTHORIZER_TRIGGERS: Final = {
+    "push": {"branches": ["main"]},
+    "pull_request": None,
+}
+SECURITY_AUDIT_TRIGGERS: Final = {
+    "schedule": [{"cron": "0 9 * * 1"}],
+    "workflow_dispatch": None,
+}
 DELIVERY_ENVIRONMENT: Final = {
     "WATCHLIST_SIGNING_KEY": "${{ secrets.WATCHLIST_SIGNING_KEY }}",
     "CLOUDFLARE_API_TOKEN": "${{ secrets.CLOUDFLARE_API_TOKEN }}",
@@ -56,19 +78,53 @@ DELIVERY_ENVIRONMENT: Final = {
     "GITHUB_TOKEN": "${{ github.token }}",
 }
 EXPECTED_WORKFLOW_JOBS: Final = {
-    "dagger.yml": frozenset({"checks", "deploy"}),
+    "dagger.yml": frozenset({"checks"}),
+    "deploy.yml": frozenset({"deploy"}),
     "publish-watchlist.yml": frozenset({"publish"}),
+    "security-audit.yml": frozenset({"security"}),
     "watchlist-freshness.yml": frozenset({"freshness"}),
 }
+EXPECTED_WORKFLOW_NAMES: Final = {
+    "dagger.yml": "Dagger",
+    "deploy.yml": "Deploy aml-filter.com",
+    "publish-watchlist.yml": "Publish watchlist",
+    "security-audit.yml": "Security audit",
+    "watchlist-freshness.yml": "Watchlist freshness",
+}
 EXPECTED_WORKFLOW_PERMISSIONS: Final = {
-    "dagger.yml": DELIVERY_PERMISSIONS,
+    "dagger.yml": READ_ONLY_PERMISSIONS,
+    "deploy.yml": DELIVERY_PERMISSIONS,
     "publish-watchlist.yml": DELIVERY_PERMISSIONS,
-    "watchlist-freshness.yml": {"contents": "read"},
+    "security-audit.yml": READ_ONLY_PERMISSIONS,
+    "watchlist-freshness.yml": READ_ONLY_PERMISSIONS,
 }
 MUTATION_FUNCTIONS: Final = {
-    ("dagger.yml", "deploy"): "deploy",
+    ("deploy.yml", "deploy"): "deploy",
     ("publish-watchlist.yml", "publish"): "publish-watchlist",
 }
+DEPLOY_SOURCE: Final = (
+    "${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}"
+)
+DELIVERY_SOURCES: Final = {
+    "deploy.yml": DEPLOY_SOURCE,
+    "publish-watchlist.yml": "${{ github.sha }}",
+}
+DELIVERY_CHECKOUT_INPUTS: Final = {
+    "deploy.yml": {
+        "fetch-depth": 0,
+        "persist-credentials": False,
+        "ref": DEPLOY_SOURCE,
+    },
+    "publish-watchlist.yml": {"persist-credentials": False},
+}
+DEPLOY_AUTHORIZATION: Final = (
+    "(github.event_name == 'workflow_run' && "
+    "github.event.workflow_run.conclusion == 'success' && "
+    "github.event.workflow_run.event == 'push' && "
+    "github.event.workflow_run.head_branch == 'main' && "
+    "github.event.workflow_run.head_repository.full_name == github.repository) || "
+    "(github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')"
+)
 PROVIDER_MARKERS: Final = (
     "cloudflare_",
     "watchlist_signing_key",
@@ -91,15 +147,6 @@ RECORDED_SHA: Final = "0123456789abcdef0123456789abcdef01234567"
 RECORDED_RUN_ID: Final = "123456"
 RECORDED_ATTEMPT: Final = 2
 MALFORMED_SHA: Final = "not-a-sha"
-EXPECTED_GUARD_EVENTS: Final = (
-    f"git:{REPOSITORY_URL}",
-    "branch:main",
-    "resolve-commit",
-    f"git:{REPOSITORY_URL}",
-    f"commit:{RECORDED_SHA}",
-    "tree:0",
-    "foundation",
-)
 MALFORMED_GUARD_CALL: Final = (
     "-m",
     FOUNDATION_MODULE,
@@ -226,6 +273,67 @@ class RecordingDag:
     def foundation(self) -> RecordingFoundation:
         self.events.append("foundation")
         return self.shared
+
+
+class CiContainerRecorder:
+    """Record one caller-bound CI stage and optionally fail it."""
+
+    def __init__(self, name: str, events: list[str], failure: str = "") -> None:
+        self.name = name
+        self.events = events
+        self.failure = failure
+
+    async def sync(self) -> CiContainerRecorder:
+        self.events.append(self.name)
+        if self.name == self.failure:
+            raise RuntimeError(f"{self.name} failed")
+        return self
+
+
+class CiProductRecorder:
+    """Replace the three materialized CI stages."""
+
+    def __init__(self, events: list[str], failure: str) -> None:
+        self.events = events
+        self.failure = failure
+
+    def quality(self) -> Container:
+        return cast(Container, CiContainerRecorder("quality", self.events, self.failure))
+
+    def dependency_audit(self) -> Container:
+        return cast(Container, CiContainerRecorder("audit", self.events, self.failure))
+
+    def secret_scan(self, commit_sha: str) -> Container:
+        assert commit_sha == RECORDED_SHA
+        return cast(Container, CiContainerRecorder("secret-scan", self.events, self.failure))
+
+
+@dataclass(frozen=True)
+class RecordedCi:
+    """Typed context for one explicit caller-snapshot CI run."""
+
+    subject: AmlFilter
+    recorder: RecordingDag
+    events: list[str]
+    caller_source: Directory
+    canonical_source: Directory
+
+
+def recorded_ci(monkeypatch: pytest.MonkeyPatch, failure: str = "") -> RecordedCi:
+    """Install distinct caller/canonical sources and materialization recorders."""
+    events: list[str] = []
+    caller = cast(Directory, object())
+    canonical = cast(Directory, object())
+    guard = cast(Container, CiContainerRecorder("guard", events, failure))
+    recorder = RecordingDag(canonical, guard)
+    products = CiProductRecorder(events, failure)
+    monkeypatch.setattr(main_module, "dag", recorder)
+    monkeypatch.setattr(AmlFilter, "quality", products.quality)
+    monkeypatch.setattr(AmlFilter, "dependency_audit", products.dependency_audit)
+    monkeypatch.setattr(AmlFilter, "secret_scan", products.secret_scan)
+    subject = object.__new__(AmlFilter)
+    subject.source = caller
+    return RecordedCi(subject, recorder, events, caller, canonical)
 
 
 class ReleaseContainerRecorder:
@@ -596,16 +704,20 @@ class RecordedSecretScan:
     subject: AmlFilter
     recorder: RecordingDag
     result: Container
+    caller_source: Directory
+    canonical_source: Directory
 
 
 def recorded_secret_scan(monkeypatch: pytest.MonkeyPatch) -> RecordedSecretScan:
     """Install one recorder without weakening the production signature."""
-    source = cast(Directory, object())
+    caller = cast(Directory, object())
+    canonical = cast(Directory, object())
     result = cast(Container, object())
-    recorder = RecordingDag(source, result)
+    recorder = RecordingDag(canonical, result)
     monkeypatch.setattr(main_module, "dag", recorder)
     subject = object.__new__(AmlFilter)
-    return RecordedSecretScan(subject, recorder, result)
+    subject.source = caller
+    return RecordedSecretScan(subject, recorder, result, caller, canonical)
 
 
 def dagger_bin() -> str:
@@ -619,6 +731,7 @@ def dagger_bin() -> str:
 DAGGER_BIN: Final = dagger_bin()
 FUNCTIONS: Final = frozenset(
     {
+        "ci",
         "dependency-audit",
         "deploy",
         "freshness",
@@ -630,9 +743,7 @@ FUNCTIONS: Final = frozenset(
         "signed-origin",
     }
 )
-CHECKS: Final = frozenset(
-    {"aml-filter:dependency-audit", "aml-filter:quality", "aml-filter:secret-scan"}
-)
+CHECKS: Final = frozenset({"aml-filter:dependency-audit", "aml-filter:quality"})
 
 
 def workflow_paths(directory: Path = WORKFLOW_DIRECTORY) -> tuple[Path, ...]:
@@ -703,33 +814,73 @@ def action_step(job: Mapping[str, object], action: str) -> Mapping[str, object]:
     return matches[0]
 
 
-def expected_delivery_arguments(function_name: str) -> list[str]:
+def assert_ci_steps(job: Mapping[str, object]) -> None:
+    """Require exact local caller-snapshot CI without privilege."""
+    steps = step_bodies(job)
+    assert tuple(step.get("uses") for step in steps) == DELIVERY_ACTIONS
+    checkout = action_step(job, CHECKOUT_ACTION)
+    dagger_step = action_step(job, DAGGER_ACTION)
+    assert mapping_field(checkout, "with") == CI_CHECKOUT_INPUTS
+    assert mapping_field(dagger_step, "with") == CI_DAGGER_INPUTS
+    assert job.get("environment") is None and job.get("env") is None
+    assert job.get("permissions") is None
+    assert all(step.get("env") is None and "run" not in step for step in steps)
+
+
+def assert_authorizer_workflow(workflow: Mapping[str, object]) -> None:
+    """Require the sole protected Dagger authorizer boundary."""
+    assert workflow.get("name") == "Dagger"
+    assert mapping_field(workflow, "on") == AUTHORIZER_TRIGGERS
+    assert mapping_field(workflow, "permissions") == READ_ONLY_PERMISSIONS
+    assert frozenset(workflow_jobs(workflow)) == frozenset({"checks"})
+    checks = job_body(workflow, "checks")
+    assert checks.get("name") == "Dagger"
+    assert_ci_steps(checks)
+
+
+def assert_security_workflow(workflow: Mapping[str, object]) -> None:
+    """Require isolated weekly/manual caller-snapshot diagnostics."""
+    assert workflow.get("name") == "Security audit"
+    assert mapping_field(workflow, "on") == SECURITY_AUDIT_TRIGGERS
+    assert mapping_field(workflow, "permissions") == READ_ONLY_PERMISSIONS
+    assert frozenset(workflow_jobs(workflow)) == frozenset({"security"})
+    security = job_body(workflow, "security")
+    assert security.get("name") == "Dagger security", "diagnostic job must not be named Dagger"
+    assert mapping_field(security, "concurrency") == SECURITY_CONCURRENCY
+    assert_ci_steps(security)
+
+
+def expected_delivery_arguments(filename: str, function_name: str) -> list[str]:
     """Build the exact typed Dagger delivery invocation."""
-    return [
-        function_name,
-        "--signing-key=env://WATCHLIST_SIGNING_KEY",
-        "--cloudflare-api-token=env://CLOUDFLARE_API_TOKEN",
-        "--cloudflare-account-id=env://CLOUDFLARE_ACCOUNT_ID",
-        "--github-token=env://GITHUB_TOKEN",
-        "--release-id=${{",
-        "github.sha",
-        "}}:${{",
-        "github.run_id",
-        "}}",
-    ]
+    source = DELIVERY_SOURCES[filename]
+    call = (
+        f"{function_name} --signing-key=env://WATCHLIST_SIGNING_KEY "
+        "--cloudflare-api-token=env://CLOUDFLARE_API_TOKEN "
+        "--cloudflare-account-id=env://CLOUDFLARE_ACCOUNT_ID "
+        "--github-token=env://GITHUB_TOKEN "
+        f"--release-id={source}:${{{{ github.run_id }}}}"
+    )
+    return call.split()
 
 
-def assert_delivery_steps(job: Mapping[str, object], function_name: str) -> None:
+def expected_delivery_inputs(filename: str, function_name: str) -> Mapping[str, object]:
+    """Build the complete allowed Dagger action input mapping."""
+    return {
+        "version": "0.21.8",
+        "call": " ".join(expected_delivery_arguments(filename, function_name)),
+    }
+
+
+def assert_delivery_steps(filename: str, job: Mapping[str, object], function_name: str) -> None:
     """Require credentialless checkout followed by typed Dagger delivery."""
     steps = step_bodies(job)
     assert tuple(step.get("uses") for step in steps) == DELIVERY_ACTIONS
     checkout = action_step(job, CHECKOUT_ACTION)
     dagger_step = action_step(job, DAGGER_ACTION)
-    assert mapping_field(checkout, "with").get("persist-credentials") is False
+    assert mapping_field(checkout, "with") == DELIVERY_CHECKOUT_INPUTS[filename]
     assert checkout.get("env") is None, "checkout env is forbidden"
     assert dagger_step.get("env") == DELIVERY_ENVIRONMENT, "delivery env must be exact"
-    inputs = mapping_field(dagger_step, "with")
-    assert str(inputs.get("call", "")).split() == expected_delivery_arguments(function_name)
+    assert mapping_field(dagger_step, "with") == expected_delivery_inputs(filename, function_name)
     assert all("run" not in step for step in steps)
 
 
@@ -790,7 +941,7 @@ def assert_safe_job(filename: str, name: str, job: Mapping[str, object]) -> None
     assert all(step.get("uses") in DELIVERY_ACTIONS for step in steps), "action is not approved"
     function_name = MUTATION_FUNCTIONS.get((filename, name))
     if function_name is not None:
-        assert_delivery_steps(job, function_name)
+        assert_delivery_steps(filename, job, function_name)
         return
     assert_nonmutation_job(job, steps)
 
@@ -802,6 +953,7 @@ def assert_workflow_policy(workflows: Mapping[str, Mapping[str, object]]) -> Non
     )
     for filename, workflow in workflows.items():
         assert workflow.get("env") is None, "workflow env is forbidden"
+        assert workflow.get("name") == EXPECTED_WORKFLOW_NAMES[filename]
         jobs = workflow_jobs(workflow)
         assert frozenset(jobs) == EXPECTED_WORKFLOW_JOBS[filename], (
             "exact job inventory is required"
@@ -810,6 +962,101 @@ def assert_workflow_policy(workflows: Mapping[str, Mapping[str, object]]) -> Non
         for name, job in jobs.items():
             assert isinstance(job, dict)
             assert_safe_job(filename, name, cast(Mapping[str, object], job))
+
+
+def test_should_keep_authorizing_workflow_provider_free() -> None:
+    # Given / When
+    workflow = workflow_inventory()["dagger.yml"]
+    serialized = json.dumps(workflow).lower()
+
+    # Then
+    assert frozenset(workflow_jobs(workflow)) == frozenset({"checks"})
+    assert production_jobs({"dagger.yml": workflow}) == frozenset()
+    assert "secrets." not in serialized
+    assert all(marker not in serialized for marker in PROVIDER_MARKERS)
+
+
+def test_should_bind_hosted_ci_to_exact_caller_snapshot_without_tokens() -> None:
+    # Given
+    workflow = workflow_inventory()["dagger.yml"]
+    checks = job_body(workflow, "checks")
+
+    # When / Then
+    assert_authorizer_workflow(workflow)
+    assert_ci_steps(checks)
+    assert "github.token" not in json.dumps(workflow).lower()
+
+
+def test_should_isolate_weekly_manual_security_diagnostics() -> None:
+    # Given
+    path = WORKFLOW_DIRECTORY / "security-audit.yml"
+    assert path.exists(), "security diagnostics must use a separate workflow"
+
+    # When / Then
+    assert_security_workflow(load_workflow(path))
+
+
+@pytest.mark.parametrize(
+    ("trigger", "value"),
+    [("schedule", [{"cron": "0 9 * * 1"}]), ("workflow_dispatch", None)],
+)
+def test_should_reject_nonpush_trigger_when_added_to_authorizer(
+    trigger: str, value: object
+) -> None:
+    # Given
+    workflow = deepcopy(dict(workflow_inventory()["dagger.yml"]))
+    cast(dict[str, object], workflow["on"])[trigger] = value
+
+    # When / Then
+    with pytest.raises(AssertionError):
+        assert_authorizer_workflow(workflow)
+
+
+def test_should_reject_dagger_name_when_assigned_to_security_diagnostic() -> None:
+    # Given
+    workflow = deepcopy(dict(workflow_inventory()["security-audit.yml"]))
+    security = cast(dict[str, object], cast(dict[str, object], workflow["jobs"])["security"])
+    security["name"] = "Dagger"
+
+    # When / Then
+    with pytest.raises(AssertionError, match="diagnostic job must not be named Dagger"):
+        assert_security_workflow(workflow)
+
+
+def test_should_trigger_deploy_only_after_completed_dagger_workflow() -> None:
+    # Given / When
+    trigger = mapping_field(load_workflow(WORKFLOW_DIRECTORY / "deploy.yml"), "on")
+    workflow_run = mapping_field(trigger, "workflow_run")
+
+    # Then
+    assert frozenset(trigger) == frozenset({"workflow_run", "workflow_dispatch"})
+    assert workflow_run.get("workflows") == ["Dagger"]
+    assert workflow_run.get("types") == ["completed"]
+    assert workflow_run.get("branches") == ["main"]
+    assert "workflow_dispatch" in trigger
+
+
+def test_should_require_exact_successful_main_push_for_automatic_deploy() -> None:
+    # Given / When
+    workflow = load_workflow(WORKFLOW_DIRECTORY / "deploy.yml")
+    condition = " ".join(str(job_body(workflow, "deploy").get("if", "")).split())
+
+    # Then
+    assert condition == DEPLOY_AUTHORIZATION
+
+
+def test_should_bind_deploy_bytes_to_authorized_head_and_own_run() -> None:
+    # Given
+    workflow = load_workflow(WORKFLOW_DIRECTORY / "deploy.yml")
+    job = job_body(workflow, "deploy")
+    checkout = mapping_field(action_step(job, CHECKOUT_ACTION), "with")
+    call = str(mapping_field(action_step(job, DAGGER_ACTION), "with").get("call", ""))
+
+    # When / Then
+    assert checkout == DELIVERY_CHECKOUT_INPUTS["deploy.yml"]
+    assert DEPLOY_SOURCE in call
+    assert "github.run_id" in call
+    assert "github.event.workflow_run.id" not in call
 
 
 def test_should_discover_both_workflow_extensions(tmp_path: Path) -> None:
@@ -909,9 +1156,9 @@ def test_should_reject_workflow_secret_environment_before_check_inherits_it() ->
 
 def test_should_reject_secret_environment_when_injected_into_deploy_job() -> None:
     # Given
-    deploy = dict(job_body(workflow_inventory()["dagger.yml"], "deploy"))
+    deploy = dict(job_body(workflow_inventory()["deploy.yml"], "deploy"))
     deploy["env"] = {"SHARED_TOKEN": "${{ secrets.SHARED_TOKEN }}"}
-    workflows = workflows_with_job(workflow_inventory(), "dagger.yml", "deploy", deploy)
+    workflows = workflows_with_job(workflow_inventory(), "deploy.yml", "deploy", deploy)
 
     # When / Then
     with pytest.raises(AssertionError, match="job env is forbidden"):
@@ -920,11 +1167,11 @@ def test_should_reject_secret_environment_when_injected_into_deploy_job() -> Non
 
 def test_should_reject_secret_environment_when_injected_into_checkout_step() -> None:
     # Given
-    deploy = deepcopy(dict(job_body(workflow_inventory()["dagger.yml"], "deploy")))
+    deploy = deepcopy(dict(job_body(workflow_inventory()["deploy.yml"], "deploy")))
     steps = cast(list[object], deploy["steps"])
     checkout = cast(dict[str, object], steps[0])
     checkout["env"] = {"SHARED_TOKEN": "${{ secrets.SHARED_TOKEN }}"}
-    workflows = workflows_with_job(workflow_inventory(), "dagger.yml", "deploy", deploy)
+    workflows = workflows_with_job(workflow_inventory(), "deploy.yml", "deploy", deploy)
 
     # When / Then
     with pytest.raises(AssertionError, match="checkout env is forbidden"):
@@ -965,7 +1212,7 @@ def test_should_scope_exact_production_jobs_to_environment() -> None:
     # Then
     assert_workflow_policy(workflows)
     assert production_jobs(workflows) == frozenset(
-        {("dagger.yml", "deploy"), ("publish-watchlist.yml", "publish")}
+        {("deploy.yml", "deploy"), ("publish-watchlist.yml", "publish")}
     )
     for filename, job_name in DELIVERY_WORKFLOWS.items():
         assert job_body(workflows[filename], job_name).get("environment") == "production"
@@ -991,7 +1238,7 @@ def test_should_keep_dagger_check_unprivileged_and_uniquely_named() -> None:
     assert checks.get("environment") is None
     assert checks.get("env") is None
     assert checks.get("permissions") is None
-    assert mapping_field(dagger_workflow, "permissions") == DELIVERY_PERMISSIONS
+    assert mapping_field(dagger_workflow, "permissions") == READ_ONLY_PERMISSIONS
     assert mapping_field(checks, "concurrency") == CHECKS_CONCURRENCY
 
 
@@ -1023,7 +1270,7 @@ def test_should_serialize_all_delivery_through_one_concurrency_group() -> None:
 @pytest.mark.parametrize(
     ("filename", "job_name", "function_name"),
     [
-        ("dagger.yml", "deploy", "deploy"),
+        ("deploy.yml", "deploy", "deploy"),
         ("publish-watchlist.yml", "publish", "publish-watchlist"),
     ],
 )
@@ -1034,7 +1281,7 @@ def test_should_pass_typed_secrets_to_only_dagger_delivery(
     job = job_body(workflow_inventory()[filename], job_name)
 
     # When / Then
-    assert_delivery_steps(job, function_name)
+    assert_delivery_steps(filename, job, function_name)
 
 
 def test_should_keep_freshness_read_only_and_outside_production() -> None:
@@ -1500,22 +1747,52 @@ def test_should_pin_both_shared_modules_to_exact_central_main() -> None:
         assert dependencies[name]["pin"] == CENTRAL_SHA
 
 
-@pytest.mark.anyio
-async def test_should_materialize_exact_foundation_guard_when_secret_scan_runs(
+def test_should_materialize_exact_foundation_guard_when_secret_scan_runs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # Given
     context = recorded_secret_scan(monkeypatch)
 
     # When
-    actual = await cast(Awaitable[Container], context.subject.secret_scan())
+    actual = context.subject.secret_scan(RECORDED_SHA)
 
     # Then
-    assert actual is context.result
-    assert context.recorder.events == list(EXPECTED_GUARD_EVENTS)
+    assert actual is context.result and context.caller_source is not context.canonical_source
+    assert context.recorder.events == ["foundation"]
     assert context.recorder.shared.call == GuardCall(
-        context.recorder.source, REPOSITORY, RECORDED_SHA
+        context.caller_source, REPOSITORY, RECORDED_SHA
     )
+
+
+@pytest.mark.anyio
+async def test_should_orchestrate_ci_through_public_snapshot_scan(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Given
+    context = recorded_ci(monkeypatch)
+    assert context.caller_source is not context.canonical_source
+
+    # When
+    await cast(Awaitable[str], context.subject.ci(RECORDED_SHA))
+
+    # Then
+    assert context.events == ["quality", "audit", "secret-scan"]
+    assert context.recorder.events == []
+    assert context.recorder.shared.call is None
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("failure", ["quality", "audit", "secret-scan"])
+async def test_should_propagate_ci_failure_from_every_stage(
+    monkeypatch: pytest.MonkeyPatch, failure: str
+) -> None:
+    # Given
+    context = recorded_ci(monkeypatch, failure)
+
+    # When / Then
+    with pytest.raises(RuntimeError, match=f"{failure} failed"):
+        await cast(Awaitable[str], context.subject.ci(RECORDED_SHA))
+    assert failure in context.events
 
 
 def test_should_reject_removed_history_override_at_exact_schema_boundary(tmp_path: Path) -> None:
