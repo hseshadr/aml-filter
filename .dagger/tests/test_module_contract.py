@@ -40,7 +40,6 @@ DELIVERY_WORKFLOWS: Final = {
     "deploy.yml": "deploy",
     "publish-watchlist.yml": "publish",
 }
-MIGRATION_WORKFLOW: Final = "production-secret-migration.yml"
 READ_ONLY_PERMISSIONS: Final = {"contents": "read"}
 DELIVERY_PERMISSIONS: Final = {"contents": "read", "actions": "read"}
 DELIVERY_CONCURRENCY: Final = {
@@ -54,10 +53,6 @@ CHECKS_CONCURRENCY: Final = {
 SECURITY_CONCURRENCY: Final = {
     "group": "security-audit-${{ github.ref }}",
     "cancel-in-progress": True,
-}
-MIGRATION_CONCURRENCY: Final = {
-    "group": "production-secret-migration-${{ github.ref }}",
-    "cancel-in-progress": False,
 }
 CI_CHECKOUT_INPUTS: Final = {
     "fetch-depth": 0,
@@ -82,28 +77,10 @@ DELIVERY_ENVIRONMENT: Final = {
     "CLOUDFLARE_ACCOUNT_ID": "${{ secrets.CLOUDFLARE_ACCOUNT_ID }}",
     "GITHUB_TOKEN": "${{ github.token }}",
 }
-MIGRATION_ENVIRONMENT: Final = {
-    "SECRET_RELAY_ADMIN_TOKEN": "${{ secrets.SECRET_RELAY_ADMIN_TOKEN }}",
-    "CLOUDFLARE_API_TOKEN": "${{ secrets.CLOUDFLARE_API_TOKEN }}",
-    "CLOUDFLARE_ACCOUNT_ID": "${{ secrets.CLOUDFLARE_ACCOUNT_ID }}",
-    "WATCHLIST_SIGNING_KEY": "${{ secrets.WATCHLIST_SIGNING_KEY }}",
-}
-MIGRATION_DAGGER_INPUTS: Final = {
-    "version": "0.21.8",
-    "call": (
-        "relay-production-secrets "
-        "--admin-token=env://SECRET_RELAY_ADMIN_TOKEN "
-        "--cloudflare-api-token=env://CLOUDFLARE_API_TOKEN "
-        "--cloudflare-account-id=env://CLOUDFLARE_ACCOUNT_ID "
-        "--watchlist-signing-key=env://WATCHLIST_SIGNING_KEY "
-        "--operation-id=${{ github.run_id }}-${{ github.run_attempt }}"
-    ),
-}
 EXPECTED_WORKFLOW_JOBS: Final = {
     "dagger.yml": frozenset({"checks"}),
     "deploy.yml": frozenset({"deploy"}),
     "publish-watchlist.yml": frozenset({"publish"}),
-    MIGRATION_WORKFLOW: frozenset({"migrate"}),
     "security-audit.yml": frozenset({"security"}),
     "watchlist-freshness.yml": frozenset({"freshness"}),
 }
@@ -111,7 +88,6 @@ EXPECTED_WORKFLOW_NAMES: Final = {
     "dagger.yml": "Dagger",
     "deploy.yml": "Deploy aml-filter.com",
     "publish-watchlist.yml": "Publish watchlist",
-    MIGRATION_WORKFLOW: "Production secret migration",
     "security-audit.yml": "Security audit",
     "watchlist-freshness.yml": "Watchlist freshness",
 }
@@ -119,7 +95,6 @@ EXPECTED_WORKFLOW_PERMISSIONS: Final = {
     "dagger.yml": READ_ONLY_PERMISSIONS,
     "deploy.yml": DELIVERY_PERMISSIONS,
     "publish-watchlist.yml": DELIVERY_PERMISSIONS,
-    MIGRATION_WORKFLOW: READ_ONLY_PERMISSIONS,
     "security-audit.yml": READ_ONLY_PERMISSIONS,
     "watchlist-freshness.yml": READ_ONLY_PERMISSIONS,
 }
@@ -764,7 +739,6 @@ FUNCTIONS: Final = frozenset(
         "preview",
         "publish-watchlist",
         "quality",
-        "relay-production-secrets",
         "secret-scan",
         "signed-origin",
     }
@@ -910,34 +884,6 @@ def assert_delivery_steps(filename: str, job: Mapping[str, object], function_nam
     assert all("run" not in step for step in steps)
 
 
-def assert_migration_steps(job: Mapping[str, object]) -> None:
-    """Require exact typed relay ingress without a shell or credentialed checkout."""
-    steps = step_bodies(job)
-    assert tuple(step.get("uses") for step in steps) == DELIVERY_ACTIONS
-    checkout = action_step(job, CHECKOUT_ACTION)
-    dagger_step = action_step(job, DAGGER_ACTION)
-    assert mapping_field(checkout, "with") == CI_CHECKOUT_INPUTS
-    assert checkout.get("env") is None
-    assert dagger_step.get("env") == MIGRATION_ENVIRONMENT
-    assert mapping_field(dagger_step, "with") == MIGRATION_DAGGER_INPUTS
-    assert all("run" not in step for step in steps)
-
-
-def assert_migration_workflow(workflow: Mapping[str, object]) -> None:
-    """Require the temporary main-only production secret relay boundary."""
-    assert workflow.get("name") == "Production secret migration"
-    assert mapping_field(workflow, "on") == {"workflow_dispatch": None}
-    assert mapping_field(workflow, "permissions") == READ_ONLY_PERMISSIONS
-    assert frozenset(workflow_jobs(workflow)) == frozenset({"migrate"})
-    migrate = job_body(workflow, "migrate")
-    assert migrate.get("name") == "Production secret migration"
-    assert migrate.get("if") == "github.ref == 'refs/heads/main'"
-    assert migrate.get("environment") == "production"
-    assert mapping_field(migrate, "concurrency") == MIGRATION_CONCURRENCY
-    assert migrate.get("permissions") is None and migrate.get("env") is None
-    assert_migration_steps(migrate)
-
-
 def production_jobs(
     workflows: Mapping[str, Mapping[str, object]],
 ) -> frozenset[tuple[str, str]]:
@@ -993,9 +939,6 @@ def assert_safe_job(filename: str, name: str, job: Mapping[str, object]) -> None
     steps = step_bodies(job)
     assert all("run" not in step for step in steps), "shell steps are forbidden"
     assert all(step.get("uses") in DELIVERY_ACTIONS for step in steps), "action is not approved"
-    if (filename, name) == (MIGRATION_WORKFLOW, "migrate"):
-        assert_migration_steps(job)
-        return
     function_name = MUTATION_FUNCTIONS.get((filename, name))
     if function_name is not None:
         assert_delivery_steps(filename, job, function_name)
@@ -1051,28 +994,6 @@ def test_should_isolate_weekly_manual_security_diagnostics() -> None:
 
     # When / Then
     assert_security_workflow(load_workflow(path))
-
-
-def test_should_keep_secret_migration_main_only_and_thin() -> None:
-    # Given
-    path = WORKFLOW_DIRECTORY / MIGRATION_WORKFLOW
-    assert path.exists(), "secret migration must use a dedicated temporary workflow"
-
-    # When / Then
-    assert_migration_workflow(load_workflow(path))
-
-
-def test_should_reject_run_id_only_migration_cache_buster() -> None:
-    # Given
-    workflow = deepcopy(dict(workflow_inventory()[MIGRATION_WORKFLOW]))
-    migrate = cast(dict[str, object], cast(dict[str, object], workflow["jobs"])["migrate"])
-    dagger_step = cast(dict[str, object], cast(list[object], migrate["steps"])[1])
-    inputs = cast(dict[str, object], dagger_step["with"])
-    inputs["call"] = str(inputs["call"]).replace("-${{ github.run_attempt }}", "")
-
-    # When / Then
-    with pytest.raises(AssertionError):
-        assert_migration_workflow(workflow)
 
 
 @pytest.mark.parametrize(
@@ -1291,15 +1212,10 @@ def test_should_scope_exact_production_jobs_to_environment() -> None:
     # Then
     assert_workflow_policy(workflows)
     assert production_jobs(workflows) == frozenset(
-        {
-            ("deploy.yml", "deploy"),
-            ("publish-watchlist.yml", "publish"),
-            (MIGRATION_WORKFLOW, "migrate"),
-        }
+        {("deploy.yml", "deploy"), ("publish-watchlist.yml", "publish")}
     )
     for filename, job_name in DELIVERY_WORKFLOWS.items():
         assert job_body(workflows[filename], job_name).get("environment") == "production"
-    assert_migration_workflow(workflows[MIGRATION_WORKFLOW])
 
 
 def test_should_keep_dagger_check_unprivileged_and_uniquely_named() -> None:
