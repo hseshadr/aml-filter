@@ -18,22 +18,22 @@
 	},
 	"dependencies": {
 		"@edgeproc/assay": "0.5.0-dev.3",
-		"@edgeproc/avow": "^0.1.1",
+		"@edgeproc/avow": "^0.4.1",
 		"@hpcc-js/wasm-zstd": "^1.15.0",
 		"@huggingface/transformers": "^4.2.0",
-		"@noble/ed25519": "^3.1.0",
+		"@noble/ed25519": "^3.2.0",
 		"double-metaphone": "^2.0.1",
 		"fuzzball": "^2.2.6"
 	},
 	"devDependencies": {
-		"@biomejs/biome": "^2.5.5",
-		"@types/node": "^26.1.2",
-		"@vitejs/plugin-react": "^6.0.4",
-		"@vitest/coverage-v8": "^4.1.10",
+		"@biomejs/biome": "^2.5.12",
+		"@types/node": "^26.4.1",
+		"@vitejs/plugin-react": "^6.1.1",
+		"@vitest/coverage-v8": "^5.0.0",
 		"fake-indexeddb": "^6.2.5",
 		"jsdom": "^30.0.1",
 		"typescript": "^7.0.2",
-		"vite": "^8.1.5",
-		"vitest": "^4.1.10"
+		"vite": "^8.2.2",
+		"vitest": "^5.0.0"
 	}
 }
