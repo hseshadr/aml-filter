@@ -197,6 +197,8 @@ aml-filter/
 
 ## Documentation
 
+- [Interactive architecture map](docs/architecture/index.html) — evidence-linked runtime
+  flow in a fully offline viewer
 - [Quickstart](docs/QUICKSTART.md) — first screening and KYC workflow
 - [Architecture](docs/ARCHITECTURE.md) — capability contracts and data flow
 - [Memory architecture](docs/MEMORY-ARCHITECTURE.md) — mobile memory ownership
