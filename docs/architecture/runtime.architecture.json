@@ -1,0 +1,168 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "AML-Filter — Verified In-Browser Screening",
+    "locale": "en",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/hseshadr/aml-filter",
+      "revision": "71e127fb019937317c0ea62e20154c90c0565ae5"
+    },
+    "viewBox": [1390, 700],
+    "views": [
+      {
+        "id": "trusted-data",
+        "label": "Trusted list delivery",
+        "focus": ["official_lists", "publisher", "static_origin", "sync_worker", "bundle_cache"],
+        "note": "Official feeds become signed content-addressed bytes, then are verified again in the browser."
+      },
+      {
+        "id": "screening-path",
+        "label": "One screening path",
+        "focus": ["bundle_cache", "runtime", "embedder_worker", "screening_engine", "react_app", "analyst"],
+        "note": "One query embedding is reused across enabled lists before explainable scoring and review."
+      },
+      {
+        "id": "private-workstation",
+        "label": "Private workstation",
+        "focus": ["react_app", "kyc_database", "screening_engine"],
+        "note": "Customer records, review decisions, and audit events remain in a worker-owned local database."
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "official_lists",
+      "type": "external",
+      "label": "Official Lists",
+      "sublabel": "Official sanctions",
+      "pos": [20, 323],
+      "size": [120, 66],
+      "sources": [{ "path": "frontend/packages/amlfilter-publisher/src/buildRealBundle.ts", "line": 41, "end_line": 51, "label": "Source adapters" }]
+    },
+    {
+      "id": "publisher",
+      "type": "backend",
+      "label": "List Publisher",
+      "sublabel": "Build + sign",
+      "pos": [165, 320],
+      "size": [125, 72],
+      "sources": [{ "path": "frontend/packages/amlfilter-publisher/src/buildRealBundle.ts", "line": 1, "end_line": 25, "label": "Real bundle build" }]
+    },
+    {
+      "id": "static_origin",
+      "type": "cloud",
+      "label": "Static Bundle Origin",
+      "sublabel": "Manifest + chunks",
+      "pos": [315, 320],
+      "size": [130, 72],
+      "sources": [{ "path": "frontend/packages/amlfilter-publisher/src/buildRealBundle.ts", "line": 1, "end_line": 12, "label": "Origin layout" }]
+    },
+    {
+      "id": "sync_worker",
+      "type": "security",
+      "label": "Verify + Sync Worker",
+      "sublabel": "Signed + hashed",
+      "tag": "fail closed",
+      "pos": [470, 320],
+      "size": [130, 72],
+      "sources": [{ "path": "frontend/packages/amlfilter-browser/src/engine/bundleSource.ts", "line": 205, "end_line": 238, "label": "Two-phase verified sync" }]
+    },
+    {
+      "id": "bundle_cache",
+      "type": "database",
+      "label": "Verified List Cache",
+      "sublabel": "Local bundle cache",
+      "pos": [625, 320],
+      "size": [130, 72],
+      "sources": [{ "path": "docs/ARCHITECTURE.md", "line": 181, "end_line": 197, "label": "Durable cache" }]
+    },
+    {
+      "id": "runtime",
+      "type": "backend",
+      "label": "EngineRuntime",
+      "sublabel": "Bundle lifecycle",
+      "pos": [780, 320],
+      "size": [130, 72],
+      "sources": [{ "path": "frontend/packages/amlfilter-browser/src/engine/runtime.ts", "line": 419, "end_line": 465, "label": "Runtime owner" }]
+    },
+    {
+      "id": "screening_engine",
+      "type": "backend",
+      "label": "Multi-List Engine",
+      "sublabel": "Score + explain",
+      "pos": [935, 320],
+      "size": [130, 72],
+      "sources": [{ "path": "frontend/packages/amlfilter-browser/src/engine/multiEngine.ts", "line": 48, "end_line": 76, "label": "Shared engine" }]
+    },
+    {
+      "id": "react_app",
+      "type": "frontend",
+      "label": "React Workstation",
+      "sublabel": "Screen + review",
+      "pos": [1090, 320],
+      "size": [130, 72],
+      "sources": [{ "path": "frontend/app/src/App.tsx", "line": 10, "end_line": 67, "label": "Local routes" }]
+    },
+    {
+      "id": "analyst",
+      "type": "external",
+      "label": "AML Analyst",
+      "sublabel": "Human approval",
+      "pos": [1245, 323],
+      "size": [125, 66],
+      "sources": [{ "path": "docs/ARCHITECTURE.md", "line": 3, "end_line": 11, "label": "System boundary" }]
+    },
+    {
+      "id": "embedder_worker",
+      "type": "backend",
+      "label": "MiniLM Worker",
+      "sublabel": "Query embedding",
+      "pos": [935, 80],
+      "size": [130, 66],
+      "sources": [{ "path": "frontend/packages/amlfilter-browser/src/engine/runtime.ts", "line": 1, "end_line": 16, "label": "Model worker" }]
+    },
+    {
+      "id": "kyc_database",
+      "type": "database",
+      "label": "Local KYC Database",
+      "sublabel": "Local KYC DB",
+      "pos": [1090, 535],
+      "size": [130, 66],
+      "sources": [
+        { "path": "frontend/packages/amlfilter-workstation/src/db/worker.ts", "line": 1, "end_line": 27, "label": "Worker-owned database" },
+        { "path": "frontend/packages/amlfilter-workstation/src/db/sqlite.ts", "line": 124, "end_line": 145, "label": "Persistent SQLite" }
+      ]
+    }
+  ],
+  "connections": [
+    { "id": "sources_ingest", "from": "official_lists", "to": "publisher", "label": "raw feeds", "variant": "emphasis", "labelAt": [153, 415] },
+    { "id": "publisher_emits", "from": "publisher", "to": "static_origin", "label": "signed bundle", "variant": "emphasis", "labelAt": [303, 415] },
+    { "id": "origin_serves", "from": "static_origin", "to": "sync_worker", "label": "immutable bytes", "labelAt": [458, 415] },
+    { "id": "worker_promotes", "from": "sync_worker", "to": "bundle_cache", "label": "verified chunks", "variant": "security", "labelAt": [613, 415] },
+    { "id": "cache_materializes", "from": "bundle_cache", "to": "runtime", "label": "selected lists", "labelAt": [768, 415] },
+    { "id": "runtime_builds", "from": "runtime", "to": "screening_engine", "label": "typed engine", "variant": "emphasis", "labelAt": [923, 415] },
+    { "id": "engine_returns", "from": "screening_engine", "to": "react_app", "label": "matches + reasons", "variant": "emphasis", "labelAt": [1078, 415] },
+    { "id": "app_supports", "from": "react_app", "to": "analyst", "label": "review decision", "variant": "emphasis", "labelAt": [1233, 415] },
+    { "id": "embedder_feeds", "from": "embedder_worker", "to": "screening_engine", "label": "384-d query vector", "fromSide": "bottom", "toSide": "top", "labelAt": [1000, 235] },
+    { "id": "app_persists", "from": "react_app", "to": "kyc_database", "label": "customers + audit", "fromSide": "bottom", "toSide": "top", "labelAt": [1155, 475] }
+  ],
+  "cards": [
+    {
+      "dot": "rose",
+      "title": "Verify before parse",
+      "items": ["The signed pointer anchors the content-addressed manifest", "Fetched and cached chunks are hash-checked before use"]
+    },
+    {
+      "dot": "emerald",
+      "title": "Screen entirely in-tab",
+      "items": ["One MiniLM query embedding is reused across enabled lists", "Exact retrieval feeds a typed explainable scoring contract"]
+    },
+    {
+      "dot": "violet",
+      "title": "Two local stores",
+      "items": ["Public signed watchlists live in the verified bundle cache", "Private customer and review state lives in SQLite-WASM"]
+    }
+  ]
+}
