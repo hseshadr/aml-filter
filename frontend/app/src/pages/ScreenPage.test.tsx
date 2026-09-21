@@ -126,6 +126,27 @@ const zzyzxFuzzTwo = matchWithTrigram(
 	0.36,
 	0.322,
 );
+const nobodyFuzz = matchWithTrigram(
+	{ entity_id: "DEMO:NOBODY", primary_name: "Nobody Impostor One" },
+	0.36,
+	0.362,
+);
+// The reported production shape: a one-token "obama" query received only weak
+// nearest neighbours. Some happen to share a few letters ("Osama"), but none
+// carries the exact published token and none clears the Balanced display line.
+// They must not be advertised as analyst candidates.
+const obamaNoise = [
+	matchWithTrigram(
+		{ entity_id: "DEMO:ASSAD", primary_name: "Al-Assad Bashar" },
+		0.4,
+		0.386,
+	),
+	matchWithTrigram(
+		{ entity_id: "DEMO:OSAMA", primary_name: "Mehmood Osama" },
+		0.8,
+		0.349,
+	),
+];
 // The token-containment case: a short query ("bank") against a long org name has
 // a tiny trigram (~0.267 < 0.35) yet must be KEPT because the query token "bank"
 // is one of the entity's canonical name tokens.
@@ -299,13 +320,21 @@ vi.mock("@amlfilter/browser", async (importActual) => {
 							matches: [zzyzxFuzzOne, zzyzxFuzzTwo],
 						});
 					}
+					if (lower === "obama") {
+						return Promise.resolve({
+							request_id: "obama",
+							list_versions_used: {},
+							execution_time_ms: 3,
+							matches: obamaNoise,
+						});
+					}
 					// "nobody ivan": a strong hit ALONGSIDE sub-line fuzz — the mixed case.
 					if (lower.includes("nobody ivan")) {
 						return Promise.resolve({
 							request_id: "mixed",
 							list_versions_used: {},
 							execution_time_ms: 3,
-							matches: [ivanCloseMatch, zzyzxFuzzOne],
+							matches: [ivanCloseMatch, nobodyFuzz],
 						});
 					}
 					// "mohammed": the engine fills the request exactly — the signal that
@@ -603,6 +632,22 @@ describe("ScreenPage — in-browser search", () => {
 		}
 	});
 
+	it("reports an honest no-match for 'obama' without exposing weak nearest-neighbour noise", async () => {
+		render(<ScreenPage />);
+		const box = await readyBox();
+		fireEvent.change(box, { target: { value: "obama" } });
+
+		await waitFor(() =>
+			expect(
+				screen.getByText(/No match above the Balanced threshold/),
+			).toBeTruthy(),
+		);
+		expect(screen.queryByText(/low-confidence candidate/)).toBeNull();
+		expect(document.querySelector("details.screen-results__low")).toBeNull();
+		expect(screen.queryByText("Al-Assad Bashar")).toBeNull();
+		expect(screen.queryByText("Mehmood Osama")).toBeNull();
+	});
+
 	it("keeps a strong hit as a primary card while grouping sub-line fuzz (the mixed case)", async () => {
 		render(<ScreenPage />);
 		const box = await readyBox();
@@ -616,7 +661,7 @@ describe("ScreenPage — in-browser search", () => {
 		});
 		expect(strong.closest("details")).toBeNull();
 		// The fuzz is grouped, not interleaved with the primary card.
-		const fuzz = screen.getByText("Zzyzx Impostor One", {
+		const fuzz = screen.getByText("Nobody Impostor One", {
 			selector: ".match-card__name",
 		});
 		expect(fuzz.closest("details.screen-results__low")).not.toBeNull();

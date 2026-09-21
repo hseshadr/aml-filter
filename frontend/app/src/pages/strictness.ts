@@ -6,8 +6,10 @@
 //
 // Explainable-scoring standard: every threshold is a NAMED constant with a
 // declared range and a written justification. This layer is presentation-side
-// calibration only — it never touches the parity-locked scoring contract, and
-// it never DROPS a match the engine returned (recall preserved).
+// calibration only — it never touches the parity-locked scoring contract.
+// Balanced keeps primary results intact but withholds sub-line neighbours that
+// have no exact published-name token in common with the query; Lenient remains
+// the explicit show-everything option.
 
 import { canonicalize, type Match } from "@amlfilter/browser";
 
@@ -134,6 +136,15 @@ export interface ConfidencePartition {
 }
 
 /**
+ * The UI-facing split. `suppressed` records weak engine neighbours that are
+ * deliberately not advertised as analyst candidates because they have no
+ * exact published-name token in common with the query.
+ */
+export interface PresentationPartition extends ConfidencePartition {
+	readonly suppressed: ReadonlyArray<Match>;
+}
+
+/**
  * Split kept matches at the level's display line, preserving engine rank order
  * on both sides and dropping nothing. `score >= displayFloor` renders as a
  * primary card; the rest render grouped under the low-confidence disclosure.
@@ -146,5 +157,37 @@ export function partitionByConfidence(
 	return {
 		primary: matches.filter((m) => m.score >= level.displayFloor),
 		lowConfidence: matches.filter((m) => m.score < level.displayFloor),
+	};
+}
+
+/**
+ * Build the result bands rendered by `/screen`.
+ *
+ * A sub-line score is explicitly weak, so Balanced discloses it only when an
+ * independent, easy-to-explain lexical fact qualifies it: at least one whole
+ * canonical token appears in a published primary name or alias. This preserves
+ * useful cases such as `bank` and published-name tokens while preventing a
+ * short, ambiguous query such as `obama` from turning arbitrary nearest
+ * neighbours (or a one-letter-different name) into apparent watchlist leads.
+ *
+ * Primary results are unchanged. Lenient and Strict have no low-confidence
+ * band, so their behaviour is unchanged too.
+ */
+export function partitionForPresentation(
+	matches: ReadonlyArray<Match>,
+	query: string,
+	level: StrictnessLevel,
+): PresentationPartition {
+	const { primary, lowConfidence } = partitionByConfidence(matches, level);
+	const qualified = lowConfidence.filter((match) =>
+		hasTokenContainment(match, query),
+	);
+	const qualifiedIds = new Set(qualified.map((match) => match.entity_id));
+	return {
+		primary,
+		lowConfidence: qualified,
+		suppressed: lowConfidence.filter(
+			(match) => !qualifiedIds.has(match.entity_id),
+		),
 	};
 }
