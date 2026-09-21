@@ -173,13 +173,17 @@ uses fictional entities; it is safe for tests and local demonstrations. Producti
 bundles are generated from the public sources described in
 [Watchlist format](docs/WATCHLIST_FORMAT.md).
 
-Candidate retrieval uses in-browser MiniLM embeddings. `@edgeproc/assay@0.5.0-dev.3`
-then applies the deterministic five-signal additive policy to vector similarity,
-sequence similarity, alias, date-of-birth, and country evidence. Each result includes
-the ordered contributions and a stable input hash; the signed score receipt seals that
-evidence. Frozen golden fixtures lock score and tier behavior. The recall
-gate measures retrieval against the real OFAC corpus with named spelling probes and
-fails below its published floors. See [Recall](docs/RECALL.md).
+Candidate retrieval unions two bounded paths in one Worker-owned database: MiniLM
+nearest neighbours through sqlite-vector, plus exact canonical-token and
+Double-Metaphone postings through SQLite. The runtime pins SQLite 3.53.4 (the latest
+stable release when this contract was updated) and sqlite-vector 1.1.2. TypeScript
+creates the lookup keys and applies the transparent final policy;
+`@edgeproc/assay@0.5.0-dev.3` combines vector similarity, sequence similarity, alias,
+date-of-birth, and country evidence. Phonetics can widen the candidate set, but cannot
+by itself declare a match. Each result includes ordered contributions and a stable
+input hash; the signed score receipt seals that evidence. Frozen golden fixtures lock
+score and tier behavior, while the recall gate measures retrieval against the real
+OFAC corpus and fails below its published floors. See [Recall](docs/RECALL.md).
 
 ## Repository map
 

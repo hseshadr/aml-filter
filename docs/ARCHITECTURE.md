@@ -8,9 +8,12 @@ self-contained file and registers them in a signed **catalog**; the **browser en
 verifies the catalog and every list and screens across all enabled lists in-tab; the
 **workstation** app stores KYC customers, matches, settings, and audit events in a
 local SQLite-WASM database and wraps them in an auditable review workflow. Public
-semantic retrieval uses the shared `@edgeproc/browser` SQLite 3.53.4 + sqlite-vector
-1.1.2 Worker, with one derived in-memory database per immutable signed list. One
-screening pipeline, one explainable scoring contract, three TypeScript units.
+retrieval uses the shared `@edgeproc/browser` Worker with SQLite 3.53.4 (the latest
+stable release when this contract was updated) and sqlite-vector 1.1.2. One derived
+in-memory database per immutable signed list owns both vector rows and bounded exact
+canonical-token/Double-Metaphone postings. TypeScript generates the keys and preserves
+the transparent final scoring contract. One screening pipeline, one explainable scoring
+contract, three TypeScript units.
 
 There is no Python, no Postgres, no Docker, and no HTTP screening endpoint. The lists ship as
 a signed, content-addressed bundle of static files you can host on any CDN, delta-synced
@@ -49,7 +52,7 @@ Every screen — whether it's a one-off query or an automatic re-screen of a sto
 customer — follows the same five stages:
 
 ```
-normalize → embed → sqlite-vector retrieve → explainable weighted score → threshold → reasons
+normalize → embed → SQLite vector + lexical retrieve → explainable weighted score → threshold → reasons
 ```
 
 1. **Normalize.** Lower-case the name, strip accents and honorifics, and run it through
@@ -65,11 +68,13 @@ normalize → embed → sqlite-vector retrieve → explainable weighted score �
    entity name; the browser runs the **same** model **in the tab** to embed the query or
    customer name. Same model, same space, both runtimes — which is what makes the
    precomputed vectors comparable to the live query vector.
-3. **Retrieve.** `vectorIndex.ts` delegates cosine search to
-   `@edgeproc/browser/vector/sqlite`: SQLite 3.53.4 plus sqlite-vector 1.1.2 in a Worker.
-   Each immutable signed list gets an isolated in-memory database; the
-   `MultiListScreeningEngine` queries each enabled list, then merges and deterministically
-   re-ranks the per-list candidates.
+3. **Retrieve.** `vectorIndex.ts` delegates cosine search and namespaced posting lookup
+   to `@edgeproc/browser/vector/sqlite`: SQLite 3.53.4 plus sqlite-vector 1.1.2 in a
+   Worker. TypeScript derives exact canonical-token and Double-Metaphone keys from every
+   primary name and alias. SQLite stores those postings beside the vectors, filters
+   high-document-frequency keys, and returns a bounded deterministic id set. The engine
+   unions those ids with sqlite-vector neighbours; `MultiListScreeningEngine` then merges
+   and deterministically re-ranks the per-list candidates.
 4. **Score.** `computeScore` (`scoring.ts`) adapts five typed AML signals into the exact
    `@edgeproc/assay@0.5.0-dev.3` additive contract. Assay is the score source of truth.
 5. **Threshold → reasons.** A candidate whose final score is **at or above the active
@@ -175,16 +180,26 @@ The boot + screen flow:
    `buildLoadedFromBundleFiles` (`engine/watchlist.ts`) reconstructs the Float32 vector
    rows (failing closed on any dim ≠ 384). AML's `VectorIndex` inserts each immutable
    list into a separate in-memory SQLite database through
-   `@edgeproc/browser/vector/sqlite`; SQLite and sqlite-vector execute in a Worker.
+   `@edgeproc/browser/vector/sqlite`; vectors and namespaced exact token/phonetic
+   postings share that database, while SQLite and sqlite-vector execute in a Worker.
    On the public `/screen` route, boot awaits that one selected OFAC database before
    reporting Ready. Static Worker/WASM assets and vector rows are therefore local
    before a user types; search causes no network request.
 4. **Embed** the query name in-tab through the `Embedder` seam (`engine/embedder.ts`;
    stubbable for tests via `createEmbedder`) — **once**, then reused across all lists.
-5. **Retrieve + score + merge**: the `MultiListScreeningEngine` (`engine/multiEngine.ts`)
-   screens each list (sqlite-vector `VectorIndex` → `computeScore`), applies the
-   per-list threshold (`perList[id] ?? query.threshold ?? default`), then concatenates
-   and re-ranks the matches so a strong hit in *any* list surfaces.
+5. **Retrieve + score + merge**: the `ScreeningEngine` unions sqlite-vector neighbours
+   with exact token/Double-Metaphone candidates resolved from the same SQLite database,
+   obtains the real cosine for every candidate, and runs the unchanged transparent
+   scorer. The `MultiListScreeningEngine` (`engine/multiEngine.ts`) applies the per-list
+   threshold (`perList[id] ?? query.threshold ?? default`), then concatenates and
+   re-ranks the matches so a strong hit in *any* list surfaces.
+
+The retrieval schema deliberately uses neither an FTS5 trigram table nor spellfix1.
+The base SQLite build has FTS5 available, but the AML database does not create such an
+index, and spellfix1 is not linked. Corpus experiments found those alternatives noisier,
+larger, or semantically different from the accepted exact-token/Double-Metaphone path.
+Most importantly, a shared phonetic key remains candidate evidence only: the measured
+Assay policy, not the retrieval index, decides whether a candidate is a match.
 
 **Durable, fail-closed bundle cache.** `@edgeproc/browser` owns the Worker, signed
 sync state machine, cross-tab lock, and content-addressed store contract (separate
@@ -202,11 +217,12 @@ origin with no network call. That is list caching, not an offline app: there is 
 worker, so the document and the JS bundle still have to load over the network before any
 of this runs. ("Clear cached lists" in `/settings` drops the store.)
 
-The sqlite-vector databases are deliberately **not** part of that durable cache. They
-are derived in memory from verified materialized list bytes, one database per immutable
-list, and are disposed with their list residency. The private KYC SQLite/OPFS database is
-a third, separate store with a different schema and lifecycle; customer data never enters
-the public bundle cache or public vector indexes.
+The public retrieval databases are deliberately **not** part of that durable cache.
+Their vector rows and lexical/phonetic postings are derived in memory from verified
+materialized list bytes, one database per immutable list, and are disposed with their
+list residency. The private KYC SQLite/OPFS database is a third, separate store with a
+different schema and lifecycle; customer data never enters the public bundle cache or
+public retrieval indexes.
 
 Cross-tab mutations use two bounded Web Locks. Syncs share a lifecycle lock while
 staging verified CAS bytes; clear takes that lock exclusively. A separate short
