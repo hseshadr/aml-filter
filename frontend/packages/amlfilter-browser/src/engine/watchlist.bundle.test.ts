@@ -175,14 +175,14 @@ describe("buildLoadedFromBundleFiles — entities + vectors round trip", () => {
 		expect(ivan?.risk_category).toBe("SANCTION");
 	});
 
-	it("wraps vectors.f32 into a VectorIndex with one row per entity", () => {
+	it("wraps vectors.f32 into a VectorIndex with one row per entity", async () => {
 		const loaded = buildLoadedFromBundleFiles(fixtureBundleFiles());
 		expect(loaded.index.ntotal).toBe(2);
 		expect(loaded.index.dim).toBe(DIM);
 		// Row 0 sits on axis 0 → the axis-0 query is an exact hit on entity 0.
 		const q = new Float32Array(DIM);
 		q[0] = 1;
-		const hits = loaded.index.search(q, 1);
+		const hits = await loaded.index.search(q, 1);
 		expect(hits[0]?.id).toBe("OFAC_SDN:0001");
 		expect(hits[0]?.score).toBeCloseTo(1, 5);
 	});

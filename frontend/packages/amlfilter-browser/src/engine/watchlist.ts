@@ -16,7 +16,7 @@
 
 import type { Alias, Entity, EntityType, RiskCategory } from "./domain";
 import { canonicalize, normalizeDob } from "./normalize";
-import { VectorIndex } from "./vectorIndex";
+import { type AmlVectorIndexFactory, VectorIndex } from "./vectorIndex";
 
 /** all-MiniLM-L6-v2 embedding dimension; the only dim the engine accepts. */
 const EXPECTED_DIM = 384;
@@ -430,6 +430,7 @@ function buildLoadedFromMatrix(
 	dim: number,
 	version: string,
 	listId: string,
+	vectorIndexFactory?: AmlVectorIndexFactory,
 ): LoadedWatchlist {
 	const ids = wireEntities.map((e) => e.entity_id);
 	const entities = new Map<string, Entity>();
@@ -437,7 +438,7 @@ function buildLoadedFromMatrix(
 		entities.set(wire.entity_id, toEntity(wire));
 	}
 	return {
-		index: new VectorIndex(matrix, ids, dim),
+		index: new VectorIndex(matrix, ids, dim, vectorIndexFactory),
 		entities,
 		version,
 		listId,
@@ -646,6 +647,7 @@ export function buildLoadedWatchlistMetadataFromBundleFiles(
  */
 export function buildLoadedFromBundleFiles(
 	files: BundleListFiles,
+	vectorIndexFactory?: AmlVectorIndexFactory,
 ): LoadedWatchlist {
 	const meta: unknown = JSON.parse(DECODER.decode(files.meta));
 	assertBundleListMeta(meta);
@@ -667,5 +669,6 @@ export function buildLoadedFromBundleFiles(
 		meta.dim,
 		meta.version,
 		meta.listId,
+		vectorIndexFactory,
 	);
 }

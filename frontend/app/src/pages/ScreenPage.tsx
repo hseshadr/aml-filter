@@ -316,14 +316,15 @@ export function ScreenPage() {
 		started.current = true;
 		const config = configFromEnv(import.meta.env);
 		runtime
-			// The public route promises OFAC screening. Keep its boot bounded to that
-			// list instead of eagerly materializing every signed catalog list; the
-			// latter exceeds iOS Safari's tab/WASM memory budget before the model is
-			// ready. The workstation/settings flow remains the configurable multi-list
-			// surface.
+			// The public route promises OFAC screening. Eagerly materialize that ONE
+			// bounded list so "Ready" means the SQLite Worker, sqlite-vector runtime,
+			// and vectors are already local; typing a name can never trigger a network
+			// request. We still avoid eagerly materializing every catalog list, which
+			// exceeds iOS Safari's tab/WASM budget. The workstation/settings flow
+			// remains the configurable multi-list surface.
 			.bootstrap(config, (stage) => setPhase({ kind: "booting", stage }), {
 				enabledLists: [SCREENED_LIST.id],
-				residency: "streaming",
+				residency: "eager",
 			})
 			.then(async () => {
 				if (!alive.current) {

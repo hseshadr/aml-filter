@@ -29,26 +29,28 @@ describe("VectorIndex over the decoded watchlist vectors", () => {
 		expect(index.idAt(2)).toBe("e_acme");
 	});
 
-	it("cosine-ranks the exact-hit entity first with similarity ~1.0", () => {
-		const hits = fixtureIndex().search(exactHitVector(), 3);
+	it("cosine-ranks the exact-hit entity first with similarity ~1.0", async () => {
+		const hits = await fixtureIndex().search(exactHitVector(), 3);
 		expect(hits[0]?.id).toBe("e_ivanov");
 		expect(hits[0]?.score).toBeCloseTo(1.0, 5);
 		// The orthogonal rows score ~0 — strictly below the exact hit.
 		expect(hits[0]?.score).toBeGreaterThan(hits[1]?.score ?? 1);
 	});
 
-	it("normalizes a non-unit query before scoring", () => {
+	it("normalizes a non-unit query before scoring", async () => {
 		const v = new Float32Array(DIM);
 		v[0] = 5; // non-unit; cosine with the unit row is still 1.0
-		expect(fixtureIndex().search(v, 1)[0]?.score).toBeCloseTo(1.0, 5);
+		expect((await fixtureIndex().search(v, 1))[0]?.score).toBeCloseTo(1.0, 5);
 	});
 
 	it("rejects a matrix whose length disagrees with ids*dim (fail-closed)", () => {
 		expect(() => new VectorIndex(new Float32Array(5), ["a"], DIM)).toThrow();
 	});
 
-	it("rejects a query of the wrong dimension", () => {
-		expect(() => fixtureIndex().search(new Float32Array(8), 3)).toThrow();
+	it("rejects a query of the wrong dimension", async () => {
+		await expect(
+			fixtureIndex().search(new Float32Array(8), 3),
+		).rejects.toThrow();
 	});
 
 	it("idAt fails loudly for a row outside the index (no silent undefined)", () => {
@@ -57,59 +59,61 @@ describe("VectorIndex over the decoded watchlist vectors", () => {
 	});
 });
 
-// similarityOf backs union retrieval: a candidate that arrived from the lexical
-// index still needs a REAL name_vector signal, not an invented one.
-describe("VectorIndex.similarityOf — cosine for one known entity", () => {
-	it("reports the same number search would have reported for that row", () => {
+// searchByIds backs union retrieval: candidates that arrived from the lexical
+// index still need REAL name_vector signals, resolved in one SQLite scan.
+describe("VectorIndex.searchByIds — batched cosine for known entities", () => {
+	it("reports the same number search would have reported for that row", async () => {
 		const index = fixtureIndex();
-		const hit = index.search(exactHitVector(), 1)[0];
-		expect(index.similarityOf("e_ivanov", exactHitVector())).toBeCloseTo(
-			hit?.score ?? Number.NaN,
-			10,
-		);
+		const hit = (await index.search(exactHitVector(), 1))[0];
+		const named = await index.searchByIds(exactHitVector(), ["e_ivanov"]);
+		expect(named[0]?.score).toBeCloseTo(hit?.score ?? Number.NaN, 10);
 	});
 
-	it("scores an entity the vector search never returned", () => {
+	it("scores entities the vector top-k never returned in one batch", async () => {
 		// e_acme is orthogonal to the query, so a top-1 search misses it entirely;
 		// its honest cosine is still ~0 and must be computable.
-		expect(fixtureIndex().similarityOf("e_acme", exactHitVector())).toBeCloseTo(
-			0,
-			5,
-		);
+		await expect(
+			fixtureIndex().searchByIds(exactHitVector(), ["e_acme", "e_petrov"]),
+		).resolves.toEqual([
+			{ id: "e_acme", score: 0 },
+			{ id: "e_petrov", score: 0 },
+		]);
 	});
 
-	it("normalizes a non-unit query, exactly as search does", () => {
+	it("normalizes a non-unit query, exactly as search does", async () => {
 		const v = new Float32Array(DIM);
 		v[0] = 5;
-		expect(fixtureIndex().similarityOf("e_ivanov", v)).toBeCloseTo(1.0, 5);
+		const hits = await fixtureIndex().searchByIds(v, ["e_ivanov"]);
+		expect(hits[0]?.score).toBeCloseTo(1.0, 5);
 	});
 
-	it("returns 0 for an all-zero query rather than dividing by zero", () => {
-		expect(fixtureIndex().similarityOf("e_ivanov", new Float32Array(DIM))).toBe(
-			0,
-		);
+	it("returns 0 for an all-zero query rather than dividing by zero", async () => {
+		const hits = await fixtureIndex().searchByIds(new Float32Array(DIM), [
+			"e_ivanov",
+		]);
+		expect(hits[0]?.score).toBe(0);
 	});
 
-	it("THROWS for an entity id the index has never seen (no silent 0)", () => {
-		expect(() =>
-			fixtureIndex().similarityOf("e_nobody", exactHitVector()),
-		).toThrow(RangeError);
-		expect(() =>
-			fixtureIndex().similarityOf("e_nobody", exactHitVector()),
-		).toThrow(/not in this index/);
+	it("THROWS for an entity id the index has never seen (no silent 0)", async () => {
+		await expect(
+			fixtureIndex().searchByIds(exactHitVector(), ["e_nobody"]),
+		).rejects.toThrow(RangeError);
+		await expect(
+			fixtureIndex().searchByIds(exactHitVector(), ["e_nobody"]),
+		).rejects.toThrow(/not in this index/);
 	});
 
-	it("THROWS for a query of the wrong dimension", () => {
-		expect(() =>
-			fixtureIndex().similarityOf("e_ivanov", new Float32Array(8)),
-		).toThrow(/dims/);
+	it("THROWS for a query of the wrong dimension", async () => {
+		await expect(
+			fixtureIndex().searchByIds(new Float32Array(8), ["e_ivanov"]),
+		).rejects.toThrow(/dims/);
 	});
 
-	it("THROWS after dispose rather than reading a released matrix", () => {
+	it("THROWS after dispose rather than reading a released matrix", async () => {
 		const index = fixtureIndex();
 		index.dispose();
-		expect(() => index.similarityOf("e_ivanov", exactHitVector())).toThrow(
-			/disposed/,
-		);
+		await expect(
+			index.searchByIds(exactHitVector(), ["e_ivanov"]),
+		).rejects.toThrow(/disposed/);
 	});
 });
