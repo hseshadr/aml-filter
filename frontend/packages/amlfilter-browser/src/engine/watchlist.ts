@@ -15,6 +15,7 @@
 // Wire contract: docs/WATCHLIST_FORMAT.md.
 
 import type { Alias, Entity, EntityType, RiskCategory } from "./domain";
+import { lexicalKeysForEntity } from "./lexicalIndex";
 import { canonicalize, normalizeDob } from "./normalize";
 import { type AmlVectorIndexFactory, VectorIndex } from "./vectorIndex";
 
@@ -437,8 +438,17 @@ function buildLoadedFromMatrix(
 	for (const wire of wireEntities) {
 		entities.set(wire.entity_id, toEntity(wire));
 	}
+	const lookupKeysById = new Map(
+		[...entities].map(([id, entity]) => [id, lexicalKeysForEntity(entity)]),
+	);
 	return {
-		index: new VectorIndex(matrix, ids, dim, vectorIndexFactory),
+		index: new VectorIndex(
+			matrix,
+			ids,
+			dim,
+			vectorIndexFactory,
+			lookupKeysById,
+		),
 		entities,
 		version,
 		listId,

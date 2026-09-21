@@ -122,7 +122,7 @@ export class ScreeningEngine {
 		this.#entities = entities;
 		this.#meta = meta;
 		this.#embedder = embedder;
-		this.#lexical = LexicalIndex.build(entities);
+		this.#lexical = LexicalIndex.build(index, entities);
 	}
 
 	public get meta(): OfacBundleMeta {
@@ -199,9 +199,9 @@ export class ScreeningEngine {
 			...(await this.#index.search(queryVec, k * VECTOR_OVERFETCH)),
 		];
 		const seen = new Set(candidates.map((c) => c.id));
-		const lexicalIds = this.#lexical
-			.candidates(queryCanonical)
-			.filter((id) => !seen.has(id));
+		const lexicalIds = (await this.#lexical.candidates(queryCanonical)).filter(
+			(id) => !seen.has(id),
+		);
 		candidates.push(...(await this.#index.searchByIds(queryVec, lexicalIds)));
 		return candidates;
 	}

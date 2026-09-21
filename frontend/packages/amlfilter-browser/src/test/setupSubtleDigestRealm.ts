@@ -7,6 +7,51 @@ import { vi } from "vitest";
 vi.mock("@edgeproc/browser/vector/sqlite", async () => {
 	const { FlatVectorIndex } = await import("@edgeproc/browser/vector");
 	class TestSqliteVectorIndex extends FlatVectorIndex {
+		readonly #lookupRows: Array<{
+			readonly id: string;
+			readonly namespace: string;
+			readonly value: string;
+		}> = [];
+
+		public async insertKeyed(
+			records: ReadonlyArray<{
+				readonly id: string;
+				readonly vector: Float32Array;
+				readonly metadata: Readonly<Record<string, string>>;
+				readonly lookupKeys: ReadonlyArray<{
+					readonly namespace: string;
+					readonly value: string;
+				}>;
+			}>,
+		): Promise<void> {
+			await super.insert(records);
+			for (const record of records) {
+				for (const key of record.lookupKeys) {
+					this.#lookupRows.push({ id: record.id, ...key });
+				}
+			}
+		}
+
+		public async lookupIds(
+			keys: ReadonlyArray<{
+				readonly namespace: string;
+				readonly value: string;
+			}>,
+			maxDocumentFrequency: number,
+		): Promise<ReadonlyArray<string>> {
+			const found = new Set<string>();
+			for (const key of keys) {
+				const rows = this.#lookupRows.filter(
+					(row) => row.namespace === key.namespace && row.value === key.value,
+				);
+				const ids = [...new Set(rows.map((row) => row.id))];
+				if (ids.length <= maxDocumentFrequency) {
+					for (const id of ids) found.add(id);
+				}
+			}
+			return [...found];
+		}
+
 		public async runtimeInfo() {
 			return {
 				sqliteVersion: "test",

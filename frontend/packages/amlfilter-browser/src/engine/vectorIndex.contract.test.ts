@@ -45,9 +45,20 @@ describe("VectorIndex shared SQLite-vector adapter", () => {
 	});
 
 	it("accepts the same SQLite contract through an environment-specific factory", async () => {
+		class KeyedFlatVectorIndex extends FlatVectorIndex {
+			public async insertKeyed(
+				records: Parameters<FlatVectorIndex["insert"]>[0],
+			): Promise<void> {
+				await this.insert(records);
+			}
+
+			public lookupIds(): Promise<ReadonlyArray<string>> {
+				return Promise.resolve([]);
+			}
+		}
 		const factory = vi.fn(
 			async (options: { name: string; dimension: number }) =>
-				new FlatVectorIndex(options),
+				new KeyedFlatVectorIndex(options),
 		);
 		const index = new VectorIndex(
 			new Float32Array([1, 0]),
@@ -70,5 +81,22 @@ describe("VectorIndex shared SQLite-vector adapter", () => {
 		const index = new VectorIndex(new Float32Array([1, 0]), ["entity-1"], 2);
 
 		await expect(index.ready()).resolves.toBeUndefined();
+	});
+
+	it("stores lexical postings beside vectors and resolves bounded candidates", async () => {
+		const index = new VectorIndex(
+			new Float32Array([1, 0, 0, 1]),
+			["entity-1", "entity-2"],
+			2,
+			undefined,
+			new Map([
+				["entity-1", [{ namespace: "token", value: "salim" }]],
+				["entity-2", [{ namespace: "token", value: "petrov" }]],
+			]),
+		);
+
+		await expect(
+			index.lookupIds([{ namespace: "token", value: "salim" }], 1),
+		).resolves.toEqual(["entity-1"]);
 	});
 });
