@@ -7,6 +7,7 @@
 import type { VectorIndex as SharedVectorIndex } from "@edgeproc/browser/vector";
 import {
 	createSqliteVectorIndex,
+	type SqliteKeyedVectorRecord,
 	type SqliteLookupKey,
 	type SqliteVectorWorkerOptions,
 } from "@edgeproc/browser/vector/sqlite";
@@ -21,14 +22,7 @@ const INSERT_BATCH_SIZE = 512;
 
 /** Environment adapter: browser Worker in product, in-process SQLite in Node evals. */
 interface AmlSqliteVectorIndex extends SharedVectorIndex {
-	insertKeyed(
-		records: ReadonlyArray<{
-			readonly id: string;
-			readonly vector: Float32Array;
-			readonly metadata: Readonly<Record<string, string>>;
-			readonly lookupKeys: ReadonlyArray<SqliteLookupKey>;
-		}>,
-	): Promise<void>;
+	insertKeyed(records: ReadonlyArray<SqliteKeyedVectorRecord>): Promise<void>;
 	lookupIds(
 		keys: ReadonlyArray<SqliteLookupKey>,
 		maxDocumentFrequency: number,
@@ -44,7 +38,6 @@ export class VectorIndex {
 	readonly #dim: number;
 	readonly #ready: Promise<AmlSqliteVectorIndex>;
 	readonly #factory: AmlVectorIndexFactory;
-	readonly #lookupKeysById: ReadonlyMap<string, ReadonlyArray<SqliteLookupKey>>;
 	#ids: ReadonlyArray<string>;
 	#disposed = false;
 
@@ -66,8 +59,7 @@ export class VectorIndex {
 		this.#ids = [...ids];
 		this.#dim = dim;
 		this.#factory = factory;
-		this.#lookupKeysById = lookupKeysById;
-		this.#ready = this.#initialize(matrix, ids);
+		this.#ready = this.#initialize(matrix, ids, lookupKeysById);
 	}
 
 	public get ntotal(): number {
@@ -141,6 +133,7 @@ export class VectorIndex {
 	async #initialize(
 		matrix: Float32Array,
 		ids: ReadonlyArray<string>,
+		lookupKeysById: ReadonlyMap<string, ReadonlyArray<SqliteLookupKey>>,
 	): Promise<AmlSqliteVectorIndex> {
 		const index = await this.#factory({
 			name: "aml-watchlist",
@@ -157,7 +150,7 @@ export class VectorIndex {
 							id,
 							vector: matrix.subarray(row * this.#dim, (row + 1) * this.#dim),
 							metadata: { entityId: id },
-							lookupKeys: this.#lookupKeysById.get(id) ?? [],
+							lookupKeys: lookupKeysById.get(id) ?? [],
 						};
 					}),
 				);
