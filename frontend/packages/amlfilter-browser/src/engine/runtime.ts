@@ -712,18 +712,22 @@ export class EngineRuntime {
 		this.#bundleSource = null;
 		await this.#disposeBundleSource(previousSource);
 		try {
-			const engine =
-				this.#selection.residency === "streaming"
-					? createStreamingMultiListScreeningEngine(
-							await this.#loadStreamingSources(this.#config),
-							this.#embedder,
-							this.#thresholds(),
-						)
-					: createMultiListScreeningEngine(
-							await this.#loadEnabledLists(this.#config),
-							this.#embedder,
-							this.#thresholds(),
-						);
+			let engine: MultiListScreeningEngine;
+			if (this.#selection.residency === "streaming") {
+				engine = createStreamingMultiListScreeningEngine(
+					await this.#loadStreamingSources(this.#config),
+					this.#embedder,
+					this.#thresholds(),
+				);
+			} else {
+				const loaded = await this.#loadEnabledLists(this.#config);
+				await Promise.all(loaded.map(({ index }) => index.ready()));
+				engine = createMultiListScreeningEngine(
+					loaded,
+					this.#embedder,
+					this.#thresholds(),
+				);
+			}
 			this.#ready = engine;
 			this.#version = compositeVersion(engine.listVersions());
 			this.#enginePromise = Promise.resolve(engine);
@@ -985,6 +989,10 @@ export class EngineRuntime {
 				streamingSources = await this.#loadStreamingSources(config);
 			} else {
 				loaded = await this.#loadEnabledLists(config);
+				// A route may claim readiness only after the immutable SQLite indexes
+				// are fully initialized. This keeps Worker/WASM asset loading in boot,
+				// never in the first user query.
+				await Promise.all(loaded.map(({ index }) => index.ready()));
 			}
 		} finally {
 			this.#onSyncProgress = undefined;

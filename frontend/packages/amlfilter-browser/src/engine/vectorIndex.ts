@@ -1,9 +1,14 @@
-// AML's watchlist-facing compatibility layer over the shared immutable packed
-// vector primitive. The shared package owns exact cosine retrieval; this thin
-// adapter retains AML's established synchronous `{ id, score }` contract and
-// its user-facing validation errors.
+// AML's watchlist-facing adapter over the shared SQLite + sqlite-vector
+// browser runtime. Each signed list is already durably cached in OPFS, so this
+// derived query index deliberately uses an isolated in-memory SQLite database:
+// one durable copy of the bundle, no stale per-version database files, and all
+// semantic scoring still runs through sqlite-vector in a Worker.
 
-import { PackedVectorIndex } from "@edgeproc/browser/vector";
+import type { VectorIndex as SharedVectorIndex } from "@edgeproc/browser/vector";
+import {
+	createSqliteVectorIndex,
+	type SqliteVectorWorkerOptions,
+} from "@edgeproc/browser/vector/sqlite";
 
 /** A scored retrieval hit: an entity id and its cosine similarity to the query. */
 export interface VectorHit {
@@ -11,69 +16,132 @@ export interface VectorHit {
 	readonly score: number;
 }
 
+const INSERT_BATCH_SIZE = 512;
+
+/** Environment adapter: browser Worker in product, in-process SQLite in Node evals. */
+export type AmlVectorIndexFactory = (
+	options: SqliteVectorWorkerOptions,
+) => Promise<SharedVectorIndex>;
+
 /** Loaded, query-ready vector index over the decoded watchlist vectors. */
 export class VectorIndex {
-	readonly #index: PackedVectorIndex;
 	readonly #dim: number;
+	readonly #ready: Promise<SharedVectorIndex>;
+	readonly #factory: AmlVectorIndexFactory;
 	#ids: ReadonlyArray<string>;
 	#disposed = false;
-	/** id -> row, built once on the first similarityOf call. */
-	#rowOf: Map<string, number> | null = null;
 
 	public constructor(
 		matrix: Float32Array,
 		ids: ReadonlyArray<string>,
 		dim: number,
+		factory: AmlVectorIndexFactory = createSqliteVectorIndex,
 	) {
 		if (matrix.length !== ids.length * dim) {
 			throw new Error(
 				`matrix has ${matrix.length} floats; expected ${ids.length * dim} (${ids.length} rows * ${dim} dim)`,
 			);
 		}
-		this.#index = new PackedVectorIndex(matrix, ids, dim);
-		this.#ids = ids;
+		this.#ids = [...ids];
 		this.#dim = dim;
+		this.#factory = factory;
+		this.#ready = this.#initialize(matrix, ids);
 	}
 
 	public get ntotal(): number {
-		return this.#disposed ? 0 : this.#index.ntotal;
+		return this.#disposed ? 0 : this.#ids.length;
 	}
 
 	public get dim(): number {
 		return this.#dim;
 	}
 
-	/** Release the packed matrix after a streamed list has been scored. */
+	/** Wait until the Worker, SQLite runtime, and all rows are query-ready. */
+	public async ready(): Promise<void> {
+		await this.#openIndex();
+	}
+
+	/** Release the SQLite Worker after a streamed list has been scored. */
 	public dispose(): void {
 		if (this.#disposed) return;
-		this.#index.dispose();
-		this.#ids = [];
-		this.#rowOf = null;
 		this.#disposed = true;
+		this.#ids = [];
+		void this.#ready.then((index) => index.dispose()).catch(() => undefined);
 	}
 
 	public idAt(row: number): string {
+		this.#assertOpen();
 		const id = this.#ids[row];
 		if (id === undefined) {
 			throw new RangeError(`row ${row} out of range`);
 		}
-		return this.#index.idAt(row);
+		return id;
 	}
 
-	/** Cosine of one known entity against the query. */
-	public similarityOf(id: string, queryVec: Float32Array): number {
-		this.#row(id);
+	/** Cosines for known candidates in one sqlite-vector scan. */
+	public async searchByIds(
+		queryVec: Float32Array,
+		ids: ReadonlyArray<string>,
+	): Promise<ReadonlyArray<VectorHit>> {
 		this.#assertQueryDimension(queryVec);
-		return this.#index.similarityOf(id, queryVec);
+		const unique = [...new Set(ids)];
+		for (const id of unique) {
+			this.#assertKnownId(id);
+		}
+		const index = await this.#openIndex();
+		return (await index.searchByIds(queryVec, unique)).map(
+			({ id, distance }) => ({ id, score: distanceToSimilarity(distance) }),
+		);
 	}
 
-	/** Exact cosine top-k, retaining stable producer-order tie breaking. */
-	public search(queryVec: Float32Array, k: number): ReadonlyArray<VectorHit> {
+	/** Exact cosine top-k, retaining deterministic id tie breaking. */
+	public async search(
+		queryVec: Float32Array,
+		k: number,
+	): Promise<ReadonlyArray<VectorHit>> {
 		this.#assertOpen();
 		this.#assertQueryDimension(queryVec);
-		return this.#index
-			.search(queryVec, normalizedLimit(k, this.ntotal))
-			.map(({ id, similarity }) => ({ id, score: similarity }));
+		const index = await this.#openIndex();
+		return (await index.search(queryVec, normalizedLimit(k, this.ntotal))).map(
+			({ id, distance }) => ({ id, score: distanceToSimilarity(distance) }),
+		);
+	}
+
+	async #initialize(
+		matrix: Float32Array,
+		ids: ReadonlyArray<string>,
+	): Promise<SharedVectorIndex> {
+		const index = await this.#factory({
+			name: "aml-watchlist",
+			dimension: this.#dim,
+			persistence: "memory",
+		});
+		try {
+			for (let start = 0; start < ids.length; start += INSERT_BATCH_SIZE) {
+				const end = Math.min(start + INSERT_BATCH_SIZE, ids.length);
+				await index.insert(
+					ids.slice(start, end).map((id, offset) => {
+						const row = start + offset;
+						return {
+							id,
+							vector: matrix.subarray(row * this.#dim, (row + 1) * this.#dim),
+							metadata: { entityId: id },
+						};
+					}),
+				);
+			}
+			return index;
+		} catch (error) {
+			await index.dispose();
+			throw error;
+		}
+	}
+
+	async #openIndex(): Promise<SharedVectorIndex> {
+		this.#assertOpen();
+		const index = await this.#ready;
+		this.#assertOpen();
+		return index;
 	}
 
 	#assertOpen(): void {
@@ -90,21 +158,22 @@ export class VectorIndex {
 		}
 	}
 
-	#row(id: string): number {
+	#assertKnownId(id: string): void {
 		this.#assertOpen();
-		if (this.#rowOf === null) {
-			this.#rowOf = new Map(this.#ids.map((value, row) => [value, row]));
+		if (!this.#ids.includes(id)) {
+			throw new RangeError(
+				`entity id ${JSON.stringify(id)} is not in this index`,
+			);
 		}
-		const row = this.#rowOf.get(id);
-		if (row === undefined) {
-			throw new RangeError(`entity id "${id}" is not in this index`);
-		}
-		return row;
 	}
 }
 
 function normalizedLimit(limit: number, size: number): number {
 	if (Number.isNaN(limit) || limit <= 0) return 0;
 	if (limit === Number.POSITIVE_INFINITY) return size;
-	return Math.trunc(limit);
+	return Math.min(Math.trunc(limit), size);
+}
+
+function distanceToSimilarity(distance: number): number {
+	return 1 - distance;
 }

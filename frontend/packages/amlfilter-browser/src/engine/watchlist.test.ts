@@ -151,11 +151,11 @@ describe("buildLoadedWatchlist — decode + project", () => {
 		expect(entity?.dob).toEqual([]);
 	});
 
-	it("the exact-hit query ranks its entity first via cosine", () => {
+	it("the exact-hit query ranks its entity first via cosine", async () => {
 		const loaded = buildLoadedWatchlist(fixtureWatchlist());
 		const q = new Float32Array(DIM);
 		q[0] = 1;
-		expect(loaded.index.search(q, 2)[0]?.id).toBe("DEMO:1");
+		expect((await loaded.index.search(q, 2))[0]?.id).toBe("DEMO:1");
 	});
 
 	it("rejects a watchlist whose dim is not 384 (fail-closed)", () => {

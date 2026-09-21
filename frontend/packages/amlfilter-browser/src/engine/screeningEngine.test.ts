@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { Entity, MatchReason, OfacBundleMeta } from "./domain";
 import type { Embedder } from "./embedder";
 import { createScreeningEngine, ScreeningEngine } from "./screeningEngine";
@@ -242,6 +242,19 @@ describe("ScreeningEngine — retrieval unions vector and lexical candidates", (
 		// The embedder is orthogonal to every stored row, so the honest cosine is
 		// ~0. A fabricated stand-in would show up here as anything else.
 		expect(vector?.value).toBeCloseTo(0, 5);
+	});
+
+	it("scores every lexical-only candidate in one batched vector call", async () => {
+		const loaded = buildLoadedWatchlist(crowdedWatchlist());
+		const searchByIds = vi.spyOn(loaded.index, "searchByIds");
+		const engine = createScreeningEngine(loaded, blindEmbedder());
+
+		// k=5 over-fetches only ten of the 31 vector rows, leaving the target
+		// reachable exclusively through the lexical union.
+		await engine.screen({ name: "SALIM, Ahmad Fuad", threshold: 0, k: 5 });
+
+		expect(searchByIds).toHaveBeenCalledTimes(1);
+		expect(searchByIds.mock.calls[0]?.[1]).toContain("e_zawahiri");
 	});
 
 	it("still returns nothing for a name sharing neither token nor sound", async () => {

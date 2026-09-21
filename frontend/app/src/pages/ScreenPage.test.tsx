@@ -407,7 +407,7 @@ describe("ScreenPage — in-browser search", () => {
 		render(<ScreenPage />);
 		await waitFor(() =>
 			expect(observedSelections).toEqual([
-				{ enabledLists: ["OFAC_SDN"], residency: "streaming" },
+				{ enabledLists: ["OFAC_SDN"], residency: "eager" },
 			]),
 		);
 	});

@@ -19,18 +19,23 @@ import {
 	verifyEd25519,
 	verifyPlaintext,
 } from "@edgeproc/browser";
+import { assertVectorIndexConformance } from "@edgeproc/browser/vector";
 import {
-	assertVectorIndexConformance,
-	FlatVectorIndex,
-	PackedVectorIndex,
-} from "@edgeproc/browser/vector";
+	createSqliteVectorIndex,
+	SqliteVectorIndexClient,
+} from "@edgeproc/browser/vector/sqlite";
 import { describe, expect, it } from "vitest";
 import workspaceText from "../../../../pnpm-workspace.yaml?raw";
 import packageJsonText from "../../package.json?raw";
+import vectorIndexSource from "./vectorIndex.ts?raw";
 
 const EDGE_PROC_BROWSER_REVISION =
-	"github:hseshadr/edgeproc-browser#f1ae371c8dfe441c6a3dd845e92c3d67adf654bd";
-const PUBLIC_IMPORTS = ["@edgeproc/browser", "@edgeproc/browser/vector"];
+	"github:hseshadr/edgeproc-browser#a94e7f2a0237a7144658351c07cb296fcb0540fb";
+const PUBLIC_IMPORTS = [
+	"@edgeproc/browser",
+	"@edgeproc/browser/vector",
+	"@edgeproc/browser/vector/sqlite",
+];
 
 describe("@edgeproc/browser consumer dependency", () => {
 	it("pins the standalone package to the reviewed public commit", () => {
@@ -86,9 +91,11 @@ describe("@edgeproc/browser consumer dependency", () => {
 		]);
 	});
 
-	it("provides vector primitives only through the public vector subpath", () => {
-		expect(FlatVectorIndex).toEqual(expect.any(Function));
-		expect(PackedVectorIndex).toEqual(expect.any(Function));
+	it("uses the shared SQLite + sqlite-vector worker adapter for browser retrieval", () => {
+		expect(createSqliteVectorIndex).toEqual(expect.any(Function));
+		expect(SqliteVectorIndexClient).toEqual(expect.any(Function));
 		expect(assertVectorIndexConformance).toEqual(expect.any(Function));
+		expect(vectorIndexSource).toContain("@edgeproc/browser/vector/sqlite");
+		expect(vectorIndexSource).not.toContain("PackedVectorIndex");
 	});
 });

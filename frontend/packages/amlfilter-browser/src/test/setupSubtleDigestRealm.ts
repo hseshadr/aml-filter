@@ -1,3 +1,30 @@
+import { vi } from "vitest";
+
+// Consumer unit suites run in jsdom, which has no module Worker or OPFS. The
+// shared package owns browser tests for the real SQLite/sqlite-vector assets;
+// here we replace only that environment boundary with its contract-compatible
+// exact in-memory adapter. Product builds never load this setup file.
+vi.mock("@edgeproc/browser/vector/sqlite", async () => {
+	const { FlatVectorIndex } = await import("@edgeproc/browser/vector");
+	class TestSqliteVectorIndex extends FlatVectorIndex {
+		public async runtimeInfo() {
+			return {
+				sqliteVersion: "test",
+				vectorVersion: "test",
+				vectorBackend: "test",
+				bundledExtensions: ["vector_version"],
+			};
+		}
+	}
+	return {
+		createSqliteVectorIndex: vi.fn(
+			async (options: ConstructorParameters<typeof FlatVectorIndex>[0]) =>
+				new TestSqliteVectorIndex(options),
+		),
+		SqliteVectorIndexClient: TestSqliteVectorIndex,
+	};
+});
+
 /**
  * WHY THIS SHIM EXISTS
  *

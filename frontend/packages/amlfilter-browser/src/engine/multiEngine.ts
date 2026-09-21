@@ -2,7 +2,7 @@
 // loaded watchlists (one ScreeningEngine per list), one scoring contract.
 //
 // The query is embedded ONCE; each per-list ScreeningEngine is driven via its
-// synchronous screenWithVector(...) with the shared vector. The per-list
+// async screenWithVector(...) with the shared vector. The per-list
 // matches are concatenated, re-sorted by score, and truncated to top-k, so a
 // strong hit in ANY list surfaces. Per-list thresholds let one list set a
 // stricter bar without suppressing another list's strong hit.
@@ -219,7 +219,7 @@ export class MultiListScreeningEngine {
 					streamed = true;
 				}
 				const threshold = this.#thresholdFor(list.listId, query);
-				const res = engine.screenWithVector(
+				const res = await engine.screenWithVector(
 					{ ...query, threshold },
 					queryVec,
 					options,
@@ -237,7 +237,7 @@ export class MultiListScreeningEngine {
 		matches.sort((a, b) => b.score - a.score);
 		// Seal AFTER sort + top-k so we sign only what the caller actually receives
 		// — never the truncated tail. Signing lives here (not in the synchronous
-		// screenWithVector) because Ed25519 signing is async.
+		// per-list screenWithVector) because Ed25519 signing is async.
 		const top = matches.slice(0, query.k ?? 20);
 		const sealed = await this.#sealer.seal(top, {
 			query,

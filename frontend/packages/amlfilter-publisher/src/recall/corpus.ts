@@ -16,6 +16,7 @@ import {
 	type Embedder,
 	type ScreeningEngine,
 } from "@amlfilter/browser";
+import { createNodeSqliteVectorIndex } from "@edgeproc/browser/vector/sqlite/node";
 import { toWatchlistEntity } from "../sourceEntity.ts";
 import type { SourceLine } from "../sources/source.ts";
 import { packVectors, vectorsToBytes } from "../vectors.ts";
@@ -64,13 +65,16 @@ export async function buildRecallCorpus(
 		entities.map((e) => e.name_canonical),
 	);
 	const listId = lines[0]?.source_list ?? "UNKNOWN";
-	const loaded = buildLoadedFromBundleFiles({
-		entitiesJsonl: ENCODER.encode(
-			`${entities.map((e) => JSON.stringify(e)).join("\n")}\n`,
-		),
-		vectorsF32: vectorsToBytes(vectors),
-		meta: metaBytes(listId, listVersion, entities.length),
-	});
+	const loaded = buildLoadedFromBundleFiles(
+		{
+			entitiesJsonl: ENCODER.encode(
+				`${entities.map((e) => JSON.stringify(e)).join("\n")}\n`,
+			),
+			vectorsF32: vectorsToBytes(vectors),
+			meta: metaBytes(listId, listVersion, entities.length),
+		},
+		createNodeSqliteVectorIndex,
+	);
 	return {
 		engine: createScreeningEngine(loaded, embedder),
 		listId,

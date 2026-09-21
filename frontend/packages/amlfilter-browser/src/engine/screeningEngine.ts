@@ -149,22 +149,22 @@ export class ScreeningEngine {
 	}
 
 	/**
-	 * Screen with an ALREADY-embedded query vector (synchronous). This is the
+	 * Screen with an ALREADY-embedded query vector. This is the
 	 * post-embed half of {@link screen}; the multi-list engine embeds the query
 	 * ONCE and screens N lists by calling this per list with the shared vector.
 	 */
-	public screenWithVector(
+	public async screenWithVector(
 		query: ScreenQuery,
 		queryVec: Float32Array,
 		options: ScreenOptions = {},
-	): ScreenResponse {
+	): Promise<ScreenResponse> {
 		const start = Date.now();
 		const preset = PRESETS[options.preset ?? "balanced"];
 		const threshold = query.threshold ?? preset.threshold;
 		const k = query.k ?? 20;
 		const queryCanonical = canonicalize(query.name);
 
-		const candidates = this.#retrieve(queryVec, queryCanonical, k);
+		const candidates = await this.#retrieve(queryVec, queryCanonical, k);
 		const scored = this.#scoreCandidates(
 			candidates,
 			query,
@@ -185,26 +185,24 @@ export class ScreeningEngine {
 
 	/**
 	 * The candidate union: vector top-k first (they already carry their cosine),
-	 * then every lexical/phonetic candidate the vector scan did not reach, each
-	 * given its REAL cosine from the same index. Nothing is invented, and nothing
-	 * that reached the old engine is dropped — this only ever adds.
+	 * then every lexical/phonetic candidate the vector scan did not reach. Their
+	 * REAL cosines are resolved together in one named-row sqlite-vector scan;
+	 * nothing is invented and the number of scans does not grow with candidate
+	 * count. Nothing that reached the old engine is dropped — this only ever adds.
 	 */
-	#retrieve(
+	async #retrieve(
 		queryVec: Float32Array,
 		queryCanonical: string,
 		k: number,
-	): readonly Candidate[] {
+	): Promise<readonly Candidate[]> {
 		const candidates: Candidate[] = [
-			...this.#index.search(queryVec, k * VECTOR_OVERFETCH),
+			...(await this.#index.search(queryVec, k * VECTOR_OVERFETCH)),
 		];
 		const seen = new Set(candidates.map((c) => c.id));
-		for (const id of this.#lexical.candidates(queryCanonical)) {
-			if (seen.has(id)) {
-				continue;
-			}
-			seen.add(id);
-			candidates.push({ id, score: this.#index.similarityOf(id, queryVec) });
-		}
+		const lexicalIds = this.#lexical
+			.candidates(queryCanonical)
+			.filter((id) => !seen.has(id));
+		candidates.push(...(await this.#index.searchByIds(queryVec, lexicalIds)));
 		return candidates;
 	}
 

@@ -1,5 +1,5 @@
 # aml-filter — screening pipeline (v3, in-browser)
-# normalize -> embed -> cosine retrieve -> weighted score -> threshold -> decision + explanation
+# normalize -> embed -> SQLite-vector retrieve -> weighted score -> threshold -> decision + explanation
 
 direction: down
 
@@ -19,7 +19,7 @@ embed: {
 }
 
 retrieve: {
-  label: "3. Retrieve — brute-force cosine\nover the precomputed name vectors\ndecoded from the signed watchlist (no Postgres)"
+  label: "3. Retrieve — SQLite-vector Worker\n@edgeproc/browser · SQLite 3.53.4 · sqlite-vector 1.1.2\none in-memory database per immutable signed list"
   shape: rectangle
 }
 

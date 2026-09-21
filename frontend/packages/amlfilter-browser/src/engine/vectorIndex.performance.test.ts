@@ -2,7 +2,12 @@ import { performance } from "node:perf_hooks";
 import { describe, expect, it } from "vitest";
 import { VectorIndex } from "./vectorIndex";
 
-// Retrieval budget, fixed before measurement:
+// Consumer-side exact-retrieval budget, fixed before measurement. In jsdom the
+// SQLite Worker boundary is replaced by the shared package's contract-compatible
+// in-memory test adapter; real SQLite 3.53.4 + sqlite-vector 1.1.2 execution is
+// covered by the production-build Playwright lane and the shared package's own
+// browser suite.
+//
 // - workload: the observed real-list directory size (31,348) at production dim 384
 // - memory: the row-major matrix must fit below 50 MiB
 // - latency: exact top-10 retrieval p50 <= 500 ms and p95 <= 1,000 ms over 20
@@ -43,15 +48,15 @@ function realisticIndex(): VectorIndex {
 describe("VectorIndex realistic performance contract", () => {
 	it(
 		"keeps 31,348 x 384 exact retrieval within fixed p50/p95 budgets",
-		() => {
+		async () => {
 			const index = realisticIndex();
 			const query = new Float32Array(DIMENSION).fill(1 / Math.sqrt(DIMENSION));
-			index.search(query, 10);
+			await index.search(query, 10);
 
 			const samples: number[] = [];
 			for (let run = 0; run < RUNS; run += 1) {
 				const startedAt = performance.now();
-				const hits = index.search(query, 10);
+				const hits = await index.search(query, 10);
 				samples.push(performance.now() - startedAt);
 				expect(hits).toHaveLength(10);
 			}
