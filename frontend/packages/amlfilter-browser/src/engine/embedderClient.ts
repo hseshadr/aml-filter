@@ -15,7 +15,7 @@ import type {
 	ProgressMessage,
 	WorkerMessage,
 } from "./embedderWorker";
-import { rebuildError } from "./sync/errorEnvelope";
+import { rebuildError } from "./workerErrorEnvelope";
 
 /** A minimal Worker surface — what this client needs, so it is easy to fake. */
 export interface WorkerLike {

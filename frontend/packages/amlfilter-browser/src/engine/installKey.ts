@@ -12,7 +12,7 @@
 // was uncompromised at signing time.
 
 import { generateSeedHex, publicKeyHex } from "@edgeproc/avow";
-import { sha256Hex } from "./crypto";
+import { sha256Hex } from "@edgeproc/browser";
 
 /** The slice of Web Storage this module needs — injectable so tests can fix a seed. */
 export interface KeyStorage {

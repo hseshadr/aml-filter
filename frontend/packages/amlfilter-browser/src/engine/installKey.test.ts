@@ -3,8 +3,8 @@
 // to verify every receipt this install produced, across reloads.
 
 import { publicKeyHex } from "@edgeproc/avow";
+import { sha256Hex } from "@edgeproc/browser";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { sha256Hex } from "./crypto";
 import {
 	defaultKeyStorage,
 	INSTALL_SEED_KEY,

@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { createWorkerEmbedder, type WorkerLike } from "./embedderClient";
 import type { EmbedRequest, WorkerMessage } from "./embedderWorker";
-import { errorPayload } from "./sync/errorEnvelope";
 import { WatchlistFormatError } from "./watchlist";
+import { errorPayload } from "./workerErrorEnvelope";
 
 // A controllable Worker double: captures the message listener so a test can
 // push worker→client messages by hand, and records what the client posts.

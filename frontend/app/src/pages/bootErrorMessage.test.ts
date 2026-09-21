@@ -1,4 +1,8 @@
-import { DeviceUnsupportedError, QuotaError } from "@amlfilter/browser";
+import {
+	DeviceUnsupportedError,
+	EngineOperationError,
+	QuotaError,
+} from "@amlfilter/browser";
 import { IntegrityError } from "@amlfilter/browser/engine";
 import { starterPack } from "@edgeproc/errors";
 import { describe, expect, it } from "vitest";
@@ -129,7 +133,20 @@ describe("@edgeproc/errors adoption (canonical-errors standard)", () => {
 		);
 		expect(
 			bundleErrorRegistry.classify(
+				new EngineOperationError({ code: "storage", message: "no room" }),
+			),
+		).toBe("bundle.quota_exceeded");
+		expect(
+			bundleErrorRegistry.classify(
 				new IntegrityError("chunk abc failed content-address check"),
+			),
+		).toBe("bundle.integrity_failed");
+		expect(
+			bundleErrorRegistry.classify(
+				new EngineOperationError({
+					code: "integrity",
+					message: "chunk abc failed content-address check",
+				}),
 			),
 		).toBe("bundle.integrity_failed");
 		expect(

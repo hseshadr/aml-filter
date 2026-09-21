@@ -112,15 +112,12 @@ importers:
       '@edgeproc/avow':
         specifier: ^0.1.1
         version: 0.1.1
-      '@hpcc-js/wasm-zstd':
-        specifier: ^1.15.0
-        version: 1.15.0
+      '@edgeproc/browser':
+        specifier: github:hseshadr/edgeproc-browser#f1ae371c8dfe441c6a3dd845e92c3d67adf654bd
+        version: https://codeload.github.com/hseshadr/edgeproc-browser/tar.gz/f1ae371c8dfe441c6a3dd845e92c3d67adf654bd
       '@huggingface/transformers':
         specifier: ^4.2.0
         version: 4.2.0(@types/node@26.1.2)
-      '@noble/ed25519':
-        specifier: ^3.1.0
-        version: 3.1.0
       double-metaphone:
         specifier: ^2.0.1
         version: 2.0.1
@@ -140,9 +137,6 @@ importers:
       '@vitest/coverage-v8':
         specifier: ^4.1.11
         version: 4.1.11(vitest@4.1.11)
-      fake-indexeddb:
-        specifier: ^6.2.5
-        version: 6.2.5
       jsdom:
         specifier: ^30.0.1
         version: 30.0.1
@@ -413,6 +407,11 @@ packages:
 
   '@edgeproc/avow@0.1.1':
     resolution: {integrity: sha512-BgqgxPox/PpLSNL7gKN8tovrOBSuLBVk2uAnYu8+5ZXq7KKQBPvSZCA/qF9vkAVE6ubRXm4TcOPJBicy51sALg==}
+    engines: {node: '>=22.13'}
+
+  '@edgeproc/browser@https://codeload.github.com/hseshadr/edgeproc-browser/tar.gz/f1ae371c8dfe441c6a3dd845e92c3d67adf654bd':
+    resolution: {gitHosted: true, integrity: sha512-rKYH7vi3HkqtMGQVX6ch4fU0dys1bUkTb+01HsspDbhzuzy8QE3IJgTTHVJEkK3uAhdg2HPFep9ByNxx03QZ7g==, tarball: https://codeload.github.com/hseshadr/edgeproc-browser/tar.gz/f1ae371c8dfe441c6a3dd845e92c3d67adf654bd}
+    version: 0.1.0
     engines: {node: '>=22.13'}
 
   '@edgeproc/errors@0.1.1':
@@ -1433,10 +1432,6 @@ packages:
     resolution: {integrity: sha512-knvyeauYhqjOYvQ66MznSMs83wmHrCycNEN6Ao+2AeYEfxUIkuiVxdEa1qlGEPK+We3n0THiDciYSsCcgW/DoA==}
     engines: {node: '>=12.0.0'}
 
-  fake-indexeddb@6.2.5:
-    resolution: {integrity: sha512-CGnyrvbhPlWYMngksqrSSUT1BAVP49dZocrHuK0SvtR0D5TMs5wP0o3j7jexDJW01KSadjBp1M/71o/KR3nD1w==}
-    engines: {node: '>=18'}
-
   fdir@6.5.0:
     resolution: {integrity: sha512-tIbYtZbucOs0BRGqPJkshJUYdL+SDH7dVM8gjy+ERp3WAUjLEFJE+02kanyHtwjWOnwrKYBiwAmM0p4kLJAnXg==}
     engines: {node: '>=12.0.0'}
@@ -1504,6 +1499,9 @@ packages:
     peerDependenciesMeta:
       typescript:
         optional: true
+
+  idb-keyval@6.3.0:
+    resolution: {integrity: sha512-um+2dgAWmYsu615EXpWVwSmapJhON0G43t3Ka/EVaohzPQXSMqKEqeDK/oIW3Ow+BXaF2PvSc+oBTFp793A5Ow==}
 
   indent-string@4.0.0:
     resolution: {integrity: sha512-EdDDZu4A2OyIK7Lr/2zG+w5jmbuk1DVBnEwREQvBzspBJkCEbRa8GxU1lghYcaGJCnRWibjDXlq779X1/y5xwg==}
@@ -2334,6 +2332,12 @@ snapshots:
       '@noble/ed25519': 3.1.0
       canonicalize: 3.0.0
 
+  '@edgeproc/browser@https://codeload.github.com/hseshadr/edgeproc-browser/tar.gz/f1ae371c8dfe441c6a3dd845e92c3d67adf654bd':
+    dependencies:
+      '@hpcc-js/wasm-zstd': 1.15.0
+      '@noble/ed25519': 3.1.0
+      idb-keyval: 6.3.0
+
   '@edgeproc/errors@0.1.1': {}
 
   '@edgeproc/receipt-ui@0.2.0(@edgeproc/avow@0.1.1)(react@19.2.8)':
@@ -3068,8 +3072,6 @@ snapshots:
 
   expect-type@1.3.0: {}
 
-  fake-indexeddb@6.2.5: {}
-
   fdir@6.5.0(picomatch@4.0.5):
     optionalDependencies:
       picomatch: 4.0.5
@@ -3127,6 +3129,8 @@ snapshots:
   i18next@26.3.6(typescript@7.0.2):
     optionalDependencies:
       typescript: 7.0.2
+
+  idb-keyval@6.3.0: {}
 
   indent-string@4.0.0: {}
 

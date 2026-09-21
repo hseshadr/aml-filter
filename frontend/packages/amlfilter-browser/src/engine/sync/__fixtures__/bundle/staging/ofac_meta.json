@@ -1,7 +1,0 @@
-{
-	"list_id": "OFAC_SDN",
-	"version": "2026-05-30",
-	"entity_count": 3,
-	"embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
-	"embedding_dim": 384
-}

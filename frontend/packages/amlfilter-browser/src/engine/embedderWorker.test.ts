@@ -149,7 +149,7 @@ describe("embedderWorker", () => {
 		await Promise.resolve();
 
 		// `errorName` is part of the envelope: without it a typed model failure
-		// reaches the main thread as an untyped Error (see sync/errorEnvelope.ts).
+		// reaches the main thread as an untyped Error (see workerErrorEnvelope.ts).
 		expect(stub.posted).toContainEqual({
 			type: "result",
 			ok: false,

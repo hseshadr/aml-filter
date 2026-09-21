@@ -15,6 +15,7 @@
 //
 // Primary entry point: EngineRuntime.bootstrap() → MultiListScreeningEngine.
 
+export { EngineOperationError } from "@edgeproc/browser";
 // --- Assay additive score composition and policy decision contract ---
 export {
 	calculateAssayScore,
@@ -24,6 +25,10 @@ export {
 	type ScoringSignalWeights,
 	scoringPolicyDecision,
 } from "./engine/assayScoring";
+// --- storage-quota preflight: refuse fail-fast rather than hang mid-sync ---
+export { QuotaError } from "./engine/bundleErrors";
+// --- cold-sync download progress shape (threaded into the downloading banner) ---
+export type { OnSyncProgress, SyncProgress } from "./engine/bundleProgress";
 // --- the signed-bundle delta-sync path: open + materialize a signed bundle ---
 export {
 	type BundleEngineClient,
@@ -139,10 +144,6 @@ export {
 	ScreeningEngine,
 	type ScreenOptions,
 } from "./engine/screeningEngine";
-// --- storage-quota preflight: refuse fail-fast rather than hang mid-sync ---
-export { QuotaError } from "./engine/sync/storage";
-// --- cold-sync download progress shape (threaded into the downloading banner) ---
-export type { OnSyncProgress, SyncProgress } from "./engine/sync/types";
 // --- match-strength tiers (ONE definition; the workstation re-exports these) ---
 export {
 	classifyTier,

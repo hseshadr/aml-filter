@@ -28,6 +28,18 @@ function nameOf(error: unknown): string {
 	return error instanceof Error ? error.name : "";
 }
 
+function engineCodeOf(error: unknown): string {
+	if (
+		error instanceof Error &&
+		error.name === "EngineOperationError" &&
+		"code" in error &&
+		typeof error.code === "string"
+	) {
+		return error.code;
+	}
+	return "";
+}
+
 const TIMEOUT_TEXT = /timeout|timed out/i;
 const NETWORK_TEXT =
 	/failed to fetch|load failed|network ?error|network unreachable|unreachable/i;
@@ -46,7 +58,7 @@ const MEMORY_TEXT =
  * refused), and it was NOT matched by any branch: a live signature failure fell
  * all the way through to `internal.unknown` and told the visitor to "Close
  * another AML-Filter tab". Two independent defects produced that — the Worker
- * boundary dropped the error's type (see errorEnvelope.ts), and even with the
+ * boundary dropped the error's type (see workerErrorEnvelope.ts), and even with the
  * type intact nothing here claimed it.
  *
  * Deliberately NOT in this set: `StoreLockTimeoutError` /
@@ -97,11 +109,15 @@ const BUNDLE_ERROR_CATALOG = {
 	},
 	"bundle.quota_exceeded": {
 		...starterPack["bundle.quota_exceeded"],
-		match: (raw: unknown) => nameOf(raw) === "QuotaError",
+		match: (raw: unknown) =>
+			engineCodeOf(raw) === "storage" || nameOf(raw) === "QuotaError",
 	},
 	"bundle.integrity_failed": {
 		...starterPack["bundle.integrity_failed"],
-		match: (raw: unknown) => VERIFICATION_FAILURES.has(nameOf(raw)),
+		match: (raw: unknown) =>
+			engineCodeOf(raw) === "integrity" ||
+			engineCodeOf(raw) === "rollback" ||
+			VERIFICATION_FAILURES.has(nameOf(raw)),
 	},
 	"bundle.timeout": {
 		...starterPack["bundle.timeout"],
@@ -121,7 +137,8 @@ const BUNDLE_ERROR_CATALOG = {
 	},
 	"bundle.download_failed": {
 		...starterPack["bundle.download_failed"],
-		match: (raw: unknown) => nameOf(raw) === "NetworkError",
+		match: (raw: unknown) =>
+			engineCodeOf(raw) === "network" || nameOf(raw) === "NetworkError",
 	},
 	"internal.unknown": starterPack["internal.unknown"],
 } satisfies Catalog;
@@ -141,6 +158,7 @@ export type BundleErrorKind =
 	| "device_unsupported"
 	| "quota_exceeded"
 	| "integrity_failed"
+	| "lock"
 	| "timeout"
 	| "network"
 	| "download_failed"
@@ -172,6 +190,9 @@ const CODE_TO_KIND: Readonly<Record<string, BundleErrorKind>> = {
 export function classifyBundleError(error: unknown): BundleErrorKind {
 	if (MEMORY_TEXT.test(messageOf(error))) {
 		return "memory_exhausted";
+	}
+	if (engineCodeOf(error) === "lock") {
+		return "lock";
 	}
 	return CODE_TO_KIND[bundleErrorRegistry.classify(error)] ?? "unknown";
 }

@@ -15,10 +15,13 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { canonicalBytes, type JsonValue } from "./canonical";
+import {
+	canonicalBytes,
+	type JsonValue,
+	type VersionPointer,
+} from "@edgeproc/browser";
 import type { Entity } from "./domain";
 import type { Preset, ScoringQuery } from "./scoring";
-import type { VersionPointer } from "./sync/types";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 // src/engine -> amlfilter-browser -> packages -> frontend -> repo root.
@@ -94,13 +97,11 @@ function pointer(): VersionPointer {
  * fetchPointer). Verifying this against {@link pubkeyRaw} reproduces the live
  * fail-closed boot check, over the REAL committed pointer. */
 export function pointerMessage(): Uint8Array {
-	return canonicalBytes(pointer() as unknown as JsonValue, {
-		exclude: {
-			signature: true,
-			bundle_id: pointer().bundle_id == null,
-			channel: pointer().channel == null,
-		},
-	});
+	const value = pointer();
+	const exclude: Record<string, true> = { signature: true };
+	if (value.bundle_id == null) exclude.bundle_id = true;
+	if (value.channel == null) exclude.channel = true;
+	return canonicalBytes(value as unknown as JsonValue, { exclude });
 }
 
 /** The detached base64 ed25519 signature carried by the committed pointer. */

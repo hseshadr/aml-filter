@@ -6,7 +6,7 @@
 // signature), this drives the REAL state machine end-to-end against the REAL
 // committed bytes: a fs-backed FetchBytes shim feeds origin/{latest,manifest,chunk}
 // into syncIndex; the pointer is verified ed25519 against frontend/app/public/
-// public.key; every chunk is content-addressed + zstd-decompressed; and each file
+// demo public key; every chunk is content-addressed + zstd-decompressed; and each file
 // is reassembled and its file_sha256 re-checked. A catalog / list / key / signing
 // regression in the publisher fails THIS test in the normal Node unit run.
 //
@@ -19,27 +19,28 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+	canonicalBytes,
+	type FetchBytes,
+	type IndexManifest,
+	type JsonValue,
+	MemoryCacheStore,
+	materializeFile,
+	syncIndex,
+	type Verify,
+	type VersionPointer,
+	verifyEd25519,
+} from "@edgeproc/browser";
 import { describe, expect, it } from "vitest";
-import { canonicalBytes, type JsonValue } from "../canonical";
-import { verifyEd25519 } from "../crypto";
-import { MemoryCacheStore } from "./memoryStore";
-import { materializeFile, syncIndex } from "./sync";
-import type {
-	FetchBytes,
-	IndexManifest,
-	Verify,
-	VersionPointer,
-} from "./types";
 
-// sync -> engine -> src -> amlfilter-browser -> packages -> frontend.
+// engine -> src -> amlfilter-browser -> packages -> frontend.
 const HERE = dirname(fileURLToPath(import.meta.url));
-const PUBLIC = join(HERE, "..", "..", "..", "..", "..", "app", "public");
+const PUBLIC = join(HERE, "..", "..", "..", "..", "app", "public");
 const ORIGIN = join(PUBLIC, "bundle", "origin");
 // The committed demo bundle is signed with the THROWAWAY demo key, not the
 // production pin (public/public.key) — verify it against the demo public half.
 const PINNED_PUBKEY = join(
 	HERE,
-	"..",
 	"..",
 	"..",
 	"..",
@@ -205,17 +206,16 @@ describe("committed demo bundle ↔ in-browser sync tier", () => {
 		}
 	});
 
-	it("the committed /latest signature verifies against the pinned public.key", async () => {
+	it("the committed /latest signature verifies against the pinned demo key", async () => {
 		const pointer = committedPointer();
 		// syncIndex already enforces this via realVerify, but assert it directly
 		// over the canonical (signature-excluded) bytes so a re-sign-without-re-pin
 		// (or vice versa) is unambiguous in the failure.
+		const exclude: Record<string, true> = { signature: true };
+		if (pointer.bundle_id == null) exclude.bundle_id = true;
+		if (pointer.channel == null) exclude.channel = true;
 		const message = canonicalBytes(pointer as unknown as JsonValue, {
-			exclude: {
-				signature: true,
-				bundle_id: pointer.bundle_id == null,
-				channel: pointer.channel == null,
-			},
+			exclude,
 		});
 		await expect(
 			realVerify(message, pointer.signature),

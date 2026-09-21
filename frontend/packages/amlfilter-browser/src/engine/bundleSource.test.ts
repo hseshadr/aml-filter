@@ -1,6 +1,6 @@
 // openBundleSource + EngineRuntime bundle path, driven END-TO-END against the
 // REAL committed demo bundle (frontend/app/public/bundle/origin/) and the REAL
-// pinned key (frontend/app/public/public.key) — the demoBundleParity pattern,
+// pinned local-demo key — the sharedBundleParity pattern,
 // extended past materialization into the runtime that screens from it.
 //
 // In the browser, openBundleSource drives a Worker EngineClient (the OPFS store +
@@ -15,18 +15,23 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+	type FetchBytes,
+	type IndexManifest,
+	MemoryCacheStore,
+	materializeFile,
+	type SyncResult,
+	syncIndex,
+	verifyEd25519,
+} from "@edgeproc/browser";
 import { describe, expect, it, vi } from "vitest";
 import {
 	type BundleEngineClient,
 	type BundleSourceDeps,
 	openBundleSource,
 } from "./bundleSource";
-import { verifyEd25519 } from "./crypto";
 import type { Embedder } from "./embedder";
 import { EngineRuntime, type RuntimeConfig, type RuntimeDeps } from "./runtime";
-import { MemoryCacheStore } from "./sync/memoryStore";
-import { materializeFile, syncIndex } from "./sync/sync";
-import type { FetchBytes, IndexManifest, SyncResult } from "./sync/types";
 import { WatchlistFormatError } from "./watchlist";
 
 // engine -> src -> amlfilter-browser -> packages -> frontend -> app/public.
@@ -97,7 +102,7 @@ function memoryClient(): {
 	let manifest: IndexManifest | null = null;
 	const paths: string[] = [];
 	const client: BundleEngineClient = {
-		async sync(baseUrl, _pubkeyUrl, _onProgress, wantedPaths) {
+		async sync(baseUrl, _pubkeyUrl, options) {
 			const result = await syncIndex({
 				baseUrl,
 				store,
@@ -106,7 +111,16 @@ function memoryClient(): {
 					verifyEd25519(PUBKEY, message, signature),
 				// Honour the scope exactly as worker.ts does. A stand-in that dropped
 				// this would make every scoping test in this package vacuous.
-				wantedPaths,
+				...(options?.wantedPaths === undefined
+					? {}
+					: { wantedPaths: options.wantedPaths }),
+				...(options?.expectedBundleId === undefined
+					? {}
+					: { expectedBundleId: options.expectedBundleId }),
+				...(options?.expectedChannel === undefined
+					? {}
+					: { expectedChannel: options.expectedChannel }),
+				onProgress: options?.onProgress,
 			});
 			manifest = JSON.parse(
 				DECODER.decode(await store.getManifest(result.manifestHash)),
@@ -186,8 +200,8 @@ describe("openBundleSource — over the committed demo bundle", () => {
 		const terminate = vi.fn();
 		const source = await openBundleSource("/o", PUBKEY_URL, {
 			createClient: () => ({
-				sync: (baseUrl, pubkeyUrl, progress) =>
-					inner.sync(baseUrl, pubkeyUrl, progress),
+				sync: (baseUrl, pubkeyUrl, options) =>
+					inner.sync(baseUrl, pubkeyUrl, options),
 				readFile: (path) => inner.readFile(path),
 				clear: () => inner.clear(),
 				terminate,
@@ -223,8 +237,13 @@ describe("openBundleSource — over the committed demo bundle", () => {
 		const { deps: baseDeps } = memoryClient();
 		const inner = baseDeps.createClient();
 		const wrapped: BundleEngineClient = {
-			sync: (baseUrl, pubkeyUrl, onProgress) => {
-				onProgress?.({ fetched: 1, total: 1, bytes: 10 });
+			sync: (baseUrl, pubkeyUrl, options) => {
+				options?.onProgress?.({
+					phase: "chunks",
+					fetchedChunks: 1,
+					totalChunks: 1,
+					bytesFetched: 10,
+				});
 				return inner.sync(baseUrl, pubkeyUrl);
 			},
 			readFile: (path) => inner.readFile(path),

@@ -158,8 +158,8 @@ The boot + screen flow:
 
 1. **Sync + verify the signed bundle.** It fetches the signed `latest` pointer
    (`cache: "no-store"`) from the bundle base URL (default `/bundle/origin`), verifies its
-   detached Ed25519 signature fail-closed (`verifyEd25519`, `engine/crypto.ts`, against the
-   pinned public key), then fetches the content-addressed `manifest/<hash>` and verifies it
+   detached Ed25519 signature fail-closed (`@edgeproc/browser`, against the pinned
+   public key), then fetches the content-addressed `manifest/<hash>` and verifies it
    hashes to the signed `manifest_hash`. The signed pointer is the trust anchor:
    verify-before-parse, top to bottom.
 2. **Delta-sync + content-verify the chunks.** It diffs the manifest's chunk set against
@@ -170,7 +170,9 @@ The boot + screen flow:
 3. **Materialize + decode.** The verified bundle is materialized into `catalog.json` +
    per-list `{entities.jsonl, vectors.f32, meta.json}` files;
    `buildLoadedFromBundleFiles` (`engine/watchlist.ts`) reconstructs the Float32 vector
-   rows (failing closed on any dim ≠ 384), one index per enabled list.
+   rows (failing closed on any dim ≠ 384), one index per enabled list. AML's
+   `VectorIndex` is a compatibility adapter over `@edgeproc/browser/vector`'s
+   `PackedVectorIndex`.
 4. **Embed** the query name in-tab through the `Embedder` seam (`engine/embedder.ts`;
    stubbable for tests via `createEmbedder`) — **once**, then reused across all lists.
 5. **Retrieve + score + merge**: the `MultiListScreeningEngine` (`engine/multiEngine.ts`)
@@ -178,10 +180,14 @@ The boot + screen flow:
    per-list threshold (`perList[id] ?? query.threshold ?? default`), then concatenates
    and re-ranks the matches so a strong hit in *any* list surfaces.
 
-**Durable, fail-closed bundle cache.** Verified chunks are promoted into one
-content-addressed store contract (separate from the customer DB). The Worker prefers
+**Durable, fail-closed bundle cache.** `@edgeproc/browser` owns the Worker, signed
+sync state machine, cross-tab lock, and content-addressed store contract (separate
+from the customer DB). The Worker prefers
 **OPFS**; if WebKit exposes OPFS but cannot open it, the same contract uses bounded
-**IndexedDB** storage. On every load the bytes — cached or freshly fetched — are
+**IndexedDB** storage. AML passes its established IndexedDB layout
+(`aml-filter-signed-bundles-v1` / `entries` / slash-delimited keys) into every
+shared sync and clear request, so the extraction reuses and clears existing
+verified caches in place. On every load the bytes — cached or freshly fetched — are
 re-verified: chunks against their content hash
 and the pointer against the pinned key. A tampered or version-mismatched entry is
 rejected. If the pointer fetch fails, the sync falls back to the cached active version
@@ -200,13 +206,11 @@ Entry point: `EngineRuntime.bootstrap()` drives the boot stages and yields a
 `ScreeningEngine`; `ScreeningEngine.screen({ name })` runs one screen and returns the
 scored, explained matches.
 
-The package also exposes a domain-agnostic **`./engine` subpath** of fail-closed crypto
-primitives — `verifyEd25519`, `sha256Hex`, and `SignatureError`. The signed
-content-addressed **bundle-sync tier** (content-addressed durable store, content-defined
-chunk reassembly, the signed `latest` pointer poll, delta sync — `engine/sync/`) is now
-the **single** watchlist distribution path. (It was recovered after the v3 pivot briefly
-removed it in favor of fetching flat signed JSON files; that JSON path has since been
-**retired**.) The verify-before-parse, fail-closed trust model is unchanged in spirit.
+The package's **`./engine` subpath** preserves its public verification imports by
+re-exporting them from the exact `@edgeproc/browser` dependency. AML owns only the
+domain orchestration: two-phase catalog→selected-list scoping, bundle-file decoding,
+screening, and user-facing error mapping. The standalone dependency owns the generic
+Worker/sync/storage/crypto implementation, preventing a second copy from drifting.
 
 ### 3. Workstation app — `@amlfilter/workstation` + the React SPA
 
