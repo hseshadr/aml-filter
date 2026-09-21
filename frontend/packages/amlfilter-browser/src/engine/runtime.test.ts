@@ -1,3 +1,7 @@
+import {
+	DEFAULT_REQUEST_TIMEOUT_MS,
+	FETCH_TIMEOUT_MS,
+} from "@edgeproc/browser";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BundleSource } from "./bundleSource";
 import type { Embedder, EmbedProgress } from "./embedder";
@@ -18,8 +22,6 @@ import {
 	throttleModelProgress,
 	withTimeout,
 } from "./runtime";
-import { DEFAULT_REQUEST_TIMEOUT_MS } from "./sync/client";
-import { FETCH_TIMEOUT_MS } from "./sync/fetchBytes";
 import { VectorIndex } from "./vectorIndex";
 import type {
 	LoadedWatchlist,

@@ -2,7 +2,7 @@
 // JSON watchlist (the engine's test seam). These prove the wire→domain projection
 // (dob lifting, alias canonicalization, risk_category narrowing) and the
 // fail-closed shape/length checks. The REAL committed signed-bundle load is
-// covered end-to-end by bundleSource.test.ts + sync/demoBundleParity.test.ts; the
+// covered end-to-end by bundleSource.test.ts + sharedBundleParity.test.ts; the
 // binary bundle-files builder by watchlist.bundle.test.ts.
 
 import { describe, expect, it } from "vitest";

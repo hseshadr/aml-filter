@@ -136,7 +136,7 @@ describe("EngineRuntime hands the list selection to the sync", () => {
 
 		// The second open carries the wider set. Nothing re-downloads what is
 		// already local — the store is content-addressed, so the widened sync is a
-		// top-up (proven at the sync layer in sync.scoped.test.ts).
+		// top-up (proven by bundleSource.scoped.test.ts).
 		expect(seen).toEqual([["OFAC_SDN"], ["OFAC_SDN", "EU_CONSOLIDATED"]]);
 	});
 

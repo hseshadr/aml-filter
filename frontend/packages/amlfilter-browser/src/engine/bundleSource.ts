@@ -2,8 +2,8 @@
 // SAME (catalog + per-list LoadedWatchlist) shape the JSON path produces, so the
 // EngineRuntime can screen from it unchanged.
 //
-// It drives the recovered edge-proc delta-sync tier THROUGH A WORKER (EngineClient
-// → worker.ts): the Worker owns the durable CacheStore (OPFS sync access handles are
+// It drives `@edgeproc/browser`'s signed delta-sync tier THROUGH A WORKER (EngineClient
+// → the consumer-owned edgeproc.worker.ts entry): the Worker owns the durable CacheStore (OPFS sync access handles are
 // Worker-only — opening the store or reading a chunk on the MAIN thread hangs), so
 // the main thread only sends typed requests and awaits bytes. One `sync` against
 // the bundle base URL fetches + verifies the signed `/latest` pointer
@@ -18,8 +18,16 @@
 // and verifies fail-closed — any signature/hash mismatch (over fetched OR cached
 // bytes) aborts the load. The pubkey is NEVER fetched from the bundle origin.
 
-import { EngineClient } from "./sync/client";
-import type { OnSyncProgress, SyncResult } from "./sync/types";
+import {
+	type SyncProgress as EdgeprocSyncProgress,
+	EngineClient,
+	type EngineStorageOptions,
+	type EngineSyncOptions,
+	type IndexedDbLayout,
+	type SyncResult,
+} from "@edgeproc/browser";
+import type { OnSyncProgress } from "./bundleProgress";
+import EdgeprocWorker from "./edgeproc.worker?worker";
 import {
 	buildLoadedFromBundleFiles,
 	buildLoadedWatchlistMetadataFromBundleFiles,
@@ -128,6 +136,26 @@ function slugOf(entry: WatchlistCatalogEntry): string {
 
 /** The catalog file, always in scope: it is what every other scope is derived from. */
 const CATALOG_PATH = "catalog.json";
+const CACHE_NAMESPACE = "amlfilter-watchlists-v1";
+const INDEXED_DB_LAYOUT: IndexedDbLayout = {
+	database: "aml-filter-signed-bundles-v1",
+	store: "entries",
+	separator: "/",
+};
+
+function forwardChunkProgress(
+	onProgress: OnSyncProgress | undefined,
+): ((progress: EdgeprocSyncProgress) => void) | undefined {
+	if (onProgress === undefined) return undefined;
+	return (progress) => {
+		if (progress.phase !== "chunks") return;
+		onProgress({
+			fetched: progress.fetchedChunks,
+			total: progress.totalChunks,
+			bytes: progress.bytesFetched,
+		});
+	};
+}
 
 /**
  * Translate a list selection into the manifest paths a sync must cover: the
@@ -161,24 +189,23 @@ export interface BundleEngineClient {
 	sync(
 		baseUrl: string,
 		pubkeyUrl: string,
-		onProgress?: OnSyncProgress,
-		wantedPaths?: ReadonlyArray<string>,
+		options?: EngineSyncOptions,
 	): Promise<SyncResult>;
 	readFile(path: string): Promise<Uint8Array>;
-	clear(): Promise<void>;
+	clear(options?: EngineStorageOptions): Promise<void>;
 	terminate?(): void;
 }
 
 /** The client seam the bundle source depends on; defaulted to a spawned Worker
  * EngineClient. Injectable so unit tests drive the committed bundle over an
- * in-memory store + an fs-backed fetch (the demoBundleParity pattern) with no
+ * in-memory store + an fs-backed fetch (the sharedBundleParity pattern) with no
  * Worker/browser storage. */
 export interface BundleSourceDeps {
 	readonly createClient: () => BundleEngineClient;
 }
 
 const defaultBundleSourceDeps: BundleSourceDeps = {
-	createClient: () => EngineClient.spawn(),
+	createClient: () => new EngineClient(new EdgeprocWorker()),
 };
 
 /** A synced bundle, exposing the SAME catalog + per-list loaders the runtime's
@@ -235,7 +262,13 @@ export async function openBundleSource(
 		// gate. Splitting the FETCH did not split the VERIFY. Phase two costs one
 		// extra pointer fetch (256 bytes); its manifest request is a conditional GET
 		// against an immutable content-addressed URL.
-		await client.sync(baseUrl, pubkeyUrl, undefined, [CATALOG_PATH]);
+		await client.sync(baseUrl, pubkeyUrl, {
+			expectedBundleId: null,
+			expectedChannel: null,
+			wantedPaths: [CATALOG_PATH],
+			cacheNamespace: CACHE_NAMESPACE,
+			indexedDbLayout: INDEXED_DB_LAYOUT,
+		});
 
 		const catalog = parseBundleCatalog(
 			JSON.parse(DECODER.decode(await client.readFile(CATALOG_PATH))),
@@ -243,12 +276,16 @@ export async function openBundleSource(
 
 		// `onProgress` threads the cold-sync per-chunk ticks up to the boot banner;
 		// undefined on reload/version-poll paths (no banner to feed).
-		const result = await client.sync(
-			baseUrl,
-			pubkeyUrl,
-			onProgress,
-			wantedPathsFor(catalog, enabledLists),
-		);
+		const wantedPaths = wantedPathsFor(catalog, enabledLists);
+		const progress = forwardChunkProgress(onProgress);
+		const result = await client.sync(baseUrl, pubkeyUrl, {
+			expectedBundleId: null,
+			expectedChannel: null,
+			...(wantedPaths === undefined ? {} : { wantedPaths }),
+			cacheNamespace: CACHE_NAMESPACE,
+			indexedDbLayout: INDEXED_DB_LAYOUT,
+			...(progress === undefined ? {} : { onProgress: progress }),
+		});
 
 		const loadList = async (
 			entry: WatchlistCatalogEntry,
@@ -306,7 +343,10 @@ export async function openBundleSource(
 			version: () => result.version,
 			clear: async () => {
 				try {
-					await client.clear();
+					await client.clear({
+						cacheNamespace: CACHE_NAMESPACE,
+						indexedDbLayout: INDEXED_DB_LAYOUT,
+					});
 				} finally {
 					dispose();
 				}

@@ -10,7 +10,7 @@
 /// <reference lib="webworker" />
 
 import { createEmbedder, type Embedder, type EmbedProgress } from "./embedder";
-import { type ErrorPayload, errorPayload } from "./sync/errorEnvelope";
+import { type ErrorPayload, errorPayload } from "./workerErrorEnvelope";
 
 /** A request to embed one query string, correlated by id. */
 export interface EmbedRequest {
@@ -33,7 +33,7 @@ export type EmbedResponse =
 			readonly id: number;
 			// `errorName` carries the thrown value's TYPE across structured clone —
 			// without it a model-load failure reaches the UI indistinguishable from
-			// any other Error. See sync/errorEnvelope.ts.
+			// any other Error. See workerErrorEnvelope.ts.
 	  } & ErrorPayload);
 
 /** A one-way model-download progress notification (no request/response pairing);

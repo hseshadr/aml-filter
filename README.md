@@ -106,8 +106,8 @@ loaded carelessly. The app therefore:
 - keeps one runtime owner instead of compiling duplicate ONNX sessions;
 - uses one-list-at-a-time vector residency on mobile, unknown-memory devices, and
   desktops reporting 8 GB or less;
-- stores compressed, content-addressed list chunks behind one durable-store contract:
-  OPFS when it opens, with an IndexedDB compatibility adapter for affected WebKit;
+- delegates signed-bundle transport, verification, cross-tab locking, and durable
+  storage to `@edgeproc/browser` pinned to a reviewed public commit;
 - disposes the old engine before a reload, then builds and swaps the replacement;
 - prevents overlapping update checks and clears recurring timers on unmount.
 

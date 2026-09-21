@@ -2,7 +2,8 @@
 
 **The in-browser screening engine of AML-Filter — multi-list sanctions screening that runs entirely in the tab, with no backend.**
 
-It delta-syncs a same-origin OFAC/EU/UN/UK bundle, verifies the signed pointer,
+Through an exact public-commit pin of `@edgeproc/browser` it delta-syncs a
+same-origin OFAC/EU/UN/UK bundle, verifies the signed pointer,
 manifest, compressed chunks, and materialized files **fail-closed** against a pinned
 Ed25519 public key and SHA-256 content addresses, embeds the query in-tab with MiniLM,
 and produces an explainable weighted score. Verified bytes are cached in OPFS for
@@ -46,11 +47,15 @@ tab/WebAssembly memory budget. `EngineRuntime` serializes bootstrap, reload, and
 cache-clear lifecycle operations; clear-cache disposes vector matrices, metadata, and
 the optional model worker before the next verified boot.
 
-### `./engine` — fail-closed bundle and crypto primitives
+### `./engine` — shared fail-closed primitives
 
-The domain-neutral engine surface includes Ed25519/SHA-256 verification plus the
-bounded fetch, zstd decode, content-addressed delta-sync, OPFS store, and Worker client.
-The publisher/browser parity tests pin this shared contract:
+This compatibility subpath re-exports the Ed25519/SHA-256 primitives and keeps
+two tiny call-shape adapters over `@edgeproc/browser`; AML does not carry a
+second sync engine.
+Production bundle sync runs the shared Worker through the one-line
+`edgeproc.worker.ts` Vite entry, and AML's vector class is a thin `{id, score}`
+adapter over the shared `PackedVectorIndex`. Publisher/browser parity tests pin
+the same public package contract:
 
 ```ts
 import { verifyEd25519, sha256Hex, SignatureError } from "@amlfilter/browser/engine";
@@ -59,10 +64,10 @@ import { verifyEd25519, sha256Hex, SignatureError } from "@amlfilter/browser/eng
 await verifyEd25519(pubkeyRaw32, bytes, sigBase64);
 ```
 
-## Attribution
+## Shared substrate
 
-The fail-closed Ed25519 / SHA-256 crypto and the canonical signed-watchlist wire format are a **TypeScript port of edge-proc's browser tier** — individual files carry per-file provenance comments (e.g. "TS port of edgeproc…", "mirrors edge-proc's …"). It shares one wire format and one trust root with every other edge-proc consumer.
-
-edge-proc is MIT licensed, © Harish Seshadri — https://github.com/hseshadr/edge-proc.
+`@edgeproc/browser` is a normal Git dependency pinned to one reviewed public
+commit, not vendored source or a local sibling link. That makes clean-clone CI
+and downstream installs reproduce the same built package.
 
 This package is also MIT licensed (see the repository root `LICENSE` and `NOTICE`).

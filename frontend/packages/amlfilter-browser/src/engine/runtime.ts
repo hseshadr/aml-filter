@@ -15,6 +15,7 @@
 // transformers.js 4.2.0's progress callback duplicates the ONNX fetch. It is idempotent: the
 // engine is built once and cached; later calls return the same instance.
 
+import type { OnSyncProgress, SyncProgress } from "./bundleProgress";
 import {
 	type BundleSource,
 	type BundleSourceDeps,
@@ -36,7 +37,6 @@ import {
 	type StreamingListSource,
 } from "./multiEngine";
 import { PRESETS } from "./scoring";
-import type { OnSyncProgress, SyncProgress } from "./sync/types";
 import { compositeVersion } from "./version";
 import type {
 	LoadedWatchlist,

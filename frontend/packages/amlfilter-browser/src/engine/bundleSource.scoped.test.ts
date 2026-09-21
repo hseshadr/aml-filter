@@ -66,8 +66,8 @@ function recordingDeps(): {
 } {
 	const scopes: Array<ReadonlyArray<string> | undefined> = [];
 	const client: BundleEngineClient = {
-		sync: (_baseUrl, _pubkeyUrl, _onProgress, wantedPaths) => {
-			scopes.push(wantedPaths);
+		sync: (_baseUrl, _pubkeyUrl, options) => {
+			scopes.push(options?.wantedPaths);
 			return Promise.resolve({
 				version: "2026-08-01",
 				manifestHash: "0".repeat(64),
