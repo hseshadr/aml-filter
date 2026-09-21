@@ -438,17 +438,11 @@ function buildLoadedFromMatrix(
 	for (const wire of wireEntities) {
 		entities.set(wire.entity_id, toEntity(wire));
 	}
-	const lookupKeysById = new Map(
-		[...entities].map(([id, entity]) => [id, lexicalKeysForEntity(entity)]),
-	);
 	return {
-		index: new VectorIndex(
-			matrix,
-			ids,
-			dim,
-			vectorIndexFactory,
-			lookupKeysById,
-		),
+		index: new VectorIndex(matrix, ids, dim, vectorIndexFactory, (id) => {
+			const entity = entities.get(id);
+			return entity === undefined ? [] : lexicalKeysForEntity(entity);
+		}),
 		entities,
 		version,
 		listId,

@@ -39,9 +39,10 @@ function indexOf(entities: readonly Entity[]): LexicalIndex {
 		entities.map((item) => item.entity_id),
 		1,
 		undefined,
-		new Map(
-			entities.map((item) => [item.entity_id, lexicalKeysForEntity(item)]),
-		),
+		(id) => {
+			const item = byId.get(id);
+			return item === undefined ? [] : lexicalKeysForEntity(item);
+		},
 	);
 	return LexicalIndex.build(vectors, byId);
 }

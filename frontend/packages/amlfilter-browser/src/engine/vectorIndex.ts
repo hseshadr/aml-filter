@@ -19,6 +19,7 @@ export interface VectorHit {
 }
 
 const INSERT_BATCH_SIZE = 512;
+const EMPTY_LOOKUP_KEYS: readonly SqliteLookupKey[] = [];
 
 /** Environment adapter: browser Worker in product, in-process SQLite in Node evals. */
 interface AmlSqliteVectorIndex extends SharedVectorIndex {
@@ -46,10 +47,8 @@ export class VectorIndex {
 		ids: ReadonlyArray<string>,
 		dim: number,
 		factory: AmlVectorIndexFactory = createSqliteVectorIndex,
-		lookupKeysById: ReadonlyMap<
-			string,
-			ReadonlyArray<SqliteLookupKey>
-		> = new Map(),
+		lookupKeysForId: (id: string) => ReadonlyArray<SqliteLookupKey> = () =>
+			EMPTY_LOOKUP_KEYS,
 	) {
 		if (matrix.length !== ids.length * dim) {
 			throw new Error(
@@ -59,7 +58,7 @@ export class VectorIndex {
 		this.#ids = [...ids];
 		this.#dim = dim;
 		this.#factory = factory;
-		this.#ready = this.#initialize(matrix, ids, lookupKeysById);
+		this.#ready = this.#initialize(matrix, ids, lookupKeysForId);
 	}
 
 	public get ntotal(): number {
@@ -133,7 +132,7 @@ export class VectorIndex {
 	async #initialize(
 		matrix: Float32Array,
 		ids: ReadonlyArray<string>,
-		lookupKeysById: ReadonlyMap<string, ReadonlyArray<SqliteLookupKey>>,
+		lookupKeysForId: (id: string) => ReadonlyArray<SqliteLookupKey>,
 	): Promise<AmlSqliteVectorIndex> {
 		const index = await this.#factory({
 			name: "aml-watchlist",
@@ -150,7 +149,7 @@ export class VectorIndex {
 							id,
 							vector: matrix.subarray(row * this.#dim, (row + 1) * this.#dim),
 							metadata: { entityId: id },
-							lookupKeys: lookupKeysById.get(id) ?? [],
+							lookupKeys: lookupKeysForId(id),
 						};
 					}),
 				);

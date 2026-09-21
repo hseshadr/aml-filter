@@ -84,16 +84,23 @@ describe("VectorIndex shared SQLite-vector adapter", () => {
 	});
 
 	it("stores lexical postings beside vectors and resolves bounded candidates", async () => {
+		const lookupKeysForId = vi.fn((id: string) =>
+			id === "entity-1"
+				? [{ namespace: "token", value: "salim" }]
+				: [{ namespace: "token", value: "petrov" }],
+		);
 		const index = new VectorIndex(
 			new Float32Array([1, 0, 0, 1]),
 			["entity-1", "entity-2"],
 			2,
 			undefined,
-			new Map([
-				["entity-1", [{ namespace: "token", value: "salim" }]],
-				["entity-2", [{ namespace: "token", value: "petrov" }]],
-			]),
+			lookupKeysForId,
 		);
+		// Key objects are produced only after the asynchronous SQLite boundary,
+		// rather than materialized for the whole watchlist at construction time.
+		expect(lookupKeysForId).not.toHaveBeenCalled();
+		await index.ready();
+		expect(lookupKeysForId).toHaveBeenCalledTimes(2);
 
 		await expect(
 			index.lookupIds([{ namespace: "token", value: "salim" }], 1),
