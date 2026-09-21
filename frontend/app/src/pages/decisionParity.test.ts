@@ -13,7 +13,7 @@
 // the one that matters —
 //
 //   1. the level literals are identical, field by field;
-//   2. the app's real `passesStrictness` / `partitionByConfidence` and the
+//   2. the app's real `passesStrictness` / `partitionForPresentation` and the
 //      harness's `isKept` / `isPrimary` agree on every case in a boundary grid.
 //
 // If this fails, the app changed the decision. Update
@@ -30,7 +30,7 @@ import {
 import { DECISION_LEVELS } from "../../../packages/amlfilter-publisher/src/decision/levels.ts";
 import {
 	LEVEL,
-	partitionByConfidence,
+	partitionForPresentation,
 	passesStrictness,
 	STRICTNESS_LEVELS,
 } from "./strictness";
@@ -113,9 +113,15 @@ function appVerdict(
 ): { kept: boolean; primary: boolean } {
 	// The engine floor is applied by `engine.screen(threshold: level.floor)`, so
 	// the app-side reproduction applies it here before its two real functions.
-	const kept = m.score >= level.floor && passesStrictness(m, QUERY, level);
-	const primary =
-		kept && partitionByConfidence([m], level).primary.length === 1;
+	const passesGate =
+		m.score >= level.floor && passesStrictness(m, QUERY, level);
+	const partition = partitionForPresentation(
+		passesGate ? [m] : [],
+		QUERY,
+		level,
+	);
+	const kept = partition.primary.length + partition.lowConfidence.length === 1;
+	const primary = partition.primary.length === 1;
 	return { kept, primary };
 }
 

@@ -3,7 +3,7 @@
   "tolerance": 0.02,
   "report": {
     "schema_version": 1,
-    "measured_at": "2026-08-06T00:10:46.462Z",
+    "measured_at": "2026-09-21T16:25:28.360Z",
     "engine_version": "4.0.0",
     "fixture_sha256": "0d42fafa54eb37494722c4dff21d1abe57e24a5568683910145b260ae2a90331",
     "entities": 19181,
@@ -53,12 +53,12 @@
         "scores": {
           "n": 25001,
           "positives": 1015,
-          "alerted": 21792,
-          "precision": 0.04653083700440529,
+          "alerted": 17696,
+          "precision": 0.05730108499095841,
           "recall": 0.9990147783251232,
-          "f1": 0.08892006840005262,
-          "accuracy": 0.1688732450701972,
-          "fpr": 0.8662553156007671,
+          "f1": 0.10838544171877505,
+          "accuracy": 0.3327066917323307,
+          "fpr": 0.6954890352705745,
           "fnr": 0.0009852216748768017
         }
       },
@@ -155,12 +155,12 @@
         "scores": {
           "n": 25000,
           "positives": 1013,
-          "alerted": 22892,
-          "precision": 0.044251266818102396,
+          "alerted": 20058,
+          "precision": 0.05050353973476917,
           "recall": 1.0,
-          "f1": 0.08475214390294918,
-          "accuracy": 0.12484,
-          "fpr": 0.9121190644932672,
+          "f1": 0.09615110815813203,
+          "accuracy": 0.2382,
+          "fpr": 0.7939717346896236,
           "fnr": 0.0
         }
       },
@@ -257,12 +257,12 @@
         "scores": {
           "n": 75001,
           "positives": 2028,
-          "alerted": 67589,
-          "precision": 0.02999008714435781,
+          "alerted": 56856,
+          "precision": 0.0356514703813142,
           "recall": 0.9995069033530573,
-          "f1": 0.05823290288291653,
-          "accuracy": 0.1258383221557046,
-          "fpr": 0.8984418894659669,
+          "f1": 0.06884722505264589,
+          "accuracy": 0.2689430807589232,
+          "fpr": 0.7513600920888548,
           "fnr": 0.0004930966469427478
         }
       },
@@ -359,12 +359,12 @@
         "scores": {
           "n": 75001,
           "positives": 2028,
-          "alerted": 52616,
-          "precision": 0.03852440322335411,
+          "alerted": 37872,
+          "precision": 0.05352239121250528,
           "recall": 0.9995069033530573,
-          "f1": 0.07418929800161042,
-          "accuracy": 0.325475660324529,
-          "fpr": 0.6932564099050333,
+          "f1": 0.10160401002506265,
+          "accuracy": 0.5220597058705884,
+          "fpr": 0.4912090773299713,
           "fnr": 0.0004930966469427478
         }
       },
@@ -563,12 +563,12 @@
         "scores": {
           "n": 2000,
           "positives": 1000,
-          "alerted": 1956,
-          "precision": 0.5112474437627812,
+          "alerted": 1081,
+          "precision": 0.9250693802035153,
           "recall": 1.0,
-          "f1": 0.6765899864682002,
-          "accuracy": 0.522,
-          "fpr": 0.956,
+          "f1": 0.9610764055742431,
+          "accuracy": 0.9595,
+          "fpr": 0.08099999999999996,
           "fnr": 0.0
         }
       },
@@ -767,12 +767,12 @@
         "scores": {
           "n": 2000,
           "positives": 1000,
-          "alerted": 1956,
-          "precision": 0.5112474437627812,
+          "alerted": 1081,
+          "precision": 0.9250693802035153,
           "recall": 1.0,
-          "f1": 0.6765899864682002,
-          "accuracy": 0.522,
-          "fpr": 0.956,
+          "f1": 0.9610764055742431,
+          "accuracy": 0.9595,
+          "fpr": 0.08099999999999996,
           "fnr": 0.0
         }
       },
@@ -832,29 +832,29 @@
       [
         "alias",
         {
-          "roc_auc": 0.9953322114418961,
-          "pr_auc": 0.952292300889785
+          "roc_auc": 0.9953744364015299,
+          "pr_auc": 0.9523402852201617
         }
       ],
       [
         "canonical",
         {
-          "roc_auc": 0.9975649034309512,
-          "pr_auc": 0.9556940514474223
+          "roc_auc": 0.997564903430951,
+          "pr_auc": 0.959385005332282
         }
       ],
       [
         "all+hard",
         {
-          "roc_auc": 0.9960683493997712,
-          "pr_auc": 0.9422367447510985
+          "roc_auc": 0.9960946891518684,
+          "pr_auc": 0.9428808379350545
         }
       ],
       [
         "all+plain",
         {
-          "roc_auc": 0.9972560505816221,
-          "pr_auc": 0.9528077708857206
+          "roc_auc": 0.997271849027082,
+          "pr_auc": 0.9533086408281891
         }
       ]
     ],
@@ -905,7 +905,7 @@
   },
   "study": {
     "schema_version": 1,
-    "measured_at": "2026-08-06T00:09:15.256Z",
+    "measured_at": "2026-09-21T16:22:57.422Z",
     "positives": 24416,
     "negatives": 9000,
     "rules": [
@@ -946,7 +946,7 @@
       "band": "kept",
       "metric": "precision",
       "direction": "min",
-      "bound": 0.0449
+      "bound": 0.0557
     },
     {
       "unit": "pair",
@@ -962,7 +962,7 @@
       "band": "kept",
       "metric": "f1",
       "direction": "min",
-      "bound": 0.0873
+      "bound": 0.1068
     },
     {
       "unit": "pair",
@@ -970,7 +970,7 @@
       "band": "kept",
       "metric": "fpr",
       "direction": "max",
-      "bound": 0.8679
+      "bound": 0.6971
     },
     {
       "unit": "pair",
@@ -1026,7 +1026,7 @@
       "band": "kept",
       "metric": "precision",
       "direction": "min",
-      "bound": 0.0427
+      "bound": 0.0489
     },
     {
       "unit": "pair",
@@ -1042,7 +1042,7 @@
       "band": "kept",
       "metric": "f1",
       "direction": "min",
-      "bound": 0.0832
+      "bound": 0.0946
     },
     {
       "unit": "pair",
@@ -1050,7 +1050,7 @@
       "band": "kept",
       "metric": "fpr",
       "direction": "max",
-      "bound": 0.9137
+      "bound": 0.7956
     },
     {
       "unit": "pair",
@@ -1106,7 +1106,7 @@
       "band": "kept",
       "metric": "precision",
       "direction": "min",
-      "bound": 0.0295
+      "bound": 0.0351
     },
     {
       "unit": "pair",
@@ -1122,7 +1122,7 @@
       "band": "kept",
       "metric": "f1",
       "direction": "min",
-      "bound": 0.0577
+      "bound": 0.0683
     },
     {
       "unit": "pair",
@@ -1130,7 +1130,7 @@
       "band": "kept",
       "metric": "fpr",
       "direction": "max",
-      "bound": 0.899
+      "bound": 0.7519
     },
     {
       "unit": "pair",
@@ -1186,7 +1186,7 @@
       "band": "kept",
       "metric": "precision",
       "direction": "min",
-      "bound": 0.038
+      "bound": 0.053
     },
     {
       "unit": "pair",
@@ -1202,7 +1202,7 @@
       "band": "kept",
       "metric": "f1",
       "direction": "min",
-      "bound": 0.0737
+      "bound": 0.1011
     },
     {
       "unit": "pair",
@@ -1210,7 +1210,7 @@
       "band": "kept",
       "metric": "fpr",
       "direction": "max",
-      "bound": 0.6938
+      "bound": 0.4917
     },
     {
       "unit": "pair",
@@ -1330,7 +1330,7 @@
       "band": "kept",
       "metric": "precision",
       "direction": "min",
-      "bound": 0.4912
+      "bound": 0.9051
     },
     {
       "unit": "query",
@@ -1346,7 +1346,7 @@
       "band": "kept",
       "metric": "f1",
       "direction": "min",
-      "bound": 0.6566
+      "bound": 0.9411
     },
     {
       "unit": "query",
@@ -1354,7 +1354,7 @@
       "band": "kept",
       "metric": "fpr",
       "direction": "max",
-      "bound": 0.976
+      "bound": 0.101
     },
     {
       "unit": "query",
@@ -1474,7 +1474,7 @@
       "band": "kept",
       "metric": "precision",
       "direction": "min",
-      "bound": 0.4912
+      "bound": 0.9051
     },
     {
       "unit": "query",
@@ -1490,7 +1490,7 @@
       "band": "kept",
       "metric": "f1",
       "direction": "min",
-      "bound": 0.6566
+      "bound": 0.9411
     },
     {
       "unit": "query",
@@ -1498,7 +1498,7 @@
       "band": "kept",
       "metric": "fpr",
       "direction": "max",
-      "bound": 0.976
+      "bound": 0.101
     },
     {
       "unit": "query",

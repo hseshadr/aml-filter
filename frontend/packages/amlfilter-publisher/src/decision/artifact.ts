@@ -44,7 +44,7 @@ export interface EmittedCandidate {
 	 * Python side reads booleans and never restates the rule — a screening
 	 * decision expressed in two languages is the failure mode this repository has
 	 * already paid for once. ./decide is in turn held to the app's real
-	 * `passesStrictness` / `partitionByConfidence` by
+	 * `passesStrictness` / `partitionForPresentation` by
 	 * frontend/app/src/pages/decisionParity.test.ts.
 	 */
 	readonly kept: readonly string[];
