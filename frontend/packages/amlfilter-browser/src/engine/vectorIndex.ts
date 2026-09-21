@@ -7,6 +7,8 @@
 import type { VectorIndex as SharedVectorIndex } from "@edgeproc/browser/vector";
 import {
 	createSqliteVectorIndex,
+	type SqliteKeyedVectorRecord,
+	type SqliteLookupKey,
 	type SqliteVectorWorkerOptions,
 } from "@edgeproc/browser/vector/sqlite";
 
@@ -17,16 +19,25 @@ export interface VectorHit {
 }
 
 const INSERT_BATCH_SIZE = 512;
+const EMPTY_LOOKUP_KEYS: readonly SqliteLookupKey[] = [];
 
 /** Environment adapter: browser Worker in product, in-process SQLite in Node evals. */
+interface AmlSqliteVectorIndex extends SharedVectorIndex {
+	insertKeyed(records: ReadonlyArray<SqliteKeyedVectorRecord>): Promise<void>;
+	lookupIds(
+		keys: ReadonlyArray<SqliteLookupKey>,
+		maxDocumentFrequency: number,
+	): Promise<ReadonlyArray<string>>;
+}
+
 export type AmlVectorIndexFactory = (
 	options: SqliteVectorWorkerOptions,
-) => Promise<SharedVectorIndex>;
+) => Promise<AmlSqliteVectorIndex>;
 
 /** Loaded, query-ready vector index over the decoded watchlist vectors. */
 export class VectorIndex {
 	readonly #dim: number;
-	readonly #ready: Promise<SharedVectorIndex>;
+	readonly #ready: Promise<AmlSqliteVectorIndex>;
 	readonly #factory: AmlVectorIndexFactory;
 	#ids: ReadonlyArray<string>;
 	#disposed = false;
@@ -36,6 +47,8 @@ export class VectorIndex {
 		ids: ReadonlyArray<string>,
 		dim: number,
 		factory: AmlVectorIndexFactory = createSqliteVectorIndex,
+		lookupKeysForId: (id: string) => ReadonlyArray<SqliteLookupKey> = () =>
+			EMPTY_LOOKUP_KEYS,
 	) {
 		if (matrix.length !== ids.length * dim) {
 			throw new Error(
@@ -45,7 +58,7 @@ export class VectorIndex {
 		this.#ids = [...ids];
 		this.#dim = dim;
 		this.#factory = factory;
-		this.#ready = this.#initialize(matrix, ids);
+		this.#ready = this.#initialize(matrix, ids, lookupKeysForId);
 	}
 
 	public get ntotal(): number {
@@ -94,6 +107,15 @@ export class VectorIndex {
 		);
 	}
 
+	/** Resolve exact lexical/phonetic keys through SQLite's bounded postings. */
+	public async lookupIds(
+		keys: ReadonlyArray<SqliteLookupKey>,
+		maxDocumentFrequency: number,
+	): Promise<ReadonlyArray<string>> {
+		this.#assertOpen();
+		return (await this.#openIndex()).lookupIds(keys, maxDocumentFrequency);
+	}
+
 	/** Exact cosine top-k, retaining deterministic id tie breaking. */
 	public async search(
 		queryVec: Float32Array,
@@ -110,7 +132,8 @@ export class VectorIndex {
 	async #initialize(
 		matrix: Float32Array,
 		ids: ReadonlyArray<string>,
-	): Promise<SharedVectorIndex> {
+		lookupKeysForId: (id: string) => ReadonlyArray<SqliteLookupKey>,
+	): Promise<AmlSqliteVectorIndex> {
 		const index = await this.#factory({
 			name: "aml-watchlist",
 			dimension: this.#dim,
@@ -119,13 +142,14 @@ export class VectorIndex {
 		try {
 			for (let start = 0; start < ids.length; start += INSERT_BATCH_SIZE) {
 				const end = Math.min(start + INSERT_BATCH_SIZE, ids.length);
-				await index.insert(
+				await index.insertKeyed(
 					ids.slice(start, end).map((id, offset) => {
 						const row = start + offset;
 						return {
 							id,
 							vector: matrix.subarray(row * this.#dim, (row + 1) * this.#dim),
 							metadata: { entityId: id },
+							lookupKeys: lookupKeysForId(id),
 						};
 					}),
 				);
@@ -137,7 +161,7 @@ export class VectorIndex {
 		}
 	}
 
-	async #openIndex(): Promise<SharedVectorIndex> {
+	async #openIndex(): Promise<AmlSqliteVectorIndex> {
 		this.#assertOpen();
 		const index = await this.#ready;
 		this.#assertOpen();

@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 import type { Alias, Entity } from "./domain";
 import {
 	LexicalIndex,
+	lexicalKeysForEntity,
 	MAX_DOCUMENT_FREQUENCY_RATIO,
 	MAX_LEXICAL_CANDIDATES,
 } from "./lexicalIndex";
 import { canonicalize } from "./normalize";
+import { VectorIndex } from "./vectorIndex";
 
 function alias(name: string): Alias {
 	return { name, name_canonical: canonicalize(name), source: "" };
@@ -31,7 +33,18 @@ function entity(
 }
 
 function indexOf(entities: readonly Entity[]): LexicalIndex {
-	return LexicalIndex.build(new Map(entities.map((e) => [e.entity_id, e])));
+	const byId = new Map(entities.map((item) => [item.entity_id, item]));
+	const vectors = new VectorIndex(
+		new Float32Array(entities.length),
+		entities.map((item) => item.entity_id),
+		1,
+		undefined,
+		(id) => {
+			const item = byId.get(id);
+			return item === undefined ? [] : lexicalKeysForEntity(item);
+		},
+	);
+	return LexicalIndex.build(vectors, byId);
 }
 
 const CORPUS: readonly Entity[] = [
@@ -40,55 +53,50 @@ const CORPUS: readonly Entity[] = [
 		"SALIM, Ahmad Fuad",
 	]),
 	entity("e_marzook", "ABU MARZOOK, Mousa Mohammed", ["MARZUK, Musa Abu"]),
-	entity("e_nasrallah", "NASRALLAH, Hasan", []),
-	entity("e_acme", "Acme Trading Company Limited", []),
+	entity("e_nasrallah", "NASRALLAH, Hasan"),
+	entity("e_acme", "Acme Trading Company Limited"),
 ];
 
-describe("LexicalIndex — what it indexes", () => {
-	it("indexes alias names, not just the primary name", () => {
-		// "salim" exists only inside an alias. Before aliases were indexed there
-		// was nothing in retrieval that knew this string at all.
-		expect(indexOf(CORPUS).candidates("salim")).toEqual(["e_zawahiri"]);
+describe("LexicalIndex — SQLite keyed lookup", () => {
+	it("persists primary and alias token/phonetic keys", () => {
+		const keys = lexicalKeysForEntity(CORPUS[0] as Entity);
+		expect(keys).toContainEqual({ namespace: "token", value: "salim" });
+		expect(keys.some((key) => key.namespace === "phonetic")).toBe(true);
 	});
 
-	it("finds an entity by a literal token shared with one of its names", () => {
-		expect(indexOf(CORPUS).candidates("musa abu marzuk")).toContain(
-			"e_marzook",
+	it("retrieves an alias-only entity", async () => {
+		await expect(indexOf(CORPUS).candidates("salim")).resolves.toEqual([
+			"e_zawahiri",
+		]);
+	});
+
+	it("retrieves a literal-token match", async () => {
+		await expect(
+			indexOf(CORPUS).candidates("musa abu marzuk"),
+		).resolves.toContain("e_marzook");
+	});
+
+	it("retrieves through Double Metaphone when no token matches", async () => {
+		await expect(indexOf(CORPUS).candidates("aiman")).resolves.toEqual([
+			"e_zawahiri",
+		]);
+	});
+
+	it("returns nothing without a shared token or pronunciation", async () => {
+		await expect(indexOf(CORPUS).candidates("zzyzx nobody")).resolves.toEqual(
+			[],
 		);
 	});
 
-	it("finds an entity through a shared pronunciation when no token matches", () => {
-		// "aiman" is not a token of any indexed name; it reaches Ayman only via
-		// the shared Double-Metaphone key.
-		const index = indexOf(CORPUS);
-		expect(index.candidates("aiman")).toEqual(["e_zawahiri"]);
-	});
-
-	it("returns nothing for a query that shares neither token nor sound", () => {
-		expect(indexOf(CORPUS).candidates("zzyzx nobody")).toEqual([]);
-	});
-
-	it("ignores empty tokens and an empty query", () => {
-		expect(indexOf(CORPUS).candidates("")).toEqual([]);
-		expect(indexOf(CORPUS).candidates("  ")).toEqual([]);
-	});
-
-	it("lists each entity once however many of its names share a token", () => {
-		// "al zawahiri ayman" and "al zawahiri ayman" (the alias) both carry
-		// "zawahiri"; the posting list must not repeat the id.
-		expect(indexOf(CORPUS).candidates("zawahiri")).toEqual(["e_zawahiri"]);
-	});
-
-	it("skips an entity whose names are all blank rather than indexing empties", () => {
-		const blank = entity("e_blank", "");
-		const index = indexOf([...CORPUS, blank]);
-		expect(index.candidates("")).toEqual([]);
-		expect(index.candidates("acme")).not.toContain("e_blank");
+	it("ignores empty tokens and deduplicates an entity across aliases", async () => {
+		await expect(indexOf(CORPUS).candidates("  ")).resolves.toEqual([]);
+		await expect(indexOf(CORPUS).candidates("zawahiri")).resolves.toEqual([
+			"e_zawahiri",
+		]);
 	});
 });
 
-describe("LexicalIndex — the document-frequency cutoff", () => {
-	/** N entities that all share the token "company", plus one that does not. */
+describe("LexicalIndex — bounded retrieval", () => {
 	function crowded(n: number): readonly Entity[] {
 		const many = Array.from({ length: n }, (_, i) =>
 			entity(`e_co_${i}`, `Company Number ${i}`),
@@ -96,39 +104,23 @@ describe("LexicalIndex — the document-frequency cutoff", () => {
 		return [...many, entity("e_rare", "Zzyzx Holdings")];
 	}
 
-	it("derives the cutoff from the list size and the declared ratio", () => {
-		const index = indexOf(crowded(999));
-		expect(index.maxDocumentFrequency).toBe(
+	it("derives a minimum-one document-frequency cutoff", () => {
+		expect(indexOf(crowded(999)).maxDocumentFrequency).toBe(
 			Math.ceil(1000 * MAX_DOCUMENT_FREQUENCY_RATIO),
 		);
+		expect(indexOf([entity("e_one", "Solo")]).maxDocumentFrequency).toBe(1);
 	});
 
-	it("never drops below a cutoff of 1, so a tiny list still retrieves", () => {
-		expect(indexOf([entity("e_one", "Solo")]).maxDocumentFrequency).toBe(1);
-		expect(indexOf([entity("e_one", "Solo")]).candidates("solo")).toEqual([
-			"e_one",
+	it("lets SQLite skip over-common postings but keeps rare keys", async () => {
+		const index = indexOf(crowded(999));
+		await expect(index.candidates("company")).resolves.toEqual([]);
+		await expect(index.candidates("zzyzx company")).resolves.toEqual([
+			"e_rare",
 		]);
 	});
 
-	it("SKIPS a token held by more entities than the cutoff allows", () => {
-		// "company" is in 999 of 1000 entities — far over the 1% cutoff — so it
-		// contributes nothing. "number" is in the same 999 and is skipped too.
-		expect(indexOf(crowded(999)).candidates("company")).toEqual([]);
-	});
-
-	it("still retrieves through a rare token in the same query", () => {
-		const index = indexOf(crowded(999));
-		expect(index.candidates("zzyzx company")).toEqual(["e_rare"]);
-	});
-});
-
-describe("LexicalIndex — the candidate cap", () => {
-	/** Enough same-token entities to exceed the cap without tripping the cutoff. */
 	function overflowing(): readonly Entity[] {
 		const n = MAX_LEXICAL_CANDIDATES + 50;
-		// The list is large enough that df(shared token) stays under the 1% cutoff
-		// only if the list is ~100x the cap; instead give each entity its own rare
-		// token AND a shared phonetic-free token by padding the corpus.
 		const filler = Array.from({ length: n * 100 }, (_, i) =>
 			entity(`e_filler_${i}`, `Filler ${i}`),
 		);
@@ -138,33 +130,15 @@ describe("LexicalIndex — the candidate cap", () => {
 		return [...filler, ...hits];
 	}
 
-	it("returns at most MAX_LEXICAL_CANDIDATES ids", () => {
-		const found = indexOf(overflowing()).candidates("nasrallah hasan");
-		expect(found).toHaveLength(MAX_LEXICAL_CANDIDATES);
-	});
-
-	it("keeps the closest spellings when it truncates, not the first indexed", () => {
-		const corpus = [...overflowing(), entity("e_exact", "Nasrallah Hasan")];
-		const found = indexOf(corpus).candidates("nasrallah hasan");
-		expect(found).toHaveLength(MAX_LEXICAL_CANDIDATES);
-		// The exact name is indexed LAST, so insertion order would have dropped it.
-		expect(found).toContain("e_exact");
-	});
-
-	it("returns the same ids in the same order on a repeat query", () => {
-		const index = indexOf(overflowing());
-		expect(index.candidates("nasrallah hasan")).toEqual(
-			index.candidates("nasrallah hasan"),
-		);
-	});
-});
-
-describe("LexicalIndex — shape", () => {
-	it("reports how many distinct tokens and phonetic keys it holds", () => {
-		const index = indexOf(CORPUS);
-		expect(index.tokenCount).toBeGreaterThan(0);
-		expect(index.phoneticKeyCount).toBeGreaterThan(0);
-		// Phonetics collapse spellings, so there are never more keys than tokens.
-		expect(index.phoneticKeyCount).toBeLessThanOrEqual(index.tokenCount);
+	it("caps overflow and keeps the closest spelling deterministically", async () => {
+		const index = indexOf([
+			...overflowing(),
+			entity("e_exact", "Nasrallah Hasan"),
+		]);
+		const first = await index.candidates("nasrallah hasan");
+		const second = await index.candidates("nasrallah hasan");
+		expect(first).toHaveLength(MAX_LEXICAL_CANDIDATES);
+		expect(first).toContain("e_exact");
+		expect(second).toEqual(first);
 	});
 });

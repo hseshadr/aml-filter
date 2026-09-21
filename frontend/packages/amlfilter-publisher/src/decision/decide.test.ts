@@ -99,9 +99,15 @@ describe("isKept", () => {
 		expect(isKept(facts, BALANCED)).toBe(false);
 	});
 
-	it("keeps a match exactly AT the floor", () => {
+	it("suppresses a sub-display match without exact token evidence", () => {
 		expect(
 			isKept({ score: 0.3, lexical: 1, tokenContainment: false }, BALANCED),
+		).toBe(false);
+	});
+
+	it("keeps a sub-display match when a whole token qualifies it", () => {
+		expect(
+			isKept({ score: 0.3, lexical: 1, tokenContainment: true }, BALANCED),
 		).toBe(true);
 	});
 
@@ -137,8 +143,8 @@ describe("isKept", () => {
 });
 
 describe("isPrimary", () => {
-	it("groups a kept Balanced match below the low-confidence line", () => {
-		const facts = { score: 0.35, lexical: 0.9, tokenContainment: false };
+	it("groups a token-qualified Balanced match below the low-confidence line", () => {
+		const facts = { score: 0.35, lexical: 0.9, tokenContainment: true };
 		expect(isKept(facts, BALANCED)).toBe(true);
 		expect(isPrimary(facts, BALANCED)).toBe(false);
 	});

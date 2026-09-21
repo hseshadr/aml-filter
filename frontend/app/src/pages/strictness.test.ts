@@ -4,6 +4,7 @@ import {
 	BALANCED_LOW_CONFIDENCE_LINE,
 	LEVEL,
 	partitionByConfidence,
+	partitionForPresentation,
 	passesStrictness,
 	STRICTNESS_LEVELS,
 } from "./strictness";
@@ -115,6 +116,56 @@ describe("partitionByConfidence — the presentation split (recall-preserving)",
 		);
 		expect(primary).toEqual([strictHit]);
 		expect(lowConfidence).toEqual([]);
+	});
+});
+
+describe("partitionForPresentation — qualified Balanced disclosure", () => {
+	it("does not present weak nearest neighbours for an ambiguous one-token name", () => {
+		const unrelated = matchDouble(0.386, 0.4, "Al-Assad Bashar");
+		const nearSpelling = matchDouble(0.349, 0.8, "Mehmood Osama");
+		const partition = partitionForPresentation(
+			[unrelated, nearSpelling],
+			"obama",
+			LEVEL.balanced,
+		);
+
+		expect(partition.primary).toEqual([]);
+		expect(partition.lowConfidence).toEqual([]);
+		expect(partition.suppressed).toEqual([unrelated, nearSpelling]);
+	});
+
+	it("keeps a low-confidence candidate with an exact published token", () => {
+		const bank = matchDouble(0.301, 0.267, "Madeupistan Imaginary Bank");
+		const partition = partitionForPresentation([bank], "bank", LEVEL.balanced);
+
+		expect(partition.lowConfidence).toEqual([bank]);
+		expect(partition.suppressed).toEqual([]);
+	});
+
+	it("accepts the exact token when it comes from a published alias", () => {
+		const aliased = withAliases(matchDouble(0.301, 0.2, "Al Zawahiri Ayman"), [
+			"SALIM, Ahmad Fuad",
+		]);
+		const partition = partitionForPresentation(
+			[aliased],
+			"salim",
+			LEVEL.balanced,
+		);
+
+		expect(partition.lowConfidence).toEqual([aliased]);
+		expect(partition.suppressed).toEqual([]);
+	});
+
+	it("keeps lexically plausible multi-token fuzz inspectable", () => {
+		const fuzz = matchDouble(0.362, 0.36, "Zzyzx Impostor One");
+		const partition = partitionForPresentation(
+			[fuzz],
+			"Zzyzx Nobody",
+			LEVEL.balanced,
+		);
+
+		expect(partition.lowConfidence).toEqual([fuzz]);
+		expect(partition.suppressed).toEqual([]);
 	});
 });
 

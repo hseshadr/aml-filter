@@ -9,7 +9,9 @@ The current measurement, against the frozen 19,181-entity OFAC SDN snapshot, at
 the parameters the live `/screen` page actually sends:
 
 Every labelled query, no sampling. "Before" is vector-only retrieval, which is
-what the first measurement found; "now" is the lexical/phonetic union:
+what the first measurement found; "now" unions sqlite-vector neighbours with bounded
+exact canonical-token and Double-Metaphone postings stored in the same SQLite 3.53.4
+Worker database:
 
 | Segment | Queries | recall@1 | recall@10 | recall@25 | Found nothing |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -48,6 +50,20 @@ be found. With so little headroom the segment can no longer detect a regression
 of that sort. A held-out segment of deterministically perturbed queries
 (transpositions, vowel swaps, dropped letters), never added to the index, is the
 missing measurement.
+
+### Why the SQLite index stays exact and bounded
+
+TypeScript derives canonical-token and Double-Metaphone keys from primary names and
+aliases; SQLite owns the postings, document-frequency cutoff, and deterministic lookup.
+The engine unions that bounded set with vector neighbours and sends every candidate
+through the unchanged transparent scorer. A phonetic collision can therefore retrieve
+a row, but cannot declare a sanctions match.
+
+The AML schema intentionally does not use an FTS5 trigram table or spellfix1. Corpus
+experiments found those alternatives noisier, larger, or semantically different from
+the accepted retrieval path. Retaining the measured key semantics while moving their
+postings into SQLite removes the duplicate JavaScript inverted maps without silently
+changing what the recall and decision gates mean.
 
 ## Run it
 

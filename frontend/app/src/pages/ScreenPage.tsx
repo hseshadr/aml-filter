@@ -30,7 +30,7 @@ import { DossierCard, dossierFromMatch } from "./DossierCard";
 import { EntityDirectory } from "./EntityDirectory";
 import {
 	LEVEL,
-	partitionByConfidence,
+	partitionForPresentation,
 	passesStrictness,
 	STRICTNESS_LEVELS,
 	type Strictness,
@@ -195,8 +195,9 @@ const EXAMPLE_QUERIES = ["Ivan Fakovich", "fakovic", "Olga", "bank"] as const;
 // The strictness levels (named floors/gates/display lines with their declared
 // ranges and rationale) and the gate/partition helpers live in ./strictness —
 // a pure, unit-tested module. This is a SEARCH-LAYER control only: it never
-// touches the parity-locked scoring contract, and it never drops a match the
-// engine returned (recall preserved; weak results are grouped, not hidden).
+// touches the parity-locked scoring contract. Balanced withholds unqualified
+// sub-line nearest neighbours; Lenient remains the explicit show-everything
+// option.
 
 // The outcome of one screen call. A rejection is a FIRST-CLASS state, not a
 // dropped promise: an unscreened name must never fall through to the no-match
@@ -725,12 +726,14 @@ function Results({
 			</div>
 		);
 	}
-	// The honest split: matches at/above the level's display line lead as
-	// primary cards; the rest stay fully inspectable behind a collapsed
-	// disclosure (recall preserved, sub-line fuzz de-emphasized). At Lenient
-	// and Strict the line is 0, so every match is primary — unchanged.
-	const { primary, lowConfidence } = partitionByConfidence(
+	// Matches at/above the level's display line lead as primary cards. Balanced
+	// discloses a weaker candidate only when an exact published-name token makes
+	// it independently actionable; unqualified nearest-neighbour noise is not
+	// advertised as a lead. At Lenient and Strict the line is 0, so every match
+	// is primary — unchanged.
+	const { primary, lowConfidence } = partitionForPresentation(
 		search.matches,
+		query,
 		level,
 	);
 	const levelLabel = t(`strictness.levels.${level.level}`);
@@ -755,9 +758,9 @@ function Results({
 					</ul>
 				</>
 			) : (
-				// Everything the engine returned sits below the display line: say so
-				// honestly instead of leading with fuzz — and never phrase it as a
-				// clear, because the grouped candidates below are still unreviewed.
+				// Nothing clears the primary display line. Keep this neutral rather
+				// than using the green clear treatment: qualified weak candidates may
+				// still be grouped below, and unqualified neighbours may be withheld.
 				<p className="screen-results__none">
 					{t("results.noPrimaryMatch", {
 						query,
@@ -791,7 +794,7 @@ function Results({
 			 * reports no total, so this states the cut-off and nothing more — never
 			 * "25 of N", which would be a number nobody measured.
 			 */}
-			{search.capped && (
+			{search.capped && (primary.length > 0 || lowConfidence.length > 0) && (
 				<p className="screen-results__capped">
 					{t("results.capped", { n: SEARCH_K })}
 				</p>

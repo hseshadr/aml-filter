@@ -1,6 +1,6 @@
 // The live decision, restated for the harness.
 //
-// This is a mirror of `passesStrictness` + `partitionByConfidence` in
+// This is a mirror of `passesStrictness` + `partitionForPresentation` in
 // frontend/app/src/pages/strictness.ts. It exists here because the harness
 // cannot import the app package, and it is held honest by
 // frontend/app/src/pages/decisionParity.test.ts, which imports BOTH and drives
@@ -63,23 +63,26 @@ export interface CandidateFacts {
 /**
  * Would this candidate have been SHOWN at this level?
  *
- * Two gates, both from the app: the engine's combined-score floor, then the
- * lexical gate with its token escape hatch. A kept match is an alert — it lands
- * in the user's result list and has to be dispositioned.
+ * Three gates, all from the app: the engine's combined-score floor; the lexical
+ * gate with its token escape hatch; then the presentation qualifier. A weak
+ * sub-display candidate is shown only when an exact published-name token makes
+ * it independently actionable. Primary results and levels with no display band
+ * are unchanged. A kept match lands in the user's visible result list.
  */
 export function isKept(facts: CandidateFacts, level: DecisionLevel): boolean {
 	return (
 		facts.score >= level.floor &&
-		(facts.lexical >= level.minLexical || facts.tokenContainment)
+		(facts.lexical >= level.minLexical || facts.tokenContainment) &&
+		(facts.score >= level.displayFloor || facts.tokenContainment)
 	);
 }
 
 /**
  * Would this candidate have LED as a primary card?
  *
- * `partitionByConfidence` splits kept matches at `displayFloor` (>= is primary).
- * A level with `displayFloor` 0 renders everything primary, so the two bands
- * coincide there — which is why both are reported and never averaged.
+ * `partitionForPresentation` splits shown matches at `displayFloor` (>= is
+ * primary). A level with `displayFloor` 0 renders everything primary, so the
+ * two bands coincide there — which is why both are reported and never averaged.
  */
 export function isPrimary(
 	facts: CandidateFacts,
