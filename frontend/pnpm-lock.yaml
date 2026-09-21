@@ -113,8 +113,8 @@ importers:
         specifier: ^0.1.1
         version: 0.1.1
       '@edgeproc/browser':
-        specifier: github:hseshadr/edgeproc-browser#51bd097295fe504703d55dbf176148bd21cd3b72
-        version: https://codeload.github.com/hseshadr/edgeproc-browser/tar.gz/51bd097295fe504703d55dbf176148bd21cd3b72
+        specifier: github:hseshadr/edgeproc-browser#f1ae371c8dfe441c6a3dd845e92c3d67adf654bd
+        version: https://codeload.github.com/hseshadr/edgeproc-browser/tar.gz/f1ae371c8dfe441c6a3dd845e92c3d67adf654bd
       '@huggingface/transformers':
         specifier: ^4.2.0
         version: 4.2.0(@types/node@26.1.2)
@@ -409,8 +409,8 @@ packages:
     resolution: {integrity: sha512-BgqgxPox/PpLSNL7gKN8tovrOBSuLBVk2uAnYu8+5ZXq7KKQBPvSZCA/qF9vkAVE6ubRXm4TcOPJBicy51sALg==}
     engines: {node: '>=22.13'}
 
-  '@edgeproc/browser@https://codeload.github.com/hseshadr/edgeproc-browser/tar.gz/51bd097295fe504703d55dbf176148bd21cd3b72':
-    resolution: {gitHosted: true, integrity: sha512-7S9IHbE4So2rVkRhNF8+gR0nUFsgWcWTCufPoQMdNM0gidhAuhq3U+uxS4UdLBwJZON0kUwSRUV7BwCT3gveNQ==, tarball: https://codeload.github.com/hseshadr/edgeproc-browser/tar.gz/51bd097295fe504703d55dbf176148bd21cd3b72}
+  '@edgeproc/browser@https://codeload.github.com/hseshadr/edgeproc-browser/tar.gz/f1ae371c8dfe441c6a3dd845e92c3d67adf654bd':
+    resolution: {gitHosted: true, integrity: sha512-rKYH7vi3HkqtMGQVX6ch4fU0dys1bUkTb+01HsspDbhzuzy8QE3IJgTTHVJEkK3uAhdg2HPFep9ByNxx03QZ7g==, tarball: https://codeload.github.com/hseshadr/edgeproc-browser/tar.gz/f1ae371c8dfe441c6a3dd845e92c3d67adf654bd}
     version: 0.1.0
     engines: {node: '>=22.13'}
 
@@ -2332,7 +2332,7 @@ snapshots:
       '@noble/ed25519': 3.1.0
       canonicalize: 3.0.0
 
-  '@edgeproc/browser@https://codeload.github.com/hseshadr/edgeproc-browser/tar.gz/51bd097295fe504703d55dbf176148bd21cd3b72':
+  '@edgeproc/browser@https://codeload.github.com/hseshadr/edgeproc-browser/tar.gz/f1ae371c8dfe441c6a3dd845e92c3d67adf654bd':
     dependencies:
       '@hpcc-js/wasm-zstd': 1.15.0
       '@noble/ed25519': 3.1.0

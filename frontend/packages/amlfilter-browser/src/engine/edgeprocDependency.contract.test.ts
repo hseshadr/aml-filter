@@ -29,7 +29,7 @@ import workspaceText from "../../../../pnpm-workspace.yaml?raw";
 import packageJsonText from "../../package.json?raw";
 
 const EDGE_PROC_BROWSER_REVISION =
-	"github:hseshadr/edgeproc-browser#51bd097295fe504703d55dbf176148bd21cd3b72";
+	"github:hseshadr/edgeproc-browser#f1ae371c8dfe441c6a3dd845e92c3d67adf654bd";
 const PUBLIC_IMPORTS = ["@edgeproc/browser", "@edgeproc/browser/vector"];
 
 describe("@edgeproc/browser consumer dependency", () => {
