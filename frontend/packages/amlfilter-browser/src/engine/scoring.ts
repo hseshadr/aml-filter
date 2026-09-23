@@ -1,7 +1,9 @@
-// TS port of aml_filter.scoring.policy.DefaultScoringPolicy.compute_score plus
-// the preset weights/threshold (aml_filter.scoring.config). Produces the SAME
-// explainable shape the backend returns: a list of weighted MatchSignals, a
-// clamped total score, and a plain-language summary. Pure + deterministic.
+// The scoring policy and preset weights/threshold — the source of truth for
+// scoring (originally ported from the retired Python backend's
+// DefaultScoringPolicy; no Python scorer remains). Produces an explainable
+// result: a list of weighted MatchSignals, a clamped total score, and a
+// plain-language summary. Pure + deterministic; locked by the frozen golden in
+// __fixtures__/scoring/golden.json.
 
 import type { ScoreResult as AssayScoreResult } from "@edgeproc/assay";
 import {
@@ -33,12 +35,11 @@ export type Preset = "strict" | "balanced" | "lenient";
 /**
  * Preset weights/threshold.
  *
- * DIVERGENCE FROM THE PYTHON BACKEND, DELIBERATE. These used to be byte-for-byte
- * `aml_filter.scoring.config`. `alias_match` has been raised in all three
- * presets; nothing else moved. The Python source of truth is not in this
- * repository and has not been updated, so the two now differ until it is brought
- * across. Everything else about the port — signal order, tiers, descriptions,
- * the clamp — is unchanged.
+ * `alias_match` was raised in all three presets (#101) from the weights the
+ * retired Python backend used; nothing else moved. This file is the scoring
+ * source of truth — there is no second implementation to keep in step — and the
+ * frozen golden locks it. Signal order, tiers, descriptions and the clamp are
+ * unchanged from the original port.
  *
  * WHY. The live /screen page sends a combined-score floor of 0.30 (Balanced).
  * With `alias_match` at 0.10 an exact hit on a name OFAC itself publishes for
@@ -303,8 +304,7 @@ function countryMatch(
 }
 
 // Render a country set as a sorted, bracketed list. Sorted (not insertion order)
-// so it is deterministic and byte-matches the Python source of truth, which
-// renders the same form via aml_filter.scoring.policy._format_country_set.
+// so it is deterministic; the frozen scoring golden pins this exact form.
 function formatCountrySet(countries: ReadonlySet<string>): string {
 	return `[${[...countries].sort().join(", ")}]`;
 }
