@@ -14,7 +14,7 @@ function asNumber(value: number | string | null): number {
 	return typeof value === "number" ? value : Number.NaN;
 }
 
-describe("scoring parity — TS port reproduces the Python golden", () => {
+describe("scoring parity — TS scorer reproduces the frozen golden", () => {
 	for (const c of scoringGolden()) {
 		it(c.name, () => {
 			const result = computeScore(c.entity, c.query, PRESETS[c.preset].weights);
