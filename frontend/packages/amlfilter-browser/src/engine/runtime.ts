@@ -19,6 +19,7 @@ import type { OnSyncProgress, SyncProgress } from "./bundleProgress";
 import {
 	type BundleSource,
 	type BundleSourceDeps,
+	clearBundleStore,
 	openBundleSource,
 } from "./bundleSource";
 import {
@@ -341,14 +342,12 @@ const defaultDeps: RuntimeDeps = {
 	makeEmbedder: (onProgress) =>
 		createWorkerEmbedder(spawnEmbedderWorker(), onProgress),
 	// "Clear cached lists": drop the durable bundle store (every chunk +
-	// manifest + the active pointer) THROUGH THE WORKER (sync access handles are
-	// Worker-only). A transient bundle source at the default origin owns the
-	// Worker; the next load re-syncs from the now-empty store (re-fetches).
-	clearCache: () =>
-		openBundleSource(
-			DEFAULT_BUNDLE_BASE_URL,
-			new URL("public.key", document.baseURI).toString(),
-		).then((source) => source.clear()),
+	// manifest + the active pointer + the IndexedDB rollback floor) THROUGH A
+	// TEMPORARY WORKER (sync access handles are Worker-only), under the sync Web
+	// Lock. It must NOT sync first: a store whose rollback floor refuses the served
+	// pointer is exactly the store the user needs to clear. The next load re-syncs
+	// from the now-empty store (re-fetches + re-verifies).
+	clearCache: () => clearBundleStore(),
 	openBundleSource,
 };
 

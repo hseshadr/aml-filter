@@ -26,9 +26,11 @@ import {
 	workstation,
 } from "../lib/workstation";
 import {
+	bundleCacheRecovery,
 	userFacingBootError,
 	userFacingStorageError,
 } from "../pages/bootErrorMessage";
+import { CacheRecovery } from "./CacheRecovery";
 
 /**
  * How often an open tab re-checks for a newly-published watchlist version. A
@@ -210,7 +212,9 @@ function modelDetail(
 function EngineStatusStrip() {
 	const { t } = useTranslation(["common", "errors"]);
 	const [stage, setStage] = useState<BootStage | null>(null);
-	const [error, setError] = useState<string | null>(null);
+	// The LIVE boot error, not its message: the classifier reads the Worker's
+	// `EngineOperationError.code` / `.name`, which a string has already lost.
+	const [error, setError] = useState<unknown>(null);
 	const [autoSync, setAutoSync] = useState<SyncResult | null>(null);
 	const [nonce, setNonce] = useState(0);
 	// Guards the once-per-boot auto-sync: the engine version is only known after
@@ -242,7 +246,7 @@ function EngineStatusStrip() {
 				}
 			})
 			.catch((bootError: unknown) => {
-				if (!cancelled) setError(messageOf(bootError));
+				if (!cancelled) setError(bootError ?? new Error("engine boot failed"));
 			});
 		return () => {
 			cancelled = true;
@@ -290,6 +294,7 @@ function EngineStatusStrip() {
 
 	if (error !== null) {
 		const safeError = userFacingBootError(error);
+		const recovery = bundleCacheRecovery(error);
 		return (
 			<div
 				className="alert alert-warning error-surface"
@@ -303,6 +308,16 @@ function EngineStatusStrip() {
 						<summary>Technical details</summary>
 						<code>{safeError.technicalDetail}</code>
 					</details>
+					{recovery !== null && (
+						<CacheRecovery
+							kind={recovery}
+							onClear={async () => {
+								const handle = await workstation();
+								await handle.clearListCache();
+							}}
+							onCleared={() => setNonce((n) => n + 1)}
+						/>
+					)}
 				</div>
 				<button
 					type="button"

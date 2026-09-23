@@ -208,6 +208,56 @@ const defaultBundleSourceDeps: BundleSourceDeps = {
 	createClient: () => new EngineClient(new EdgeprocWorker()),
 };
 
+/** How long "Clear cached lists" may wait for the storage Worker before it gives
+ * up. The clear waits on the cross-tab sync Web Lock, so another tab mid-sync can
+ * hold it; a bounded wait turns "stuck behind that tab" into an error the user can
+ * act on instead of a spinner that never ends. */
+export const CLEAR_BUNDLE_STORE_TIMEOUT_MS = 30_000;
+
+/**
+ * Drop the durable bundle store WITHOUT syncing first — the "Clear cached lists"
+ * affordance and the in-app way out of a refused sync.
+ *
+ * Runs the library's own `EngineClient.clear()` in a temporary storage Worker,
+ * which takes the same cross-tab sync Web Lock as a sync and removes every OPFS
+ * chunk + manifest, the active pointer, AND the IndexedDB rollback floor for this
+ * app's namespace/layout. It deliberately does NOT open a bundle source: since
+ * edgeproc-browser #13 the stored pointer stays the anti-rollback floor across a
+ * key change, so a visitor whose floor refuses the served pointer (a
+ * `RollbackError`) could never clear a cache whose clear first had to sync.
+ *
+ * Only the signed-list cache is touched — the customer SQLite database lives in a
+ * separate Worker and OPFS file this never opens.
+ */
+export async function clearBundleStore(
+	deps: BundleSourceDeps = defaultBundleSourceDeps,
+	timeoutMs: number = CLEAR_BUNDLE_STORE_TIMEOUT_MS,
+): Promise<void> {
+	const client = deps.createClient();
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const deadline = new Promise<never>((_, reject) => {
+		timer = setTimeout(() => {
+			reject(
+				new Error(
+					`clearing cached lists timed out after ${timeoutMs} ms (another AML-Filter tab may be syncing)`,
+				),
+			);
+		}, timeoutMs);
+	});
+	try {
+		await Promise.race([
+			client.clear({
+				cacheNamespace: CACHE_NAMESPACE,
+				indexedDbLayout: INDEXED_DB_LAYOUT,
+			}),
+			deadline,
+		]);
+	} finally {
+		clearTimeout(timer);
+		client.terminate?.();
+	}
+}
+
 /** A synced bundle, exposing the SAME catalog + per-list loaders the runtime's
  * JSON path exposes — but reading from the materialized, content-verified store. */
 export interface BundleSource {
@@ -342,14 +392,10 @@ export async function openBundleSource(
 			loadListMetadata,
 			version: () => result.version,
 			clear: async () => {
-				try {
-					await client.clear({
-						cacheNamespace: CACHE_NAMESPACE,
-						indexedDbLayout: INDEXED_DB_LAYOUT,
-					});
-				} finally {
-					dispose();
-				}
+				// Release this source's Worker (and its storage handles) BEFORE the
+				// clear's own Worker takes the sync lock.
+				dispose();
+				await clearBundleStore(deps);
 			},
 			dispose,
 		};

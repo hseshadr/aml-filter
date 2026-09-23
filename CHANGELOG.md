@@ -8,6 +8,57 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Security
 
+- **A visitor stuck behind the anti-rollback floor can now get out in-app, and only on
+  purpose.** With the `@edgeproc/browser` bump below, the stored pointer stays the
+  rollback floor even across a key change, so a browser that once accepted a higher
+  `sequence` than the origin now serves refuses every sync (`RollbackError`) until its
+  cached lists are cleared. Three fixes make that recoverable:
+  - **"Clear cached lists" no longer syncs before it clears.** The old clear opened a
+    bundle source first (sync → read catalog → sync) and only then cleared, so the one
+    store a user most needed to clear, one the floor refuses, could never be cleared.
+    `clearBundleStore()` now calls the library's `EngineClient.clear()` directly in a
+    temporary Worker, under the same cross-tab sync Web Lock, with a 30 s bound. That
+    removes the OPFS chunks and manifests, the active pointers and the IndexedDB
+    rollback floor for this app's namespace and layout. The running sync Worker is
+    torn down first. The customer SQLite database lives in a separate Worker and OPFS
+    directory that the clear never opens; a real-Chromium check confirmed
+    `.amlfilter-workstation/` and the analyst name survive it.
+  - **The boot-failure card offers recovery instead of a dead end.** When the live
+    Worker error is `rollback` or `integrity`, both `/screen` and the workstation
+    engine strip now show "Clear cached lists" inline, plus an "Open Settings" link.
+    Both paths use a two-step confirm and then re-run the boot. The workstation strip
+    now keeps the error object rather than its message, so the real error type
+    reaches the card instead of the generic "engine unavailable" fallback.
+  - **A rollback is explained before anything can be cleared.** The card warns: "The
+    server offered an older version of the screening lists than the one you already
+    have. That can mean someone is tampering with it. Only clear if you trust this."
+    It also says retrying will not help. The app never clears on its own: an automatic
+    clear would hand anyone who can serve an old signed pointer a way to erase the
+    protection.
+  New `test:e2e:bundle` spec `rollback-recovery.spec.ts` seeds a real floor through the
+  real sync path: it serves the committed, signed demo-2 fixture (sequence 2) first,
+  then the demo-1 origin (sequence 1). It checks the warning, the confirm, that a
+  reload stays refused until the user acts, and that after the clear the lists
+  re-download and verify. Run against the old sync-first clear, the same spec stays
+  stuck on the card.
+
+- **`@edgeproc/browser` bumped `a6a2049` → `02171df`: the anti-rollback floor now
+  survives a key change, and the trust root can be a keyring.** The pinned sync substrate
+  used to re-verify its stored active pointer under the *current* pinned key and, on a
+  signature failure, discard it — so any change to the pinned key reset the floor and the
+  next pointer (even an old release re-signed under the new key) was promoted with no
+  freshness check (edgeproc-browser #13). The stored pointer is now kept as the floor
+  whether or not the current key verifies it; serving a cached bundle offline still
+  requires a signature valid under the current key, so a cache signed by a key that is no
+  longer pinned fails closed instead of being served. The same range adds optional
+  `edgeproc.keyring/v1` trust roots with `key_id` selection, revocation and signed pointer
+  expiry (#14), plus an unused opt-in `@edgeproc/browser/sqlite` export (#12). This app
+  keeps its raw 32-byte `public.key` (loaded as a one-key keyring) and its existing
+  signed bundle byte-for-byte: legacy pointers without `key_id`/`expires_at` keep their
+  exact signing preimage, every new error surfaces as the existing `integrity` code, and
+  no OPFS storage key or format changes. Only the two package pins, the dependency
+  contract test's pinned revision, and the lockfile entry change.
+
 - **"Reviews are append-only" is now enforced by the database instead of merely
   claimed.** The README, `docs/ARCHITECTURE.md`, `docs/OPERATIONS.md` and half a dozen
   code comments have described `match_events` as append-only since schema v2, and

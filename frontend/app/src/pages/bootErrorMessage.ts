@@ -262,6 +262,38 @@ export function bootErrorMessage(error: unknown): string {
 	return i18n.t("errors:boot.couldNotLoad", { detail });
 }
 
+/** Which in-app recovery a boot failure gets: `rollback` (the served pointer is
+ * older than the one this device already trusts — warn before clearing),
+ * `integrity` (any other fail-closed verification verdict), or none. */
+export type BundleCacheRecovery = "rollback" | "integrity";
+
+/**
+ * Whether clearing the cached lists is a sensible way out of this boot failure.
+ *
+ * Only the fail-closed verification verdicts qualify. Since edgeproc-browser #13
+ * the stored pointer stays the anti-rollback floor even across a key change, so a
+ * returning visitor whose floor refuses the served pointer is stuck until the
+ * cache is cleared; without an in-app path, the error card is a dead end.
+ *
+ * Classified from the LIVE error (the Worker's `EngineOperationError.code`, or the
+ * in-process error's `.name`) — never from a flattened message string, which
+ * cannot be told apart from attacker-influenced text.
+ */
+export function bundleCacheRecovery(
+	error: unknown,
+): BundleCacheRecovery | null {
+	if (engineCodeOf(error) === "rollback" || nameOf(error) === "RollbackError") {
+		return "rollback";
+	}
+	if (
+		engineCodeOf(error) === "integrity" ||
+		VERIFICATION_FAILURES.has(nameOf(error))
+	) {
+		return "integrity";
+	}
+	return null;
+}
+
 export interface UserFacingBootError {
 	readonly title: string;
 	readonly recovery: string;
@@ -284,6 +316,17 @@ export function userFacingBootError(error: unknown): UserFacingBootError {
 		return {
 			title: "This browser cannot run the local engine",
 			recovery: "Open AML-Filter in a recent Safari, Chrome, Edge, or Firefox.",
+			technicalDetail,
+		};
+	}
+	if (
+		kind === "integrity_failed" &&
+		bundleCacheRecovery(error) === "rollback"
+	) {
+		return {
+			title: "Screening list verification failed",
+			recovery:
+				"Retrying will not fix this: this device already holds a newer signed version of the lists.",
 			technicalDetail,
 		};
 	}

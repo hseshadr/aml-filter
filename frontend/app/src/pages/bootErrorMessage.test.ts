@@ -10,6 +10,7 @@ import i18n from "../i18n";
 import {
 	type BundleErrorKind,
 	bootErrorMessage,
+	bundleCacheRecovery,
 	bundleErrorRegistry,
 	classifyBundleError,
 	deviceUnsupportedMessage,
@@ -262,5 +263,66 @@ describe("@edgeproc/errors adoption (canonical-errors standard)", () => {
 		expect(typeof problem.title).toBe("string");
 		expect(problem.requiredBytes).toBe(10);
 		expect(problem.availableBytes).toBe(2);
+	});
+});
+
+describe("bundleCacheRecovery — which boot failures get an in-app clear", () => {
+	it("flags a Worker rollback refusal as a rollback (the warn-first path)", () => {
+		expect(
+			bundleCacheRecovery(
+				new EngineOperationError({
+					code: "rollback",
+					message: "refusing rollback: sequence is not fresher",
+				}),
+			),
+		).toBe("rollback");
+		expect(bundleCacheRecovery(named("RollbackError", "refusing"))).toBe(
+			"rollback",
+		);
+	});
+
+	it("flags every other fail-closed verification verdict as integrity", () => {
+		expect(
+			bundleCacheRecovery(
+				new EngineOperationError({
+					code: "integrity",
+					message: "signature verification failed",
+				}),
+			),
+		).toBe("integrity");
+		expect(bundleCacheRecovery(named("SignatureError", "bad sig"))).toBe(
+			"integrity",
+		);
+		expect(
+			bundleCacheRecovery(new IntegrityError("chunk failed content-address")),
+		).toBe("integrity");
+	});
+
+	it("tells a rollback visitor that retrying will not help", () => {
+		const copy = userFacingBootError(
+			new EngineOperationError({ code: "rollback", message: "refusing" }),
+		);
+		expect(copy.title).toBe("Screening list verification failed");
+		expect(copy.recovery).toMatch(/retrying will not fix this/i);
+		// A plain integrity failure keeps its retry advice.
+		expect(
+			userFacingBootError(
+				new EngineOperationError({ code: "integrity", message: "bad sig" }),
+			).recovery,
+		).toMatch(/^Retry once/);
+	});
+
+	it("offers nothing for failures a cache clear cannot fix", () => {
+		expect(
+			bundleCacheRecovery(named("NetworkError", "network unreachable")),
+		).toBeNull();
+		expect(
+			bundleCacheRecovery(
+				new EngineOperationError({ code: "lock", message: "held" }),
+			),
+		).toBeNull();
+		expect(bundleCacheRecovery(new QuotaError("no room"))).toBeNull();
+		// A flattened string has lost its type: never guess a recovery from text.
+		expect(bundleCacheRecovery("refusing rollback")).toBeNull();
 	});
 });
