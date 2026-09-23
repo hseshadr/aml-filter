@@ -27,7 +27,7 @@ function tieringGolden(): ReadonlyArray<TieringGoldenCase> {
 	) as TieringGoldenCase[];
 }
 
-describe("tiering parity — TS port reproduces the Python golden", () => {
+describe("tiering parity — TS tiering reproduces the frozen golden", () => {
 	for (const c of tieringGolden()) {
 		it(c.name, () => {
 			const tier =
