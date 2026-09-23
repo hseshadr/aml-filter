@@ -7,6 +7,9 @@
 	"scripts": {
 		"stage:assets": "node scripts/download-model.mjs && node scripts/gen-demo-stats.mjs && node scripts/stage-ort-wasm.mjs",
 		"dev": "pnpm run stage:assets && vite",
+		"bundle:live": "pnpm --filter @amlfilter/publisher run sync-live-bundle",
+		"dev:live": "pnpm run bundle:live && pnpm run stage:assets && vite --mode live",
+		"build:live": "pnpm run bundle:live && pnpm run stage:assets && tsc --noEmit && vite build --mode live",
 		"download-model": "node scripts/download-model.mjs",
 		"gen:stats": "node scripts/gen-demo-stats.mjs",
 		"prebuild": "pnpm run stage:assets",

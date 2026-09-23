@@ -139,6 +139,10 @@ and safe security headers.
 > so a routine code deploy never reverts the live site to the demo. "Real" is not the same as
 > "rebuilt this run": a list whose upstream was down is re-served from the last published copy,
 > marked stale with its real age, and the app displays that age.
+>
+> To run locally against the real lists, `pnpm --filter aml-filter-app dev:live` (or
+> `build:live`) mirrors the live signed bundle into the gitignored `app/public/bundle/live/`
+> through the same fail-closed verifier the deploy uses, pinned to `public.key`.
 
 ### Cloudflare Pages (SPA + same-origin bundle)
 

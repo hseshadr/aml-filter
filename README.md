@@ -42,6 +42,14 @@ pnpm --filter aml-filter-app dev
 
 Open the URL printed by Vite. No backend, API key, database, or account is required.
 
+The committed bundle is a small fictional fixture so tests and fresh clones work offline.
+To screen against the real OFAC, UN, EU, and UK lists that aml-filter.com serves, run
+`pnpm --filter aml-filter-app dev:live` instead. It mirrors the live signed bundle into
+the gitignored `app/public/bundle/live/`, verifying the pointer, manifest, and every chunk
+against the pinned `public.key` (fail-closed), then starts Vite with that bundle.
+`build:live` does the same for a production build. Refresh the lists with
+`pnpm --filter aml-filter-app bundle:live`.
+
 ## Try the real workflow
 
 1. Open **Screen** and search for a name. Inspect the numeric score and per-signal

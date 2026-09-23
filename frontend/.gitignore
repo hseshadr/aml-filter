@@ -37,3 +37,6 @@ yarn-error.log*
 .idea/
 *.swp
 *.swo
+
+# Real production bundle mirrored for local runs (pnpm --filter aml-filter-app bundle:live)
+app/public/bundle/live/
