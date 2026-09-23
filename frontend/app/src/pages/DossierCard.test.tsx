@@ -359,3 +359,54 @@ describe("DossierCard receipt panel", () => {
 		expect(screen.getByText("watchlist-test-1")).toBeTruthy();
 	});
 });
+
+// Retrieval provenance: which channels brought the entity into the candidate
+// set. It is context beside the score evidence — never a score term — so the
+// phonetic-only case carries an explicit "the score still decides" note.
+describe("DossierCard retrieval provenance", () => {
+	function openWhy(): void {
+		fireEvent.click(screen.getByText("Why this score?"));
+	}
+
+	it("threads retrieved_via from the match into the dossier", () => {
+		const match: Match = { ...baseMatch(), retrieved_via: ["token"] };
+		expect(dossierFromMatch(match).retrieved_via).toEqual(["token"]);
+	});
+
+	it("lists every channel that reached the match, in order", () => {
+		renderCard({
+			...baseMatch(),
+			retrieved_via: ["vector", "token", "phonetic"],
+		});
+		openWhy();
+		expect(
+			screen.getByText(
+				"Found via: meaning (vector) · exact name token · sound-alike (Double Metaphone)",
+			),
+		).toBeVisible();
+		expect(screen.queryByText(/found by pronunciation only/)).toBeNull();
+	});
+
+	it("adds a plain note when pronunciation was the ONLY channel", () => {
+		renderCard({ ...baseMatch(), retrieved_via: ["phonetic"] });
+		openWhy();
+		expect(
+			screen.getByText("Found via: sound-alike (Double Metaphone)"),
+		).toBeVisible();
+		expect(
+			screen.getByText(
+				"This name was found by pronunciation only. Pronunciation never adds to the score — the score above still decides.",
+			),
+		).toBeVisible();
+	});
+
+	it("omits the line for a match without provenance (e.g. a stored row)", () => {
+		renderCard(baseMatch());
+		openWhy();
+		expect(screen.queryByText(/^Found via:/)).toBeNull();
+		cleanup();
+		renderCard({ ...baseMatch(), retrieved_via: [] });
+		openWhy();
+		expect(screen.queryByText(/^Found via:/)).toBeNull();
+	});
+});

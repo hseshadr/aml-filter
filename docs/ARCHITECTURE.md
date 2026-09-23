@@ -81,7 +81,10 @@ normalize → embed → SQLite vector + lexical retrieve → explainable weighte
    threshold for its list** becomes a match (per-list threshold =
    `perList[id] ?? query.threshold ?? default`). Each match carries `reasons[]` (one per
    signal: its value, weight, contribution, and a plain-language description), the
-   `source_list` it came from, plus a single plain-language `explanation`.
+   `source_list` it came from, plus a single plain-language `explanation`. It also
+   carries `retrieved_via` — the retrieval channels (`vector`, `token`, `phonetic`)
+   that reached it — which the dossier shows as "Found via" context. Provenance never
+   enters the score, reasons, receipt, or material fingerprint.
 
 ## Scoring & explainability contract
 
@@ -199,7 +202,11 @@ The base SQLite build has FTS5 available, but the AML database does not create s
 index, and spellfix1 is not linked. Corpus experiments found those alternatives noisier,
 larger, or semantically different from the accepted exact-token/Double-Metaphone path.
 Most importantly, a shared phonetic key remains candidate evidence only: the measured
-Assay policy, not the retrieval index, decides whether a candidate is a match.
+Assay policy, not the retrieval index, decides whether a candidate is a match. Each
+match's `retrieved_via` records which channels reached it (`LexicalIndex.provenance`
+re-reads the same capped keys split by namespace; SQLite's document-frequency cap is
+per key, so the split partitions exactly the lexical union) — context for the reviewer,
+never a score input.
 
 **Durable, fail-closed bundle cache.** `@edgeproc/browser` owns the Worker, signed
 sync state machine, cross-tab lock, and content-addressed store contract (separate

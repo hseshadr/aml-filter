@@ -59,6 +59,12 @@ The engine unions that bounded set with vector neighbours and sends every candid
 through the unchanged transparent scorer. A phonetic collision can therefore retrieve
 a row, but cannot declare a sanctions match.
 
+Every match carries `retrieved_via` provenance (`vector`, `token`, `phonetic`, in that
+order), shown in the UI as "Found via", so a hit reached only by pronunciation is
+visible to the reviewer. The labels come from a separate per-namespace read of the same
+capped key list; the candidate set, its order, and therefore every recall number here
+are unchanged, and phonetics still never decide.
+
 The AML schema intentionally does not use an FTS5 trigram table or spellfix1. Corpus
 experiments found those alternatives noisier, larger, or semantically different from
 the accepted retrieval path. Retaining the measured key semantics while moving their

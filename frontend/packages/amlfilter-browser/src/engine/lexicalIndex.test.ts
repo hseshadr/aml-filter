@@ -142,3 +142,60 @@ describe("LexicalIndex — bounded retrieval", () => {
 		expect(second).toEqual(first);
 	});
 });
+
+// Retrieval provenance: which lexical channel(s) reached an entity. It is a
+// SEPARATE read beside `candidates` — it must never change what `candidates`
+// returns or in what order, and it never feeds the score.
+describe("LexicalIndex — retrieval provenance", () => {
+	it("labels a sound-alike reached only through Double Metaphone as phonetic", async () => {
+		const provenance = await indexOf(CORPUS).provenance("aiman");
+		expect([...provenance.token]).toEqual([]);
+		expect([...provenance.phonetic]).toEqual(["e_zawahiri"]);
+	});
+
+	it("labels a literal token hit as token (and phonetic when its sound also matches)", async () => {
+		const provenance = await indexOf(CORPUS).provenance("salim");
+		expect([...provenance.token]).toEqual(["e_zawahiri"]);
+		expect(provenance.phonetic.has("e_zawahiri")).toBe(true);
+	});
+
+	it("reaches nothing for a name sharing neither token nor sound", async () => {
+		const provenance = await indexOf(CORPUS).provenance("zzyzx nobody");
+		expect(provenance.token.size).toBe(0);
+		expect(provenance.phonetic.size).toBe(0);
+	});
+
+	it("applies the same per-key document-frequency cap as candidates", async () => {
+		const many = Array.from({ length: 999 }, (_, i) =>
+			entity(`e_co_${i}`, `Company Number ${i}`),
+		);
+		const index = indexOf([...many, entity("e_rare", "Zzyzx Holdings")]);
+		const common = await index.provenance("company");
+		expect(common.token.size).toBe(0);
+		expect(common.phonetic.size).toBe(0);
+		const rare = await index.provenance("zzyzx company");
+		expect([...rare.token]).toEqual(["e_rare"]);
+	});
+
+	it.each([
+		"aiman",
+		"salim",
+		"musa abu marzuk",
+		"hasan nasrallah",
+		"zawahiri",
+		"acme trading",
+	])("partitions exactly the candidate set for %j", async (query) => {
+		const index = indexOf(CORPUS);
+		const candidates = await index.candidates(query);
+		const provenance = await index.provenance(query);
+		const union = new Set([...provenance.token, ...provenance.phonetic]);
+		expect([...union].sort()).toEqual([...candidates].sort());
+	});
+
+	it("leaves candidates byte-for-byte unchanged", async () => {
+		const index = indexOf(CORPUS);
+		const before = await index.candidates("musa abu marzuk hasan");
+		await index.provenance("musa abu marzuk hasan");
+		expect(await index.candidates("musa abu marzuk hasan")).toEqual(before);
+	});
+});

@@ -180,8 +180,10 @@ stable release when this contract was updated) and sqlite-vector 1.1.2. TypeScri
 creates the lookup keys and applies the transparent final policy;
 `@edgeproc/assay@0.5.0-dev.3` combines vector similarity, sequence similarity, alias,
 date-of-birth, and country evidence. Phonetics can widen the candidate set, but cannot
-by itself declare a match. Each result includes ordered contributions and a stable
-input hash; the signed score receipt seals that evidence. Frozen golden fixtures lock
+by itself declare a match. Each result also records `retrieved_via` — which channels
+(meaning/vector, exact name token, sound-alike) reached it — and the "Why this score?"
+panel shows it as "Found via" context; it is never a score term. Each result includes
+ordered contributions and a stable input hash; the signed score receipt seals that evidence. Frozen golden fixtures lock
 score and tier behavior, while the recall gate measures retrieval against the real
 OFAC corpus and fails below its published floors. See [Recall](docs/RECALL.md).
 

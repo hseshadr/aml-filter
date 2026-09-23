@@ -99,6 +99,13 @@ export interface MatchReason {
 }
 
 /**
+ * A retrieval channel that brought an entity into the candidate set:
+ * `vector` — the embedding (meaning) top-k; `token` — an exact shared name
+ * token; `phonetic` — a shared Double-Metaphone (sound-alike) key.
+ */
+export type RetrievalChannel = "vector" | "token" | "phonetic";
+
+/**
  * A matched entity with score and explanation (mirrors backend Match), widened
  * with the dossier fields the in-browser search surfaces. Dossier fields are
  * always present (normalized to empty when the source entity omits them).
@@ -121,6 +128,14 @@ export interface Match {
 	readonly explanation: string;
 	/** Exact Assay additive result from which `score` and reasons were derived. */
 	readonly score_evidence?: AssayScoreResult;
+	/**
+	 * Browser-tier ONLY: every retrieval channel that reached this entity, in
+	 * the fixed order vector, token, phonetic. Provenance for the reviewer —
+	 * NEVER an input to the score, reasons, explanation, evidence, the signed
+	 * receipt, or the workstation's material fingerprint. Optional because a
+	 * stored or pre-provenance match does not carry it.
+	 */
+	readonly retrieved_via?: ReadonlyArray<RetrievalChannel>;
 	/**
 	 * Browser-tier ONLY (no backend twin): the signed Avow receipt sealing this
 	 * match's score, tier, and screening context. Optional because it depends on
