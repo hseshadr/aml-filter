@@ -2,7 +2,7 @@
 	"name": "aml-filter-frontend",
 	"private": true,
 	"version": "4.0.0",
-	"description": "AML-Filter v4 — zero-server, in-browser OFAC screening + local-first KYC workstation (pnpm workspace).",
+	"description": "Checks your customers' names against government sanctions lists inside your browser, for small compliance teams.",
 	"type": "module",
 	"packageManager": "pnpm@11.5.0",
 	"engines": {
