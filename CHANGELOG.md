@@ -6,6 +6,22 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **README follows the portfolio template.** A plain-language first screen: a tagline
+  that says what it does and for whom, "At a glance" (including exactly what leaves the
+  device), and a "Try it in 60 seconds" walkthrough whose hero screenshot and pasted
+  on-screen text were captured from the local production build screening `fakovic`
+  against the fictional demo list. The stale demo GIF (it showed retired score signals)
+  is removed. The workspace and app package descriptions now equal the tagline.
+
+### Added
+
+- `frontend/app/src/__tests__/readme.contract.test.ts`, run by the app's Vitest step in
+  `pnpm gate`: tagline equals both package descriptions, at most four badges, the six
+  "At a glance" labels, section order, no offline claim, the architecture-map link, and
+  every relative README link resolving.
+
 ### Security
 
 - **A visitor stuck behind the anti-rollback floor can now get out in-app, and only on
