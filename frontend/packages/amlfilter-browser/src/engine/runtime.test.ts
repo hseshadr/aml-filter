@@ -1494,11 +1494,11 @@ describe("defaultRuntimeDeps (production seams over a scripted Worker)", () => {
 
 		await defaultRuntimeDeps().clearCache();
 
-		// The transient bundle source runs the TWO-PHASE sync — phase one pulls
-		// catalog.json alone so the list selection can be resolved to bundle
-		// directories, phase two pulls those directories — validates the catalog
-		// between them, then clears.
-		expect(scriptedRequests).toEqual(["sync", "readFile", "sync", "clear"]);
+		// The clear goes STRAIGHT to the Worker: no sync first. It used to open a
+		// transient bundle source (sync, readFile, sync) before clearing, so a store
+		// whose rollback floor refuses the served pointer — the one store a user
+		// most needs to clear — could never be cleared at all.
+		expect(scriptedRequests).toEqual(["clear"]);
 	});
 
 	it("makeEmbedder builds a Worker-backed embedder", () => {

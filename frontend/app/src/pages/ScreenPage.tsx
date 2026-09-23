@@ -17,11 +17,14 @@ import {
 	useState,
 } from "react";
 import { useTranslation } from "react-i18next";
+import { CacheRecovery } from "../components/CacheRecovery";
 import { Footer } from "../components/Footer";
 import { formatBytes } from "../lib/formatBytes";
 import { listAge } from "../lib/listAge";
 import {
+	type BundleCacheRecovery,
 	bootErrorMessage,
+	bundleCacheRecovery,
 	deviceUnsupportedMessage,
 	type UserFacingBootError,
 	userFacingBootError,
@@ -64,6 +67,9 @@ type Phase =
 			 * another place a typed error gets flattened.
 			 */
 			readonly detail: UserFacingBootError;
+			/** The in-app recovery this failure gets, also classified from the live
+			 * error (a rollback/integrity refusal offers a confirmed cache clear). */
+			readonly recovery: BundleCacheRecovery | null;
 	  }
 	// A device/browser that can't run the local engine at all (older iOS Safari /
 	// locked-down WebView missing durable storage, module Workers, or safe locking). A
@@ -355,6 +361,7 @@ export function ScreenPage() {
 					kind: "error",
 					message: bootErrorMessage(error),
 					detail: userFacingBootError(error),
+					recovery: bundleCacheRecovery(error),
 				});
 			});
 	}, [runtime, bootNonce, support.supported]);
@@ -432,7 +439,11 @@ export function ScreenPage() {
 			<h1>{t("header.title")}</h1>
 			<p className="screen-page__lede">{t("header.lede")}</p>
 
-			<BootBanner phase={phase} onRetry={retryBoot} />
+			<BootBanner
+				phase={phase}
+				onRetry={retryBoot}
+				onClearCache={() => runtime.clearListCache()}
+			/>
 
 			{phase.kind === "ready" && screenedList !== undefined && (
 				<ScreenedListAge list={screenedList} t={t} />
@@ -567,9 +578,12 @@ function StrictnessControl({
 function BootBanner({
 	phase,
 	onRetry,
+	onClearCache,
 }: {
 	readonly phase: Phase;
 	readonly onRetry: () => void;
+	/** Drop the cached signed lists + their rollback floor (never customer data). */
+	readonly onClearCache: () => Promise<void>;
 }) {
 	const { t } = useTranslation("screen");
 	if (phase.kind === "ready") {
@@ -605,6 +619,13 @@ function BootBanner({
 						<summary>Technical details</summary>
 						<code>{safeError.technicalDetail}</code>
 					</details>
+					{phase.recovery !== null && (
+						<CacheRecovery
+							kind={phase.recovery}
+							onClear={onClearCache}
+							onCleared={onRetry}
+						/>
+					)}
 				</div>
 				<button
 					type="button"

@@ -338,6 +338,55 @@ describe("EngineStatusStrip (rendered inside WorkstationGate once ready)", () =>
 	});
 });
 
+describe("EngineStatusStrip — in-app recovery from a refused bundle", () => {
+	function workerError(code: string, message: string): Error {
+		const error = new Error(message) as Error & { code: string };
+		error.name = "EngineOperationError";
+		error.code = code;
+		return error;
+	}
+
+	it("classifies the LIVE error: a rollback gets the warning and a confirmed clear", async () => {
+		const { handle, rejectBoot } = makeControllableHandle("Avery Analyst");
+		const clearListCache = vi.fn().mockResolvedValue(undefined);
+		// biome-ignore lint/suspicious/noExplicitAny: structural fake for the mocked seam
+		mockWorkstation.mockResolvedValue({ ...handle, clearListCache } as any);
+		render(
+			<WorkstationGate>
+				<div>WORKSTATION CONTENT</div>
+			</WorkstationGate>,
+		);
+		await screen.findByText("WORKSTATION CONTENT");
+		await waitFor(() => expect(handle.engineBoot).toHaveBeenCalled());
+		act(() =>
+			rejectBoot()(
+				workerError(
+					"rollback",
+					"refusing rollback: sequence is not fresher than the active pointer's",
+				),
+			),
+		);
+
+		// The title comes from the typed error, not the flattened message.
+		await screen.findByText(/screening list verification failed/i);
+		expect(
+			screen.getByText(/older version of the screening lists/i),
+		).toBeInTheDocument();
+		expect(clearListCache).not.toHaveBeenCalled();
+
+		fireEvent.click(
+			screen.getByRole("button", { name: /^clear cached lists$/i }),
+		);
+		expect(clearListCache).not.toHaveBeenCalled();
+		fireEvent.click(
+			screen.getByRole("button", { name: /yes, clear cached lists/i }),
+		);
+		await waitFor(() => expect(clearListCache).toHaveBeenCalledTimes(1));
+		// The clear re-kicks the engine boot.
+		await waitFor(() => expect(handle.engineBoot).toHaveBeenCalledTimes(2));
+	});
+});
+
 describe("EngineStatusStrip watchlist-update polling", () => {
 	beforeEach(() => {
 		vi.useFakeTimers({ shouldAdvanceTime: true });

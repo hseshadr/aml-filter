@@ -8,6 +8,40 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Security
 
+- **A visitor stuck behind the anti-rollback floor can now get out in-app, and only on
+  purpose.** With the `@edgeproc/browser` bump below, the stored pointer stays the
+  rollback floor even across a key change, so a browser that once accepted a higher
+  `sequence` than the origin now serves refuses every sync (`RollbackError`) until its
+  cached lists are cleared. Three fixes make that recoverable:
+  - **"Clear cached lists" no longer syncs before it clears.** The old clear opened a
+    bundle source first (sync → read catalog → sync) and only then cleared, so the one
+    store a user most needed to clear, one the floor refuses, could never be cleared.
+    `clearBundleStore()` now calls the library's `EngineClient.clear()` directly in a
+    temporary Worker, under the same cross-tab sync Web Lock, with a 30 s bound. That
+    removes the OPFS chunks and manifests, the active pointers and the IndexedDB
+    rollback floor for this app's namespace and layout. The running sync Worker is
+    torn down first. The customer SQLite database lives in a separate Worker and OPFS
+    directory that the clear never opens; a real-Chromium check confirmed
+    `.amlfilter-workstation/` and the analyst name survive it.
+  - **The boot-failure card offers recovery instead of a dead end.** When the live
+    Worker error is `rollback` or `integrity`, both `/screen` and the workstation
+    engine strip now show "Clear cached lists" inline, plus an "Open Settings" link.
+    Both paths use a two-step confirm and then re-run the boot. The workstation strip
+    now keeps the error object rather than its message, so the real error type
+    reaches the card instead of the generic "engine unavailable" fallback.
+  - **A rollback is explained before anything can be cleared.** The card warns: "The
+    server offered an older version of the screening lists than the one you already
+    have. That can mean someone is tampering with it. Only clear if you trust this."
+    It also says retrying will not help. The app never clears on its own: an automatic
+    clear would hand anyone who can serve an old signed pointer a way to erase the
+    protection.
+  New `test:e2e:bundle` spec `rollback-recovery.spec.ts` seeds a real floor through the
+  real sync path: it serves the committed, signed demo-2 fixture (sequence 2) first,
+  then the demo-1 origin (sequence 1). It checks the warning, the confirm, that a
+  reload stays refused until the user acts, and that after the clear the lists
+  re-download and verify. Run against the old sync-first clear, the same spec stays
+  stuck on the card.
+
 - **`@edgeproc/browser` bumped `a6a2049` → `02171df`: the anti-rollback floor now
   survives a key change, and the trust root can be a keyring.** The pinned sync substrate
   used to re-verify its stored active pointer under the *current* pinned key and, on a

@@ -38,5 +38,16 @@
 		},
 		"engineStatus": "Screening engine: {{label}}",
 		"watchlistUpdated": "Watchlist updated: re-screened {{count}} customer(s) — {{newHits}} new hit(s), {{clearedHits}} cleared."
+	},
+	"cacheRecovery": {
+		"rollbackWarning": "The server offered an older version of the screening lists than the one you already have. That can mean someone is tampering with it. Only clear if you trust this.",
+		"integrityHint": "If this keeps happening, clearing the cached lists makes the next load re-download and re-verify every list.",
+		"clear": "Clear cached lists",
+		"confirmPrompt": "Clear the cached screening lists on this device? Your customers and reviews are not touched.",
+		"confirm": "Yes, clear cached lists",
+		"cancel": "Cancel",
+		"clearing": "Clearing cached lists…",
+		"failed": "Could not clear the cached lists: {{detail}}",
+		"settingsLink": "Open Settings"
 	}
 }

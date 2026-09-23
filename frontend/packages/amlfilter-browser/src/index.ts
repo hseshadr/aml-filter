@@ -33,6 +33,8 @@ export {
 	type BundleEngineClient,
 	type BundleSource,
 	type BundleSourceDeps,
+	CLEAR_BUNDLE_STORE_TIMEOUT_MS,
+	clearBundleStore,
 	openBundleSource,
 } from "./engine/bundleSource";
 // --- device-support preflight: is the local engine runnable on this browser? ---
