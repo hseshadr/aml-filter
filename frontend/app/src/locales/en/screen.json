@@ -71,6 +71,15 @@
 			"nationalId": "national-id {{value}}"
 		},
 		"whyScore": "Why this score?",
+		"foundVia": {
+			"line": "Found via: {{channels}}",
+			"channels": {
+				"vector": "meaning (vector)",
+				"token": "exact name token",
+				"phonetic": "sound-alike (Double Metaphone)"
+			},
+			"phoneticOnly": "This name was found by pronunciation only. Pronunciation never adds to the score — the score above still decides."
+		},
 		"receipt": {
 			"summary": "Score receipt",
 			"sealedScore": "sealed score",

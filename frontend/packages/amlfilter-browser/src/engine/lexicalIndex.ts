@@ -69,6 +69,25 @@ function lexicalKeysForQuery(
 	return keys.slice(0, MAX_LOOKUP_QUERY_KEYS);
 }
 
+/**
+ * Which lexical channel(s) reached each entity for one query: the ids an exact
+ * TOKEN key reached, and the ids a Double-Metaphone PHONETIC key reached. An id
+ * reached by both appears in both sets.
+ *
+ * Truthful under SQLite's document-frequency semantic: `lookupIds` drops each
+ * over-common key INDIVIDUALLY (`GROUP BY key HAVING COUNT(*) <= cap`), so a
+ * key's eligibility does not depend on which other keys ride in the same
+ * query. Splitting the query's keys by namespace therefore partitions exactly
+ * the union `candidates` draws from — no id gains or loses a channel by the
+ * split. Provenance is context for a reviewer; it never feeds a score.
+ */
+export interface LexicalProvenance {
+	readonly token: ReadonlySet<string>;
+	readonly phonetic: ReadonlySet<string>;
+}
+
+const EMPTY_IDS: ReadonlySet<string> = new Set<string>();
+
 /** SQLite-backed lexical candidate view for one immutable watchlist. */
 export class LexicalIndex {
 	readonly #index: VectorIndex;
@@ -106,6 +125,33 @@ export class LexicalIndex {
 		return hits.length <= MAX_LEXICAL_CANDIDATES
 			? hits
 			: this.#closest(queryCanonical, hits);
+	}
+
+	/**
+	 * Per-channel reach for one query, from the SAME key list `candidates` uses
+	 * (including its key-count slice) split by namespace, under the SAME
+	 * document-frequency cap: at most two extra SQLite lookups per query, never
+	 * one per candidate. Read-only beside `candidates` — it does not change
+	 * which ids `candidates` returns, nor their order.
+	 */
+	public async provenance(queryCanonical: string): Promise<LexicalProvenance> {
+		const keys = lexicalKeysForQuery(queryCanonical);
+		const [token, phonetic] = await Promise.all([
+			this.#reach(keys, TOKEN_NAMESPACE),
+			this.#reach(keys, PHONETIC_NAMESPACE),
+		]);
+		return { token, phonetic };
+	}
+
+	async #reach(
+		keys: readonly SqliteLookupKey[],
+		namespace: string,
+	): Promise<ReadonlySet<string>> {
+		const scoped = keys.filter((key) => key.namespace === namespace);
+		if (scoped.length === 0) return EMPTY_IDS;
+		return new Set(
+			await this.#index.lookupIds(scoped, this.#maxDocumentFrequency),
+		);
 	}
 
 	#similarity(queryCanonical: string, id: string): number {

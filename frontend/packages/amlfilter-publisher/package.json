@@ -29,6 +29,7 @@
 		"next-published-sequence": "vite-node src/nextPublishedSequenceMain.ts --",
 		"verify-published-origin": "vite-node src/verifyPublishedOriginMain.ts --",
 		"mirror-published-origin": "vite-node src/mirrorPublishedOriginMain.ts --",
+		"sync-live-bundle": "vite-node src/syncLiveBundleMain.ts --",
 		"check-published-freshness": "vite-node src/checkPublishedFreshnessMain.ts --",
 		"snapshot": "vite-node src/snapshotSourcesMain.ts --"
 	},

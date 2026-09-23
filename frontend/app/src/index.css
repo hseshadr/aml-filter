@@ -340,6 +340,17 @@ code {
 .match-card__signal dd {
 	color: #1e293b;
 }
+/* Retrieval provenance: context beside the evidence, never a score term. */
+.match-card__via,
+.match-card__via-note {
+	color: #475569;
+	margin: 0.25rem 0;
+	font-size: 0.82rem;
+	overflow-wrap: anywhere;
+}
+.match-card__via-note {
+	font-style: italic;
+}
 /* Avow score-receipt verdict. The color shifts are reinforcement only — the
    verdict itself is always carried by the pill's icon + word label. */
 .receipt-status {

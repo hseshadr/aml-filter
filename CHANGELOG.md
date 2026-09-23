@@ -90,6 +90,18 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Each match now says how it was found.** Double-Metaphone keys already widened
+  candidate retrieval, but a hit reached only by sound looked identical to any other
+  in "Why this score?". `Match` gains `retrieved_via` — every retrieval channel that
+  reached the entity, in the fixed order `vector`, `token`, `phonetic` (new exported
+  `RetrievalChannel` type) — and the dossier shows a "Found via" line, plus a one-line
+  note when pronunciation was the only way in. It is provenance, not evidence:
+  `LexicalIndex.provenance` re-runs the same capped key list split by namespace (two
+  extra SQLite lookups per list per screen), `candidates()` and the candidate order are
+  untouched, and the field never reaches the score, `reasons[]`, `score_evidence`, the
+  signed receipt, or the workstation `material_fingerprint`. Stored review rows do not
+  persist it (no schema change); the UI renders nothing when it is absent.
+
 - **Retrieval recall is measured, published, and gated — it never was before.** The
   product exists to find a sanctioned entity whose name is spelled differently, and
   nothing in the repository measured whether it does: no labelled set, no recall@k, no

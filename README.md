@@ -42,6 +42,14 @@ pnpm --filter aml-filter-app dev
 
 Open the URL printed by Vite. No backend, API key, database, or account is required.
 
+The committed bundle is a small fictional fixture so tests and fresh clones work offline.
+To screen against the real OFAC, UN, EU, and UK lists that aml-filter.com serves, run
+`pnpm --filter aml-filter-app dev:live` instead. It mirrors the live signed bundle into
+the gitignored `app/public/bundle/live/`, verifying the pointer, manifest, and every chunk
+against the pinned `public.key` (fail-closed), then starts Vite with that bundle.
+`build:live` does the same for a production build. Refresh the lists with
+`pnpm --filter aml-filter-app bundle:live`.
+
 ## Try the real workflow
 
 1. Open **Screen** and search for a name. Inspect the numeric score and per-signal
@@ -180,8 +188,10 @@ stable release when this contract was updated) and sqlite-vector 1.1.2. TypeScri
 creates the lookup keys and applies the transparent final policy;
 `@edgeproc/assay@0.5.0-dev.3` combines vector similarity, sequence similarity, alias,
 date-of-birth, and country evidence. Phonetics can widen the candidate set, but cannot
-by itself declare a match. Each result includes ordered contributions and a stable
-input hash; the signed score receipt seals that evidence. Frozen golden fixtures lock
+by itself declare a match. Each result also records `retrieved_via` — which channels
+(meaning/vector, exact name token, sound-alike) reached it — and the "Why this score?"
+panel shows it as "Found via" context; it is never a score term. Each result includes
+ordered contributions and a stable input hash; the signed score receipt seals that evidence. Frozen golden fixtures lock
 score and tier behavior, while the recall gate measures retrieval against the real
 OFAC corpus and fails below its published floors. See [Recall](docs/RECALL.md).
 

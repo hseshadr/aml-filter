@@ -56,6 +56,7 @@ export {
 	type Match,
 	type MatchReason,
 	type OfacBundleMeta,
+	type RetrievalChannel,
 	type RiskCategory,
 	type ScreenQuery,
 	type ScreenResponse,
