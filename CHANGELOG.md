@@ -8,6 +8,23 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Security
 
+- **`@edgeproc/browser` bumped `a6a2049` → `02171df`: the anti-rollback floor now
+  survives a key change, and the trust root can be a keyring.** The pinned sync substrate
+  used to re-verify its stored active pointer under the *current* pinned key and, on a
+  signature failure, discard it — so any change to the pinned key reset the floor and the
+  next pointer (even an old release re-signed under the new key) was promoted with no
+  freshness check (edgeproc-browser #13). The stored pointer is now kept as the floor
+  whether or not the current key verifies it; serving a cached bundle offline still
+  requires a signature valid under the current key, so a cache signed by a key that is no
+  longer pinned fails closed instead of being served. The same range adds optional
+  `edgeproc.keyring/v1` trust roots with `key_id` selection, revocation and signed pointer
+  expiry (#14), plus an unused opt-in `@edgeproc/browser/sqlite` export (#12). This app
+  keeps its raw 32-byte `public.key` (loaded as a one-key keyring) and its existing
+  signed bundle byte-for-byte: legacy pointers without `key_id`/`expires_at` keep their
+  exact signing preimage, every new error surfaces as the existing `integrity` code, and
+  no OPFS storage key or format changes. Only the two package pins, the dependency
+  contract test's pinned revision, and the lockfile entry change.
+
 - **"Reviews are append-only" is now enforced by the database instead of merely
   claimed.** The README, `docs/ARCHITECTURE.md`, `docs/OPERATIONS.md` and half a dozen
   code comments have described `match_events` as append-only since schema v2, and
