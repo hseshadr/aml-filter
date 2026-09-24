@@ -185,7 +185,8 @@ real + fixture-tested. The UK adapter reads the FCDO **UK Sanctions List** CSV (
 ConList closed 2026-06-03) and keeps only asset-freeze designations, keyed on `Unique ID`;
 its list id stays `UK_OFSI` because catalogs, list selection and per-list thresholds
 persist that key. The committed demo catalog is built by `build-demo-bundle`. The single-list `publish` CLI
-(run by `.github/workflows/publish-watchlist.yml` for OFAC) still emits the flat 4-file
+(run by `.github/workflows/publish-watchlist.yml` for OFAC, nightly and after every green
+`main` CI) still emits the flat 4-file
 set. Wire format: `docs/WATCHLIST_FORMAT.md`.
 
 ### 2. Browser engine — `frontend/packages/amlfilter-browser` (`@amlfilter/browser`)

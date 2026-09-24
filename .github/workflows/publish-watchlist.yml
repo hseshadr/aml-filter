@@ -1,8 +1,14 @@
 name: Publish watchlist
 
-on:
+# Runs nightly, on manual main dispatch, and after every exact same-repository main push CI
+# succeeds, so a merged publisher change goes live without waiting for the nightly run.
+on: # zizmor: ignore[dangerous-triggers] guarded deploy-after-CI; tests bind the sole triggers, repository, event, branch, conclusion, and exact head SHA
   schedule:
     - cron: "0 6 * * *"
+  workflow_run:
+    workflows: [Dagger]
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -12,6 +18,14 @@ permissions:
 jobs:
   publish:
     name: Publish signed watchlist
+    if: >-
+      (github.event_name == 'workflow_run' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.full_name == github.repository) ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      github.event_name == 'schedule'
     runs-on: ubuntu-latest
     environment: production
     timeout-minutes: 30
@@ -22,6 +36,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
       - uses: dagger/dagger-for-github@27b130bf0f79a7f6fbbbe0fbca6760dc9bb40a77 # v8.4.1
         env:
           WATCHLIST_SIGNING_KEY: ${{ secrets.WATCHLIST_SIGNING_KEY }}
@@ -36,4 +51,4 @@ jobs:
             --cloudflare-api-token=env://CLOUDFLARE_API_TOKEN
             --cloudflare-account-id=env://CLOUDFLARE_ACCOUNT_ID
             --github-token=env://GITHUB_TOKEN
-            --release-id=${{ github.sha }}:${{ github.run_id }}
+            --release-id=${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}:${{ github.run_id }}
