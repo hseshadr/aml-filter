@@ -55,3 +55,18 @@ jobs:
             | with-env-variable CACHEBUST ${{ github.run_id }}-${{ github.run_attempt }}
             | with-exec node,/p.mjs,https://sanctionslist.fcdo.gov.uk/docs/UK-Sanctions-List.csv
             | stdout
+      - name: dagger container probe WITH the IPv4-only fix
+        uses: dagger/dagger-for-github@27b130bf0f79a7f6fbbbe0fbca6760dc9bb40a77 # v8.4.1
+        continue-on-error: true
+        with:
+          version: "0.21.8"
+          workdir: .github/diag
+          shell: >-
+            container | from node:22.13.0-bookworm@sha256:fa54405993eaa6bab6b6e460f5f3e945a2e2f07942ba31c0e297a7d9c2041f62
+            | with-workdir /w
+            | with-exec npm,init,-y
+            | with-exec npm,install,undici@7.29.0
+            | with-file /w/p4.mjs $(host | file ./probe4.mjs)
+            | with-env-variable CACHEBUST ${{ github.run_id }}-${{ github.run_attempt }}
+            | with-exec node,/w/p4.mjs,https://sanctionslist.fcdo.gov.uk/docs/UK-Sanctions-List.csv
+            | stdout
