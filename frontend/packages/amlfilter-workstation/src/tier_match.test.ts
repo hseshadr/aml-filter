@@ -57,4 +57,23 @@ describe("tierMatch", () => {
 		const b = tierMatch(makeMatch({ aliases: ["Different"] }), profile, 0.65);
 		expect(b.material_fingerprint).not.toBe(a.material_fingerprint);
 	});
+
+	it("never lets retrieval provenance move the fingerprint or the stored row", () => {
+		// A match re-seen through a different retrieval channel is the SAME hit:
+		// provenance is display context and must never flag a review CHANGED.
+		const bare = tierMatch(makeMatch(), profile, 0.65);
+		const phonetic = tierMatch(
+			makeMatch({ retrieved_via: ["phonetic"] }),
+			profile,
+			0.65,
+		);
+		const all = tierMatch(
+			makeMatch({ retrieved_via: ["vector", "token", "phonetic"] }),
+			profile,
+			0.65,
+		);
+		expect(phonetic).toEqual(bare);
+		expect(all).toEqual(bare);
+		expect(Object.keys(all)).not.toContain("retrieved_via");
+	});
 });

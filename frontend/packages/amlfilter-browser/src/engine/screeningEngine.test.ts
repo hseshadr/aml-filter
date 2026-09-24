@@ -135,6 +135,26 @@ describe("ScreeningEngine — in-browser OFAC screen", () => {
 		expect(res.matches).toHaveLength(0);
 	});
 
+	it("labels a hit reached only through the vector index as vector", async () => {
+		// "ivanovich" is embedded onto e_ivanov's axis by the stub, but shares
+		// no literal token and no Double-Metaphone key with any indexed name.
+		const res = await makeEngine().screen({
+			name: "Ivanovich",
+			threshold: 0,
+		});
+		const hit = res.matches.find((m) => m.entity_id === "e_ivanov");
+		expect(hit?.retrieved_via).toEqual(["vector"]);
+	});
+
+	it("labels an exact-name hit with every channel that reached it", async () => {
+		const res = await makeEngine().screen({ name: "Vladimir Ivanov" });
+		expect(res.matches[0]?.retrieved_via).toEqual([
+			"vector",
+			"token",
+			"phonetic",
+		]);
+	});
+
 	it("exposes the full entity list for browsing (no query)", () => {
 		const all = makeEngine().allEntities();
 		expect(all).toHaveLength(3);
@@ -229,6 +249,69 @@ describe("ScreeningEngine — retrieval unions vector and lexical candidates", (
 			k: 25,
 		});
 		expect(res.matches.map((m) => m.entity_id)).toContain("e_zawahiri");
+		// Provenance names every channel that reached it. k=25 over-fetches all
+		// 31 rows, so the (blind) vector scan reached it too; no literal token is
+		// shared ("al-zawahiri" keeps its hyphen through canonicalization), so the
+		// lexical reach is pronunciation alone.
+		const hit = res.matches.find((m) => m.entity_id === "e_zawahiri");
+		expect(hit?.retrieved_via).toEqual(["vector", "phonetic"]);
+	});
+
+	it("labels a match reached ONLY by pronunciation as phonetic", async () => {
+		// k=5 over-fetches ten decoy rows (the blind embedder ties every row at
+		// cosine 0 and ids break the tie), and neither "aiman" nor "al-zawahiri"
+		// is a token of any indexed name — so Double Metaphone is the only
+		// channel that reaches it.
+		const res = await crowdedEngine().screen({
+			name: "Aiman al-Zawahiri",
+			threshold: 0,
+			k: 5,
+		});
+		const hit = res.matches.find((m) => m.entity_id === "e_zawahiri");
+		expect(hit?.retrieved_via).toEqual(["phonetic"]);
+	});
+
+	it("labels a shared literal token as token, in fixed channel order", async () => {
+		const res = await crowdedEngine().screen({
+			name: "Salim Zawahiri",
+			threshold: 0,
+			k: 5,
+		});
+		const hit = res.matches.find((m) => m.entity_id === "e_zawahiri");
+		expect(hit?.retrieved_via).toEqual(["token", "phonetic"]);
+	});
+
+	it("labels an alias-token hit as token", async () => {
+		const res = await crowdedEngine().screen({
+			name: "SALIM, Ahmad Fuad",
+			threshold: 0,
+			k: 5,
+		});
+		const hit = res.matches.find((m) => m.entity_id === "e_zawahiri");
+		expect(hit?.retrieved_via).toContain("token");
+		expect(hit?.retrieved_via).not.toContain("vector");
+	});
+
+	it("never lets provenance move the score, reasons, or evidence", async () => {
+		// The same entity reached by different channel sets must score exactly as
+		// the scorer says for its inputs: the channel list is context only.
+		const viaAll = await crowdedEngine().screen({
+			name: "Aiman al-Zawahiri",
+			threshold: 0,
+			k: 25,
+		});
+		const viaLexical = await crowdedEngine().screen({
+			name: "Aiman al-Zawahiri",
+			threshold: 0,
+			k: 5,
+		});
+		const a = viaAll.matches.find((m) => m.entity_id === "e_zawahiri");
+		const b = viaLexical.matches.find((m) => m.entity_id === "e_zawahiri");
+		expect(a?.retrieved_via).not.toEqual(b?.retrieved_via);
+		expect(a?.score).toBe(b?.score);
+		expect(a?.reasons).toEqual(b?.reasons);
+		expect(a?.explanation).toBe(b?.explanation);
+		expect(a?.score_evidence).toEqual(b?.score_evidence);
 	});
 
 	it("gives a lexical-only candidate its REAL cosine, not a placeholder", async () => {

@@ -1,11 +1,23 @@
-// UK OFSI consolidated sanctions adapter (the "ConList" CSV).
+// UK sanctions adapter: the FCDO UK Sanctions List (UKSL) CSV, filtered to
+// asset-freeze designations.
 //
-// fetchRaw: REAL — pulls the maintained OFSI ConList blob (a single CSV).
-// parse:    REAL — an RFC-4180 CSV reader skips the leading `Last Updated,<date>`
-//   metadata line, reads the header from the first line that actually carries the
-//   known columns, then groups data rows by "Group ID" (the primary-name row +
-//   AKA rows of one entity share an id) into namespaced SourceLines.
-//   Fixture-tested in ukSource.test.ts.
+// OFSI closed its Consolidated List ("ConList") on 2026-06-03; the UK Sanctions
+// List is now the single source of UK designations. It also carries designations
+// that impose no asset freeze (e.g. port bans on ships, director
+// disqualification only), so this adapter keeps only designations whose
+// `Sanctions Imposed` includes "Asset freeze" — the same meaning the UK list has
+// always had here: "UK asset-freeze targets".
+//
+// fetchRaw: REAL — pulls the published UKSL CSV.
+// parse:    REAL — an RFC-4180 line reader skips the leading `Report Date: <date>`
+//   metadata line, reads the header from the first line carrying `Unique ID`,
+//   then groups rows by `Unique ID` (one designation = one primary-name row plus
+//   variation / alias rows, repeated once per DOB). Two traps shape it:
+//   - `Name type` casing is inconsistent (`Primary name` / `Primary Name`), and
+//     `Primary Name Variation` must not count as the primary: compare trimmed,
+//     lowercased, and EXACTLY equal to "primary name".
+//   - `OFSI Group ID` can span distinct designations; never group on it.
+//   Fixture-tested in ukSource.test.ts (rows cut from the real feed).
 
 import {
 	fetchWithTimeout,
@@ -23,25 +35,24 @@ import {
 	type WatchlistSource,
 } from "./source.ts";
 
-/** The logical raw-file key for the single UK CSV document. */
-export const UK_RAW_FILE = "uk_ofsi.csv";
+/** The logical raw-file key for the single UK CSV document. Only the per-run
+ * snapshot writes it to disk; nothing persisted is keyed on it. */
+export const UK_RAW_FILE = "uk_sanctions_list.csv";
 
-// The maintained OFSI ConList blob. The gov.uk ConList page was officially
-// Withdrawn 2026-01-28 in favor of the UK Sanctions List (UKSL), but this blob is
-// still being updated, so we ship it now; migrating the adapter to UKSL is a
-// tracked future increment. (The bare `.../publishlive/ConList.csv` and the
-// `assets.publishing.service.gov.uk/...` paths now 404 — do not use them.)
+// The FCDO-published UK Sanctions List CSV. (The OFSI ConList blob at
+// ofsistorage.blob.core.windows.net is frozen at 2026-06-03 — do not use it.)
 export const UK_URL =
-	"https://ofsistorage.blob.core.windows.net/publishlive/2022format/ConList.csv";
+	"https://sanctionslist.fcdo.gov.uk/docs/UK-Sanctions-List.csv";
 
+// The CSV is ~50MB (2026-09); 128MB leaves headroom without being unbounded.
 const UK_BODY_LIMITS = {
-	maxBytes: 64 * 1024 * 1024,
+	maxBytes: 128 * 1024 * 1024,
 	elapsedMs: SOURCE_FETCH_TIMEOUT_MS,
 	idleMs: 15_000,
 } as const;
 
-/** The column that uniquely keys a real ConList header row. */
-const HEADER_MARKER_COL = "Group ID";
+/** The column that uniquely keys a real UKSL header row. */
+const HEADER_MARKER_COL = "Unique ID";
 
 const FORENAME_COLS = ["Name 1", "Name 2", "Name 3", "Name 4", "Name 5"];
 
@@ -81,8 +92,7 @@ function splitCsv(line: string): string[] {
 type Row = Record<string, string>;
 
 /** Find the header line: the first line that carries the known marker column.
- * This robustly skips the leading `Last Updated,<date>` metadata line, which has
- * only two fields and lacks the `Group ID` column. */
+ * This skips the leading `Report Date: <date>` metadata line. */
 function findHeaderIndex(lines: readonly string[]): number {
 	return lines.findIndex((line) => splitCsv(line).includes(HEADER_MARKER_COL));
 }
@@ -113,41 +123,70 @@ function displayName(row: Row): string {
 		.trim();
 }
 
-function entityType(row: Row): "PERSON" | "ORGANIZATION" {
-	return (row["Group Type"] ?? "").toLowerCase() === "individual"
-		? "PERSON"
-		: "ORGANIZATION";
+/** EXACT match after trim + lowercase: `Primary name` and `Primary Name` are
+ * primary; `Primary Name Variation` is not (so never `startsWith`). */
+function isPrimaryRow(row: Row): boolean {
+	return (row["Name type"] ?? "").trim().toLowerCase() === "primary name";
 }
 
-/** Accumulate the rows of one Group ID into a SourceLine. */
+function hasAssetFreeze(row: Row): boolean {
+	return (row["Sanctions Imposed"] ?? "")
+		.toLowerCase()
+		.includes("asset freeze");
+}
+
+const ENTITY_TYPES: Readonly<Record<string, "PERSON" | "ORGANIZATION">> = {
+	individual: "PERSON",
+	entity: "ORGANIZATION",
+	ship: "ORGANIZATION",
+};
+
+function entityType(row: Row): "PERSON" | "ORGANIZATION" {
+	const kind = (row["Designation Type"] ?? "").trim().toLowerCase();
+	return ENTITY_TYPES[kind] ?? "ORGANIZATION";
+}
+
+/** The first primary row that actually carries a name (the feed has primary
+ * rows whose name lives only in the non-Latin column), else the first row. */
+function primaryRowOf(rows: readonly Row[]): Row {
+	return (
+		rows.find((r) => isPrimaryRow(r) && displayName(r) !== "") ?? rows[0] ?? {}
+	);
+}
+
+/** Distinct non-empty values of one column, in first-seen order. */
+function distinctValues(rows: readonly Row[], col: string): string[] {
+	const values = rows.map((r) => (r[col] ?? "").trim()).filter((v) => v !== "");
+	return [...new Set(values)];
+}
+
+/** Accumulate the rows of one Unique ID into a SourceLine. The feed repeats a
+ * designation's rows once per DOB, so names, DOBs and nationalities are
+ * de-duplicated across all of its rows. */
 function foldGroup(rows: Row[], listVersion: string): SourceLine {
-	const primaryRow =
-		rows.find((r) => (r["Alias Type"] ?? "") === "Primary name") ?? rows[0];
-	const groupId = primaryRow?.["Group ID"] ?? "";
-	const aliases = rows
-		.filter((r) => (r["Alias Type"] ?? "") !== "Primary name")
-		.map((r) => ({ name: displayName(r) }))
-		.filter((a) => a.name !== "");
-	const dob = primaryRow?.DOB ?? "";
-	const nat = primaryRow?.Nationality ?? "";
+	const primaryRow = primaryRowOf(rows);
+	const primaryName = displayName(primaryRow);
+	const aliasNames = new Set(rows.map(displayName));
+	aliasNames.delete(primaryName);
+	aliasNames.delete("");
 	return {
-		entity_id: namespacedId(UK_LIST_ID, groupId),
-		primary_name: displayName(primaryRow ?? {}),
-		entity_type: entityType(primaryRow ?? {}),
-		aliases,
-		dob: dob !== "" ? [dob] : [],
-		countries: nat !== "" ? [nat] : [],
+		entity_id: namespacedId(UK_LIST_ID, primaryRow["Unique ID"] ?? ""),
+		primary_name: primaryName,
+		entity_type: entityType(primaryRow),
+		aliases: [...aliasNames].map((name) => ({ name })),
+		dob: distinctValues(rows, "D.O.B"),
+		countries: distinctValues(rows, "Nationality(/ies)"),
 		risk_category: "SANCTION",
 		source_list: UK_LIST_ID,
 		list_version: listVersion,
 	};
 }
 
-/** Group rows by "Group ID", preserving first-seen order. */
+/** Group rows by "Unique ID", preserving first-seen order. */
 function groupRows(rows: Row[]): Map<string, Row[]> {
 	const groups = new Map<string, Row[]>();
 	for (const row of rows) {
-		const id = row["Group ID"] ?? "";
+		const id = row["Unique ID"] ?? "";
 		const list = groups.get(id) ?? [];
 		list.push(row);
 		groups.set(id, list);
@@ -155,22 +194,52 @@ function groupRows(rows: Row[]): Map<string, Row[]> {
 	return groups;
 }
 
+/** A designation is kept when its primary row imposes an asset freeze. On the
+ * 2026-09-21 feed `Sanctions Imposed` is uniform across every row of a Unique
+ * ID (0 of 6,339 designations differ), so the primary row speaks for it. */
+function isAssetFreezeDesignation(rows: readonly Row[]): boolean {
+	return hasAssetFreeze(primaryRowOf(rows));
+}
+
+const MONTHS: Readonly<Record<string, number>> = {
+	jan: 0,
+	feb: 1,
+	mar: 2,
+	apr: 3,
+	may: 4,
+	jun: 5,
+	jul: 6,
+	aug: 7,
+	sep: 8,
+	oct: 9,
+	nov: 10,
+	dec: 11,
+};
+
+function invalidTimestamp(): Error {
+	return new Error(`${UK_LIST_ID}: freshness timestamp is invalid`);
+}
+
 function updatedAt(raw: RawListBytes): string | undefined {
 	const firstLine = (raw[UK_RAW_FILE] ?? "").split(/\r?\n/, 1)[0];
-	const value = firstLine?.match(/^Last Updated,(\d{2})\/(\d{2})\/(\d{4})$/);
+	const value = firstLine
+		?.trim()
+		.match(/^Report Date: (\d{2})-([A-Za-z]{3})-(\d{4})$/);
 	if (value === null || value === undefined) {
 		return undefined;
 	}
-	const [, day, month, year] = value;
-	const parsed = new Date(
-		Date.UTC(Number(year), Number(month) - 1, Number(day)),
-	);
+	const [, day, monthName, year] = value;
+	const month = MONTHS[(monthName ?? "").toLowerCase()];
+	if (month === undefined) {
+		throw invalidTimestamp();
+	}
+	const parsed = new Date(Date.UTC(Number(year), month, Number(day)));
 	if (
 		parsed.getUTCFullYear() !== Number(year) ||
-		parsed.getUTCMonth() !== Number(month) - 1 ||
+		parsed.getUTCMonth() !== month ||
 		parsed.getUTCDate() !== Number(day)
 	) {
-		throw new Error(`${UK_LIST_ID}: freshness timestamp is invalid`);
+		throw invalidTimestamp();
 	}
 	return parsed.toISOString();
 }
@@ -204,7 +273,7 @@ async function fetchUkRaw(): Promise<{
 
 export const ukSource: WatchlistSource = {
 	id: UK_LIST_ID,
-	title: "UK OFSI",
+	title: "UK Sanctions List",
 	async fetchRaw(): Promise<RawListBytes> {
 		return (await fetchUkRaw()).raw;
 	},
@@ -214,6 +283,8 @@ export const ukSource: WatchlistSource = {
 	},
 	parse(raw: RawListBytes, listVersion: string): SourceLine[] {
 		const rows = parseRows(raw[UK_RAW_FILE] ?? "");
-		return [...groupRows(rows).values()].map((g) => foldGroup(g, listVersion));
+		return [...groupRows(rows).values()]
+			.filter(isAssetFreezeDesignation)
+			.map((g) => foldGroup(g, listVersion));
 	},
 };

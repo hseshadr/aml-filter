@@ -6,7 +6,110 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **The UK list now comes from the FCDO UK Sanctions List, asset-freeze designations
+  only.** OFSI closed its Consolidated List on 2026-06-03 and the adapter was still
+  reading that frozen file, so UK screening was months stale (it missed ~550 current
+  asset-freeze designations and still flagged ~14 delisted people). The adapter now reads
+  `https://sanctionslist.fcdo.gov.uk/docs/UK-Sanctions-List.csv`, keeps designations
+  whose `Sanctions Imposed` includes "Asset freeze" (5,682 on the 21-Sep-2026 feed), and
+  groups rows by `Unique ID`. The list id stays `UK_OFSI`, so list selection and per-list
+  thresholds carry over. **One-time re-review:** UK entity IDs change from OFSI Group IDs
+  to UKSL Unique IDs (e.g. `UK_OFSI:AQD0194`), so existing UK matches will appear once
+  more for review; the old matches are logged `SUPPRESSED`.
+
+- **README follows the portfolio template.** A plain-language first screen: a tagline
+  that says what it does and for whom, "At a glance" (including exactly what leaves the
+  device), and a "Try it in 60 seconds" walkthrough whose hero screenshot and pasted
+  on-screen text were captured from the local production build screening `fakovic`
+  against the fictional demo list. The stale demo GIF (it showed retired score signals)
+  is removed. The workspace and app package descriptions now equal the tagline.
+- **`@edgeproc/errors` bumped `^0.1.0` → `^0.1.2`** (resolves to 0.1.3, a
+  docs-only release over 0.1.2). 0.1.2 filters RFC 9457 Problem Details extension
+  members: it drops `toJSON`, `__proto__`, `constructor`, `prototype`, and any value
+  that is not a string or finite number, and reads catalog entries and params as own
+  properties only. No app caller passes objects, booleans or `null` as params (the only
+  production call is `describe(..., {}, ...)`), so no caller changed; a new
+  `bootErrorMessage` test pins the filtering on the app's own registry.
+- **`frontend/app/.env.example` now names the env vars the code actually reads.** It
+  documented `VITE_MODEL_LOAD_TIMEOUT_MS` (120000) and a 180000 boot ceiling; the engine
+  reads `VITE_MODEL_LOAD_IDLE_TIMEOUT_MS` (default 90000, an idle window) and
+  `VITE_BOOT_TIMEOUT_MS` (default `BOOT_TIMEOUT_MS` = 900000). The stale 120s/180s
+  figures in `vite-env.d.ts` are corrected too, and `MODEL_LOAD_IDLE_TIMEOUT_MS` is now
+  exported from `@amlfilter/browser` beside `BOOT_TIMEOUT_MS`.
+
+### Added
+
+- `frontend/app/src/__tests__/readme.contract.test.ts`, run by the app's Vitest step in
+  `pnpm gate`: tagline equals both package descriptions, at most four badges, the six
+  "At a glance" labels, section order, no offline claim, the architecture-map link, and
+  every relative README link resolving.
+- `frontend/app/src/__tests__/envExample.test.ts`: `.env.example` names exactly the
+  `VITE_` vars declared in `vite-env.d.ts`, and its documented defaults equal the
+  engine's `MODEL_LOAD_IDLE_TIMEOUT_MS` and `BOOT_TIMEOUT_MS`.
+
+### Known issues
+
+- **`@edgeproc/receipt-ui` 0.2.0 declares a peer range that excludes the installed
+  `@edgeproc/avow` 0.4.1.** Its peer is `@edgeproc/avow: ^0.1.0`, which under 0.x caret
+  rules means `>=0.1.0 <0.2.0`, so `pnpm peers check` reports it unmet. 0.2.0 is the
+  newest receipt-ui on npm (checked 2026-09-24), so there is nothing to bump to; the
+  mismatch is recorded here and not forced (no `peerDependencyRules` override). The fix
+  belongs upstream: a receipt-ui release that widens the peer to the avow 0.4 line.
+
 ### Security
+
+- **A visitor stuck behind the anti-rollback floor can now get out in-app, and only on
+  purpose.** With the `@edgeproc/browser` bump below, the stored pointer stays the
+  rollback floor even across a key change, so a browser that once accepted a higher
+  `sequence` than the origin now serves refuses every sync (`RollbackError`) until its
+  cached lists are cleared. Three fixes make that recoverable:
+  - **"Clear cached lists" no longer syncs before it clears.** The old clear opened a
+    bundle source first (sync → read catalog → sync) and only then cleared, so the one
+    store a user most needed to clear, one the floor refuses, could never be cleared.
+    `clearBundleStore()` now calls the library's `EngineClient.clear()` directly in a
+    temporary Worker, under the same cross-tab sync Web Lock, with a 30 s bound. That
+    removes the OPFS chunks and manifests, the active pointers and the IndexedDB
+    rollback floor for this app's namespace and layout. The running sync Worker is
+    torn down first. The customer SQLite database lives in a separate Worker and OPFS
+    directory that the clear never opens; a real-Chromium check confirmed
+    `.amlfilter-workstation/` and the analyst name survive it.
+  - **The boot-failure card offers recovery instead of a dead end.** When the live
+    Worker error is `rollback` or `integrity`, both `/screen` and the workstation
+    engine strip now show "Clear cached lists" inline, plus an "Open Settings" link.
+    Both paths use a two-step confirm and then re-run the boot. The workstation strip
+    now keeps the error object rather than its message, so the real error type
+    reaches the card instead of the generic "engine unavailable" fallback.
+  - **A rollback is explained before anything can be cleared.** The card warns: "The
+    server offered an older version of the screening lists than the one you already
+    have. That can mean someone is tampering with it. Only clear if you trust this."
+    It also says retrying will not help. The app never clears on its own: an automatic
+    clear would hand anyone who can serve an old signed pointer a way to erase the
+    protection.
+  New `test:e2e:bundle` spec `rollback-recovery.spec.ts` seeds a real floor through the
+  real sync path: it serves the committed, signed demo-2 fixture (sequence 2) first,
+  then the demo-1 origin (sequence 1). It checks the warning, the confirm, that a
+  reload stays refused until the user acts, and that after the clear the lists
+  re-download and verify. Run against the old sync-first clear, the same spec stays
+  stuck on the card.
+
+- **`@edgeproc/browser` bumped `a6a2049` → `02171df`: the anti-rollback floor now
+  survives a key change, and the trust root can be a keyring.** The pinned sync substrate
+  used to re-verify its stored active pointer under the *current* pinned key and, on a
+  signature failure, discard it — so any change to the pinned key reset the floor and the
+  next pointer (even an old release re-signed under the new key) was promoted with no
+  freshness check (edgeproc-browser #13). The stored pointer is now kept as the floor
+  whether or not the current key verifies it; serving a cached bundle offline still
+  requires a signature valid under the current key, so a cache signed by a key that is no
+  longer pinned fails closed instead of being served. The same range adds optional
+  `edgeproc.keyring/v1` trust roots with `key_id` selection, revocation and signed pointer
+  expiry (#14), plus an unused opt-in `@edgeproc/browser/sqlite` export (#12). This app
+  keeps its raw 32-byte `public.key` (loaded as a one-key keyring) and its existing
+  signed bundle byte-for-byte: legacy pointers without `key_id`/`expires_at` keep their
+  exact signing preimage, every new error surfaces as the existing `integrity` code, and
+  no OPFS storage key or format changes. Only the two package pins, the dependency
+  contract test's pinned revision, and the lockfile entry change.
 
 - **"Reviews are append-only" is now enforced by the database instead of merely
   claimed.** The README, `docs/ARCHITECTURE.md`, `docs/OPERATIONS.md` and half a dozen
@@ -89,6 +192,18 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   imported in exactly one production module — the `bootErrorMessage.ts` seam.
 
 ### Added
+
+- **Each match now says how it was found.** Double-Metaphone keys already widened
+  candidate retrieval, but a hit reached only by sound looked identical to any other
+  in "Why this score?". `Match` gains `retrieved_via` — every retrieval channel that
+  reached the entity, in the fixed order `vector`, `token`, `phonetic` (new exported
+  `RetrievalChannel` type) — and the dossier shows a "Found via" line, plus a one-line
+  note when pronunciation was the only way in. It is provenance, not evidence:
+  `LexicalIndex.provenance` re-runs the same capped key list split by namespace (two
+  extra SQLite lookups per list per screen), `candidates()` and the candidate order are
+  untouched, and the field never reaches the score, `reasons[]`, `score_evidence`, the
+  signed receipt, or the workstation `material_fingerprint`. Stored review rows do not
+  persist it (no schema change); the UI renders nothing when it is absent.
 
 - **Retrieval recall is measured, published, and gated — it never was before.** The
   product exists to find a sanctioned entity whose name is spelled differently, and

@@ -227,6 +227,37 @@ describe("createMatchReceiptSealer", () => {
 	});
 });
 
+describe("retrieval provenance stays out of the signed receipt", () => {
+	it("signs the identical payload whatever channels reached the match", async () => {
+		const sealer = createMatchReceiptSealer(storageWithSeed());
+		const [bare] = await sealer.seal([match()], context());
+		const [phonetic] = await sealer.seal(
+			[match({ retrieved_via: ["phonetic"] })],
+			context(),
+		);
+		const [all] = await sealer.seal(
+			[match({ retrieved_via: ["vector", "token", "phonetic"] })],
+			context(),
+		);
+
+		expect(phonetic?.score_receipt?.payload).toEqual(
+			bare?.score_receipt?.payload,
+		);
+		expect(all?.score_receipt?.payload).toEqual(bare?.score_receipt?.payload);
+		expect(JSON.stringify(all?.score_receipt?.payload)).not.toContain(
+			"retrieved_via",
+		);
+		// The sealer passes provenance through untouched for display.
+		expect(phonetic?.retrieved_via).toEqual(["phonetic"]);
+	});
+
+	it("keeps the inputs hash independent of provenance", async () => {
+		expect(
+			await inputsHash(match({ retrieved_via: ["phonetic"] }), QUERY),
+		).toBe(await inputsHash(match(), QUERY));
+	});
+});
+
 describe("inputsHash", () => {
 	it("is a sha256 over the screened identity pair", async () => {
 		expect(await inputsHash(match(), QUERY)).toMatch(/^sha256:[0-9a-f]{64}$/);

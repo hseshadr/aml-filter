@@ -88,6 +88,25 @@ describe("MultiListScreeningEngine — cross-list aggregation", () => {
 		);
 	});
 
+	it("passes each list's retrieval provenance through to the caller", async () => {
+		const a = buildLoadedWatchlist(
+			oneEntityList("A", "v1", "A:1", "ivan fako"),
+		);
+		const b = buildLoadedWatchlist(
+			oneEntityList("B", "v1", "B:1", "ivan fako"),
+		);
+		const engine = createMultiListScreeningEngine(
+			[a, b],
+			axisZeroEmbedder(),
+			DEFAULT,
+		);
+		const res = await engine.screen({ name: "ivan fako" });
+		expect(res.matches).toHaveLength(2);
+		for (const m of res.matches) {
+			expect(m.retrieved_via).toEqual(["vector", "token", "phonetic"]);
+		}
+	});
+
 	it("respects top-k across the concatenated, sorted matches", async () => {
 		const a = buildLoadedWatchlist(
 			oneEntityList("A", "v1", "A:1", "ivan fako"),

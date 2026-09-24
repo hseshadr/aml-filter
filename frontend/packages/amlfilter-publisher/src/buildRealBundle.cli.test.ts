@@ -93,9 +93,9 @@ const EU_XML = [
 	"</export>",
 ].join("");
 const UK_CSV = [
-	"Last Updated,01/07/2026",
-	"Name 1,Name 2,Name 3,Name 4,Name 5,Name 6,DOB,Nationality,Group Type,Alias Type,Group ID",
-	"John,,,,,Doe,01/01/1970,Testland,Individual,Primary name,123",
+	"Report Date: 01-Jul-2026",
+	"Unique ID,Name 1,Name 2,Name 3,Name 4,Name 5,Name 6,D.O.B,Nationality(/ies),Designation Type,Name type,Sanctions Imposed",
+	"TST0123,John,,,,,Doe,01/01/1970,Testland,Individual,Primary name,Asset freeze",
 	"",
 ].join("\n");
 
@@ -191,7 +191,7 @@ describe("runRealBundle happy path", () => {
 			["consolidated.csv", CSL_CSV],
 			["scsanctions.un.org", UN_XML],
 			["webgate.ec.europa.eu", EU_XML],
-			["ofsistorage.blob.core.windows.net", UK_CSV],
+			["sanctionslist.fcdo.gov.uk", UK_CSV],
 		]);
 	});
 

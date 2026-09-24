@@ -20,6 +20,7 @@ import {
 	type IndexManifest,
 	MemoryCacheStore,
 	materializeFile,
+	RollbackError,
 	type SyncResult,
 	syncIndex,
 	verifyEd25519,
@@ -28,6 +29,8 @@ import { describe, expect, it, vi } from "vitest";
 import {
 	type BundleEngineClient,
 	type BundleSourceDeps,
+	CLEAR_BUNDLE_STORE_TIMEOUT_MS,
+	clearBundleStore,
 	openBundleSource,
 } from "./bundleSource";
 import type { Embedder } from "./embedder";
@@ -94,6 +97,7 @@ function originFetch(): {
  * openBundleSource into the same deps re-uses the warmed store (delta sync). */
 function memoryClient(): {
 	deps: BundleSourceDeps;
+	store: MemoryCacheStore;
 	chunkRequests: () => ReadonlyArray<string>;
 	readPaths: () => ReadonlyArray<string>;
 } {
@@ -140,6 +144,7 @@ function memoryClient(): {
 	};
 	return {
 		deps: { createClient: () => client },
+		store,
 		chunkRequests,
 		readPaths: () => paths,
 	};
@@ -515,5 +520,113 @@ describe("openBundleSource — version skew + clear passthrough", () => {
 		await source.clear();
 		expect(wasCleared()).toBe(true);
 		expect(wasTerminated()).toBe(true);
+	});
+});
+
+// --- clearing a store that can no longer sync (the rollback-floor recovery) ---
+//
+// "Clear cached lists" is the ONLY way out of a RollbackError: the durable floor
+// (the stored active pointer, deliberately kept across key changes since
+// edgeproc-browser #13) refuses every older-or-equivocating pointer until it is
+// cleared. The clear therefore must NOT be routed through a sync first — a sync
+// is exactly what the floor refuses.
+
+/** A client whose sync would always refuse (a rollback) — recording what the
+ * clear saw so the namespace/layout contract is pinned. */
+function refusingClient(
+	clear: BundleEngineClient["clear"] = () => Promise.resolve(),
+): {
+	deps: BundleSourceDeps;
+	syncCalls: () => number;
+	clearOptions: () => ReadonlyArray<unknown>;
+	terminated: () => number;
+} {
+	let syncs = 0;
+	let terminations = 0;
+	const clears: unknown[] = [];
+	const client: BundleEngineClient = {
+		sync: () => {
+			syncs += 1;
+			return Promise.reject(new RollbackError("refusing rollback"));
+		},
+		readFile: () => Promise.reject(new Error("no reads during a clear")),
+		clear: (options) => {
+			clears.push(options);
+			return clear(options);
+		},
+		terminate: () => {
+			terminations += 1;
+		},
+	};
+	return {
+		deps: { createClient: () => client },
+		syncCalls: () => syncs,
+		clearOptions: () => clears,
+		terminated: () => terminations,
+	};
+}
+
+describe("clearBundleStore — clears without syncing first", () => {
+	it("clears the app's namespace + IndexedDB floor layout and never syncs", async () => {
+		const { deps, syncCalls, clearOptions, terminated } = refusingClient();
+		await clearBundleStore(deps);
+		expect(syncCalls()).toBe(0);
+		expect(clearOptions()).toEqual([
+			{
+				cacheNamespace: "amlfilter-watchlists-v1",
+				indexedDbLayout: {
+					database: "aml-filter-signed-bundles-v1",
+					store: "entries",
+					separator: "/",
+				},
+			},
+		]);
+		expect(terminated()).toBe(1);
+	});
+
+	it("terminates the temporary Worker when the clear itself fails", async () => {
+		const { deps, terminated } = refusingClient(() =>
+			Promise.reject(new Error("opfs removeEntry failed")),
+		);
+		await expect(clearBundleStore(deps)).rejects.toThrow(
+			/opfs removeEntry failed/,
+		);
+		expect(terminated()).toBe(1);
+	});
+
+	it("is time-bounded: a clear that never answers rejects and frees the Worker", async () => {
+		vi.useFakeTimers();
+		try {
+			const { deps, terminated } = refusingClient(
+				() => new Promise<void>(() => undefined),
+			);
+			const pending = clearBundleStore(deps);
+			const settled = expect(pending).rejects.toThrow(/timed out/);
+			await vi.advanceTimersByTimeAsync(CLEAR_BUNDLE_STORE_TIMEOUT_MS);
+			await settled;
+			expect(terminated()).toBe(1);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("recovers a store stuck behind a higher-sequence rollback floor", async () => {
+		const { deps, store } = memoryClient();
+		// A durable floor ABOVE the committed pointer (sequence 1): what a returning
+		// visitor holds after the publisher's sequence went backwards, or after an
+		// attacker-free equivocation. Every sync now refuses.
+		const latest = JSON.parse(
+			readFileSync(join(ORIGIN, "latest"), "utf8"),
+		) as Parameters<MemoryCacheStore["promote"]>[0];
+		await store.promote({ ...latest, sequence: 99 });
+		await expect(
+			openBundleSource("/o", PUBKEY_URL, deps),
+		).rejects.toBeInstanceOf(RollbackError);
+
+		await clearBundleStore(deps);
+		expect(await store.readActive()).toBeNull();
+
+		const source = await openBundleSource("/o", PUBKEY_URL, deps);
+		expect(source.version()).toBe(latest.version);
 	});
 });

@@ -28,6 +28,7 @@ import {
 	type Entity,
 	type Match,
 	type OfacBundleMeta,
+	type RetrievalChannel,
 	type ScreenQuery,
 	type ScreenResponse,
 } from "./domain";
@@ -92,10 +93,14 @@ interface Scored {
 	readonly match: Match;
 }
 
-/** One retrieval candidate: an entity id and its honest cosine to the query. */
+/**
+ * One retrieval candidate: an entity id, its honest cosine to the query, and
+ * every channel that reached it (provenance only — never scored).
+ */
 interface Candidate {
 	readonly id: string;
 	readonly score: number;
+	readonly retrievedVia: ReadonlyArray<RetrievalChannel>;
 }
 
 /**
@@ -189,21 +194,54 @@ export class ScreeningEngine {
 	 * REAL cosines are resolved together in one named-row sqlite-vector scan;
 	 * nothing is invented and the number of scans does not grow with candidate
 	 * count. Nothing that reached the old engine is dropped — this only ever adds.
+	 *
+	 * Provenance rides alongside without touching that set or its order: an id
+	 * is labelled `token`/`phonetic` only when it is in the (possibly capped)
+	 * lexical candidate list AND the per-namespace lookup reached it, so a label
+	 * never claims a channel that did not actually deliver the candidate.
 	 */
 	async #retrieve(
 		queryVec: Float32Array,
 		queryCanonical: string,
 		k: number,
 	): Promise<readonly Candidate[]> {
-		const candidates: Candidate[] = [
-			...(await this.#index.search(queryVec, k * VECTOR_OVERFETCH)),
-		];
-		const seen = new Set(candidates.map((c) => c.id));
-		const lexicalIds = (await this.#lexical.candidates(queryCanonical)).filter(
-			(id) => !seen.has(id),
+		const vectorHits = await this.#index.search(queryVec, k * VECTOR_OVERFETCH);
+		const vectorIds = new Set(vectorHits.map((hit) => hit.id));
+		const lexicalAll = await this.#lexical.candidates(queryCanonical);
+		const lexicalIds = lexicalAll.filter((id) => !vectorIds.has(id));
+		const lexicalHits = await this.#index.searchByIds(queryVec, lexicalIds);
+		const channelsOf = await this.#provenance(
+			queryCanonical,
+			vectorIds,
+			lexicalAll,
 		);
-		candidates.push(...(await this.#index.searchByIds(queryVec, lexicalIds)));
-		return candidates;
+		return [...vectorHits, ...lexicalHits].map((hit) => ({
+			id: hit.id,
+			score: hit.score,
+			retrievedVia: channelsOf(hit.id),
+		}));
+	}
+
+	/** Channel labels per candidate id, in the fixed order vector, token, phonetic. */
+	async #provenance(
+		queryCanonical: string,
+		vectorIds: ReadonlySet<string>,
+		lexicalIds: readonly string[],
+	): Promise<(id: string) => ReadonlyArray<RetrievalChannel>> {
+		const lexical = new Set(lexicalIds);
+		const reach =
+			lexical.size === 0
+				? null
+				: await this.#lexical.provenance(queryCanonical);
+		return (id) => {
+			const channels: RetrievalChannel[] = [];
+			if (vectorIds.has(id)) channels.push("vector");
+			if (reach !== null && lexical.has(id)) {
+				if (reach.token.has(id)) channels.push("token");
+				if (reach.phonetic.has(id)) channels.push("phonetic");
+			}
+			return channels;
+		};
 	}
 
 	#scoreCandidates(
@@ -221,7 +259,7 @@ export class ScreeningEngine {
 			}
 			const scored = this.#scoreOne(
 				entity,
-				candidate.score,
+				candidate,
 				query,
 				queryCanonical,
 				weights,
@@ -235,7 +273,7 @@ export class ScreeningEngine {
 
 	#scoreOne(
 		entity: Entity,
-		vectorSimilarity: number,
+		candidate: Candidate,
 		query: ScreenQuery,
 		queryCanonical: string,
 		weights: ScoringWeights,
@@ -254,7 +292,7 @@ export class ScreeningEngine {
 						: null,
 				country: query.country ?? null,
 				entityType: query.entityType ?? null,
-				vectorSimilarity,
+				vectorSimilarity: candidate.score,
 				lexicalSimilarity: bestNameSimilarity(queryCanonical, entity),
 			},
 			weights,
@@ -276,6 +314,8 @@ export class ScreeningEngine {
 			reasons: result.reasons,
 			explanation: result.summary,
 			score_evidence: result.assay,
+			// Provenance only: attached AFTER computeScore, which never sees it.
+			retrieved_via: candidate.retrievedVia,
 		};
 		return { score: result.score, entity, match };
 	}

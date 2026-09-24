@@ -8,6 +8,7 @@ import {
 	type Match,
 	type MatchReason,
 	type MatchScoreSubject,
+	type RetrievalChannel,
 	type RiskCategory,
 	verifyMatchReceipt,
 } from "@amlfilter/browser";
@@ -37,6 +38,8 @@ export interface Dossier {
 	readonly reasons?: ReadonlyArray<MatchReason>;
 	/** Signed receipt sealing the score and Assay evidence (absent on directory rows). */
 	readonly score_receipt?: ScoreReceipt;
+	/** Retrieval channels that reached a scored match — context, never a score term. */
+	readonly retrieved_via?: ReadonlyArray<RetrievalChannel>;
 }
 
 /** The signed receipt a scored match carries. */
@@ -77,6 +80,9 @@ export function dossierFromMatch(match: Match): Dossier {
 		// exactOptionalPropertyTypes an absent receipt stays ABSENT.
 		...(match.score_receipt !== undefined
 			? { score_receipt: match.score_receipt }
+			: {}),
+		...(match.retrieved_via !== undefined
+			? { retrieved_via: match.retrieved_via }
 			: {}),
 	};
 }
@@ -308,6 +314,38 @@ function Fact({ label, value }: FactProps) {
 	);
 }
 
+interface FoundViaProps {
+	readonly channels: ReadonlyArray<RetrievalChannel> | undefined;
+	readonly t: TFunction<"screen">;
+}
+
+/**
+ * Which retrieval channels reached this match. Provenance only: phonetic keys
+ * widen who gets SCORED, never the score itself — so when pronunciation was
+ * the only way in, say so plainly. Stored rows carry no provenance; render
+ * nothing rather than guess.
+ */
+function FoundVia({ channels, t }: FoundViaProps) {
+	if (channels === undefined || channels.length === 0) return null;
+	const phoneticOnly = channels.length === 1 && channels[0] === "phonetic";
+	return (
+		<>
+			<p className="match-card__via">
+				{t("dossier.foundVia.line", {
+					channels: channels
+						.map((channel) => t(`dossier.foundVia.channels.${channel}`))
+						.join(" · "),
+				})}
+			</p>
+			{phoneticOnly && (
+				<p className="match-card__via-note">
+					{t("dossier.foundVia.phoneticOnly")}
+				</p>
+			)}
+		</>
+	);
+}
+
 interface DossierCardProps {
 	readonly dossier: Dossier;
 }
@@ -375,6 +413,7 @@ export function DossierCard({ dossier }: DossierCardProps) {
 							</div>
 						))}
 					</dl>
+					<FoundVia channels={dossier.retrieved_via} t={t} />
 				</details>
 			)}
 			{dossier.score_receipt !== undefined &&

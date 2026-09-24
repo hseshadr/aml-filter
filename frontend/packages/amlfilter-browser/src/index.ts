@@ -8,10 +8,9 @@
 // wire format (see docs/WATCHLIST_FORMAT.md) and one explainable scoring
 // contract (see ./engine/domain + ./engine/scoring): the wire format, the
 // normalizer, and the scorer's full output (score, reasons, and each reason's
-// description) are parity-tested against the Python side, and the scorer is a
-// faithful port of DefaultScoringPolicy (identical weights, thresholds, and
-// signal order) — so an in-browser match reproduces the server's score and
-// explanation.
+// description) are locked by frozen golden snapshots of this TypeScript
+// implementation, which is the source of truth (the Python backend and its
+// golden generators were retired; see ./engine/scoring for the weights).
 //
 // Primary entry point: EngineRuntime.bootstrap() → MultiListScreeningEngine.
 
@@ -34,6 +33,8 @@ export {
 	type BundleEngineClient,
 	type BundleSource,
 	type BundleSourceDeps,
+	CLEAR_BUNDLE_STORE_TIMEOUT_MS,
+	clearBundleStore,
 	openBundleSource,
 } from "./engine/bundleSource";
 // --- device-support preflight: is the local engine runnable on this browser? ---
@@ -56,6 +57,7 @@ export {
 	type Match,
 	type MatchReason,
 	type OfacBundleMeta,
+	type RetrievalChannel,
 	type RiskCategory,
 	type ScreenQuery,
 	type ScreenResponse,
@@ -113,6 +115,7 @@ export {
 	createEmbedder,
 	defaultRuntimeDeps,
 	EngineRuntime,
+	MODEL_LOAD_IDLE_TIMEOUT_MS,
 	type OnStage,
 	type RuntimeConfig,
 	type RuntimeDeps,
