@@ -1,7 +1,7 @@
 // The WatchlistSource adapter contract + the shared SourceLine shape.
 //
 // One adapter per upstream sanctions list (OFAC SDN, EU consolidated, UN
-// consolidated, UK OFSI). Each adapter:
+// consolidated, UK Sanctions List — asset-freeze only; id kept as UK_OFSI). Each adapter:
 //   - fetchRaw(): pulls the raw list bytes off the network (real URLs), returning
 //     a map of logical-name -> text (a list may publish more than one file, and
 //     the file a list is READ from is not always published by the body that

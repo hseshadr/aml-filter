@@ -8,6 +8,17 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **The UK list now comes from the FCDO UK Sanctions List, asset-freeze designations
+  only.** OFSI closed its Consolidated List on 2026-06-03 and the adapter was still
+  reading that frozen file, so UK screening was months stale (it missed ~550 current
+  asset-freeze designations and still flagged ~14 delisted people). The adapter now reads
+  `https://sanctionslist.fcdo.gov.uk/docs/UK-Sanctions-List.csv`, keeps designations
+  whose `Sanctions Imposed` includes "Asset freeze" (5,682 on the 21-Sep-2026 feed), and
+  groups rows by `Unique ID`. The list id stays `UK_OFSI`, so list selection and per-list
+  thresholds carry over. **One-time re-review:** UK entity IDs change from OFSI Group IDs
+  to UKSL Unique IDs (e.g. `UK_OFSI:AQD0194`), so existing UK matches will appear once
+  more for review; the old matches are logged `SUPPRESSED`.
+
 - **README follows the portfolio template.** A plain-language first screen: a tagline
   that says what it does and for whom, "At a glance" (including exactly what leaves the
   device), and a "Try it in 60 seconds" walkthrough whose hero screenshot and pasted

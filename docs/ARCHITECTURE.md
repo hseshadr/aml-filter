@@ -1,7 +1,7 @@
 # Architecture
 
 **TL;DR.** aml-filter is a **zero-server, pure-TypeScript** app. It screens a name
-against **multiple sanctions lists** (OFAC SDN, EU, UN, UK/OFSI) and returns a
+against **multiple sanctions lists** (OFAC SDN, EU, UN, UK asset-freeze) and returns a
 **scored, explained** result entirely in the browser tab, with no application backend
 or screening API. A small **publisher** turns each official list into a signed,
 self-contained file and registers them in a signed **catalog**; the **browser engine**
@@ -132,7 +132,9 @@ ships a list inside the app**.
 `{ id, title, fetchRaw(): Promise<RawListBytes>, parse(raw, version): SourceLine[] }`.
 `fetchRaw()` pulls the raw source bytes; `parse()` maps them deterministically (no
 network) to a neutral `SourceLine[]`. Four adapters ship — `OFAC_SDN`, `EU_CONSOLIDATED`,
-`UN_CONSOLIDATED`, `UK_OFSI` — and all four live endpoints are fixture-tested. External
+`UN_CONSOLIDATED`, `UK_OFSI` — and all four live endpoints are fixture-tested. (`UK_OFSI` is
+a historical id: the adapter reads the FCDO UK Sanctions List, filtered to asset-freeze
+designations, since OFSI's Consolidated List closed on 2026-06-03.) External
 fetches use a 45-second abortable deadline, so a stalled sanctions provider fails closed
 without leaving the publish job hanging. **All four `parse()` implementations are real
 and fixture-tested** (`fixtures/sources/`).

@@ -13,7 +13,7 @@ Checks your customers' names against government sanctions lists inside your brow
 
 ## At a glance
 
-- **What it does** — Like the name-screening tools banks pay a vendor for, but it runs in your own browser tab. Type a name (misspellings are fine) and it checks it against the U.S. (OFAC), EU, UN, and UK sanctions lists, then shows a score and the reasons behind it — not just "match" or "no match". It also keeps a simple review queue for your customer list.
+- **What it does** — Like the name-screening tools banks pay a vendor for, but it runs in your own browser tab. Type a name (misspellings are fine) and it checks it against the U.S. (OFAC), EU, UN, and UK (asset-freeze) sanctions lists, then shows a score and the reasons behind it — not just "match" or "no match". It also keeps a simple review queue for your customer list.
 - **Who it's for** — A small or midsize business that has to check customers against sanctions lists ("know your customer" rules) and does not want to upload its customer list to a screening vendor or run a server.
 - **What stays on your device / what leaves it** — Stays: every name you type, your customer records, and your review decisions and notes, kept in the browser's own private storage. Leaves: nothing you type. Your browser downloads the app, a 23 MB name-matching model, and the signed sanctions lists from the site that serves the app (aml-filter.com or your own copy), and asks that same site for a newer list when the app starts and every 30 minutes while the tab is open. The hosted site's security policy tells the browser to refuse connections to any other address.
 - **Runs on** — Current or previous desktop Chrome, Edge, Firefox, and Safari 17+; phone Safari and Chrome use a lower-memory mode. It needs a network connection to open the page — there is no offline mode.
@@ -106,7 +106,7 @@ and failure model.
 
 ## What you can do
 
-- Screen a name against OFAC SDN, EU, UN, and UK OFSI lists and read the score's parts — [Quickstart](docs/QUICKSTART.md)
+- Screen a name against OFAC SDN, EU, UN, and UK sanctions lists and read the score's parts — [Quickstart](docs/QUICKSTART.md)
 - Onboard customers, or import them from `.csv`, `.xls`, or `.xlsx`, and export an `.xlsx` snapshot — [Quickstart](docs/QUICKSTART.md)
 - Review possible matches once; a re-screen flags one again only when the customer or list entry materially changed — [Architecture](docs/ARCHITECTURE.md)
 - Pick which lists are on and set a threshold per list in **Settings** — [Quickstart](docs/QUICKSTART.md)
@@ -257,7 +257,8 @@ Customer imports, screening, review decisions, and exports all happen in the bro
 ### Data and scoring
 
 Publisher adapters support the U.S. Treasury OFAC SDN list, EU Consolidated list, UN
-Consolidated list, and UK/OFSI consolidated list. The committed fallback demo bundle
+Consolidated list, and the UK Sanctions List (FCDO; asset-freeze designations only —
+OFSI's old Consolidated List closed on 2026-06-03). The committed fallback demo bundle
 uses fictional entities; it is safe for tests and local demonstrations. Production
 bundles are generated from the public sources described in
 [Watchlist format](docs/WATCHLIST_FORMAT.md).
@@ -352,7 +353,7 @@ A qualified reviewer must confirm possible matches against official sources and 
 required filings. The software is provided “as is,” without warranty. See [NOTICE](NOTICE).
 
 **Shipped** (v4.0.0, plus the Unreleased changes deployed from `main` — see
-[CHANGELOG](CHANGELOG.md)): in-browser screening across OFAC SDN, EU, UN, and UK OFSI;
+[CHANGELOG](CHANGELOG.md)): in-browser screening across OFAC SDN, EU, UN, and UK sanctions lists;
 explained scores with signed receipts; the local customer and review workflow; signed
 list updates with fail-closed verification and a durable list cache.
 

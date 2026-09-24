@@ -46,7 +46,7 @@ and KYC-review app. There is **no backend, no signup, no database server** — t
 product runs in the tab. The flow:
 
 1. Open the app in a browser → it downloads a **signed catalog of sanctions lists** (OFAC
-   SDN, EU, UN, UK/OFSI) and **verifies the catalog and every enabled list in-tab**
+   SDN, EU, UN, UK asset-freeze) and **verifies the catalog and every enabled list in-tab**
    (Ed25519, fail-closed — any signature/hash mismatch aborts the load). Lists are
    selectable in `/settings`, with per-list thresholds.
 2. You load your customers (the **whitelist**) → they are kept **locally** in SQLite-WASM
@@ -104,7 +104,7 @@ pnpm test:e2e:mobile:ci # Mobile memory smoke (Android Chromium + desktop contro
 
 ### Publish signed lists (from `frontend/`)
 ```bash
-pnpm --filter @amlfilter/publisher run build-demo-multilist  # Build the committed multi-list demo catalog (what the app loads)
+pnpm --filter @amlfilter/publisher run build-demo-bundle  # Build the committed multi-list demo catalog (what the app loads)
 pnpm build-demo-list    # Build the legacy single-list demo watchlist
 pnpm publish-list       # Build a production single-list watchlist; CLI flags: --in --version --key --out [--models]
 ```
@@ -177,12 +177,14 @@ normalize → embed → vector candidate retrieval → transparent weighted scor
 
 ### 1. Publisher — `frontend/packages/amlfilter-publisher` (`@amlfilter/publisher`)
 The Node-side build step: per-list `WatchlistSource` adapters (`src/sources/`: OFAC SDN,
-EU, UN, UK/OFSI; each `fetchRaw()` + `parse()`) → normalize → embed names with
+EU, UN, UK; each `fetchRaw()` + `parse()`) → normalize → embed names with
 transformers.js **in Node** (no torch, no Python) → Ed25519-sign each list's 4 static
 files under a per-list dir → emit a **signed `catalog.json`(.sig)** registry. Entity IDs
-are namespaced (`OFAC_SDN:…`). **OFAC/UN `fetchRaw` are live; EU/UK `fetchRaw` are
-scaffolded** (real URL + TODO); all four `parse()` are real + fixture-tested. The
-committed demo catalog is built by `build-demo-multilist`. The single-list `publish` CLI
+are namespaced (`OFAC_SDN:…`). All four `fetchRaw` are live and all four `parse()` are
+real + fixture-tested. The UK adapter reads the FCDO **UK Sanctions List** CSV (OFSI's
+ConList closed 2026-06-03) and keeps only asset-freeze designations, keyed on `Unique ID`;
+its list id stays `UK_OFSI` because catalogs, list selection and per-list thresholds
+persist that key. The committed demo catalog is built by `build-demo-bundle`. The single-list `publish` CLI
 (run by `.github/workflows/publish-watchlist.yml` for OFAC) still emits the flat 4-file
 set. Wire format: `docs/WATCHLIST_FORMAT.md`.
 

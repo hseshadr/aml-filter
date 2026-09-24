@@ -2,7 +2,7 @@
 
 aml-filter is a **zero-server, in-browser** watchlist-filtering and KYC-review app: a
 static React SPA that syncs a **signed catalog of sanctions lists** (OFAC, EU, UN,
-UK/OFSI) into the tab and screens names locally — embedding, search, and the explainable
+UK asset-freeze) into the tab and screens names locally — embedding, search, and the explainable
 scorer all run in the browser. No server-side database or service to provision; private
 customer state uses local SQLite-WASM on OPFS.
 
@@ -97,7 +97,7 @@ Go to **`/settings`** to configure the screening run. It persists to the local S
 
 - **Screening sensitivity** — Strict / Balanced / Lenient. This is the global match
   threshold; Strict surfaces fewer, higher-confidence matches.
-- **Watchlists** — tick the lists to screen against (OFAC SDN, EU, UN, UK/OFSI). A list
+- **Watchlists** — tick the lists to screen against (OFAC SDN, EU, UN, UK asset-freeze). A list
   you disable drops out of future screens; its matches become `SUPPRESSED` on the next
   rescan.
 - **Per-list overrides** — tighten or loosen the threshold for one list independently.
