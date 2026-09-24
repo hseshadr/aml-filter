@@ -88,6 +88,22 @@ function carry(fetchBytes: OriginFetch, slug = "eu") {
 	});
 }
 
+function carryWithCeiling(
+	fetchBytes: OriginFetch,
+	maxCarriedAgeDays: number,
+	slug = "eu",
+) {
+	return carryForwardList({
+		baseUrl: BASE,
+		fetchBytes,
+		pubkey: PUBKEY,
+		slug,
+		reason: REASON,
+		now: () => NOW,
+		maxCarriedAgeDays,
+	});
+}
+
 describe("carryForwardList, against the committed signed demo origin", () => {
 	it("re-serves the published list's real records", async () => {
 		const carried = await carry(liveFetch());
@@ -183,6 +199,38 @@ describe("carryForwardList, against the committed signed demo origin", () => {
 
 // The rules that decide whether a carried list may be served at all. Each is
 // exercised directly so it can be watched failing for its own reason.
+// A carried list is the last good copy, re-served because upstream failed. That
+// is right for a bad afternoon and wrong forever: the UK list was carried every
+// day from 2026-09-01 while the publish pipeline stayed green, because nothing
+// capped how long a list may be carried. `mirrorPublishedOrigin` already refuses
+// past `maxServedAgeDays` for the WHOLE bundle; this is the same ceiling for ONE
+// list. The published fixture was fetched 2026-06-19 and NOW is 2026-06-22, so
+// the carried age under test is exactly 3 days.
+describe("the carry-forward ceiling — last good copy, not forever", () => {
+	it("carries a list whose age is inside the ceiling", async () => {
+		const carried = await carryWithCeiling(liveFetch(), 7);
+
+		expect(carried.freshness.stale).toBe(true);
+		expect(carried.freshness.fetchedAt).toBe("2026-06-19T00:00:00Z");
+	});
+
+	it("refuses a list carried past the ceiling", async () => {
+		await expect(carryWithCeiling(liveFetch(), 2)).rejects.toThrow(
+			/3 days ago .*past the 2-day ceiling/,
+		);
+	});
+
+	it("refuses with CarryForwardError, so the publish aborts like any other refusal", async () => {
+		await expect(carryWithCeiling(liveFetch(), 2)).rejects.toBeInstanceOf(
+			CarryForwardError,
+		);
+	});
+
+	it("carries with no ceiling set, so an unconfigured caller stays fail-soft", async () => {
+		await expect(carry(liveFetch())).resolves.toBeDefined();
+	});
+});
+
 describe("publishedFetchedAt — a list we cannot age is never re-served", () => {
 	it("prefers the published fetchedAt once bundles carry one", () => {
 		expect(

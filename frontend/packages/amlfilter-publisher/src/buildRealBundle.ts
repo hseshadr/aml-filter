@@ -413,6 +413,23 @@ interface RealBundleArgs {
 	readonly liveBaseUrl?: string;
 	/** The pinned public key the live origin's pointer must verify against. */
 	readonly pubkeyPath?: string;
+	/** Days a list may be carried forward before the publish refuses. Unset = no
+	 * cap, which is how UK_OFSI was re-served daily from 2026-09-01 under a green
+	 * pipeline. Set it in CI so a frozen upstream goes red instead of quiet. */
+	readonly maxCarriedAgeDays?: number;
+}
+
+/** A ceiling must be a non-negative whole number of days, or absent. A typo
+ * must not silently disable the cap the flag exists to impose. */
+function parseCarriedCeiling(raw: string | undefined): number | undefined {
+	if (raw === undefined) {
+		return undefined;
+	}
+	const days = Number(raw);
+	if (!Number.isSafeInteger(days) || days < 0) {
+		throw new Error("--max-carried-age-days must be a non-negative integer");
+	}
+	return days;
 }
 
 export function parseRealBundleArgs(argv: readonly string[]): RealBundleArgs {
@@ -436,6 +453,9 @@ export function parseRealBundleArgs(argv: readonly string[]): RealBundleArgs {
 	}
 	const liveBaseUrl = map.get("live-base-url");
 	const pubkeyPath = map.get("pubkey");
+	const maxCarriedAgeDays = parseCarriedCeiling(
+		map.get("max-carried-age-days"),
+	);
 	// Both or neither: a base URL with no key to verify it against would invite
 	// re-serving bytes nobody signed.
 	if ((liveBaseUrl === undefined) !== (pubkeyPath === undefined)) {
@@ -447,6 +467,7 @@ export function parseRealBundleArgs(argv: readonly string[]): RealBundleArgs {
 		keyPath: resolve(map.get("key") as string),
 		outDir: resolve(map.get("out") as string),
 		models: map.get("models") ?? DEFAULT_MODELS,
+		...(maxCarriedAgeDays === undefined ? {} : { maxCarriedAgeDays }),
 		...(liveBaseUrl === undefined
 			? {}
 			: {
@@ -473,6 +494,9 @@ function liveOriginCarryForward(
 			pubkey,
 			slug: spec.slug,
 			reason,
+			...(args.maxCarriedAgeDays === undefined
+				? {}
+				: { maxCarriedAgeDays: args.maxCarriedAgeDays }),
 		});
 }
 

@@ -101,6 +101,57 @@ describe("parseRealBundleArgs", () => {
 		).toMatchObject({ sequence: 29_433_222_924 });
 	});
 
+	test("parses the carried-age ceiling", () => {
+		expect(
+			parseRealBundleArgs([
+				"--version",
+				"2026-09-24",
+				"--sequence",
+				"127",
+				"--key",
+				"signing.key",
+				"--out",
+				"origin",
+				"--max-carried-age-days",
+				"3",
+			]),
+		).toMatchObject({ maxCarriedAgeDays: 3 });
+	});
+
+	test("omits the ceiling when the flag is absent, keeping the old fail-soft default", () => {
+		expect(
+			parseRealBundleArgs([
+				"--version",
+				"2026-09-24",
+				"--sequence",
+				"127",
+				"--key",
+				"signing.key",
+				"--out",
+				"origin",
+			]),
+		).not.toHaveProperty("maxCarriedAgeDays");
+	});
+
+	test("rejects a malformed ceiling rather than silently dropping the cap", () => {
+		for (const bad of ["soon", "-1", "3.5"]) {
+			expect(() =>
+				parseRealBundleArgs([
+					"--version",
+					"2026-09-24",
+					"--sequence",
+					"127",
+					"--key",
+					"signing.key",
+					"--out",
+					"origin",
+					"--max-carried-age-days",
+					bad,
+				]),
+			).toThrow(/--max-carried-age-days must be a non-negative integer/);
+		}
+	});
+
 	test("rejects a missing or malformed sequence", () => {
 		expect(() =>
 			parseRealBundleArgs([
