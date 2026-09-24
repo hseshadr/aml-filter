@@ -115,6 +115,7 @@ export {
 	createEmbedder,
 	defaultRuntimeDeps,
 	EngineRuntime,
+	MODEL_LOAD_IDLE_TIMEOUT_MS,
 	type OnStage,
 	type RuntimeConfig,
 	type RuntimeDeps,

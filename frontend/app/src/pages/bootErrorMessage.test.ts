@@ -264,6 +264,49 @@ describe("@edgeproc/errors adoption (canonical-errors standard)", () => {
 		expect(problem.requiredBytes).toBe(10);
 		expect(problem.availableBytes).toBe(2);
 	});
+
+	it("keeps only own string / finite-number params on the Problem Details wire (@edgeproc/errors >= 0.1.2)", () => {
+		// 0.1.2 filters extension members: objects, booleans, null and non-finite
+		// numbers are outside the ParamValue contract and never reach the wire, and
+		// toJSON / __proto__ / constructor / prototype can never be member names.
+		// No app caller passes such values today; this pins the upgraded boundary so
+		// a future caller cannot smuggle structure into a serialized problem.
+		const hostile = JSON.parse(
+			'{"__proto__": "p", "constructor": "c", "prototype": "q"}',
+		) as Record<string, unknown>;
+		Object.assign(hostile, {
+			requiredBytes: 10,
+			label: "ok",
+			nested: { a: 1 },
+			flag: true,
+			nothing: null,
+			notANumber: Number.NaN,
+			infinite: Number.POSITIVE_INFINITY,
+			toJSON: "replace-the-body",
+		});
+		const problem = bundleErrorRegistry.toProblemDetails(
+			"bundle.quota_exceeded",
+			hostile as Record<string, string | number>,
+		);
+		expect(problem.requiredBytes).toBe(10);
+		expect(problem.label).toBe("ok");
+		for (const dropped of [
+			"nested",
+			"flag",
+			"nothing",
+			"notANumber",
+			"infinite",
+			"toJSON",
+			"__proto__",
+			"constructor",
+			"prototype",
+		]) {
+			expect(Object.hasOwn(problem, dropped)).toBe(false);
+		}
+		expect(JSON.parse(JSON.stringify(problem)).type).toBe(
+			"bundle.quota_exceeded",
+		);
+	});
 });
 
 describe("bundleCacheRecovery — which boot failures get an in-app clear", () => {
