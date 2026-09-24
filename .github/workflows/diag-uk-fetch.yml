@@ -44,8 +44,14 @@ jobs:
         continue-on-error: true
         run: docker run --rm --network host -v "$PWD/.github/diag:/p" "$IMG" node /p/probe.mjs "$UK"
       - name: dagger container probe (the CI-equivalent path)
+        uses: dagger/dagger-for-github@27b130bf0f79a7f6fbbbe0fbca6760dc9bb40a77 # v8.4.1
         continue-on-error: true
-        run: |
-          curl -fsSL https://dl.dagger.io/dagger/install.sh | BIN_DIR=$HOME/.local/bin DAGGER_VERSION=0.21.8 sh
-          export PATH=$HOME/.local/bin:$PATH
-          dagger -s -c "container | from $IMG | with-file /p.mjs \$(host | file $PWD/.github/diag/probe.mjs) | with-env-variable CACHEBUST $(date +%s) | with-exec node,/p.mjs,$UK | stdout"
+        with:
+          version: "0.21.8"
+          workdir: .github/diag
+          shell: >-
+            container | from node:22.13.0-bookworm@sha256:fa54405993eaa6bab6b6e460f5f3e945a2e2f07942ba31c0e297a7d9c2041f62
+            | with-file /p.mjs $(host | file ./probe.mjs)
+            | with-env-variable CACHEBUST ${{ github.run_id }}-${{ github.run_attempt }}
+            | with-exec node,/p.mjs,https://sanctionslist.fcdo.gov.uk/docs/UK-Sanctions-List.csv
+            | stdout
