@@ -80,7 +80,8 @@ only, each record's **non-Latin aliases** are then added from Treasury's own
 (`src/sources/sdnAliases.ts`). That enrichment is additive and fail-soft: it can
 never add, drop or alter a record, and an unreachable mirror degrades the bundle
 to Latin-only names — reported as `ALIAS_MODE=records-only`, never silently.
-UN and EU parse their consolidated XML; UK parses the OFSI CSV. Entity IDs are
+UN and EU parse their consolidated XML; UK parses the FCDO UK Sanctions List CSV,
+keeping only asset-freeze designations (grouped by `Unique ID`). Entity IDs are
 namespaced by source so identical upstream IDs cannot collide.
 
 ## Tests

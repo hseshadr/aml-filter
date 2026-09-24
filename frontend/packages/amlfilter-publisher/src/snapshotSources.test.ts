@@ -244,7 +244,7 @@ describe("snapshotSources", () => {
 							? '<export generationDate="2026-08-23T00:00:00Z"></export>'
 							: url.includes("scsanctions")
 								? '<CONSOLIDATED_LIST dateGenerated="2026-08-23T00:00:00Z"></CONSOLIDATED_LIST>'
-								: "Last Updated,23/08/2026\nGroup ID,Alias Type\n";
+								: "Report Date: 23-Aug-2026\nUnique ID,Name type\n";
 				return Promise.resolve(
 					new Response(body, {
 						headers: { "last-modified": "Sun, 23 Aug 2026 00:00:00 GMT" },
@@ -272,7 +272,7 @@ describe("snapshotSources", () => {
 							? '<export generationDate="2026-08-23T00:00:00Z"></export>'
 							: url.includes("scsanctions")
 								? '<CONSOLIDATED_LIST dateGenerated="2026-08-23T00:00:00Z"></CONSOLIDATED_LIST>'
-								: "Last Updated,23/08/2026\nGroup ID,Alias Type\n";
+								: "Report Date: 23-Aug-2026\nUnique ID,Name type\n";
 				const response = new Response(body, {
 					headers: {
 						etag: '"source-v1"',
