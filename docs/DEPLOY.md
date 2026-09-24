@@ -56,9 +56,13 @@ and live-verified by the **`publish-watchlist` GitHub Action**; the committed de
 **bundle** is rebuilt locally with `build-demo-bundle`
 ([`../.github/workflows/publish-watchlist.yml`](../.github/workflows/publish-watchlist.yml)).
 
-**Trigger.** It runs **daily on a cron** (`0 6 * * *`, 06:00 UTC) and on manual
-**`workflow_dispatch`** (with an optional `version` stamp input that defaults to the run
-date).
+**Trigger.** It runs **nightly on a cron** (`0 6 * * *`, 06:00 UTC), **after every green
+`Dagger` CI run on `main`**, and on manual **`workflow_dispatch`** from `main`. The
+after-CI trigger means a merged publisher change goes live without waiting for the nightly
+run. It uses the same guarded `workflow_run` pattern as `deploy.yml`: the job only runs
+when the CI run succeeded, came from a same-repository `push` to `main`, and it publishes
+that run's exact head SHA. Publishes are content-addressed, so a run with no list changes
+is harmless.
 
 **A daily run is not a daily refresh.** Each of the four lists is refreshed
 independently; when one upstream is unreachable that list is re-served from the bundle
@@ -134,8 +138,8 @@ and safe security headers.
 
 > The committed `frontend/app/public/bundle/origin/` is the small **demo** bundle — the
 > cold-clone / test artifact (a fresh clone screens against it with zero setup). **Production
-> always serves the real bundle:** `deploy.yml` (after CI on `main`) and the nightly
-> `publish-watchlist.yml` overwrite `public/bundle/origin/` with the real list before building,
+> always serves the real bundle:** `deploy.yml` (after CI on `main`) and
+> `publish-watchlist.yml` (nightly and after CI on `main`) overwrite `public/bundle/origin/` with the real list before building,
 > so a routine code deploy never reverts the live site to the demo. "Real" is not the same as
 > "rebuilt this run": a list whose upstream was down is re-served from the last published copy,
 > marked stale with its real age, and the app displays that age.
@@ -156,7 +160,7 @@ npx wrangler pages project create aml-filter --production-branch=main
 
 | Setting | Value |
 | --- | --- |
-| Deployer | `.github/workflows/deploy.yml` (after CI on `main`) + `publish-watchlist.yml` (nightly) |
+| Deployer | `.github/workflows/deploy.yml` (after CI on `main`) + `publish-watchlist.yml` (nightly + after every green `main` CI) |
 | Build output directory | `frontend/app/dist` |
 | Build env: `VITE_BUNDLE_BASE_URL` | *(unset — runtime defaults to same-origin `/bundle/origin`)* |
 | Build env: `NODE_VERSION` | from `frontend/.nvmrc` |

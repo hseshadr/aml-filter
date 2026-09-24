@@ -107,7 +107,7 @@ DEPLOY_SOURCE: Final = (
 )
 DELIVERY_SOURCES: Final = {
     "deploy.yml": DEPLOY_SOURCE,
-    "publish-watchlist.yml": "${{ github.sha }}",
+    "publish-watchlist.yml": DEPLOY_SOURCE,
 }
 DELIVERY_CHECKOUT_INPUTS: Final = {
     "deploy.yml": {
@@ -115,7 +115,7 @@ DELIVERY_CHECKOUT_INPUTS: Final = {
         "persist-credentials": False,
         "ref": DEPLOY_SOURCE,
     },
-    "publish-watchlist.yml": {"persist-credentials": False},
+    "publish-watchlist.yml": {"persist-credentials": False, "ref": DEPLOY_SOURCE},
 }
 DEPLOY_AUTHORIZATION: Final = (
     "(github.event_name == 'workflow_run' && "
@@ -124,6 +124,13 @@ DEPLOY_AUTHORIZATION: Final = (
     "github.event.workflow_run.head_branch == 'main' && "
     "github.event.workflow_run.head_repository.full_name == github.repository) || "
     "(github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')"
+)
+PUBLISH_AUTHORIZATION: Final = f"{DEPLOY_AUTHORIZATION} || github.event_name == 'schedule'"
+PUBLISH_TRIGGERS: Final = frozenset({"schedule", "workflow_run", "workflow_dispatch"})
+PUBLISH_SCHEDULE: Final = [{"cron": "0 6 * * *"}]
+DANGEROUS_TRIGGER_WAIVER: Final = (
+    "on: # zizmor: ignore[dangerous-triggers] guarded deploy-after-CI; tests bind the sole "
+    "triggers, repository, event, branch, conclusion, and exact head SHA"
 )
 PROVIDER_MARKERS: Final = (
     "cloudflare_",
@@ -1057,6 +1064,81 @@ def test_should_bind_deploy_bytes_to_authorized_head_and_own_run() -> None:
     assert DEPLOY_SOURCE in call
     assert "github.run_id" in call
     assert "github.event.workflow_run.id" not in call
+
+
+def assert_after_dagger_trigger(trigger: Mapping[str, object]) -> None:
+    """Require the completed-Dagger-on-main workflow_run shape."""
+    workflow_run = mapping_field(trigger, "workflow_run")
+    assert workflow_run.get("workflows") == ["Dagger"]
+    assert workflow_run.get("types") == ["completed"]
+    assert workflow_run.get("branches") == ["main"]
+
+
+def assert_publish_authorization(workflow: Mapping[str, object]) -> None:
+    """Require the exact guarded publish condition."""
+    condition = " ".join(str(job_body(workflow, "publish").get("if", "")).split())
+    assert condition == PUBLISH_AUTHORIZATION, "publish authorization must be exact"
+
+
+def test_should_trigger_publish_nightly_manually_and_after_completed_dagger() -> None:
+    # Given / When
+    trigger = mapping_field(load_workflow(WORKFLOW_DIRECTORY / "publish-watchlist.yml"), "on")
+
+    # Then
+    assert frozenset(trigger) == PUBLISH_TRIGGERS
+    assert trigger.get("schedule") == PUBLISH_SCHEDULE
+    assert_after_dagger_trigger(trigger)
+
+
+def test_should_require_exact_successful_main_push_for_automatic_publish() -> None:
+    # Given / When
+    workflow = load_workflow(WORKFLOW_DIRECTORY / "publish-watchlist.yml")
+
+    # Then
+    assert_publish_authorization(workflow)
+
+
+@pytest.mark.parametrize(
+    "guard",
+    [
+        "github.event.workflow_run.conclusion == 'success' && ",
+        "github.event.workflow_run.event == 'push' && ",
+        "github.event.workflow_run.head_branch == 'main' && ",
+        " && github.ref == 'refs/heads/main'",
+    ],
+)
+def test_should_reject_publish_when_a_run_guard_is_dropped(guard: str) -> None:
+    # Given
+    workflow = deepcopy(dict(workflow_inventory()["publish-watchlist.yml"]))
+    publish = cast(dict[str, object], cast(dict[str, object], workflow["jobs"])["publish"])
+    condition = " ".join(str(publish["if"]).split())
+    assert guard in condition, "mutation must apply"
+    publish["if"] = condition.replace(guard, "")
+
+    # When / Then
+    with pytest.raises(AssertionError, match="publish authorization must be exact"):
+        assert_publish_authorization(workflow)
+
+
+def test_should_bind_publish_bytes_to_authorized_head_and_own_run() -> None:
+    # Given
+    job = job_body(load_workflow(WORKFLOW_DIRECTORY / "publish-watchlist.yml"), "publish")
+    checkout = mapping_field(action_step(job, CHECKOUT_ACTION), "with")
+    call = str(mapping_field(action_step(job, DAGGER_ACTION), "with").get("call", ""))
+
+    # When / Then
+    assert checkout.get("ref") == DEPLOY_SOURCE
+    assert f"--release-id={DEPLOY_SOURCE}:${{{{ github.run_id }}}}" in call
+    assert "github.event.workflow_run.id" not in call
+
+
+@pytest.mark.parametrize("filename", ["deploy.yml", "publish-watchlist.yml"])
+def test_should_justify_guarded_workflow_run_trigger_for_zizmor(filename: str) -> None:
+    # Given / When
+    lines = (WORKFLOW_DIRECTORY / filename).read_text(encoding="utf-8").splitlines()
+
+    # Then
+    assert DANGEROUS_TRIGGER_WAIVER in lines
 
 
 def test_should_discover_both_workflow_extensions(tmp_path: Path) -> None:

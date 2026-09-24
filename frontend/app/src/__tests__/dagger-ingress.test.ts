@@ -76,6 +76,14 @@ const DEPLOY_DAGGER_INPUTS = [
 	"--github-token=env://GITHUB_TOKEN",
 	`--release-id=${DEPLOY_SOURCE}:\${{ github.run_id }}`,
 ].join(" ");
+const PUBLISH_AUTHORIZATION = `${DEPLOY_AUTHORIZATION} || github.event_name == 'schedule'`;
+const PUBLISH_TRIGGERS = [
+	"# zizmor: ignore[dangerous-triggers] guarded deploy-after-CI; tests bind the sole triggers, repository, event, branch, conclusion, and exact head SHA",
+	'schedule: - cron: "0 6 * * *"',
+	"workflow_run: workflows: [Dagger] types: [completed] branches: [main]",
+	"workflow_dispatch:",
+].join(" ");
+const PUBLISH_CHECKOUT_INPUTS = `persist-credentials: false ref: ${DEPLOY_SOURCE}`;
 const CI_DAGGER_INPUTS = `version: "0.21.8" call: ci --commit-sha=\${{ github.sha }}`;
 const CI_CHECKOUT_INPUTS = `fetch-depth: 0 persist-credentials: false ref: \${{ github.sha }}`;
 const AUTHORIZER_TRIGGERS = "push: branches: [main] pull_request:";
@@ -198,6 +206,32 @@ describe("thin Dagger ingress", () => {
 		expect(yaml).toContain("workflow_run:");
 		expect(yaml).toContain("workflow_dispatch:");
 		expect(deployAuthorization(yaml)).toBe(DEPLOY_AUTHORIZATION);
+	});
+
+	it("publishes nightly, on main dispatch, or after a strict completed Dagger run", () => {
+		const yaml = read("publish-watchlist.yml");
+		expect(
+			blockBetween(yaml, "\non:", "\npermissions:", "publish triggers"),
+		).toBe(PUBLISH_TRIGGERS);
+		expect(deployAuthorization(yaml)).toBe(PUBLISH_AUTHORIZATION);
+	});
+
+	it("rejects publish authorization when the conclusion guard is dropped", () => {
+		const guard = "github.event.workflow_run.conclusion == 'success' &&";
+		const yaml = read("publish-watchlist.yml");
+		expect(yaml).toContain(guard);
+		const mutated = yaml.replace(guard, "");
+		expect(deployAuthorization(mutated)).not.toBe(PUBLISH_AUTHORIZATION);
+	});
+
+	it("publishes only the exact authorized CI head", () => {
+		const yaml = read("publish-watchlist.yml");
+		expect(actionInputs(yaml, "actions/checkout")).toBe(
+			PUBLISH_CHECKOUT_INPUTS,
+		);
+		expect(actionInputs(yaml, "dagger/dagger-for-github")).toContain(
+			`--release-id=${DEPLOY_SOURCE}:\${{ github.run_id }}`,
+		);
 	});
 
 	it("checks out only the exact authorized deploy source", () => {
