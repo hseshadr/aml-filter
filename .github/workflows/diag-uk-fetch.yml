@@ -1,0 +1,51 @@
+# THROWAWAY diagnostic (draft PR, never merged): why does the UK feed fetch fail
+# on GitHub-hosted runners? Prints the undici error cause chain + DNS/TLS detail.
+name: diag-uk-fetch
+on:
+  pull_request:
+    paths: [".github/workflows/diag-uk-fetch.yml", ".github/diag/**"]
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      UK: https://sanctionslist.fcdo.gov.uk/docs/UK-Sanctions-List.csv
+      IMG: node:22.13.0-bookworm@sha256:fa54405993eaa6bab6b6e460f5f3e945a2e2f07942ba31c0e297a7d9c2041f62
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: runner network facts
+        run: |
+          set -x
+          curl -s --max-time 10 https://api.ipify.org || true; echo
+          cat /etc/resolv.conf; resolvectl status | head -30 || true
+          ip -6 route || true
+      - name: host DNS
+        continue-on-error: true
+        run: |
+          set -x
+          for i in 1 2 3; do time getent ahosts sanctionslist.fcdo.gov.uk; echo rc=$?; done
+          dig sanctionslist.fcdo.gov.uk A; dig sanctionslist.fcdo.gov.uk AAAA
+          dig @168.63.129.16 sanctionslist.fcdo.gov.uk A; dig @168.63.129.16 sanctionslist.fcdo.gov.uk AAAA
+          dig @8.8.8.8 sanctionslist.fcdo.gov.uk A
+          dig +trace sanctionslist.fcdo.gov.uk A || true
+          for ns in 62.232.86.163 62.232.86.109 185.22.225.12; do dig @$ns sanctionslist.fcdo.gov.uk A +norecurse +tries=1 +time=5; done
+      - name: host curl -v
+        continue-on-error: true
+        run: |
+          curl -v -o /dev/null --max-time 120 -A 'aml-filter/4 (+https://aml-filter.com)' -w 'http=%{http_code} size=%{size_download} ip=%{remote_ip} t_dns=%{time_namelookup} t_conn=%{time_connect} t_tls=%{time_appconnect} t_ttfb=%{time_starttransfer} total=%{time_total}\n' "$UK"
+          curl -4 -sS -o /dev/null --max-time 120 -w 'v4 http=%{http_code} size=%{size_download} ip=%{remote_ip} total=%{time_total}\n' "$UK"
+          curl -sS -o /dev/null --resolve sanctionslist.fcdo.gov.uk:443:18.239.199.116 --max-time 120 -w 'pinned-ip http=%{http_code} size=%{size_download} total=%{time_total}\n' "$UK"
+      - name: host node 22.13 probe
+        continue-on-error: true
+        run: docker run --rm -v "$PWD/.github/diag:/p" "$IMG" node /p/probe.mjs "$UK"
+      - name: host node 22.13 probe (--network host)
+        continue-on-error: true
+        run: docker run --rm --network host -v "$PWD/.github/diag:/p" "$IMG" node /p/probe.mjs "$UK"
+      - name: dagger container probe (the CI-equivalent path)
+        continue-on-error: true
+        run: |
+          curl -fsSL https://dl.dagger.io/dagger/install.sh | BIN_DIR=$HOME/.local/bin DAGGER_VERSION=0.21.8 sh
+          export PATH=$HOME/.local/bin:$PATH
+          dagger -s -c "container | from $IMG | with-file /p.mjs \$(host | file $PWD/.github/diag/probe.mjs) | with-env-variable CACHEBUST $(date +%s) | with-exec node,/p.mjs,$UK | stdout"
