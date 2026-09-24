@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	FEED_USER_AGENT,
+	FeedFetchError,
 	fetchWithTimeout,
 	readResponseText,
 } from "./fetchWithTimeout.ts";
@@ -274,5 +275,160 @@ describe("fetchWithTimeout identifies itself to upstream feeds", () => {
 			}),
 		).rejects.toThrow(/404/);
 		expect(fetchMock).toHaveBeenCalledTimes(1);
+	});
+});
+
+// 2026-09-24 outage: the UK list went 24 days stale behind the opaque line
+// `UK request failed: TypeError: fetch failed`. undici puts the real reason
+// (EAI_AGAIN, ECONNRESET, UND_ERR_SOCKET, a cert error…) on `error.cause`, and
+// the old message dropped it. The message is all an operator sees in the CI
+// log, so it must carry the whole cause chain: code + message at every level.
+describe("feed errors carry the undici cause chain", () => {
+	afterEach(() => {
+		vi.restoreAllMocks();
+	});
+
+	/** The exact shape undici throws: TypeError("fetch failed") with a cause. */
+	function undiciFetchFailed(cause: Error): TypeError {
+		return new TypeError("fetch failed", { cause });
+	}
+
+	function withCode(message: string, code: string, cause?: Error): Error {
+		return Object.assign(new Error(message, { cause }), { code });
+	}
+
+	it("names the DNS failure code and message behind `fetch failed`", async () => {
+		vi.spyOn(globalThis, "fetch").mockRejectedValue(
+			undiciFetchFailed(
+				withCode(
+					"getaddrinfo EAI_AGAIN sanctionslist.fcdo.gov.uk",
+					"EAI_AGAIN",
+				),
+			),
+		);
+
+		await expect(
+			fetchWithTimeout("https://example.test/feed", "UK", 50, {
+				attempts: 1,
+				sleep: noSleep,
+			}),
+		).rejects.toThrow(
+			"UK request failed: TypeError: fetch failed <- [EAI_AGAIN] getaddrinfo EAI_AGAIN sanctionslist.fcdo.gov.uk",
+		);
+	});
+
+	it("walks a nested cause chain to the root", async () => {
+		vi.spyOn(globalThis, "fetch").mockRejectedValue(
+			undiciFetchFailed(
+				withCode(
+					"other side closed",
+					"UND_ERR_SOCKET",
+					withCode("read ECONNRESET", "ECONNRESET"),
+				),
+			),
+		);
+
+		const error = await fetchWithTimeout("https://example.test/f", "EU", 50, {
+			attempts: 1,
+			sleep: noSleep,
+		}).catch((e: unknown) => e);
+
+		expect(error).toBeInstanceOf(FeedFetchError);
+		expect((error as Error).message).toBe(
+			"EU request failed: TypeError: fetch failed <- [UND_ERR_SOCKET] other side closed <- [ECONNRESET] read ECONNRESET",
+		);
+	});
+
+	it("names every attempt of an AggregateError (happy-eyeballs connect)", async () => {
+		const aggregate = Object.assign(
+			new AggregateError(
+				[
+					withCode("connect ETIMEDOUT 18.0.0.1:443", "ETIMEDOUT"),
+					withCode("connect ENETUNREACH [2600::1]:443", "ENETUNREACH"),
+				],
+				"",
+			),
+			{ code: "ETIMEDOUT" },
+		);
+		vi.spyOn(globalThis, "fetch").mockRejectedValue(
+			undiciFetchFailed(aggregate),
+		);
+
+		await expect(
+			fetchWithTimeout("https://example.test/f", "UN", 50, {
+				attempts: 1,
+				sleep: noSleep,
+			}),
+		).rejects.toThrow(
+			/UN request failed: TypeError: fetch failed <- \[ETIMEDOUT\] AggregateError \{\[ETIMEDOUT\] connect ETIMEDOUT 18\.0\.0\.1:443; \[ENETUNREACH\] connect ENETUNREACH \[2600::1\]:443\}/,
+		);
+	});
+
+	it("names a non-Error cause and a code-less cause as-is", async () => {
+		vi.spyOn(globalThis, "fetch").mockRejectedValue(
+			new TypeError("fetch failed", {
+				cause: new Error("socket hang up", { cause: "raw reason" }),
+			}),
+		);
+
+		await expect(
+			fetchWithTimeout("https://example.test/f", "UK", 50, {
+				attempts: 1,
+				sleep: noSleep,
+			}),
+		).rejects.toThrow(/fetch failed <- socket hang up <- raw reason$/);
+	});
+
+	it("reports a non-Error rejection without inventing a chain", async () => {
+		vi.spyOn(globalThis, "fetch").mockRejectedValue("boom");
+
+		await expect(
+			fetchWithTimeout("https://example.test/f", "UN", 50, {
+				attempts: 1,
+				sleep: noSleep,
+			}),
+		).rejects.toThrow(/^UN request failed: boom$/);
+	});
+
+	it("survives a cyclic cause without hanging", async () => {
+		const a = withCode("a", "EA");
+		const b = withCode("b", "EB", a);
+		Object.defineProperty(a, "cause", { value: b });
+		vi.spyOn(globalThis, "fetch").mockRejectedValue(undiciFetchFailed(b));
+
+		await expect(
+			fetchWithTimeout("https://example.test/f", "UK", 50, {
+				attempts: 1,
+				sleep: noSleep,
+			}),
+		).rejects.toThrow(/fetch failed <- \[EB\] b <- \[EA\] a$/);
+	});
+
+	it("wraps a transport failure mid-body with its label and cause chain", async () => {
+		const response = new Response(
+			new ReadableStream<Uint8Array>({
+				start(controller) {
+					controller.enqueue(new Uint8Array([1]));
+					controller.error(
+						new TypeError("terminated", {
+							cause: withCode("other side closed", "UND_ERR_SOCKET"),
+						}),
+					);
+				},
+			}),
+		);
+		vi.spyOn(globalThis, "fetch").mockResolvedValue(response);
+		const fetched = await fetchWithTimeout("https://example.test/f", "UK");
+
+		const error = await readResponseText(fetched, "UK", {
+			maxBytes: 1_024,
+			elapsedMs: 1_000,
+			idleMs: 1_000,
+		}).catch((e: unknown) => e);
+
+		expect(error).toBeInstanceOf(FeedFetchError);
+		expect((error as Error).message).toBe(
+			"UK response body read failed: TypeError: terminated <- [UND_ERR_SOCKET] other side closed",
+		);
 	});
 });
