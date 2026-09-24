@@ -26,6 +26,16 @@
 //   - a slug the published bundle does not contain
 //   - a list whose age cannot be established or parsed  <- never assume "fresh"
 //   - a record count or vector width that disagrees with the published meta
+//   - a list carried for longer than `maxCarriedAgeDays`  <- see CEILING below
+//
+// CEILING. Re-serving the last good copy is right for a bad afternoon and wrong
+// forever. Without a cap, a frozen upstream is carried every day while the
+// publish pipeline stays green — which is exactly what happened to UK_OFSI from
+// 2026-09-01, the feed having stopped updating on 2026-06-03. `maxCarriedAgeDays`
+// is the per-list twin of `mirrorPublishedOrigin`'s `maxServedAgeDays`: past it
+// the carry REFUSES and the publish goes red, because a silently ancient
+// sanctions list is worse than a loud failure. Unset means no ceiling, so a
+// caller that has not chosen one keeps the old fail-soft behaviour.
 //
 // The trust chain is unchanged by this module: nothing is re-signed, nothing is
 // added to /latest, and the monotonic anti-rollback `sequence` is untouched.
@@ -71,6 +81,8 @@ export interface CarryForwardInput {
 	/** The upstream failure that forced the carry-forward, recorded verbatim. */
 	readonly reason: string;
 	readonly now?: () => Date;
+	/** Days a list may be re-served before the carry is refused. Unset = no cap. */
+	readonly maxCarriedAgeDays?: number;
 }
 
 /** The published `<slug>/meta.json` fields this module relies on. */
@@ -109,6 +121,9 @@ export async function carryForwardList(
 	const vectors = bytesToVectors(requireFile(slug, files, "vectors.f32"));
 	assertPopulation(slug, meta, entities.length, vectors.length);
 
+	const fetchedAt = publishedFetchedAt(slug, meta);
+	assertWithinCarryCeiling(slug, fetchedAt, input);
+
 	return {
 		listId: meta.listId,
 		slug,
@@ -119,12 +134,33 @@ export async function carryForwardList(
 		entities,
 		vectors,
 		freshness: {
-			fetchedAt: publishedFetchedAt(slug, meta),
+			fetchedAt,
 			sourceUpdatedAt: meta.sourceUpdatedAt ?? null,
 			stale: true,
 			staleReason: input.reason,
 		},
 	};
+}
+
+/** Refuse a list that has been re-served for longer than the caller allows. */
+function assertWithinCarryCeiling(
+	slug: string,
+	fetchedAt: string,
+	input: CarryForwardInput,
+): void {
+	const { maxCarriedAgeDays } = input;
+	if (maxCarriedAgeDays === undefined) {
+		return;
+	}
+	const now = (input.now ?? (() => new Date()))();
+	const ageDays = Math.floor(
+		(now.getTime() - Date.parse(fetchedAt)) / 86_400_000,
+	);
+	if (ageDays > maxCarriedAgeDays) {
+		throw new CarryForwardError(
+			`${slug} was last refreshed ${ageDays} days ago (${fetchedAt}), past the ${maxCarriedAgeDays}-day ceiling for re-serving an unrefreshed sanctions list`,
+		);
+	}
 }
 
 /** Fetch, decode-verify and reassemble every published file under `<slug>/`,

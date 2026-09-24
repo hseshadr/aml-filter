@@ -10,6 +10,7 @@ import pytest
 from aml_filter.policy import (
     InvalidReleaseIdentityError,
     ReleaseKind,
+    carried_list_ceiling_days,
     parse_release_identity,
     release_identity,
     release_version,
@@ -92,3 +93,28 @@ def test_should_parse_identity_when_ingress_binds_sha_and_run() -> None:
     # Then
     assert identity.source_sha == "a" * 40
     assert identity.run_id == "123456"
+
+
+EXPECTED_CARRIED_CEILING_DAYS: Final = 7
+
+
+def test_should_cap_how_long_one_list_may_be_carried_forward() -> None:
+    # A list re-served because upstream failed is the last good copy, not a
+    # licence to serve it forever. UK_OFSI was carried every day from
+    # 2026-09-01 under a green pipeline because nothing capped it.
+    # Given / When
+    days = carried_list_ceiling_days()
+
+    # Then
+    assert days == EXPECTED_CARRIED_CEILING_DAYS
+
+
+def test_should_cap_carried_lists_on_watchlist_publishes_too() -> None:
+    # whole-bundle fallback is forbidden for a watchlist publish; the per-list
+    # ceiling is not — it must apply precisely to the nightly refresh, which is
+    # the run that silently carried UK forward.
+    # Given / When
+    days = carried_list_ceiling_days()
+
+    # Then
+    assert days > 0

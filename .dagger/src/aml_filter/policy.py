@@ -9,6 +9,7 @@ from enum import StrEnum
 from typing import Final
 
 FALLBACK_DAYS: Final = 7
+CARRIED_LIST_CEILING_DAYS: Final = 7
 SAFE_VERSION: Final = re.compile(r"^[A-Za-z0-9._-]+$")
 SOURCE_SHA: Final = re.compile(r"^[0-9a-f]{40}$")
 RUN_ID: Final = re.compile(r"^[0-9]+$")
@@ -34,6 +35,16 @@ def whole_bundle_fallback_days(kind: ReleaseKind) -> int:
     if kind is ReleaseKind.WATCHLIST:
         raise InvalidReleaseIdentityError("watchlist publish forbids whole-bundle fallback")
     return FALLBACK_DAYS
+
+
+def carried_list_ceiling_days() -> int:
+    """Return how long ONE list may be re-served after its upstream fails.
+
+    Unlike the whole-bundle fallback, this applies to every release kind --
+    especially WATCHLIST, which is the nightly refresh that carried UK_OFSI
+    forward every day from 2026-09-01 while the pipeline stayed green.
+    """
+    return CARRIED_LIST_CEILING_DAYS
 
 
 def release_version(stamp: str, today: date) -> str:

@@ -25,6 +25,7 @@ from dagger import (
 from .policy import (
     ReleaseIdentity,
     ReleaseKind,
+    carried_list_ceiling_days,
     parse_release_identity,
     release_identity,
     release_version,
@@ -95,6 +96,7 @@ pnpm --filter @amlfilter/publisher run build-real-bundle -- \
   --version "$VERSION" --sequence "$SEQUENCE" --key /run/watchlist-signing.key \
   --out /tmp/bundle-candidate \
   --live-base-url "$LIVE_BUNDLE" --pubkey "$PUBLIC_KEY" \
+  --max-carried-age-days "$CARRY_DAYS" \
   | tee /tmp/build.out
 BUILD_STATUS="${PIPESTATUS[0]}"
 set -e
@@ -223,6 +225,7 @@ class AmlFilter:
         container = container.with_secret_variable("WATCHLIST_SIGNING_KEY", signing_key)
         container = container.with_env_variable("VERSION", version)
         container = container.with_env_variable("FALLBACK_DAYS", str(fallback))
+        container = container.with_env_variable("CARRY_DAYS", str(carried_list_ceiling_days()))
         container = container.with_env_variable("LIVE_BUNDLE", f"{LIVE_ORIGIN}/bundle/origin")
         container = container.with_env_variable("PUBLIC_KEY", PUBLIC_KEY)
         return container.with_exec(["bash", "-ceu", RELEASE_SCRIPT])
