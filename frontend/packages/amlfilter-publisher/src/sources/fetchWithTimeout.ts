@@ -17,9 +17,40 @@
 //      `x-amzn-waf-action` here turns a baffling downstream failure into the
 //      actual sentence: an edge WAF stopped us.
 //
+//   4. RESOLVES FEED HOSTS OVER IPv4 ONLY. On a GitHub runner, Dagger's
+//      in-engine resolver never answers the AAAA query for
+//      sanctionslist.fcdo.gov.uk (its Route 53 zone returns an out-of-zone SOA,
+//      which Azure DNS SERVFAILs). getaddrinfo waits for both legs, undici
+//      counts that wait inside its 10s connect budget, and the UK list failed
+//      with `UND_ERR_CONNECT_TIMEOUT` for 24 days (2026-08-31 .. 09-24). No
+//      feed needs IPv6, so no AAAA query is sent at all.
+//
 // Deliberately NOT retried: our own deadline. `SOURCE_FETCH_TIMEOUT_MS` is
 // already a generous per-request bound, and re-arming it would triple the worst
 // case this function exists to cap. Connection-level errors still retry.
+
+import { lookup as dnsLookup } from "node:dns";
+import type { LookupFunction } from "node:net";
+import { Agent } from "undici";
+
+/** An undici dispatcher whose connections resolve hosts over IPv4 only. */
+export function createFeedDispatcher(
+	lookup: LookupFunction = dnsLookup as LookupFunction,
+): Agent {
+	return new Agent({
+		connect: {
+			lookup: (hostname, options, callback) =>
+				lookup(hostname, { ...options, family: 4 }, callback),
+		},
+	});
+}
+
+/** Node's fetch accepts an undici `dispatcher`; the DOM RequestInit type
+ * does not declare it. */
+type FeedRequestInit = RequestInit & { readonly dispatcher: Agent };
+
+/** The dispatcher every feed request uses (see note 4 above). */
+export const FEED_DISPATCHER = createFeedDispatcher();
 
 /** Default upper bound for an external sanctions-feed request. */
 export const SOURCE_FETCH_TIMEOUT_MS = 45_000;
@@ -50,6 +81,37 @@ export class FeedFetchError extends Error {
 		this.name = "FeedFetchError";
 		this.retryable = retryable;
 	}
+}
+
+/** One link of a cause chain: `[CODE] message`, with an AggregateError's
+ * members inlined (undici's happy-eyeballs connect throws one per address). */
+function describeLink(error: unknown): string {
+	if (!(error instanceof Error)) {
+		return String(error);
+	}
+	const code = (error as { code?: unknown }).code;
+	const prefix = typeof code === "string" ? `[${code}] ` : "";
+	const text = error.message === "" ? error.name : error.message;
+	if (error instanceof AggregateError && error.errors.length > 0) {
+		return `${prefix}${text} {${error.errors.map(describeLink).join("; ")}}`;
+	}
+	return `${prefix}${text}`;
+}
+
+/** `String(error)` plus every `cause` beneath it. undici reports every network
+ * failure as the bare `TypeError: fetch failed` and puts the real reason
+ * (EAI_AGAIN, ECONNRESET, UND_ERR_SOCKET, a cert error…) on `cause`; dropping
+ * it cost 24 days of a stale UK list (2026-09). Cycle-safe. */
+export function describeErrorChain(error: unknown): string {
+	const parts = [String(error)];
+	const seen = new Set<unknown>([error]);
+	let cause = error instanceof Error ? error.cause : undefined;
+	while (cause !== undefined && !seen.has(cause)) {
+		seen.add(cause);
+		parts.push(describeLink(cause));
+		cause = cause instanceof Error ? cause.cause : undefined;
+	}
+	return parts.join(" <- ");
 }
 
 /** Injection points so retry behaviour is testable without real waiting. */
@@ -106,14 +168,16 @@ async function attemptOnce(
 	const controller = new AbortController();
 	const timer = setTimeout(() => controller.abort(), timeoutMs);
 	try {
-		const response = await fetch(url, {
+		const init: FeedRequestInit = {
+			dispatcher: FEED_DISPATCHER,
 			signal: controller.signal,
 			headers: {
 				"user-agent": FEED_USER_AGENT,
 				accept: "*/*",
 				...extraHeaders,
 			},
-		});
+		};
+		const response = await fetch(url, init);
 		responseControllers.set(response, controller);
 		return response;
 	} catch (error) {
@@ -126,7 +190,7 @@ async function attemptOnce(
 			);
 		}
 		throw new FeedFetchError(
-			`${label} request failed: ${String(error)}`,
+			`${label} request failed: ${describeErrorChain(error)}`,
 			true,
 			{ cause: error },
 		);
@@ -169,9 +233,13 @@ async function classifyAttempt(
 	} catch (error) {
 		return error instanceof FeedFetchError
 			? error
-			: new FeedFetchError(`${label} request failed: ${String(error)}`, true, {
-					cause: error,
-				});
+			: new FeedFetchError(
+					`${label} request failed: ${describeErrorChain(error)}`,
+					true,
+					{
+						cause: error,
+					},
+				);
 	}
 }
 
@@ -184,6 +252,22 @@ function bodyTimeoutError(
 		`${label} response body exceeded its ${kind} timeout of ${ms}ms`,
 		false,
 	);
+}
+
+/** Read one chunk; a transport failure mid-body is named with its causes. */
+async function readTransport(
+	reader: ReadableStreamDefaultReader<Uint8Array>,
+	label: string,
+): Promise<ReadableStreamReadResult<Uint8Array>> {
+	try {
+		return await reader.read();
+	} catch (error: unknown) {
+		throw new FeedFetchError(
+			`${label} response body read failed: ${describeErrorChain(error)}`,
+			true,
+			{ cause: error },
+		);
+	}
 }
 
 async function readWithDeadline(
@@ -204,7 +288,7 @@ async function readWithDeadline(
 		);
 	});
 	try {
-		return await Promise.race([reader.read(), timeout]);
+		return await Promise.race([readTransport(reader, label), timeout]);
 	} finally {
 		if (timer !== undefined) {
 			clearTimeout(timer);
