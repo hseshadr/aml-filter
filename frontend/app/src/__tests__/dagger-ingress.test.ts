@@ -75,7 +75,7 @@ const DEPLOY_DAGGER_INPUTS = [
 	"--cloudflare-api-token=env://CLOUDFLARE_API_TOKEN",
 	"--cloudflare-account-id=env://CLOUDFLARE_ACCOUNT_ID",
 	"--github-token=env://GITHUB_TOKEN",
-	`--release-id=${DEPLOY_SOURCE}:\${{ github.run_id }}`,
+	'--release-id="$RELEASE_SHA:$GITHUB_RUN_ID"',
 ].join(" ");
 const PUBLISH_AUTHORIZATION = `${DEPLOY_AUTHORIZATION} || github.event_name == 'schedule'`;
 const PUBLISH_TRIGGERS = [
@@ -232,8 +232,9 @@ describe("thin Dagger ingress", () => {
 			PUBLISH_CHECKOUT_INPUTS,
 		);
 		expect(actionInputs(yaml, "dagger/dagger-for-github")).toContain(
-			`--release-id=${DEPLOY_SOURCE}:\${{ github.run_id }}`,
+			'--release-id="$RELEASE_SHA:$GITHUB_RUN_ID"',
 		);
+		expect(yaml).toContain(`RELEASE_SHA: ${DEPLOY_SOURCE}`);
 	});
 
 	it("checks out only the exact authorized deploy source", () => {
@@ -270,6 +271,21 @@ describe("thin Dagger ingress", () => {
 		expect(yaml).not.toContain("deploy-aml-filter-com");
 	});
 
+	it("keeps event expressions out of every Dagger input pasted into bash", () => {
+		// Fleet rule dagger-args-expression (hseshadr/ci#50): dagger-for-github
+		// pastes args/call/shell/... into a bash script, so event values must
+		// arrive through env: and be referenced as quoted shell variables.
+		const forbidden =
+			/^\s+(?:args|call|shell|dagger-flags|workdir|cloud-token):[^\n]*(?:\n(?!\s+[\w-]+:|\s+- )[^\n]*)*/gm;
+		const expression =
+			/\$\{\{[^}]*(?:\binputs\.|\bgithub\.event\.|\bgithub\.head_ref\b)/;
+		for (const file of workflows()) {
+			for (const [input] of read(file).matchAll(forbidden)) {
+				expect(input, file).not.toMatch(expression);
+			}
+		}
+	});
+
 	it("serializes every production upload through one mutex", () => {
 		for (const file of ["deploy.yml", "publish-watchlist.yml"]) {
 			expect(read(file)).toContain("group: deploy-aml-filter-com");
@@ -278,7 +294,7 @@ describe("thin Dagger ingress", () => {
 	});
 
 	it("queues every production upload behind a credential-free turnstile", () => {
-		const turnstile = `version: "0.21.8" call: release-turn --github-token=env://GITHUB_TOKEN --run-id=\${{ github.run_id }}`;
+		const turnstile = `version: "0.21.8" call: release-turn --github-token=env://GITHUB_TOKEN --run-id="$GITHUB_RUN_ID"`;
 		for (const file of ["deploy.yml", "publish-watchlist.yml"]) {
 			const yaml = read(file);
 			const marker = "\n  queue:\n";

@@ -48,6 +48,9 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           GITHUB_TOKEN: ${{ github.token }}
+          # Event values reach dagger-for-github's bash only as quoted variables
+          # (fleet rule dagger-args-expression): the action pastes `call` into a script.
+          RELEASE_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
         with:
           version: "0.21.8"
           call: >-
@@ -56,7 +59,7 @@ jobs:
             --cloudflare-api-token=env://CLOUDFLARE_API_TOKEN
             --cloudflare-account-id=env://CLOUDFLARE_ACCOUNT_ID
             --github-token=env://GITHUB_TOKEN
-            --release-id=${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}:${{ github.run_id }}
+            --release-id="$RELEASE_SHA:$GITHUB_RUN_ID"
 
   queue:
     name: Wait for earlier production writes
@@ -81,4 +84,4 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         with:
           version: "0.21.8"
-          call: release-turn --github-token=env://GITHUB_TOKEN --run-id=${{ github.run_id }}
+          call: release-turn --github-token=env://GITHUB_TOKEN --run-id="$GITHUB_RUN_ID"

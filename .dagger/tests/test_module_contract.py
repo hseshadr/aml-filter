@@ -6,6 +6,7 @@ import importlib
 import inspect
 import json
 import os
+import re
 import subprocess
 import textwrap
 import tomllib
@@ -74,12 +75,25 @@ SECURITY_AUDIT_TRIGGERS: Final = {
     "schedule": [{"cron": "0 9 * * 1"}],
     "workflow_dispatch": None,
 }
+# Event values reach dagger-for-github's bash only through env as quoted variables
+# (fleet rule dagger-args-expression, hseshadr/ci#50): the action pastes `call` raw
+# into a bash script, so no `${{ github.event.* }}` may appear in it.
+RELEASE_SHA_SOURCE: Final = (
+    "${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}"
+)
 DELIVERY_ENVIRONMENT: Final = {
     "WATCHLIST_SIGNING_KEY": "${{ secrets.WATCHLIST_SIGNING_KEY }}",
     "CLOUDFLARE_API_TOKEN": "${{ secrets.CLOUDFLARE_API_TOKEN }}",
     "CLOUDFLARE_ACCOUNT_ID": "${{ secrets.CLOUDFLARE_ACCOUNT_ID }}",
     "GITHUB_TOKEN": "${{ github.token }}",
+    "RELEASE_SHA": RELEASE_SHA_SOURCE,
 }
+RELEASE_ID_ARGUMENT: Final = '--release-id="$RELEASE_SHA:$GITHUB_RUN_ID"'
+# Every dagger-for-github input the pinned action pastes into bash.
+DAGGER_SCRIPT_INPUTS: Final = ("args", "call", "shell", "dagger-flags", "workdir", "cloud-token")
+FORBIDDEN_SCRIPT_EXPRESSION: Final = re.compile(
+    r"\$\{\{[^}]*(?:\binputs\.|\bgithub\.event\.|\bgithub\.head_ref\b)"
+)
 EXPECTED_WORKFLOW_JOBS: Final = {
     "dagger.yml": frozenset({"checks"}),
     "deploy.yml": frozenset({"deploy", "queue"}),
@@ -94,7 +108,7 @@ QUEUE_TIMEOUT_MINUTES: Final = 180
 QUEUE_ENVIRONMENT: Final = {"GITHUB_TOKEN": "${{ github.token }}"}
 QUEUE_INPUTS: Final = {
     "version": "0.21.8",
-    "call": "release-turn --github-token=env://GITHUB_TOKEN --run-id=${{ github.run_id }}",
+    "call": 'release-turn --github-token=env://GITHUB_TOKEN --run-id="$GITHUB_RUN_ID"',
 }
 EXPECTED_WORKFLOW_NAMES: Final = {
     "dagger.yml": "Dagger",
@@ -909,8 +923,9 @@ def expected_delivery_arguments(filename: str, function_name: str) -> list[str]:
         "--cloudflare-api-token=env://CLOUDFLARE_API_TOKEN "
         "--cloudflare-account-id=env://CLOUDFLARE_ACCOUNT_ID "
         "--github-token=env://GITHUB_TOKEN "
-        f"--release-id={source}:${{{{ github.run_id }}}}"
+        f"{RELEASE_ID_ARGUMENT}"
     )
+    assert source == RELEASE_SHA_SOURCE
     return call.split()
 
 
@@ -1115,6 +1130,56 @@ def test_should_require_exact_successful_main_push_for_automatic_deploy() -> Non
     assert condition == DEPLOY_AUTHORIZATION
 
 
+def script_expression_findings(
+    workflows: Mapping[str, Mapping[str, object]],
+) -> list[str]:
+    """Name every caller-shapeable expression in a Dagger input pasted into bash."""
+    findings: list[str] = []
+    for filename, workflow in workflows.items():
+        for name, job in workflow_jobs(workflow).items():
+            for step in step_bodies(cast(Mapping[str, object], job)):
+                if not str(step.get("uses", "")).startswith("dagger/dagger-for-github@"):
+                    continue
+                inputs = cast(Mapping[str, object], step.get("with") or {})
+                findings += [
+                    f"{filename}:{name}:{key}"
+                    for key in DAGGER_SCRIPT_INPUTS
+                    if FORBIDDEN_SCRIPT_EXPRESSION.search(str(inputs.get(key, "")))
+                ]
+    return findings
+
+
+def test_should_keep_event_expressions_out_of_dagger_script_inputs() -> None:
+    # Given / When / Then
+    assert script_expression_findings(workflow_inventory()) == []
+
+
+@pytest.mark.parametrize(
+    "expression",
+    [
+        "${{ github.event.workflow_run.head_sha }}",
+        "${{ inputs.tag }}",
+        "${{ github.head_ref }}",
+        DEPLOY_SOURCE,
+    ],
+)
+def test_should_reject_event_expression_when_pasted_into_dagger_call(expression: str) -> None:
+    # Given
+    workflows = workflow_inventory()
+    job = dict(job_body(workflows["deploy.yml"], "deploy"))
+    steps = [dict(step) for step in step_bodies(job)]
+    steps[-1]["with"] = {"version": "0.21.8", "call": f"deploy --release-id={expression}"}
+    job["steps"] = steps
+
+    # When
+    findings = script_expression_findings(
+        workflows_with_job(workflows, "deploy.yml", "deploy", job)
+    )
+
+    # Then
+    assert findings == ["deploy.yml:deploy:call"]
+
+
 def test_should_bind_deploy_bytes_to_authorized_head_and_own_run() -> None:
     # Given
     workflow = load_workflow(WORKFLOW_DIRECTORY / "deploy.yml")
@@ -1124,9 +1189,9 @@ def test_should_bind_deploy_bytes_to_authorized_head_and_own_run() -> None:
 
     # When / Then
     assert checkout == DELIVERY_CHECKOUT_INPUTS["deploy.yml"]
-    assert DEPLOY_SOURCE in call
-    assert "github.run_id" in call
-    assert "github.event.workflow_run.id" not in call
+    assert RELEASE_ID_ARGUMENT in call
+    assert mapping_field(action_step(job, DAGGER_ACTION), "env")["RELEASE_SHA"] == DEPLOY_SOURCE
+    assert "github.event" not in call
 
 
 def assert_after_dagger_trigger(trigger: Mapping[str, object]) -> None:
@@ -1191,8 +1256,9 @@ def test_should_bind_publish_bytes_to_authorized_head_and_own_run() -> None:
 
     # When / Then
     assert checkout.get("ref") == DEPLOY_SOURCE
-    assert f"--release-id={DEPLOY_SOURCE}:${{{{ github.run_id }}}}" in call
-    assert "github.event.workflow_run.id" not in call
+    assert RELEASE_ID_ARGUMENT in call
+    assert mapping_field(action_step(job, DAGGER_ACTION), "env")["RELEASE_SHA"] == DEPLOY_SOURCE
+    assert "github.event" not in call
 
 
 @pytest.mark.parametrize("filename", ["deploy.yml", "publish-watchlist.yml"])
