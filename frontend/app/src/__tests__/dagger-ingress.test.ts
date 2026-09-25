@@ -92,10 +92,11 @@ const SECURITY_AUDIT_TRIGGERS =
 const READ_ONLY_PERMISSIONS = "contents: read";
 
 describe("thin Dagger ingress", () => {
-	it("keeps only the five orchestration entrypoints", () => {
+	it("keeps only the six orchestration entrypoints", () => {
 		expect(workflows()).toEqual([
 			"dagger.yml",
 			"deploy.yml",
+			"live-smoke.yml",
 			"publish-watchlist.yml",
 			"security-audit.yml",
 			"watchlist-freshness.yml",
@@ -253,6 +254,19 @@ describe("thin Dagger ingress", () => {
 		expect(yaml).not.toMatch(/issues:\s*write/);
 		expect(yaml).not.toContain("actions/github-script");
 		expect(yaml).not.toContain("BREACHED=");
+	});
+
+	it("probes the live site in a browser every four hours, read-only", () => {
+		const yaml = read("live-smoke.yml");
+		expect(workflowTriggers(yaml)).toBe(
+			'schedule: - cron: "40 */4 * * *" workflow_dispatch:',
+		);
+		expect(yaml).toContain("permissions:\n  contents: read\n\n");
+		expect(jobDisplayName(yaml, "smoke")).toBe("Live smoke (fresh visitor)");
+		expect(yaml).toContain("call: live-smoke\n");
+		expect(yaml).not.toContain("secrets.");
+		expect(yaml).not.toContain("environment:");
+		expect(yaml).not.toContain("deploy-aml-filter-com");
 	});
 
 	it("serializes every production upload through one mutex", () => {

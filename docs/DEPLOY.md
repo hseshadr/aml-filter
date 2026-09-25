@@ -229,6 +229,45 @@ After a deploy, confirm it actually works — green CI is not enough:
   `github_run_id` is the deploying workflow run. Both workflows enforce this after
   upload so a successful no-op cannot pass.
 
+### The live smoke (automated, after every deploy and publish)
+
+Both delivery workflows now finish by driving the deployed site in a real Chromium, so
+"deployed" means "a browser used it", not "the upload returned 200". It exists because
+prod served a weeks-stale UK list behind green publishes (2026-09), and a sister app broke
+for returning visitors because nothing opened the live site after a deploy.
+
+- **Catalog:** every list (`OFAC_SDN`, `EU_CONSOLIDATED`, `UN_CONSOLIDATED`, `UK_OFSI`)
+  is present with a positive entity count, and none is stale beyond the documented 7-day
+  carry ceiling. Per-list counts are printed on green runs as well as red ones.
+- **Browser, fresh profile:** `/screen` boots (the signed bundle verified in-tab,
+  fail-closed), an OFAC name matches with a verified signed receipt, then `/settings`
+  enables every list and one known designation per list is onboarded and shows on the
+  Review Board tagged with *its* list. The console must be clean the whole way.
+- **Browser, returning profile:** before the upload, a profile is primed against the
+  release that is live *then*. After the upload the same profile reloads and repeats the
+  journey, which is the path a cached visitor takes.
+
+A red smoke fails the workflow and names the Pages deployment to roll back. Rollback is
+manual for now: the shared `cloudflare-pages` Dagger module has no rollback function yet.
+[`live-smoke.yml`](../.github/workflows/live-smoke.yml) runs the fresh pass every four
+hours.
+
+Run it yourself (from `frontend/app`, read-only against production):
+
+```bash
+pnpm test:e2e:live --grep @fresh
+# or the containerized path CI uses, from the repo root:
+dagger call live-smoke stdout
+```
+
+Watch it fail on purpose. The rehearsal proxy serves the real site on
+`http://localhost:4191` with one property broken:
+
+```bash
+TAMPER=chunk node scripts/live-smoke-rehearsal.mjs &     # or TAMPER=pointer
+LIVE_SMOKE_URL=http://localhost:4191 pnpm test:e2e:live --grep @fresh   # must go red
+```
+
 The checked-in `_headers` CSP is intentionally narrow: same-origin scripts, data, and
 connections; `wasm-unsafe-eval` for ONNX; and same-origin/blob workers. A unit guard
 keeps the inline JSON-LD hash synchronized, and the C1 Playwright lane applies that

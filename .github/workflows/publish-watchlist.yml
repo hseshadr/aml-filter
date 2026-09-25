@@ -28,7 +28,7 @@ jobs:
       github.event_name == 'schedule'
     runs-on: ubuntu-latest
     environment: production
-    timeout-minutes: 30
+    timeout-minutes: 45
     concurrency:
       group: deploy-aml-filter-com
       cancel-in-progress: false

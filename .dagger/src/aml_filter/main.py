@@ -13,6 +13,7 @@ from dagger import (
     DefaultPath,
     Directory,
     Ignore,
+    ReturnType,
     Secret,
     Service,
     check,
@@ -31,6 +32,7 @@ from .policy import (
     release_version,
     whole_bundle_fallback_days,
 )
+from .smoke import SMOKE_LISTS, SmokeRun, prime_note, smoke_passes, smoke_verdict
 from .targets import AmlTarget, GreenMainEvidence, ProviderIdentity, parse_green_main
 
 NODE_IMAGE: Final = (
@@ -80,6 +82,26 @@ FRESHNESS_CHECK: Final = [
     "--pubkey",
     PUBLIC_KEY,
 ]
+SMOKE_PROFILE: Final = "/smoke-profile"
+SMOKE_BROWSER_INSTALL: Final = split(
+    "pnpm --filter aml-filter-app exec playwright install --with-deps chromium"
+)
+# The post-deploy / scheduled LIVE smoke: the signed catalog first (every list
+# present, non-empty, inside the documented carry ceiling), then a real Chromium
+# driving the deployed site (frontend/app/tests/e2e-live).
+SMOKE_SCRIPT: Final = r"""
+set -euo pipefail
+pnpm --silent --filter @amlfilter/publisher run check-published-freshness -- \
+  --base-url "$LIVE_SMOKE_URL/bundle/origin" --pubkey "$PUBLIC_KEY" \
+  --carry-ceiling-days "$CARRY_DAYS" --expect-lists "$SMOKE_LISTS"
+cd app
+pnpm exec playwright test -c playwright.live.config.ts --grep "$SMOKE_PASSES"
+"""
+PRIME_SCRIPT: Final = r"""
+set -euo pipefail
+cd app
+pnpm exec playwright test -c playwright.live.config.ts --grep "$SMOKE_PASSES"
+"""
 PREVIEW_ARGS: Final = split("pnpm --filter aml-filter-app exec vite preview --host --port 4173")
 RELEASE_SCRIPT: Final = r"""
 set -euo pipefail
@@ -186,6 +208,19 @@ def mount_caches(container: Container, caches: tuple[tuple[str, str], ...]) -> C
     return container
 
 
+def with_env(container: Container, pairs: tuple[tuple[str, str], ...]) -> Container:
+    for name, value in pairs:
+        container = container.with_env_variable(name, value)
+    return container
+
+
+async def smoke_run(container: Container) -> SmokeRun:
+    """Materialize an ``expect=ANY`` smoke and capture its verdict inputs."""
+    ran = await container.sync()
+    output = f"{await ran.stdout()}\n{await ran.stderr()}"
+    return SmokeRun(await ran.exit_code(), output)
+
+
 @object_type
 class AmlFilter:
     """Run every repository-authored CI/CD operation through Dagger."""
@@ -273,6 +308,43 @@ class AmlFilter:
         container = container.with_env_variable("DELAY_SECONDS", "15")
         container = container.with_exec(["bash", "-ceu", VERIFY_SCRIPT])
         return container.with_exec(["bash", "-ceu", CANONICAL_SCRIPT])
+
+    def _smoke_base(self, source: Directory, passes: str, nonce: str) -> Container:
+        """Chromium + the live-smoke environment; the nonce defeats exec caching."""
+        container = mount_caches(self._node(source), QUALITY_CACHES[1:])
+        container = container.with_exec(SMOKE_BROWSER_INSTALL)
+        return with_env(container, (
+            ("LIVE_SMOKE_URL", LIVE_ORIGIN), ("PUBLIC_KEY", PUBLIC_KEY),
+            ("CARRY_DAYS", str(carried_list_ceiling_days())), ("SMOKE_LISTS", SMOKE_LISTS),
+            ("LIVE_SMOKE_PROFILE", SMOKE_PROFILE), ("SMOKE_PASSES", passes),
+            ("SMOKE_NONCE", nonce),
+        ))  # fmt: skip
+
+    def _prime_container(self, source: Directory, identity: ReleaseIdentity) -> Container:
+        """Cache the release live BEFORE this deploy into a returning profile."""
+        container = self._smoke_base(source, "@prime", f"{identity.run_id}:prime")
+        return container.with_exec(["bash", "-ceu", PRIME_SCRIPT], expect=ReturnType.ANY)
+
+    async def _prime_profile(
+        self, source: Directory, identity: ReleaseIdentity
+    ) -> tuple[Directory, SmokeRun]:
+        container = await self._prime_container(source, identity).sync()
+        return container.directory(SMOKE_PROFILE), await smoke_run(container)
+
+    def _post_deploy_container(
+        self, source: Directory, profile: Directory, identity: ReleaseIdentity
+    ) -> Container:
+        """Fresh + returning passes against the deployed site and its identity."""
+        passes = smoke_passes(returning=True)
+        container = self._smoke_base(source, passes, f"{identity.run_id}:post")
+        container = container.with_directory(SMOKE_PROFILE, profile)
+        container = container.with_env_variable("LIVE_SMOKE_EXPECT_SHA", identity.source_sha)
+        return container.with_exec(["bash", "-ceu", SMOKE_SCRIPT], expect=ReturnType.ANY)
+
+    async def _post_deploy_smoke(
+        self, source: Directory, profile: Directory, identity: ReleaseIdentity
+    ) -> SmokeRun:
+        return await smoke_run(self._post_deploy_container(source, profile, identity))
 
     def _shared_guard(self, source: Directory, commit_sha: str) -> Container:
         """Build the exact-SHA Foundation repository guard."""
@@ -364,10 +436,13 @@ class AmlFilter:
         context = await self._release_context(request.github_token)
         self._require_matching_source(identity, context)
         release, app = await self._build_publication(request, context, identity)
+        profile, primed = await self._prime_profile(context.source, identity)
         provider_request = self._provider_request(app, context)
-        provider_identity = await self._deliver(provider_request, request)
+        provider = await self._deliver(provider_request, request)
         live = await self._live_verify(context.source, release, identity).stdout()
-        return self._deployment_result(provider_identity, live)
+        smoke = await self._post_deploy_smoke(context.source, profile, identity)
+        verdict = smoke_verdict(smoke, provider.deployment_id, provider.deployment_url)
+        return self._deployment_result(provider, f"{live}\n{prime_note(primed)}\n{verdict}")
 
     @function
     async def ci(self, commit_sha: str) -> str:
@@ -419,6 +494,13 @@ class AmlFilter:
     def freshness(self) -> Container:
         """Fail closed unless the live signed sanctions origin is fresh."""
         return self._node(self.source).with_exec(FRESHNESS_CHECK)
+
+    @function
+    def live_smoke(self) -> Container:
+        """Drive the live site in real Chromium as a first-time visitor; fail loudly."""
+        nonce = f"scheduled:{datetime.now(UTC).isoformat()}"
+        container = self._smoke_base(self.source, smoke_passes(returning=False), nonce)
+        return container.with_exec(["bash", "-ceu", SMOKE_SCRIPT])
 
     @function
     def live_verify(self, release: Directory, source_sha: str, run_id: str) -> Container:
