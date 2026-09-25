@@ -18,7 +18,7 @@ from shutil import which
 from typing import Final, cast
 
 import pytest
-from dagger import Container, Directory, Secret
+from dagger import Container, DaggerError, Directory, Secret
 from ruamel.yaml import YAML
 from ruamel.yaml.error import YAMLError
 
@@ -172,7 +172,7 @@ PROVIDER_MARKERS: Final = (
 )
 YAML_DEPENDENCY: Final = "ruamel-yaml>=0.18.16,<0.19.0"
 # Pinned to hseshadr/ci#51 head (verified rollback). Re-pin to the ci merge SHA.
-CENTRAL_SHA: Final = "e11bcef64975ddfc30a7e6d671f895ed9cbcb64e"
+CENTRAL_SHA: Final = "468c14e5d44f27eae93ce9c388a28288ea424be8"
 FOUNDATION_MODULE: Final = f"github.com/hseshadr/ci/modules/portfolio-foundation@{CENTRAL_SHA}"
 CLOUDFLARE_MODULE: Final = f"github.com/hseshadr/ci/modules/cloudflare-pages@{CENTRAL_SHA}"
 REAL_PROVIDER_DEPENDENCIES: Final = (
@@ -196,7 +196,7 @@ MALFORMED_GUARD_CALL: Final = (
 PRETRANSPORT_SOURCE: Final = """\
 from dagger import dag, function, object_type
 
-SHA = "e11bcef64975ddfc30a7e6d671f895ed9cbcb64e"
+SHA = "468c14e5d44f27eae93ce9c388a28288ea424be8"
 COMMIT = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 REPOSITORY = "hseshadr/aml-filter"
 
@@ -652,6 +652,7 @@ class RecordedDelivery:
     smoke_exit: int = 0
     recovery_exit: int = 0
     fail_target: bool = False
+    fail_live: bool = False
     fail_rollback: bool = False
 
 
@@ -700,6 +701,8 @@ class ProductContainerRecorder:
 
     async def stdout(self) -> str:
         self.context.events.append("live" if self.label == "live" else "direct-upload")
+        if self.label == "live" and self.context.fail_live:
+            raise DaggerError("build.json git_sha 0000000 != expected release SHA")
         return "live product proof" if self.label == "live" else "legacy upload"
 
 
@@ -2156,6 +2159,45 @@ async def test_should_roll_back_to_the_recorded_target_and_recheck_live_on_smoke
     message = str(raised.value)
     assert "rolled production back from deployment-123 to deployment-good" in message
     assert "recovery smoke PASSED" in message
+
+
+@pytest.mark.anyio
+async def test_should_roll_back_once_when_live_identity_verification_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Given: the live site serves the wrong commit or bundle after upload.
+    context = recorded_delivery()
+    context.fail_live = True
+    subject = install_product_recorders(monkeypatch, context)
+
+    # When / Then
+    with pytest.raises(LiveSmokeFailedError) as raised:
+        await subject._publish(recorded_request(context, ReleaseKind.WATCHLIST))
+    events = context.events
+    assert events.count("construct:rollback:deployment-good") == 1
+    assert events.index("materialize:rollback") < events.index(f"recovery-smoke:{RECORDED_SHA}")
+    assert f"smoke:{RECORDED_SHA}" not in events
+    message = str(raised.value)
+    assert "live identity verification FAILED" in message
+    assert "build.json git_sha 0000000 != expected release SHA" in message
+    assert "rolled production back from deployment-123 to deployment-good" in message
+
+
+@pytest.mark.anyio
+async def test_should_roll_back_exactly_once_when_smoke_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Given
+    context = recorded_delivery()
+    context.smoke_exit = 1
+    context.recovery_exit = 1
+    subject = install_product_recorders(monkeypatch, context)
+
+    # When / Then
+    with pytest.raises(LiveSmokeFailedError):
+        await subject._publish(recorded_request(context, ReleaseKind.CODE))
+    rollbacks = [e for e in context.events if e.startswith("construct:rollback")]
+    assert rollbacks == ["construct:rollback:deployment-good"]
 
 
 @pytest.mark.anyio

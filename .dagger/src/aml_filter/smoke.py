@@ -106,7 +106,7 @@ def recovery_failure(
     recovery: SmokeRun | None,
 ) -> LiveSmokeFailedError:
     """The one loud error after a red smoke: rollback result, then live recheck."""
-    head = f"post-deploy live smoke FAILED (exit {smoke.exit_code}) on deployment {deployment}"
+    head = f"post-deploy check FAILED (exit {smoke.exit_code}) on deployment {deployment}"
     if isinstance(rollback, str) or recovery is None:
         detail = (
             f"automatic rollback FAILED: {rollback}. Production may still serve the bad "
