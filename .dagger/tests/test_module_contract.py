@@ -6,6 +6,7 @@ import importlib
 import inspect
 import json
 import os
+import re
 import subprocess
 import textwrap
 import tomllib
@@ -74,19 +75,40 @@ SECURITY_AUDIT_TRIGGERS: Final = {
     "schedule": [{"cron": "0 9 * * 1"}],
     "workflow_dispatch": None,
 }
+# Event values reach dagger-for-github's bash only through env as quoted variables
+# (fleet rule dagger-args-expression, hseshadr/ci#50): the action pastes `call` raw
+# into a bash script, so no `${{ github.event.* }}` may appear in it.
+RELEASE_SHA_SOURCE: Final = (
+    "${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}"
+)
 DELIVERY_ENVIRONMENT: Final = {
     "WATCHLIST_SIGNING_KEY": "${{ secrets.WATCHLIST_SIGNING_KEY }}",
     "CLOUDFLARE_API_TOKEN": "${{ secrets.CLOUDFLARE_API_TOKEN }}",
     "CLOUDFLARE_ACCOUNT_ID": "${{ secrets.CLOUDFLARE_ACCOUNT_ID }}",
     "GITHUB_TOKEN": "${{ github.token }}",
+    "RELEASE_SHA": RELEASE_SHA_SOURCE,
 }
+RELEASE_ID_ARGUMENT: Final = '--release-id="$RELEASE_SHA:$GITHUB_RUN_ID"'
+# Every dagger-for-github input the pinned action pastes into bash.
+DAGGER_SCRIPT_INPUTS: Final = ("args", "call", "shell", "dagger-flags", "workdir", "cloud-token")
+FORBIDDEN_SCRIPT_EXPRESSION: Final = re.compile(
+    r"\$\{\{[^}]*(?:\binputs\.|\bgithub\.event\.|\bgithub\.head_ref\b)"
+)
 EXPECTED_WORKFLOW_JOBS: Final = {
     "dagger.yml": frozenset({"checks"}),
-    "deploy.yml": frozenset({"deploy"}),
+    "deploy.yml": frozenset({"deploy", "queue"}),
     "live-smoke.yml": frozenset({"smoke"}),
-    "publish-watchlist.yml": frozenset({"publish"}),
+    "publish-watchlist.yml": frozenset({"publish", "queue"}),
     "security-audit.yml": frozenset({"security"}),
     "watchlist-freshness.yml": frozenset({"freshness"}),
+}
+QUEUE_JOB: Final = "queue"
+QUEUE_JOB_NAME: Final = "Wait for earlier production writes"
+QUEUE_TIMEOUT_MINUTES: Final = 180
+QUEUE_ENVIRONMENT: Final = {"GITHUB_TOKEN": "${{ github.token }}"}
+QUEUE_INPUTS: Final = {
+    "version": "0.21.8",
+    "call": 'release-turn --github-token=env://GITHUB_TOKEN --run-id="$GITHUB_RUN_ID"',
 }
 EXPECTED_WORKFLOW_NAMES: Final = {
     "dagger.yml": "Dagger",
@@ -781,6 +803,7 @@ FUNCTIONS: Final = frozenset(
         "preview",
         "publish-watchlist",
         "quality",
+        "release-turn",
         "secret-scan",
         "signed-origin",
     }
@@ -900,8 +923,9 @@ def expected_delivery_arguments(filename: str, function_name: str) -> list[str]:
         "--cloudflare-api-token=env://CLOUDFLARE_API_TOKEN "
         "--cloudflare-account-id=env://CLOUDFLARE_ACCOUNT_ID "
         "--github-token=env://GITHUB_TOKEN "
-        f"--release-id={source}:${{{{ github.run_id }}}}"
+        f"{RELEASE_ID_ARGUMENT}"
     )
+    assert source == RELEASE_SHA_SOURCE
     return call.split()
 
 
@@ -924,6 +948,22 @@ def assert_delivery_steps(filename: str, job: Mapping[str, object], function_nam
     assert dagger_step.get("env") == DELIVERY_ENVIRONMENT, "delivery env must be exact"
     assert mapping_field(dagger_step, "with") == expected_delivery_inputs(filename, function_name)
     assert all("run" not in step for step in steps)
+
+
+def assert_queue_job(filename: str, job: Mapping[str, object]) -> None:
+    """Require the credential-free turnstile: read-only token, no secret, no environment."""
+    assert job.get("environment") is None, "environment is forbidden in the queue job"
+    assert job.get("concurrency") is None, "the queue job must wait outside the mutex"
+    assert "secrets." not in json.dumps(job).lower(), "secret inputs are forbidden in the queue"
+    assert job.get("name") == QUEUE_JOB_NAME
+    assert job.get("timeout-minutes") == QUEUE_TIMEOUT_MINUTES
+    assert tuple(step.get("uses") for step in step_bodies(job)) == DELIVERY_ACTIONS
+    checkout = action_step(job, CHECKOUT_ACTION)
+    assert mapping_field(checkout, "with") == DELIVERY_CHECKOUT_INPUTS[filename]
+    assert checkout.get("env") is None, "checkout env is forbidden"
+    dagger_step = action_step(job, DAGGER_ACTION)
+    assert dagger_step.get("env") == QUEUE_ENVIRONMENT, "queue env must be exact"
+    assert mapping_field(dagger_step, "with") == QUEUE_INPUTS, "queue call must be exact"
 
 
 def production_jobs(
@@ -981,6 +1021,9 @@ def assert_safe_job(filename: str, name: str, job: Mapping[str, object]) -> None
     steps = step_bodies(job)
     assert all("run" not in step for step in steps), "shell steps are forbidden"
     assert all(step.get("uses") in DELIVERY_ACTIONS for step in steps), "action is not approved"
+    if name == QUEUE_JOB and filename in DELIVERY_WORKFLOWS:
+        assert_queue_job(filename, job)
+        return
     function_name = MUTATION_FUNCTIONS.get((filename, name))
     if function_name is not None:
         assert_delivery_steps(filename, job, function_name)
@@ -1087,6 +1130,56 @@ def test_should_require_exact_successful_main_push_for_automatic_deploy() -> Non
     assert condition == DEPLOY_AUTHORIZATION
 
 
+def script_expression_findings(
+    workflows: Mapping[str, Mapping[str, object]],
+) -> list[str]:
+    """Name every caller-shapeable expression in a Dagger input pasted into bash."""
+    findings: list[str] = []
+    for filename, workflow in workflows.items():
+        for name, job in workflow_jobs(workflow).items():
+            for step in step_bodies(cast(Mapping[str, object], job)):
+                if not str(step.get("uses", "")).startswith("dagger/dagger-for-github@"):
+                    continue
+                inputs = cast(Mapping[str, object], step.get("with") or {})
+                findings += [
+                    f"{filename}:{name}:{key}"
+                    for key in DAGGER_SCRIPT_INPUTS
+                    if FORBIDDEN_SCRIPT_EXPRESSION.search(str(inputs.get(key, "")))
+                ]
+    return findings
+
+
+def test_should_keep_event_expressions_out_of_dagger_script_inputs() -> None:
+    # Given / When / Then
+    assert script_expression_findings(workflow_inventory()) == []
+
+
+@pytest.mark.parametrize(
+    "expression",
+    [
+        "${{ github.event.workflow_run.head_sha }}",
+        "${{ inputs.tag }}",
+        "${{ github.head_ref }}",
+        DEPLOY_SOURCE,
+    ],
+)
+def test_should_reject_event_expression_when_pasted_into_dagger_call(expression: str) -> None:
+    # Given
+    workflows = workflow_inventory()
+    job = dict(job_body(workflows["deploy.yml"], "deploy"))
+    steps = [dict(step) for step in step_bodies(job)]
+    steps[-1]["with"] = {"version": "0.21.8", "call": f"deploy --release-id={expression}"}
+    job["steps"] = steps
+
+    # When
+    findings = script_expression_findings(
+        workflows_with_job(workflows, "deploy.yml", "deploy", job)
+    )
+
+    # Then
+    assert findings == ["deploy.yml:deploy:call"]
+
+
 def test_should_bind_deploy_bytes_to_authorized_head_and_own_run() -> None:
     # Given
     workflow = load_workflow(WORKFLOW_DIRECTORY / "deploy.yml")
@@ -1096,9 +1189,9 @@ def test_should_bind_deploy_bytes_to_authorized_head_and_own_run() -> None:
 
     # When / Then
     assert checkout == DELIVERY_CHECKOUT_INPUTS["deploy.yml"]
-    assert DEPLOY_SOURCE in call
-    assert "github.run_id" in call
-    assert "github.event.workflow_run.id" not in call
+    assert RELEASE_ID_ARGUMENT in call
+    assert mapping_field(action_step(job, DAGGER_ACTION), "env")["RELEASE_SHA"] == DEPLOY_SOURCE
+    assert "github.event" not in call
 
 
 def assert_after_dagger_trigger(trigger: Mapping[str, object]) -> None:
@@ -1163,8 +1256,9 @@ def test_should_bind_publish_bytes_to_authorized_head_and_own_run() -> None:
 
     # When / Then
     assert checkout.get("ref") == DEPLOY_SOURCE
-    assert f"--release-id={DEPLOY_SOURCE}:${{{{ github.run_id }}}}" in call
-    assert "github.event.workflow_run.id" not in call
+    assert RELEASE_ID_ARGUMENT in call
+    assert mapping_field(action_step(job, DAGGER_ACTION), "env")["RELEASE_SHA"] == DEPLOY_SOURCE
+    assert "github.event" not in call
 
 
 @pytest.mark.parametrize("filename", ["deploy.yml", "publish-watchlist.yml"])
@@ -1268,6 +1362,62 @@ def test_should_reject_workflow_secret_environment_before_check_inherits_it() ->
 
     # When / Then
     with pytest.raises(AssertionError, match="workflow env is forbidden"):
+        assert_workflow_policy(workflows)
+
+
+@pytest.mark.parametrize("filename", list(DELIVERY_WORKFLOWS))
+def test_should_gate_every_production_write_behind_the_release_turnstile(filename: str) -> None:
+    # Given / When
+    workflow = workflow_inventory()[filename]
+    delivery = job_body(workflow, DELIVERY_WORKFLOWS[filename])
+    queue = job_body(workflow, QUEUE_JOB)
+
+    # Then
+    assert delivery.get("needs") == QUEUE_JOB
+    assert mapping_field(delivery, "concurrency") == DELIVERY_CONCURRENCY
+    assert " ".join(str(queue.get("if")).split()) == " ".join(str(delivery.get("if")).split())
+    assert_queue_job(filename, queue)
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("environment", "production", "environment is forbidden in the queue job"),
+        ("concurrency", DELIVERY_CONCURRENCY, "the queue job must wait outside the mutex"),
+    ],
+)
+def test_should_reject_queue_job_when_it_gains_production_privilege(
+    field: str, value: object, message: str
+) -> None:
+    # Given
+    queue = dict(job_body(workflow_inventory()["deploy.yml"], QUEUE_JOB))
+    queue[field] = value
+    workflows = workflows_with_job(workflow_inventory(), "deploy.yml", QUEUE_JOB, queue)
+
+    # When / Then
+    with pytest.raises(AssertionError, match=message):
+        assert_workflow_policy(workflows)
+
+
+@pytest.mark.parametrize(
+    ("key", "value", "message"),
+    [
+        ("env", {"GITHUB_TOKEN": "${{ secrets.CLOUDFLARE_API_TOKEN }}"}, "secret inputs"),
+        ("env", {**QUEUE_ENVIRONMENT, "EXTRA": "x"}, "queue env must be exact"),
+        ("with", {**QUEUE_INPUTS, "call": "deploy --release-id=x"}, "queue call must be exact"),
+    ],
+)
+def test_should_reject_queue_step_when_it_carries_secret_or_provider_call(
+    key: str, value: object, message: str
+) -> None:
+    # Given
+    queue = deepcopy(dict(job_body(workflow_inventory()["publish-watchlist.yml"], QUEUE_JOB)))
+    dagger_step = cast(dict[str, object], cast(list[object], queue["steps"])[1])
+    dagger_step[key] = value
+    workflows = workflows_with_job(workflow_inventory(), "publish-watchlist.yml", QUEUE_JOB, queue)
+
+    # When / Then
+    with pytest.raises(AssertionError, match=message):
         assert_workflow_policy(workflows)
 
 
@@ -1529,6 +1679,17 @@ def test_should_require_typed_secrets_when_deploy_help_loads() -> None:
         assert "--cloudflare-account-id Secret" in help_text
         assert "--github-token Secret" in help_text
         assert "--release-id string" in help_text
+
+
+def test_should_require_typed_token_when_release_turn_help_loads() -> None:
+    # Given / When
+    help_text = dagger("call", "release-turn", "--help")
+
+    # Then
+    assert "--github-token Secret" in help_text
+    assert "--run-id string" in help_text
+    assert "--signing-key" not in help_text
+    assert "--cloudflare" not in help_text
 
 
 def test_should_supply_exec_arguments_as_dagger_list() -> None:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from shlex import split
@@ -32,6 +33,7 @@ from .policy import (
     release_version,
     whole_bundle_fallback_days,
 )
+from .queue import TurnPolicy, fetch_runs, parse_run_id, wait_for_turn
 from .smoke import SMOKE_LISTS, SmokeRun, prime_note, smoke_passes, smoke_verdict
 from .targets import AmlTarget, GreenMainEvidence, ProviderIdentity, parse_green_main
 
@@ -219,6 +221,18 @@ async def smoke_run(container: Container) -> SmokeRun:
     ran = await container.sync()
     output = f"{await ran.stdout()}\n{await ran.stderr()}"
     return SmokeRun(await ran.exit_code(), output)
+
+
+async def grant_release_turn(github_token: Secret, run_id: str, policy: TurnPolicy) -> str:
+    """Block until no older deploy/publish run of this repository is still alive."""
+    own = parse_run_id(run_id)
+    token = await github_token.plaintext()
+
+    async def fetch(workflow_file: str) -> str:
+        return await asyncio.to_thread(fetch_runs, REPOSITORY, token, workflow_file)
+
+    waited = await wait_for_turn(fetch, own, policy, asyncio.sleep)
+    return f"release turn granted to run {own} after waiting on runs {list(waited)}"
 
 
 @object_type
@@ -520,6 +534,19 @@ class AmlFilter:
         """Build, verify, upload, and live-verify an exact code release."""
         secrets = signing_key, cloudflare_api_token, cloudflare_account_id, github_token
         return await self._publish(PublishRequest(ReleaseKind.CODE, *secrets, release_id))
+
+    @function
+    async def release_turn(
+        self,
+        github_token: Secret,
+        run_id: str,
+        poll_seconds: int = 20,
+        max_wait_seconds: int = 10800,
+    ) -> str:
+        """Wait, outside the production mutex, until every older production write finished."""
+        return await grant_release_turn(
+            github_token, run_id, TurnPolicy(poll_seconds, max_wait_seconds)
+        )
 
     @function
     async def publish_watchlist(

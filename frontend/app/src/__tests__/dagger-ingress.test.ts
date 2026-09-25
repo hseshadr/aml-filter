@@ -36,8 +36,9 @@ const jobDisplayName = (yaml: string, job: string) => {
 };
 const actionInputs = (yaml: string, action: string) => {
 	const actionStart = yaml.indexOf(`uses: ${action}@`);
-	const nextStep = yaml.indexOf("\n      - ", actionStart);
-	const step = yaml.slice(actionStart, nextStep < 0 ? undefined : nextStep);
+	const rest = yaml.slice(actionStart);
+	const nextStep = rest.search(/\n {6}- |\n\n? {2}[a-z][a-z-]*:\n/);
+	const step = rest.slice(0, nextStep < 0 ? undefined : nextStep);
 	const withMarker = "\n        with:\n";
 	const inputsStart = step.indexOf(withMarker);
 	if (actionStart < 0 || inputsStart < 0)
@@ -74,7 +75,7 @@ const DEPLOY_DAGGER_INPUTS = [
 	"--cloudflare-api-token=env://CLOUDFLARE_API_TOKEN",
 	"--cloudflare-account-id=env://CLOUDFLARE_ACCOUNT_ID",
 	"--github-token=env://GITHUB_TOKEN",
-	`--release-id=${DEPLOY_SOURCE}:\${{ github.run_id }}`,
+	'--release-id="$RELEASE_SHA:$GITHUB_RUN_ID"',
 ].join(" ");
 const PUBLISH_AUTHORIZATION = `${DEPLOY_AUTHORIZATION} || github.event_name == 'schedule'`;
 const PUBLISH_TRIGGERS = [
@@ -231,8 +232,9 @@ describe("thin Dagger ingress", () => {
 			PUBLISH_CHECKOUT_INPUTS,
 		);
 		expect(actionInputs(yaml, "dagger/dagger-for-github")).toContain(
-			`--release-id=${DEPLOY_SOURCE}:\${{ github.run_id }}`,
+			'--release-id="$RELEASE_SHA:$GITHUB_RUN_ID"',
 		);
+		expect(yaml).toContain(`RELEASE_SHA: ${DEPLOY_SOURCE}`);
 	});
 
 	it("checks out only the exact authorized deploy source", () => {
@@ -269,10 +271,47 @@ describe("thin Dagger ingress", () => {
 		expect(yaml).not.toContain("deploy-aml-filter-com");
 	});
 
+	it("keeps event expressions out of every Dagger input pasted into bash", () => {
+		// Fleet rule dagger-args-expression (hseshadr/ci#50): dagger-for-github
+		// pastes args/call/shell/... into a bash script, so event values must
+		// arrive through env: and be referenced as quoted shell variables.
+		const forbidden =
+			/^\s+(?:args|call|shell|dagger-flags|workdir|cloud-token):[^\n]*(?:\n(?!\s+[\w-]+:|\s+- )[^\n]*)*/gm;
+		const expression =
+			/\$\{\{[^}]*(?:\binputs\.|\bgithub\.event\.|\bgithub\.head_ref\b)/;
+		for (const file of workflows()) {
+			for (const [input] of read(file).matchAll(forbidden)) {
+				expect(input, file).not.toMatch(expression);
+			}
+		}
+	});
+
 	it("serializes every production upload through one mutex", () => {
 		for (const file of ["deploy.yml", "publish-watchlist.yml"]) {
 			expect(read(file)).toContain("group: deploy-aml-filter-com");
 			expect(read(file)).toContain("cancel-in-progress: false");
+		}
+	});
+
+	it("queues every production upload behind a credential-free turnstile", () => {
+		const turnstile = `version: "0.21.8" call: release-turn --github-token=env://GITHUB_TOKEN --run-id="$GITHUB_RUN_ID"`;
+		for (const file of ["deploy.yml", "publish-watchlist.yml"]) {
+			const yaml = read(file);
+			const marker = "\n  queue:\n";
+			expect(yaml, file).toContain(marker);
+			const queue = yaml.slice(yaml.indexOf(marker));
+			expect(yaml.slice(0, yaml.indexOf(marker)), file).toContain(
+				"    needs: queue\n",
+			);
+			expect(jobDisplayName(queue, "queue")).toBe(
+				"Wait for earlier production writes",
+			);
+			expect(deployAuthorization(queue)).toBe(deployAuthorization(yaml));
+			expect(actionInputs(queue, "dagger/dagger-for-github")).toBe(turnstile);
+			expect(queue).toContain(`GITHUB_TOKEN: \${{ github.token }}`);
+			expect(queue).not.toMatch(
+				/secrets\.|environment:|concurrency:|queue: max/,
+			);
 		}
 	});
 });

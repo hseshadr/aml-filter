@@ -29,6 +29,11 @@ jobs:
     runs-on: ubuntu-latest
     environment: production
     timeout-minutes: 45
+    # The mutex below is unchanged: one production write at a time. GitHub keeps only
+    # ONE pending run per group and cancels it when a third run arrives (e.g. the
+    # nightly cron), so every writer first waits in the `queue` job until every older
+    # deploy/publish run has completed. Nothing is ever pending here to be cancelled.
+    needs: queue
     concurrency:
       group: deploy-aml-filter-com
       cancel-in-progress: false
@@ -43,6 +48,9 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           GITHUB_TOKEN: ${{ github.token }}
+          # Event values reach dagger-for-github's bash only as quoted variables
+          # (fleet rule dagger-args-expression): the action pastes `call` into a script.
+          RELEASE_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
         with:
           version: "0.21.8"
           call: >-
@@ -51,4 +59,29 @@ jobs:
             --cloudflare-api-token=env://CLOUDFLARE_API_TOKEN
             --cloudflare-account-id=env://CLOUDFLARE_ACCOUNT_ID
             --github-token=env://GITHUB_TOKEN
-            --release-id=${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}:${{ github.run_id }}
+            --release-id="$RELEASE_SHA:$GITHUB_RUN_ID"
+
+  queue:
+    name: Wait for earlier production writes
+    if: >-
+      (github.event_name == 'workflow_run' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.full_name == github.repository) ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+      - name: Wait until every older deploy/publish run has completed
+        uses: dagger/dagger-for-github@27b130bf0f79a7f6fbbbe0fbca6760dc9bb40a77 # v8.4.1
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          version: "0.21.8"
+          call: release-turn --github-token=env://GITHUB_TOKEN --run-id="$GITHUB_RUN_ID"
