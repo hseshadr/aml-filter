@@ -55,7 +55,7 @@ UV_IMAGE: Final = (
 EDGEPROC_REPO: Final = "https://github.com/hseshadr/edge-proc"
 EDGEPROC_COMMIT: Final = "e3bfb570feb8619c823df63b6c012fd8c8c6a9b6"
 # hseshadr/ci#51 head (verified Pages rollback). Re-pin to the ci merge SHA after it merges.
-CENTRAL_MODULE_SHA: Final = "e11bcef64975ddfc30a7e6d671f895ed9cbcb64e"
+CENTRAL_MODULE_SHA: Final = "468c14e5d44f27eae93ce9c388a28288ea424be8"
 TARGET: Final = AmlTarget.production()
 REPOSITORY: Final = TARGET.repository
 REPOSITORY_URL: Final = f"https://github.com/{REPOSITORY}.git"
@@ -385,6 +385,28 @@ class AmlFilter:
         container = self._smoke_base(source, passes, f"{identity.run_id}:recovery")
         return container.with_exec(["bash", "-ceu", SMOKE_SCRIPT], expect=ReturnType.ANY)
 
+    async def _checked_live(
+        self, source: Directory, release: Directory, identity: ReleaseIdentity
+    ) -> SmokeRun:
+        """Live identity proof; a mismatch is a failed post-deploy check, not a crash.
+
+        Production already serves the upload here, so a wrong commit or bundle must
+        take the same single rollback path as a red smoke.
+        """
+        try:
+            return SmokeRun(0, await self._live_verify(source, release, identity).stdout())
+        except dagger.DaggerError as error:
+            return SmokeRun(1, f"live identity verification FAILED: {error}")
+
+    async def _post_deploy_checks(
+        self, source: Directory, release: Directory, profile: Directory, identity: ReleaseIdentity
+    ) -> tuple[SmokeRun, SmokeRun]:
+        """Identity first; a mismatch IS the failed check (the smoke would pin it anyway)."""
+        live = await self._checked_live(source, release, identity)
+        if live.exit_code:
+            return live, live
+        return live, await self._post_deploy_smoke(source, profile, identity)
+
     async def _recovery_smoke(self, source: Directory, identity: ReleaseIdentity) -> SmokeRun:
         return await smoke_run(self._recovery_container(source, identity))
 
@@ -519,11 +541,11 @@ class AmlFilter:
         target = await self._rollback_target(request)
         provider_request = self._provider_request(app, context)
         provider = await self._deliver(provider_request, request)
-        live = await self._live_verify(context.source, release, identity).stdout()
-        smoke = await self._post_deploy_smoke(context.source, profile, identity)
+        live, smoke = await self._post_deploy_checks(context.source, release, profile, identity)
         plan = RecoveryPlan(request, target, context.source, identity)
         verdict = await self._verdict_or_recover(smoke, provider, plan)
-        return self._deployment_result(provider, f"{live}\n{prime_note(primed)}\n{verdict}")
+        proof = f"{live.output}\n{prime_note(primed)}\n{verdict}"
+        return self._deployment_result(provider, proof)
 
     @function
     async def ci(self, commit_sha: str) -> str:

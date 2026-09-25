@@ -249,7 +249,7 @@ for returning visitors because nothing opened the live site after a deploy.
 
 Before the upload, the pipeline records the deployment production serves now
 (`previous-production-deployment`, read-only; no upload happens if it can't be read).
-If the smoke goes red, it calls the shared module's `rollback` with that ID, which
+If the smoke goes red, or the live site serves the wrong commit or bundle identity, it calls the shared module's `rollback` with that ID (once per job), which
 confirms Cloudflare now serves it, and then re-runs the fresh smoke against
 `https://aml-filter.com`. The job **fails either way**. The error says whether
 production recovered ("recovery smoke PASSED"), is STILL BROKEN after the rollback, or
