@@ -36,8 +36,9 @@ const jobDisplayName = (yaml: string, job: string) => {
 };
 const actionInputs = (yaml: string, action: string) => {
 	const actionStart = yaml.indexOf(`uses: ${action}@`);
-	const nextStep = yaml.indexOf("\n      - ", actionStart);
-	const step = yaml.slice(actionStart, nextStep < 0 ? undefined : nextStep);
+	const rest = yaml.slice(actionStart);
+	const nextStep = rest.search(/\n {6}- |\n\n? {2}[a-z][a-z-]*:\n/);
+	const step = rest.slice(0, nextStep < 0 ? undefined : nextStep);
 	const withMarker = "\n        with:\n";
 	const inputsStart = step.indexOf(withMarker);
 	if (actionStart < 0 || inputsStart < 0)
@@ -273,6 +274,28 @@ describe("thin Dagger ingress", () => {
 		for (const file of ["deploy.yml", "publish-watchlist.yml"]) {
 			expect(read(file)).toContain("group: deploy-aml-filter-com");
 			expect(read(file)).toContain("cancel-in-progress: false");
+		}
+	});
+
+	it("queues every production upload behind a credential-free turnstile", () => {
+		const turnstile = `version: "0.21.8" call: release-turn --github-token=env://GITHUB_TOKEN --run-id=\${{ github.run_id }}`;
+		for (const file of ["deploy.yml", "publish-watchlist.yml"]) {
+			const yaml = read(file);
+			const marker = "\n  queue:\n";
+			expect(yaml, file).toContain(marker);
+			const queue = yaml.slice(yaml.indexOf(marker));
+			expect(yaml.slice(0, yaml.indexOf(marker)), file).toContain(
+				"    needs: queue\n",
+			);
+			expect(jobDisplayName(queue, "queue")).toBe(
+				"Wait for earlier production writes",
+			);
+			expect(deployAuthorization(queue)).toBe(deployAuthorization(yaml));
+			expect(actionInputs(queue, "dagger/dagger-for-github")).toBe(turnstile);
+			expect(queue).toContain(`GITHUB_TOKEN: \${{ github.token }}`);
+			expect(queue).not.toMatch(
+				/secrets\.|environment:|concurrency:|queue: max/,
+			);
 		}
 	});
 });
