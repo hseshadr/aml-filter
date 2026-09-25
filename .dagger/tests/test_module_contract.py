@@ -11,7 +11,7 @@ import textwrap
 import tomllib
 from collections.abc import Awaitable, Mapping
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from shutil import which
 from typing import Final, cast
@@ -30,6 +30,7 @@ from aml_filter.main import (
     PublishRequest,
 )
 from aml_filter.policy import ReleaseKind, release_identity
+from aml_filter.smoke import SMOKE_LISTS, LiveSmokeFailedError, SmokeRun
 
 ROOT: Final = Path(__file__).resolve().parents[2]
 WORKFLOW_DIRECTORY: Final = ROOT / ".github" / "workflows"
@@ -42,6 +43,8 @@ DELIVERY_WORKFLOWS: Final = {
 }
 READ_ONLY_PERMISSIONS: Final = {"contents": "read"}
 DELIVERY_PERMISSIONS: Final = {"contents": "read", "actions": "read"}
+# Build + deploy took up to 13 min; prime + fresh + returning add ~15. Literal pin.
+DELIVERY_TIMEOUT_MINUTES: Final = 45
 DELIVERY_CONCURRENCY: Final = {
     "group": "deploy-aml-filter-com",
     "cancel-in-progress": False,
@@ -80,6 +83,7 @@ DELIVERY_ENVIRONMENT: Final = {
 EXPECTED_WORKFLOW_JOBS: Final = {
     "dagger.yml": frozenset({"checks"}),
     "deploy.yml": frozenset({"deploy"}),
+    "live-smoke.yml": frozenset({"smoke"}),
     "publish-watchlist.yml": frozenset({"publish"}),
     "security-audit.yml": frozenset({"security"}),
     "watchlist-freshness.yml": frozenset({"freshness"}),
@@ -87,6 +91,7 @@ EXPECTED_WORKFLOW_JOBS: Final = {
 EXPECTED_WORKFLOW_NAMES: Final = {
     "dagger.yml": "Dagger",
     "deploy.yml": "Deploy aml-filter.com",
+    "live-smoke.yml": "Live smoke",
     "publish-watchlist.yml": "Publish watchlist",
     "security-audit.yml": "Security audit",
     "watchlist-freshness.yml": "Watchlist freshness",
@@ -94,6 +99,7 @@ EXPECTED_WORKFLOW_NAMES: Final = {
 EXPECTED_WORKFLOW_PERMISSIONS: Final = {
     "dagger.yml": READ_ONLY_PERMISSIONS,
     "deploy.yml": DELIVERY_PERMISSIONS,
+    "live-smoke.yml": READ_ONLY_PERMISSIONS,
     "publish-watchlist.yml": DELIVERY_PERMISSIONS,
     "security-audit.yml": READ_ONLY_PERMISSIONS,
     "watchlist-freshness.yml": READ_ONLY_PERMISSIONS,
@@ -368,8 +374,9 @@ class ReleaseContainerRecorder:
         self.events.append(f"service:{name}")
         return self
 
-    def with_exec(self, arguments: list[str]) -> ReleaseContainerRecorder:
-        self.events.append(f"exec:{' '.join(arguments)}")
+    def with_exec(self, arguments: list[str], expect: object = None) -> ReleaseContainerRecorder:
+        kind = "exec" if expect is None else "exec-any"
+        self.events.append(f"{kind}:{' '.join(arguments)}")
         return self
 
 
@@ -560,6 +567,9 @@ class RecordedDelivery:
     fail_materialization: bool = False
     envelope_values: tuple[object, str, str, tuple[str, ...]] | None = None
     provider_call: ProviderCall | None = None
+    profile: Directory = field(default_factory=lambda: cast(Directory, object()))
+    prime_exit: int = 0
+    smoke_exit: int = 0
 
 
 class DeliveryDagRecorder:
@@ -608,6 +618,12 @@ class ProductContainerRecorder:
     async def stdout(self) -> str:
         self.context.events.append("live" if self.label == "live" else "direct-upload")
         return "live product proof" if self.label == "live" else "legacy upload"
+
+
+class ReleaseIdentityLike:
+    """The one identity field the smoke recorder reads."""
+
+    source_sha: str
 
 
 class ProductMethodRecorder:
@@ -661,6 +677,22 @@ class ProductMethodRecorder:
         assert (source, release) == (self.context.bound_source, self.context.release)
         return cast(Container, ProductContainerRecorder("live", self.context))
 
+    async def prime_profile(
+        self, source: Directory, identity: object
+    ) -> tuple[Directory, SmokeRun]:
+        del identity
+        assert source is self.context.bound_source
+        self.context.events.append("prime")
+        return self.context.profile, SmokeRun(self.context.prime_exit, "Error: prime refused")
+
+    async def post_deploy_smoke(
+        self, source: Directory, profile: Directory, identity: ReleaseIdentityLike
+    ) -> SmokeRun:
+        assert (source, profile) == (self.context.bound_source, self.context.profile)
+        self.context.events.append(f"smoke:{identity.source_sha}")
+        output = "[live-smoke fresh] UK_OFSI: Igor Ivanovich Sechin\nError: signature failed"
+        return SmokeRun(self.context.smoke_exit, output)
+
     def direct_upload(
         self,
         source: Directory,
@@ -698,6 +730,8 @@ def install_product_recorders(
     monkeypatch.setattr(AmlFilter, "_release_app", recorder.release_app)
     monkeypatch.setattr(AmlFilter, "_preview_verify", recorder.preview_verify)
     monkeypatch.setattr(AmlFilter, "_live_verify", recorder.live_verify)
+    monkeypatch.setattr(AmlFilter, "_prime_profile", recorder.prime_profile)
+    monkeypatch.setattr(AmlFilter, "_post_deploy_smoke", recorder.post_deploy_smoke)
     monkeypatch.setattr(AmlFilter, "_upload", recorder.direct_upload, raising=False)
     subject = object.__new__(AmlFilter)
     subject.source = cast(Directory, object())
@@ -742,6 +776,7 @@ FUNCTIONS: Final = frozenset(
         "dependency-audit",
         "deploy",
         "freshness",
+        "live-smoke",
         "live-verify",
         "preview",
         "publish-watchlist",
@@ -1366,6 +1401,37 @@ def test_should_pass_typed_secrets_to_only_dagger_delivery(
     assert_delivery_steps(filename, job, function_name)
 
 
+def test_should_budget_delivery_time_for_the_post_deploy_live_smoke() -> None:
+    # Given: build + deploy took up to 13 min; prime + fresh + returning add ~15.
+    workflows = workflow_inventory()
+
+    # When / Then
+    for filename, job_name in DELIVERY_WORKFLOWS.items():
+        assert job_body(workflows[filename], job_name).get("timeout-minutes") == (
+            DELIVERY_TIMEOUT_MINUTES
+        )
+
+
+def test_should_probe_the_live_site_every_four_hours_outside_production() -> None:
+    # Given
+    workflow = workflow_inventory()["live-smoke.yml"]
+    serialized = json.dumps(workflow)
+    job = job_body(workflow, "smoke")
+
+    # When / Then
+    assert mapping_field(workflow, "on") == {
+        "schedule": [{"cron": "40 */4 * * *"}],
+        "workflow_dispatch": None,
+    }
+    assert mapping_field(workflow, "permissions") == READ_ONLY_PERMISSIONS
+    assert job.get("environment") is None
+    assert job.get("name") == "Live smoke (fresh visitor)"
+    dagger_step = step_bodies(job)[-1]
+    assert mapping_field(dagger_step, "with") == {"version": "0.21.8", "call": "live-smoke"}
+    for forbidden in (*DELIVERY_ENVIRONMENT, "cloudflare-pages", "deploy-aml-filter-com"):
+        assert forbidden not in serialized
+
+
 def test_should_keep_freshness_read_only_and_outside_production() -> None:
     # Given
     workflow = workflow_inventory()["watchlist-freshness.yml"]
@@ -1773,6 +1839,160 @@ async def test_should_stop_before_live_when_provider_materialization_fails(
     assert context.events.count("construct:deploy") == 1
     assert context.events.count("materialize:deploy") == 1
     assert "live" not in context.events
+
+
+def recorded_request(context: RecordedDelivery, kind: ReleaseKind) -> PublishRequest:
+    """Build one exact publication request over the recorded secrets."""
+    return PublishRequest(
+        kind,
+        context.signing_key,
+        context.api_token,
+        context.account_id,
+        context.github_token,
+        f"{RECORDED_SHA}:9999",
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("kind", [ReleaseKind.CODE, ReleaseKind.WATCHLIST])
+async def test_should_prime_before_provider_and_smoke_after_live_verification(
+    monkeypatch: pytest.MonkeyPatch, kind: ReleaseKind
+) -> None:
+    # Given
+    context = recorded_delivery()
+    subject = install_product_recorders(monkeypatch, context)
+
+    # When
+    result = await subject._publish(recorded_request(context, kind))
+
+    # Then
+    events = context.events
+    assert events.index("prime") < events.index("construct:deploy")
+    assert events.index("live") < events.index(f"smoke:{RECORDED_SHA}")
+    assert "returning-visitor profile primed on the previous release" in result
+    assert "live smoke PASSED on deployment deployment-123" in result
+    assert "[live-smoke fresh] UK_OFSI: Igor Ivanovich Sechin" in result
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("kind", [ReleaseKind.CODE, ReleaseKind.WATCHLIST])
+async def test_should_fail_loudly_naming_the_deployment_when_live_smoke_fails(
+    monkeypatch: pytest.MonkeyPatch, kind: ReleaseKind
+) -> None:
+    # Given
+    context = recorded_delivery()
+    context.smoke_exit = 1
+    subject = install_product_recorders(monkeypatch, context)
+
+    # When / Then
+    with pytest.raises(LiveSmokeFailedError) as raised:
+        await subject._publish(recorded_request(context, kind))
+    message = str(raised.value)
+    assert "deployment-123 (https://deployment.example.pages.dev)" in message
+    assert "roll back" in message
+    assert "Error: signature failed" in message
+    assert "live" in context.events
+
+
+@pytest.mark.anyio
+async def test_should_still_deliver_when_the_previous_release_cannot_be_primed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Given: what is live before this deploy is itself broken; this may be the fix.
+    context = recorded_delivery()
+    context.prime_exit = 1
+    subject = install_product_recorders(monkeypatch, context)
+
+    # When
+    result = await subject._publish(recorded_request(context, ReleaseKind.CODE))
+
+    # Then
+    assert "construct:deploy" in context.events
+    assert "WARNING: returning-visitor profile NOT primed (exit 1)" in result
+    assert "Error: prime refused" in result
+
+
+def smoke_recorder(monkeypatch: pytest.MonkeyPatch) -> tuple[AmlFilter, list[str]]:
+    """Record live-smoke container composition without materializing it."""
+    events: list[str] = []
+
+    def node(_subject: AmlFilter, source: Directory) -> Container:
+        del source
+        return cast(Container, ReleaseContainerRecorder(events))
+
+    monkeypatch.setattr(AmlFilter, "_node", node)
+    monkeypatch.setattr(main_module, "dag", ReleaseDagRecorder(events))
+    subject = object.__new__(AmlFilter)
+    subject.source = cast(Directory, object())
+    return subject, events
+
+
+def test_should_compose_post_deploy_smoke_with_profile_identity_and_both_passes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Given
+    subject, events = smoke_recorder(monkeypatch)
+    identity = release_identity(RECORDED_SHA, "9999")
+
+    # When
+    subject._post_deploy_container(subject.source, cast(Directory, object()), identity)
+
+    # Then
+    for expected in (
+        "env:LIVE_SMOKE_URL=https://aml-filter.com",
+        "env:CARRY_DAYS=7",
+        f"env:SMOKE_LISTS={SMOKE_LISTS}",
+        "env:SMOKE_PASSES=@fresh|@returning",
+        f"env:LIVE_SMOKE_EXPECT_SHA={RECORDED_SHA}",
+        "env:SMOKE_NONCE=9999:post",
+        "directory:/smoke-profile",
+        "cache:/root/.cache/ms-playwright",
+    ):
+        assert expected in events
+    assert events[-1].startswith("exec-any:bash -ceu")
+
+
+def test_should_prime_without_failing_the_release_on_a_broken_previous_release(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Given
+    subject, events = smoke_recorder(monkeypatch)
+
+    # When
+    subject._prime_container(subject.source, release_identity(RECORDED_SHA, "9999"))
+
+    # Then
+    assert "env:SMOKE_NONCE=9999:prime" in events
+    assert "env:SMOKE_PASSES=@prime" in events
+    assert events[-1].startswith("exec-any:bash -ceu")
+
+
+def test_should_run_only_a_failing_fresh_pass_on_the_scheduled_probe(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Given
+    subject, events = smoke_recorder(monkeypatch)
+
+    # When
+    subject.live_smoke()
+
+    # Then
+    assert "env:SMOKE_PASSES=@fresh" in events
+    assert any(event.startswith("env:SMOKE_NONCE=scheduled:") for event in events)
+    assert not any("LIVE_SMOKE_EXPECT_SHA" in event for event in events)
+    assert "directory:/smoke-profile" not in events
+    assert events[-1].startswith("exec:bash -ceu")
+
+
+def test_should_wire_the_catalog_and_browser_checks_into_one_smoke_script() -> None:
+    # Given / When
+    script = main_module.SMOKE_SCRIPT
+
+    # Then: the catalog check runs first, with the carry ceiling and list set.
+    assert script.index("check-published-freshness") < script.index("playwright test")
+    assert '--carry-ceiling-days "$CARRY_DAYS"' in script
+    assert '--expect-lists "$SMOKE_LISTS"' in script
+    assert '-c playwright.live.config.ts --grep "$SMOKE_PASSES"' in script
 
 
 def test_should_keep_provider_mutation_inside_shared_module() -> None:

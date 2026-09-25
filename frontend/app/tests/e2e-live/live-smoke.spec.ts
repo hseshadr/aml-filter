@@ -1,0 +1,161 @@
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import {
+	type BrowserContext,
+	chromium,
+	expect,
+	type Page,
+	test,
+} from "@playwright/test";
+import {
+	BOOT_TIMEOUT_MS,
+	bootScreen,
+	type ConsoleWatch,
+	enableEveryList,
+	expectListMatch,
+	expectReviewRowsPerList,
+	liveBuildSha,
+	onboardEveryProbe,
+	opfsEntryCount,
+	SCREEN_PROBE,
+	watchConsole,
+} from "./liveSmoke";
+
+/**
+ * Three passes, selected with --grep (see playwright.live.config.ts):
+ *
+ *   @fresh      a brand-new profile — the first-time visitor. The scheduled
+ *               probe runs only this.
+ *   @prime      run BEFORE a deploy against what is live now (the previous
+ *               good release): leaves a profile whose OPFS holds that bundle.
+ *   @returning  run AFTER the deploy with the primed profile: open, RELOAD,
+ *               and screen — the returning visitor whose cache predates the
+ *               deploy. This is the path that broke silently next door.
+ */
+
+const PROFILE = process.env.LIVE_SMOKE_PROFILE ?? "";
+const EXPECT_SHA = process.env.LIVE_SMOKE_EXPECT_SHA ?? "";
+const PRIME_MARKER = ".live-smoke-prime.json";
+
+function requireProfile(): string {
+	if (PROFILE === "") {
+		throw new Error(
+			"LIVE_SMOKE_PROFILE must name the returning-visitor profile",
+		);
+	}
+	mkdirSync(PROFILE, { recursive: true });
+	return PROFILE;
+}
+
+async function persistentPage(
+	baseURL: string,
+): Promise<{ context: BrowserContext; page: Page }> {
+	const context = await chromium.launchPersistentContext(requireProfile(), {
+		baseURL,
+		headless: true,
+	});
+	return { context, page: context.pages()[0] ?? (await context.newPage()) };
+}
+
+function expectCleanConsole(watch: ConsoleWatch): void {
+	expect(watch.problems, "the console must stay clean").toEqual([]);
+}
+
+async function expectDeployedSha(page: Page): Promise<void> {
+	if (EXPECT_SHA !== "") {
+		expect(await liveBuildSha(page), "live build identity").toBe(EXPECT_SHA);
+	}
+}
+
+/** /screen (public, OFAC) then the four-list workstation journey. */
+async function screenAndWorkstation(page: Page, pass: string): Promise<string> {
+	await page.goto("/screen", { waitUntil: "domcontentloaded" });
+	await bootScreen(page);
+	const screened = await expectListMatch(page, SCREEN_PROBE);
+	const refs = await onboardEveryProbe(page, pass);
+	const rows = await expectReviewRowsPerList(page, refs);
+	return [`/screen ${screened}`, ...rows].join(" | ");
+}
+
+test.describe.configure({ timeout: BOOT_TIMEOUT_MS * 2 + 120_000 });
+
+test("@fresh a first-time visitor screens every list on the live site", async ({
+	page,
+}, testInfo) => {
+	const watch = watchConsole(page);
+	const response = await page.goto("/screen", {
+		waitUntil: "domcontentloaded",
+	});
+	expect(response?.status(), "GET /screen").toBe(200);
+	await enableEveryList(page);
+	const evidence = await screenAndWorkstation(page, "fresh");
+	await expectDeployedSha(page);
+	expectCleanConsole(watch);
+	testInfo.annotations.push({ type: "matches", description: evidence });
+	console.log(`[live-smoke fresh] ${evidence}`);
+});
+
+test("@prime cache the currently-live release into the returning profile", async ({
+	baseURL,
+}) => {
+	const { context, page } = await persistentPage(baseURL ?? "");
+	try {
+		await enableEveryList(page);
+		await screenAndWorkstation(page, "prime");
+		const marker = {
+			sha: await liveBuildSha(page),
+			opfs: await opfsEntryCount(page),
+		};
+		writeFileSync(join(PROFILE, PRIME_MARKER), JSON.stringify(marker));
+		console.log(
+			`[live-smoke prime] primed against ${marker.sha} (opfs entries ${marker.opfs})`,
+		);
+	} finally {
+		await context.close();
+	}
+});
+
+test("@returning a visitor cached on the previous release reloads and screens", async ({
+	baseURL,
+}, testInfo) => {
+	const markerPath = join(requireProfile(), PRIME_MARKER);
+	const primed = existsSync(markerPath);
+	const { context, page } = await persistentPage(baseURL ?? "");
+	try {
+		const watch = watchConsole(page);
+		await page.goto("/robots.txt");
+		const cached = await opfsEntryCount(page);
+		if (primed) {
+			const marker = readFileSync(markerPath, "utf8");
+			expect(
+				cached,
+				`primed profile must hold a cached bundle (${marker})`,
+			).toBeGreaterThan(0);
+		} else {
+			// Priming ran against whatever was live BEFORE this deploy; if that was
+			// already broken, a returning pass on an unprimed profile is the best
+			// available — say so loudly rather than fail a deploy that may be the fix.
+			testInfo.annotations.push({
+				type: "warning",
+				description: "profile NOT primed",
+			});
+			console.log(
+				"[live-smoke returning] WARNING: profile was not primed by the previous release",
+			);
+		}
+		if (!primed) {
+			await enableEveryList(page);
+		}
+		await page.goto("/screen", { waitUntil: "domcontentloaded" });
+		await bootScreen(page);
+		await page.reload({ waitUntil: "domcontentloaded" });
+		const evidence = await screenAndWorkstation(page, "returning");
+		await expectDeployedSha(page);
+		expectCleanConsole(watch);
+		console.log(
+			`[live-smoke returning] cached opfs entries=${cached}; ${evidence}`,
+		);
+	} finally {
+		await context.close();
+	}
+});

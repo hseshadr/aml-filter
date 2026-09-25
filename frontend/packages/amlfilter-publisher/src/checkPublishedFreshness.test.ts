@@ -657,3 +657,278 @@ describe("the freshness CLI", () => {
 		).rejects.toBeInstanceOf(StaleBundleError);
 	});
 });
+
+// --- post-deploy smoke mode ----------------------------------------------------
+//
+// The post-deploy live smoke asks a narrower question than the strict 6-hourly
+// freshness gate: "is what we just shipped inside the product's documented
+// limits?" A list the publisher legitimately carried forward (stale: true) is
+// allowed up to the SAME carry ceiling the publisher enforces
+// (CARRIED_LIST_CEILING_DAYS = 7) — and not one hour past it. It also demands
+// every expected list is PRESENT with a positive entity count, because a
+// catalog that silently dropped UK would pass every per-list check vacuously.
+
+const SMOKE_LISTS = [
+	"OFAC_SDN",
+	"EU_CONSOLIDATED",
+	"UN_CONSOLIDATED",
+	"UK_OFSI",
+] as const;
+
+async function smoke(
+	catalog: unknown,
+	extra: {
+		readonly carryCeilingDays?: number;
+		readonly expectLists?: readonly string[];
+	},
+): Promise<ReturnType<typeof checkPublishedFreshness>> {
+	return checkPublishedFreshness({
+		baseUrl: BASE,
+		fetchBytes: fetchFrom(await signedOrigin(catalog)),
+		pubkey: PUBKEY,
+		maxAgeHours: DEFAULT_MAX_AGE_HOURS,
+		now,
+		...extra,
+	});
+}
+
+async function smokeBreaches(
+	catalog: unknown,
+	extra: Parameters<typeof smoke>[1],
+): Promise<readonly string[]> {
+	try {
+		await smoke(catalog, extra);
+	} catch (error) {
+		if (error instanceof StaleBundleError) {
+			return error.breaches;
+		}
+		throw error;
+	}
+	throw new Error("expected the smoke catalog check to FAIL, but it passed");
+}
+
+const carriedUk = (hours: number): Record<string, unknown> =>
+	list({
+		id: "UK_OFSI",
+		slug: "uk",
+		fetchedAt: hoursAgo(hours),
+		stale: true,
+		staleReason: "UK feed fetch failed: ETIMEDOUT",
+	});
+
+function catalogWithUk(uk: Record<string, unknown>): unknown {
+	return catalogOf([
+		list(),
+		list({ id: "EU_CONSOLIDATED", slug: "eu" }),
+		list({ id: "UN_CONSOLIDATED", slug: "un" }),
+		uk,
+	]);
+}
+
+describe("checkPublishedFreshness in post-deploy smoke mode (carry ceiling)", () => {
+	it("passes a list carried 3 days when the documented ceiling is 7", async () => {
+		const report = await smoke(catalogWithUk(carriedUk(72)), {
+			carryCeilingDays: 7,
+		});
+
+		const uk = report.lists.find((entry) => entry.id === "UK_OFSI");
+		expect(uk?.stale).toBe(true);
+		expect(uk?.breaches).toEqual([]);
+		expect(report.table).toContain("STALE");
+	});
+
+	it("fails a list carried 8 days — one day past the 7-day ceiling", async () => {
+		const breaches = await smokeBreaches(catalogWithUk(carriedUk(8 * 24)), {
+			carryCeilingDays: 7,
+		});
+
+		expect(breaches).toHaveLength(1);
+		expect(breaches[0]).toContain("UK_OFSI (uk)");
+		expect(breaches[0]).toContain("7-day carry ceiling");
+		expect(breaches[0]).toContain("ETIMEDOUT");
+	});
+
+	it("accepts a carried list exactly at the ceiling but not an hour past it", async () => {
+		await expect(
+			smoke(catalogWithUk(carriedUk(7 * 24)), { carryCeilingDays: 7 }),
+		).resolves.toBeDefined();
+		await expect(
+			smoke(catalogWithUk(carriedUk(7 * 24 + 1)), { carryCeilingDays: 7 }),
+		).rejects.toBeInstanceOf(StaleBundleError);
+	});
+
+	it("does NOT excuse an old list the publisher never declared carried", async () => {
+		const quietlyOld = list({
+			id: "UK_OFSI",
+			slug: "uk",
+			fetchedAt: hoursAgo(72),
+		});
+
+		const breaches = await smokeBreaches(catalogWithUk(quietlyOld), {
+			carryCeilingDays: 7,
+		});
+
+		expect(breaches.join("\n")).toContain("UK_OFSI (uk): last refreshed 72.0h");
+	});
+
+	it("keeps the strict gate strict: no ceiling means stale: true is a breach", async () => {
+		const breaches = await smokeBreaches(catalogWithUk(carriedUk(1)), {});
+
+		expect(breaches.join("\n")).toContain("re-served the last good copy");
+	});
+});
+
+describe("checkPublishedFreshness smoke mode refuses what it cannot prove", () => {
+	it("fails a carried list whose age cannot be proven", async () => {
+		const unprovable = list({
+			id: "UK_OFSI",
+			slug: "uk",
+			fetchedAt: "last Tuesday",
+			stale: true,
+			staleReason: "UK feed fetch failed",
+		});
+
+		const breaches = await smokeBreaches(catalogWithUk(unprovable), {
+			carryCeilingDays: 7,
+		});
+
+		expect(breaches).toContain(
+			"UK_OFSI (uk): carried forward for an unprovable time, past the 7-day carry ceiling — UK feed fetch failed",
+		);
+	});
+
+	it("says so when a carried list past the ceiling recorded no reason", async () => {
+		const silent = list({
+			id: "UK_OFSI",
+			slug: "uk",
+			fetchedAt: hoursAgo(9 * 24),
+			stale: true,
+			staleReason: null,
+		});
+
+		const breaches = await smokeBreaches(catalogWithUk(silent), {
+			carryCeilingDays: 7,
+		});
+
+		expect(breaches).toEqual([
+			"UK_OFSI (uk): carried forward for 216.0h, past the 7-day carry ceiling — no reason recorded",
+		]);
+	});
+
+	it("fails an expected list that publishes no entity count at all", async () => {
+		const uncounted = catalogOf([
+			list(),
+			list({ id: "EU_CONSOLIDATED", slug: "eu" }),
+			list({ id: "UN_CONSOLIDATED", slug: "un" }),
+			without(legacyList("UK_OFSI", "uk"), "entitiesCount"),
+		]);
+
+		const breaches = await smokeBreaches(uncounted, {
+			expectLists: SMOKE_LISTS,
+		});
+
+		expect(breaches).toEqual([
+			"UK_OFSI (uk): publishes no entity count — its coverage cannot be proven",
+		]);
+	});
+});
+
+describe("checkPublishedFreshness in post-deploy smoke mode (expected lists)", () => {
+	it("passes when every expected list is present with entities", async () => {
+		const report = await smoke(FRESH, { expectLists: SMOKE_LISTS });
+
+		expect(report.lists.map((entry) => entry.id).sort()).toEqual(
+			[...SMOKE_LISTS].sort(),
+		);
+	});
+
+	it("fails a catalog that silently dropped an expected list", async () => {
+		const withoutUk = catalogOf([
+			list(),
+			list({ id: "EU_CONSOLIDATED", slug: "eu" }),
+			list({ id: "UN_CONSOLIDATED", slug: "un" }),
+		]);
+
+		const breaches = await smokeBreaches(withoutUk, {
+			expectLists: SMOKE_LISTS,
+		});
+
+		expect(breaches).toEqual([
+			"UK_OFSI: expected in the live catalog but missing — screening would silently skip it",
+		]);
+	});
+
+	it("fails an expected list that publishes zero entities", async () => {
+		const empty = catalogWithUk(
+			list({ id: "UK_OFSI", slug: "uk", entitiesCount: 0 }),
+		);
+
+		const breaches = await smokeBreaches(empty, { expectLists: SMOKE_LISTS });
+
+		expect(breaches).toEqual([
+			"UK_OFSI (uk): publishes 0 entities — an empty sanctions list screens nothing",
+		]);
+	});
+});
+
+describe("the freshness CLI in smoke mode", () => {
+	it("parses --carry-ceiling-days and --expect-lists", () => {
+		const args = parseFreshnessArgs([
+			"--base-url",
+			BASE,
+			"--pubkey",
+			"k",
+			"--carry-ceiling-days",
+			"7",
+			"--expect-lists",
+			"OFAC_SDN,EU_CONSOLIDATED,UN_CONSOLIDATED,UK_OFSI",
+		]);
+
+		expect(args.carryCeilingDays).toBe(7);
+		expect(args.expectLists).toEqual([...SMOKE_LISTS]);
+	});
+
+	it("leaves both off by default so the scheduled gate stays strict", () => {
+		const args = parseFreshnessArgs(["--base-url", BASE, "--pubkey", "k"]);
+
+		expect(args.carryCeilingDays).toBeUndefined();
+		expect(args.expectLists).toBeUndefined();
+	});
+
+	it.each([
+		["a zero ceiling", ["--carry-ceiling-days", "0"]],
+		["a fractional-garbage ceiling", ["--carry-ceiling-days", "a week"]],
+		["an empty list set", ["--expect-lists", ""]],
+		["a blank list id", ["--expect-lists", "OFAC_SDN,,UK_OFSI"]],
+	])("rejects %s", (_label, extra) => {
+		expect(() =>
+			parseFreshnessArgs(["--base-url", BASE, "--pubkey", "k", ...extra]),
+		).toThrow(FreshnessError);
+	});
+
+	it("threads both flags through to the live check", async () => {
+		const lines: string[] = [];
+
+		const report = await runCheckPublishedFreshness(
+			[
+				"--base-url",
+				BASE,
+				"--pubkey",
+				"k",
+				"--carry-ceiling-days",
+				"7",
+				"--expect-lists",
+				SMOKE_LISTS.join(","),
+			],
+			{
+				fetchBytes: fetchFrom(await signedOrigin(catalogWithUk(carriedUk(72)))),
+				readFile: () => PUBKEY,
+				log: (line) => lines.push(line),
+				now,
+			},
+		);
+
+		expect(report.lists).toHaveLength(4);
+		expect(lines.join("\n")).toContain("carry ceiling 7d");
+	});
+});

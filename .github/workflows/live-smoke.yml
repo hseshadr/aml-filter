@@ -1,0 +1,32 @@
+name: Live smoke
+
+# Drives https://aml-filter.com in a real Chromium as a first-time visitor every
+# four hours: the signed catalog (every list present, non-empty, inside the carry
+# ceiling), /screen's in-tab verification + an OFAC match, and one known
+# designation per list through the workstation, with a clean console. Read-only:
+# no secrets, no environment, no production writes. A red run is a red repo.
+on:
+  schedule:
+    - cron: "40 */4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-smoke
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    name: Live smoke (fresh visitor)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: dagger/dagger-for-github@27b130bf0f79a7f6fbbbe0fbca6760dc9bb40a77 # v8.4.1
+        with:
+          version: "0.21.8"
+          call: live-smoke

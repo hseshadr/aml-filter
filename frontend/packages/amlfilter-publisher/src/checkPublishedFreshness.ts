@@ -122,6 +122,21 @@ export interface FreshnessInput {
 	readonly pubkey: Uint8Array;
 	readonly maxAgeHours: number;
 	readonly now?: () => Date;
+	/**
+	 * Post-deploy smoke mode. When set, a list the publisher DECLARED carried
+	 * forward (`stale: true`) passes while its age is within this many days —
+	 * the same ceiling the publisher enforces (CARRIED_LIST_CEILING_DAYS).
+	 * Unset keeps the strict gate: any `stale: true` is a breach.
+	 */
+	readonly carryCeilingDays?: number;
+	/** Post-deploy smoke mode: list ids that must be present with entities. */
+	readonly expectLists?: readonly string[];
+}
+
+/** The grading limits one run applies to every list. */
+interface Limits {
+	readonly maxAgeHours: number;
+	readonly carryCeilingDays: number | undefined;
 }
 
 interface CatalogWire {
@@ -330,30 +345,89 @@ function shapeBreaches(
 	return out;
 }
 
-/** Everything wrong with one list, so one alert carries the whole picture. */
-function listBreaches(
+/**
+ * A list the publisher declared carried forward, graded against the documented
+ * carry ceiling instead of the daily one. Past the ceiling (or unprovably old)
+ * it is a breach that says which ceiling and why the list was carried.
+ */
+function carryBreach(
+	who: string,
 	entry: ListAge,
-	wire: Record<string, unknown>,
+	ceilingDays: number,
+): string | null {
+	if (entry.ageHours !== null && entry.ageHours <= ceilingDays * 24) {
+		return null;
+	}
+	const age =
+		entry.ageHours === null ? "an unprovable time" : hoursLabel(entry.ageHours);
+	return `${who}: carried forward for ${age}, past the ${ceilingDays}-day carry ceiling — ${entry.staleReason ?? "no reason recorded"}`;
+}
+
+/** The age/staleness complaints about one list under this run's limits. */
+function freshnessBreaches(
+	who: string,
+	entry: ListAge,
 	anchor: AgeAnchor,
-	maxAgeHours: number,
+	limits: Limits,
 ): readonly string[] {
-	const who = `${entry.id} (${entry.slug})`;
-	const age = ageBreach(who, entry.ageHours, anchor, maxAgeHours);
+	if (entry.stale && limits.carryCeilingDays !== undefined) {
+		const carried = carryBreach(who, entry, limits.carryCeilingDays);
+		return carried === null ? [] : [carried];
+	}
+	const age = ageBreach(who, entry.ageHours, anchor, limits.maxAgeHours);
 	const out: string[] = age === null ? [] : [age];
 	if (entry.stale) {
 		out.push(
 			`${who}: the publisher could not refresh it and re-served the last good copy — ${entry.staleReason ?? "no reason recorded"}`,
 		);
 	}
-	out.push(...shapeBreaches(who, wire));
 	return out;
+}
+
+/** Everything wrong with one list, so one alert carries the whole picture. */
+function listBreaches(
+	entry: ListAge,
+	wire: Record<string, unknown>,
+	anchor: AgeAnchor,
+	limits: Limits,
+): readonly string[] {
+	const who = `${entry.id} (${entry.slug})`;
+	return [
+		...freshnessBreaches(who, entry, anchor, limits),
+		...shapeBreaches(who, wire),
+	];
+}
+
+/** Every expected list must be present and non-empty; a gap screens nothing. */
+function coverageBreaches(
+	lists: readonly ListAge[],
+	expected: readonly string[] | undefined,
+): readonly string[] {
+	return (expected ?? []).flatMap((id) => {
+		const entry = lists.find((candidate) => candidate.id === id);
+		if (entry === undefined) {
+			return [
+				`${id}: expected in the live catalog but missing — screening would silently skip it`,
+			];
+		}
+		if (entry.entitiesCount === null) {
+			return [
+				`${id} (${entry.slug}): publishes no entity count — its coverage cannot be proven`,
+			];
+		}
+		return entry.entitiesCount > 0
+			? []
+			: [
+					`${id} (${entry.slug}): publishes 0 entities — an empty sanctions list screens nothing`,
+				];
+	});
 }
 
 function listAge(
 	wire: Record<string, unknown>,
 	generatedAt: unknown,
 	nowMs: number,
-	maxAgeHours: number,
+	limits: Limits,
 ): ListAge {
 	const anchor = ageAnchor(wire, generatedAt);
 	const partial = {
@@ -372,12 +446,7 @@ function listAge(
 	};
 	return {
 		...partial,
-		breaches: listBreaches(
-			{ ...partial, breaches: [] },
-			wire,
-			anchor,
-			maxAgeHours,
-		),
+		breaches: listBreaches({ ...partial, breaches: [] }, wire, anchor, limits),
 	};
 }
 
@@ -454,10 +523,12 @@ function renderTable(lists: readonly ListAge[]): string {
 function assertFresh(
 	report: FreshnessReport,
 	bundleBreach: string | null,
+	coverage: readonly string[],
 ): void {
 	const breaches = [
 		...(bundleBreach === null ? [] : [bundleBreach]),
 		...report.lists.flatMap((entry) => entry.breaches),
+		...coverage,
 	];
 	if (breaches.length === 0) {
 		return;
@@ -487,8 +558,9 @@ export async function checkPublishedFreshness(
 	);
 	const catalog = await fetchCatalog(baseUrl, fetchBytes, manifest);
 	const bundle = bundleAge(catalog.generatedAt, nowMs, maxAgeHours);
+	const limits = { maxAgeHours, carryCeilingDays: input.carryCeilingDays };
 	const lists = catalog.lists.map((wire) =>
-		listAge(wire, catalog.generatedAt, nowMs, maxAgeHours),
+		listAge(wire, catalog.generatedAt, nowMs, limits),
 	);
 	const report: FreshnessReport = {
 		version: pointer.version,
@@ -499,7 +571,11 @@ export async function checkPublishedFreshness(
 		lists,
 		table: renderTable(lists),
 	};
-	assertFresh(report, bundle.breach);
+	assertFresh(
+		report,
+		bundle.breach,
+		coverageBreaches(lists, input.expectLists),
+	);
 	return report;
 }
 
@@ -509,6 +585,40 @@ export interface FreshnessCliArgs {
 	readonly baseUrl: string;
 	readonly pubkeyPath: string;
 	readonly maxAgeHours: number;
+	readonly carryCeilingDays?: number;
+	readonly expectLists?: readonly string[];
+}
+
+function positiveNumber(raw: string, flag: string): number {
+	const value = Number(raw);
+	if (raw.trim() === "" || !Number.isFinite(value) || value <= 0) {
+		throw new FreshnessError(`--${flag} must be a positive number`);
+	}
+	return value;
+}
+
+function listIds(raw: string): readonly string[] {
+	const ids = raw.split(",").map((id) => id.trim());
+	if (ids.some((id) => id.length === 0)) {
+		throw new FreshnessError(
+			"--expect-lists must be a comma-separated list of non-empty list ids",
+		);
+	}
+	return ids;
+}
+
+/** The optional post-deploy smoke-mode flags; absent keeps the strict gate. */
+function smokeArgs(
+	values: ReadonlyMap<string, string>,
+): Pick<FreshnessCliArgs, "carryCeilingDays" | "expectLists"> {
+	const ceiling = values.get("carry-ceiling-days");
+	const lists = values.get("expect-lists");
+	return {
+		...(ceiling === undefined
+			? {}
+			: { carryCeilingDays: positiveNumber(ceiling, "carry-ceiling-days") }),
+		...(lists === undefined ? {} : { expectLists: listIds(lists) }),
+	};
 }
 
 function flagPairs(argv: ReadonlyArray<string>): Map<string, string> {
@@ -531,7 +641,13 @@ export function parseFreshnessArgs(
 	argv: ReadonlyArray<string>,
 ): FreshnessCliArgs {
 	const values = flagPairs(argv);
-	const known = new Set(["base-url", "pubkey", "max-age-hours"]);
+	const known = new Set([
+		"base-url",
+		"pubkey",
+		"max-age-hours",
+		"carry-ceiling-days",
+		"expect-lists",
+	]);
 	for (const flag of values.keys()) {
 		if (!known.has(flag)) {
 			throw new FreshnessError(`unknown flag --${flag}`);
@@ -548,7 +664,12 @@ export function parseFreshnessArgs(
 	if (!Number.isFinite(maxAgeHours) || maxAgeHours <= 0) {
 		throw new FreshnessError("--max-age-hours must be a positive number");
 	}
-	return { baseUrl: baseUrl.replace(/\/$/, ""), pubkeyPath, maxAgeHours };
+	return {
+		baseUrl: baseUrl.replace(/\/$/, ""),
+		pubkeyPath,
+		maxAgeHours,
+		...smokeArgs(values),
+	};
 }
 
 interface FreshnessRunDeps {
@@ -577,10 +698,19 @@ export async function runCheckPublishedFreshness(
 		pubkey: readFile(args.pubkeyPath),
 		maxAgeHours: args.maxAgeHours,
 		...(deps.now === undefined ? {} : { now: deps.now }),
+		...(args.carryCeilingDays === undefined
+			? {}
+			: { carryCeilingDays: args.carryCeilingDays }),
+		...(args.expectLists === undefined
+			? {}
+			: { expectLists: args.expectLists }),
 	});
 	log(
 		`published origin is FRESH: version=${report.version} sequence=${report.sequence} ` +
-			`lastRefresh=${hoursLabel(report.bundleAgeHours)} ago (ceiling ${report.maxAgeHours}h)`,
+			`lastRefresh=${hoursLabel(report.bundleAgeHours)} ago (ceiling ${report.maxAgeHours}h)` +
+			(args.carryCeilingDays === undefined
+				? ""
+				: `, carry ceiling ${args.carryCeilingDays}d`),
 	);
 	log(report.table);
 	return report;
