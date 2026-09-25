@@ -171,8 +171,8 @@ PROVIDER_MARKERS: Final = (
     "--cloudflare",
 )
 YAML_DEPENDENCY: Final = "ruamel-yaml>=0.18.16,<0.19.0"
-# Pinned to hseshadr/ci#51 head (verified rollback). Re-pin to the ci merge SHA.
-CENTRAL_SHA: Final = "468c14e5d44f27eae93ce9c388a28288ea424be8"
+# hseshadr/ci main: merge of ci#51 (verified Pages rollback).
+CENTRAL_SHA: Final = "363be0b98c753c027353f35db0f6cc5b24402f78"
 FOUNDATION_MODULE: Final = f"github.com/hseshadr/ci/modules/portfolio-foundation@{CENTRAL_SHA}"
 CLOUDFLARE_MODULE: Final = f"github.com/hseshadr/ci/modules/cloudflare-pages@{CENTRAL_SHA}"
 REAL_PROVIDER_DEPENDENCIES: Final = (
@@ -196,7 +196,7 @@ MALFORMED_GUARD_CALL: Final = (
 PRETRANSPORT_SOURCE: Final = """\
 from dagger import dag, function, object_type
 
-SHA = "468c14e5d44f27eae93ce9c388a28288ea424be8"
+SHA = "363be0b98c753c027353f35db0f6cc5b24402f78"
 COMMIT = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 REPOSITORY = "hseshadr/aml-filter"
 

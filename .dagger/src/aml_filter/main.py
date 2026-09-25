@@ -54,8 +54,8 @@ UV_IMAGE: Final = (
 )
 EDGEPROC_REPO: Final = "https://github.com/hseshadr/edge-proc"
 EDGEPROC_COMMIT: Final = "e3bfb570feb8619c823df63b6c012fd8c8c6a9b6"
-# hseshadr/ci#51 head (verified Pages rollback). Re-pin to the ci merge SHA after it merges.
-CENTRAL_MODULE_SHA: Final = "468c14e5d44f27eae93ce9c388a28288ea424be8"
+# hseshadr/ci main: merge of ci#51 (verified Pages rollback).
+CENTRAL_MODULE_SHA: Final = "363be0b98c753c027353f35db0f6cc5b24402f78"
 TARGET: Final = AmlTarget.production()
 REPOSITORY: Final = TARGET.repository
 REPOSITORY_URL: Final = f"https://github.com/{REPOSITORY}.git"
