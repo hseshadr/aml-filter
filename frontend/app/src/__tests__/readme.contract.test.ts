@@ -30,11 +30,47 @@ const HOW_IT_WORKS = "## How it works";
 const LISTS = "## Which lists, and how fresh";
 const LIMITS = "## What it does not do";
 const RUN_IT = "## Run it yourself";
-const SECTION_ORDER = [TRY_IT, HOW_IT_WORKS, LISTS, LIMITS, RUN_IT];
+const DEVELOP = "## Develop";
+const MORE_DETAIL = "## More detail";
+const SECTION_ORDER = [
+	TRY_IT,
+	HOW_IT_WORKS,
+	LISTS,
+	LIMITS,
+	RUN_IT,
+	DEVELOP,
+	MORE_DETAIL,
+];
+
+/** The prominent docs line under the intro, pinned verbatim. */
+const TECH_DOCS_LINE =
+	"**Technical docs:** [Getting started for developers](docs/GETTING_STARTED.md) · " +
+	"[Architecture](docs/ARCHITECTURE.md) · " +
+	"[How matching works](docs/ARCHITECTURE.md#retrieval-and-scoring-in-one-paragraph) · " +
+	"[Watchlist format](docs/WATCHLIST_FORMAT.md) · [Deploy](docs/DEPLOY.md)";
+
+/** Every technical doc must be reachable from "More detail". */
+const MORE_DETAIL_TARGETS = [
+	"docs/GETTING_STARTED.md",
+	"docs/QUICKSTART.md",
+	"docs/ARCHITECTURE.md",
+	"docs/WATCHLIST_FORMAT.md",
+	"docs/RECALL.md",
+	"docs/MEMORY-ARCHITECTURE.md",
+	"docs/DEPLOY.md",
+	"docs/OPERATIONS.md",
+	"SECURITY.md",
+	"CONTRIBUTING.md",
+	"CHANGELOG.md",
+];
 
 /** Internal vocabulary and hype that make a README hard to read. */
 const BANNED =
-	/northstar|\bseams?\b|\blego\b|trust envelope|fail[- ]closed|production[- ]ready|blazing|\brobust\b|receipt/i;
+	/northstar|\bseams?\b|\blego\b|trust envelope|fail[- ]closed|\bgate\b|\bfleet\b|portfolio|production[- ]ready|blazing|\brobust\b|enterprise[- ]grade|seamless|receipt/i;
+
+/** README prose with fenced and inline code removed (commands may say `pnpm gate`). */
+const prose = (): string =>
+	readme.replace(/^```[\s\S]*?^```/gm, "").replace(/`[^`\n]*`/g, "");
 
 const at = (needle: string): number => readme.indexOf(needle);
 
@@ -88,6 +124,27 @@ describe("README contract", () => {
 		expect([...positions].sort((x, y) => x - y)).toEqual(positions);
 	});
 
+	it("puts the technical docs line directly under the intro, before 'Try it'", () => {
+		const line = at(TECH_DOCS_LINE);
+		expect(line).toBeGreaterThan(0);
+		expect(readme.slice(line + TECH_DOCS_LINE.length, at(TRY_IT)).trim()).toBe(
+			"",
+		);
+	});
+
+	it("links the developer guide from 'Develop'", () => {
+		const develop = readme.slice(at(DEVELOP), at(MORE_DETAIL));
+		expect(develop).toContain("](docs/GETTING_STARTED.md)");
+	});
+
+	it("links every technical doc from 'More detail'", () => {
+		const more = readme.slice(at(MORE_DETAIL));
+		const missing = MORE_DETAIL_TARGETS.filter(
+			(t) => !more.includes(`](${t})`),
+		);
+		expect(missing).toEqual([]);
+	});
+
 	it("puts the live site and a real sanctioned name with its screenshot in 'Try it'", () => {
 		const tryIt = readme.slice(at(TRY_IT), at(HOW_IT_WORKS));
 		expect(tryIt).toContain("https://aml-filter.com/screen");
@@ -108,7 +165,7 @@ describe("README contract", () => {
 	});
 
 	it("keeps internal jargon and hype out of the README", () => {
-		expect(readme).not.toMatch(BANNED);
+		expect(prose()).not.toMatch(BANNED);
 	});
 
 	it("links the interactive architecture map, whose source exists", () => {

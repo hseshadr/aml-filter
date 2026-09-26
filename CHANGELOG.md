@@ -29,7 +29,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `docs/MEMORY-ARCHITECTURE.md`. The README contract test now pins the new section order,
   the OFAC-only fact, and a ban on internal jargon. The "Run it yourself" section
   documents `dev` (demo list) only, because `dev:live` currently fails verification
-  locally.
+  locally. A "Technical docs" line under the intro links the developer guide,
+  architecture, matching, watchlist format, and deploy docs, and "More detail" links
+  every technical doc; the contract test pins both.
+
+- **New `docs/GETTING_STARTED.md` for developers.** Exact prerequisites (Node 22.13.0,
+  pnpm via corepack, Python 3.13 + uv, Playwright browsers) and the local traps we hit,
+  clone to install to `pnpm gate` with timings from a fresh clone, a map of the
+  workspace packages, a first-change walkthrough (test first), and the PR process.
 
 - **README follows the portfolio template.** A plain-language first screen: a tagline
   that says what it does and for whom, "At a glance" (including exactly what leaves the

@@ -15,6 +15,8 @@ UN and UK sanctions lists, looks for names that are spelled or sound similar, an
 why each result came up. It runs entirely in your browser. The names you type and your
 customer list stay on your computer.
 
+**Technical docs:** [Getting started for developers](docs/GETTING_STARTED.md) · [Architecture](docs/ARCHITECTURE.md) · [How matching works](docs/ARCHITECTURE.md#retrieval-and-scoring-in-one-paragraph) · [Watchlist format](docs/WATCHLIST_FORMAT.md) · [Deploy](docs/DEPLOY.md)
+
 ## Try it
 
 1. Open [aml-filter.com/screen](https://aml-filter.com/screen). The first visit
@@ -76,15 +78,15 @@ matching is, in **Settings**.
 - **It is not legal advice or a certified compliance product.** It helps you find
   possible matches. A qualified person must confirm each one against the official
   source and decide what to do. See [NOTICE](NOTICE).
-- **Sanctions lists only.** It does not cover politically exposed persons (PEPs),
+- Sanctions lists only. It does not cover politically exposed persons (PEPs),
   news searches, or company ownership.
-- **One person, one browser.** Customers and decisions live in the browser you used.
+- One person, one browser. Customers and decisions live in the browser you used.
   There is no shared team view. Clearing your browser's site data deletes them. The
   spreadsheet export covers the customer table only, not your decisions.
-- **Needs the internet to open.** There is no offline mode.
-- **Close misspellings, not wild ones.** `Vladimir Poutine` still finds Putin, but as
+- Needs the internet to open. There is no offline mode.
+- Close misspellings, not wild ones. `Vladimir Poutine` still finds Putin, but as
   the second result. Read the whole list, not just the top line.
-- **Browsers:** current desktop Chrome, Edge, Firefox and Safari 17 or later. Phones
+- Browsers: current desktop Chrome, Edge, Firefox and Safari 17 or later. Phones
   work in a lower-memory mode.
 
 ## When to use something else
@@ -119,26 +121,32 @@ lists, see [Deploy](docs/DEPLOY.md).
 
 ## Develop
 
+New to the code? Start with [Getting started for developers](docs/GETTING_STARTED.md).
+It takes you from a fresh clone to a passing local build and your first change.
+
 ```bash
 cd frontend && pnpm gate
 ```
 
 This runs the same checks as CI: lint, type checks, unit tests, builds, match-quality
 checks, and real-browser tests. It needs the exact Node version in
-[`frontend/.nvmrc`](frontend/.nvmrc). See [CONTRIBUTING.md](CONTRIBUTING.md).
+[`frontend/.nvmrc`](frontend/.nvmrc).
 
 ## More detail
 
-- [Quickstart](docs/QUICKSTART.md): a longer walkthrough of every page.
+- [Getting started for developers](docs/GETTING_STARTED.md): set up, run the checks, make a first change.
+- [Quickstart](docs/QUICKSTART.md): a longer walkthrough of every page, for users.
 - [Architecture](docs/ARCHITECTURE.md): the packages, how matching and scoring work, the
   security summary, and what the tests prove.
 - [Explore the interactive architecture map](docs/architecture/index.html).
 - [Watchlist format](docs/WATCHLIST_FORMAT.md): how the lists are signed and packaged.
 - [Match quality](docs/RECALL.md): how often the right name is found, measured on the real US list.
-- [Memory and browser support](docs/MEMORY-ARCHITECTURE.md).
-- [Deploy](docs/DEPLOY.md) and [Operations](docs/OPERATIONS.md): build settings,
-  publishing lists, and incidents.
-- [CHANGELOG](CHANGELOG.md) and [SECURITY.md](SECURITY.md).
+- [Memory and browser support](docs/MEMORY-ARCHITECTURE.md): how the app stays inside a phone's memory.
+- [Deploy](docs/DEPLOY.md): build settings and hosting your own copy.
+- [Operations](docs/OPERATIONS.md): publishing lists and handling incidents.
+- [Security](SECURITY.md): how to report a vulnerability.
+- [Contributing](CONTRIBUTING.md): how we work and what a PR needs.
+- [Changelog](CHANGELOG.md): what changed in each release.
 
 ## License
 
