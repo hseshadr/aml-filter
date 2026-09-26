@@ -34,10 +34,25 @@ WASM memory and iOS tab limits still require a physical-device measurement.
   the prior index before loading the next one;
 - the persisted list selection and scoring thresholds do not change with the policy.
 
-The public `/screen` route eagerly initializes only OFAC SDN. Its Ready state therefore
-means the SQLite Worker, sqlite-vector runtime, and vector rows are already local, so
-typing and scoring make zero network requests; it does not load the rest of the signed
-catalog. The configurable workstation keeps the policy above, so a low-power laptop is
+The public `/screen` route picks its lists by device (`frontend/app/src/pages/screenScope.ts`).
+A desktop eagerly initializes every catalog list; a phone or tablet eagerly initializes
+only OFAC SDN, because all four eagerly is what ran iOS Safari out of memory (PR #71).
+A phone can opt in to every list with one tap, which switches to `streaming` residency.
+Either way the Ready state means the SQLite Worker, sqlite-vector runtime, and vector rows
+are already local, so typing and scoring make zero network requests.
+
+Measured on 2026-09-26 against a local mirror of the live bundle (4 lists, 32,325 entries,
+headless Chromium on an Apple-silicon desktop, total browser RSS, one run each):
+
+| `/screen` scope | Cold boot | RSS after boot | Peak RSS | Search |
+|---|---|---|---|---|
+| OFAC only, eager (old default) | 7.3 s | 948 MB | 1,405 MB | 0.3–0.4 s |
+| All four, eager (desktop default) | 8.5 s | 1,109 MB | 1,564 MB | 0.3–0.8 s |
+| All four, streaming (phone opt-in) | 4.0 s | 1,016 MB | 1,596 MB | ~8 s |
+
+Streaming re-reads and re-verifies each list from OPFS on every search, which is why it
+is an explicit opt-in on phones rather than the default. These are desktop numbers; the
+iPhone budget itself was not measured here. The configurable workstation keeps the policy above, so a low-power laptop is
 not treated as safe merely because it identifies as a desktop or omits
 `navigator.deviceMemory`.
 
@@ -72,3 +87,23 @@ SQLite-WASM Worker and OPFS database for customers, matches, settings, and audit
 No customer record or query is written to the public-list databases or bundle cache.
 This keeps the design composable: the shared package owns vector execution, the signed
 bundle owns public-data durability, and the workstation owns private transactional data.
+
+## Browser support and memory safeguards
+
+The model and sanctions lists are large enough to exhaust a mobile tab if they are
+loaded carelessly. The app therefore:
+
+- serializes boot behind one shared promise;
+- keeps one runtime owner instead of compiling duplicate ONNX sessions;
+- uses one-list-at-a-time vector residency on mobile, unknown-memory devices, and
+  desktops reporting 8 GB or less;
+- delegates signed-bundle transport, verification, cross-tab locking, and durable
+  storage to `@edgeproc/browser` pinned to a reviewed public commit;
+- disposes the old engine before a reload, then builds and swaps the replacement;
+- prevents overlapping update checks and clears recurring timers on unmount.
+
+The supported baseline is the current and previous desktop Chrome, Edge, Firefox, and
+Safari 17+. Mobile Safari and Chrome use the bounded-memory path. Embedded WebViews are
+outside the release contract. Screening requires Workers, durable browser storage
+(OPFS or IndexedDB), WebCrypto, Web Locks, and a secure context. The KYC workstation
+additionally requires OPFS for its SQLite database.
